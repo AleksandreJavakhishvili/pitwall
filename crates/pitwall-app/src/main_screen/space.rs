@@ -34,6 +34,14 @@ use crate::theme::{Theme, RADIUS, RADIUS_LG};
 const MIN_FRAC: f64 = 0.08;
 
 impl MainScreen {
+    /// "The pit wall is quiet" instead of the space: a hosted Pitwall with
+    /// no agents, and nothing else to show (a files, web or inbox tile in
+    /// the active space is drawn as ever).
+    pub(super) fn quiet(&self, no_agents: bool, hosted: bool) -> bool {
+        let tiles = self.route == Route::Space && self.active_space().is_some_and(|s| s.layout.leaves().iter().any(|p| p.content().is_some()));
+        no_agents && hosted && !tiles
+    }
+
     pub(super) fn render_center(
         &mut self,
         agents: &[AgentView],
@@ -44,7 +52,7 @@ impl MainScreen {
     ) -> impl IntoElement {
         // Switching space / Wall / Review: a short cross-fade in (`m-fade`).
         let fade_key: Option<SharedString> = match self.route {
-            _ if agents.is_empty() && self.engine.is_some() => None,
+            _ if self.quiet(agents.is_empty(), self.engine.is_some()) => None,
             Route::Wall => Some("center-wall".into()),
             Route::Review => Some("center-review".into()),
             Route::Explorer => None,
@@ -52,7 +60,7 @@ impl MainScreen {
                 .active_space()
                 .map(|s| format!("center-space-{}", s.id).into()),
         };
-        let body: AnyElement = if agents.is_empty() && self.engine.is_some() {
+        let body: AnyElement = if self.quiet(agents.is_empty(), self.engine.is_some()) {
             empty_state(t, cx).into_any_element()
         } else if self.route != Route::Space {
             match self.parts.as_ref().filter(|_| super::part::cached(cx)) {

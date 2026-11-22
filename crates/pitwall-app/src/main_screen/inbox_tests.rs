@@ -251,3 +251,44 @@ fn an_inbox_tile_is_kept_in_ui_json() {
     assert_eq!(layout["inbox"], "demo");
     assert_eq!(back["extensions"]["demo"]["selected"], "t9");
 }
+
+/// With no agents, a space holding a tile (inbox, files, web) shows it;
+/// only a space with nothing at all is "quiet".
+#[gpui::test]
+fn a_tile_shows_when_there_are_no_agents(cx: &mut TestAppContext) {
+    let h = cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        init(cx);
+        crate::extensions::set_found(vec![Found { folder: "demo".into(), manifest: Ok(manifest()) }], cx);
+        crate::extensions::follow(cx);
+        crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("demo", true));
+        hub::hub(cx)
+    });
+    let store = cx.new(|_| AgentStore::new(vec![]));
+    let s = store.clone();
+    let (view, cx) = cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), window, cx));
+    cx.simulate_resize(gpui::size(gpui::px(1600.), gpui::px(900.)));
+    frame(cx);
+    assert!(view.read_with(cx, |s, _| s.quiet(true, true)), "nothing at all: quiet");
+    cx.dispatch_action(OpenInbox);
+    frame(cx);
+    connect(&h, cx);
+    assert!(!view.read_with(cx, |s, _| s.quiet(true, true)), "an inbox tile: drawn");
+    assert!(cx.debug_bounds("inbox-tile-demo").is_some());
+    assert!(cx.debug_bounds("inbox-row-t1").is_some());
+    // Files and web tiles count the same way.
+    view.update(cx, |s, cx| s.close_inbox("demo", cx));
+    frame(cx);
+    assert!(view.read_with(cx, |s, _| s.quiet(true, true)));
+    for c in [Content::Files("gone".into()), Content::Web("w1".into())] {
+        view.update(cx, |s, cx| {
+            let space = s.active_space().unwrap().id.clone();
+            let c2 = c.clone();
+            s.update_ui(|u| u.dock(&space, &c2, &super::workspace::FilesSpot::Auto, 0.5, None).0, cx);
+        });
+        frame(cx);
+        assert!(!view.read_with(cx, |s, _| s.quiet(true, true)), "{c:?}");
+        let c2 = c.clone();
+        view.update(cx, |s, cx| s.update_ui(|u| u.undock(&c2), cx));
+    }
+}
