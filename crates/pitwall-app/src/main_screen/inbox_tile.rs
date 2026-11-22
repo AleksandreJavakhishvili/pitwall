@@ -811,7 +811,7 @@ impl InboxView {
     fn row(&self, th: &Thread, m: &Manifest, cursor: bool, now: chrono::DateTime<chrono::Utc>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.selected.as_deref() == Some(th.id.as_str());
         let unread = th.unread > 0;
-        let who = th.from.as_ref().map(|f| crate::extensions::agent_of(m, &self.agents, f).map_or_else(|| f.agent.clone(), |a| a.name.clone()));
+        let who = th.from.as_ref().map(|f| crate::extensions::agent_of(m, &self.agents, &th.id, f, cx).map_or_else(|| f.agent.clone(), |a| a.name.clone()));
         let time = when(&th.last_activity, now);
         let id = th.id.clone();
         let title = if th.title.is_empty() { "(untitled)".to_string() } else { th.title.clone() };
@@ -946,7 +946,7 @@ impl InboxView {
         let note = st.notes.get(&id).cloned();
         let busy = st.busy.contains(&id);
         let narrow = self.narrow();
-        let who = d.from.as_ref().and_then(|f| crate::extensions::agent_of(m, &self.agents, f).cloned());
+        let who = d.from.as_ref().and_then(|f| crate::extensions::agent_of(m, &self.agents, &d.id, f, cx).cloned());
         let from_name = d.from.as_ref().map(|f| who.as_ref().map_or_else(|| f.agent.clone(), |a| a.name.clone()));
         let now = chrono::Utc::now();
         let archive_id = id.clone();

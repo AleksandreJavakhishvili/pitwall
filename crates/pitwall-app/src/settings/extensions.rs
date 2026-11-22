@@ -331,7 +331,7 @@ impl SettingsView {
             }
         };
         let (shipped, local) = self.shipped_now(cx);
-        let prefs = crate::ui_state::get(cx).extension(&m.id);
+        let prefs = crate::extensions::connections::prefs(&m.id, cx);
         let on = prefs.enabled;
         let (word, tone, why, connected) = Self::status_of(&m, &prefs, cx);
         let open = self.exts.open.get(&m.id).copied().unwrap_or(on || word == "Needs setup");
@@ -616,7 +616,7 @@ impl SettingsView {
             col = col.child(block("Runs no program of its own."));
         }
         if !m.agent_env.is_empty() {
-            let values = crate::ui_state::get(cx).extension(&m.id).values;
+            let values = crate::extensions::connections::prefs(&m.id, cx).values;
             let mut b = block("Sets these on agents you start while it is on ({project}: the project folder's name; {agent_id}: the agent's id):");
             for line in env_preview(m, &values) {
                 b = b.child(crate::kit::mono_text(line, &ui.t));
@@ -714,7 +714,7 @@ impl SettingsView {
 
     /// The plan of `a`, to confirm.
     fn ask_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
-        let values = crate::ui_state::get(cx).extension(&m.id).values;
+        let values = crate::extensions::connections::prefs(&m.id, cx).values;
         let plan = actions::plan(m, a, &values, pitwall_core::shell::spawn_path().as_deref());
         self.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
         cx.notify();
@@ -873,7 +873,7 @@ impl SettingsView {
         if let Some(i) = self.exts.inputs.get(&k) {
             return i.clone();
         }
-        let text = crate::ui_state::get(cx).extension(&m.id).values.get(&s.key).cloned().unwrap_or_default();
+        let text = crate::extensions::connections::prefs(&m.id, cx).values.get(&s.key).cloned().unwrap_or_default();
         let placeholder = s.placeholder.clone().unwrap_or_else(|| "https://".into());
         let input = cx.new(|cx| TextInput::new(cx, &text, &placeholder).mono());
         let key = k.clone();
@@ -886,16 +886,9 @@ impl SettingsView {
                 Ok(val) => {
                     v.exts.notes.remove(&key);
                     let (id, k) = key.clone();
-                    crate::ui_state::update(cx, |ui| {
-                        *ui = std::mem::take(ui).with_extension(&id, |e| match val {
-                            Some(val) => {
-                                e.values.insert(k, val);
-                            }
-                            None => {
-                                e.values.remove(&k);
-                            }
-                        });
-                    });
+                    if let Err(why) = crate::extensions::connections::set_setting_value(&id, &k, val, cx) {
+                        v.exts.notes.insert(key.clone(), why);
+                    }
                 }
                 Err(why) => {
                     v.exts.notes.insert(key.clone(), why);
@@ -934,7 +927,7 @@ impl SettingsView {
     /// set (never the value), else Paste from clipboard; its hint under.
     fn secret_row(&mut self, ui: &Ui, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Div {
         let k = (m.id.clone(), s.key.clone());
-        let set = crate::ui_state::get(cx).extension(&m.id).secrets_set.contains(&s.key);
+        let set = crate::extensions::connections::prefs(&m.id, cx).secrets_set.contains(&s.key);
         let busy = self.exts.busy.contains(&k);
         let paste = {
             let k = k.clone();

@@ -2,13 +2,15 @@
 //! `<data>/extensions/` ([`pitwall_core::extensions`]), read when Pitwall
 //! starts and again from Settings → Extensions ("Look again").
 //! One that is on (`ui.json` `extensions.<id>.enabled`, off until the user
-//! turns it on) has its adapter run ([`hub`]) while it is on; its threads
-//! show in its inbox tile (`main_screen::inbox_tile`), and an agent's open
-//! asks as a badge on the agent's row ([`asks_for`]).
+//! turns it on) has its adapters run ([`hub`], one per connection:
+//! [`connections`]) while it is on; its threads show in its inbox tile
+//! (`main_screen::inbox_tile`), and an agent's open asks as a badge on the
+//! agent's row ([`asks_for`]).
 
 pub mod actions;
 pub mod adapter;
 pub mod catalog;
+pub mod connections;
 pub mod hub;
 
 use std::path::PathBuf;
@@ -57,9 +59,10 @@ fn secrets(cx: &mut App) -> Secrets {
     s
 }
 
-/// The account name extension `id`'s secret `key` is kept under:
-/// `<id>.<key>`, then the data folder's hash when it isn't the default
-/// one.
+/// The account name a secret `key` is kept under for secrets name `id` (a
+/// connection's id, or the extension's id for one from before
+/// connections: `Account::secrets_name`): `<id>.<key>`, then the data
+/// folder's hash when it isn't the default one.
 pub fn account(id: &str, key: &str, cx: &mut App) -> String {
     let scope = secrets(cx).scope;
     if scope.is_empty() {
@@ -84,49 +87,16 @@ fn scope_of(root: Option<&std::path::Path>) -> String {
     format!("{h:016x}")
 }
 
-/// Keep `secret` as extension `id`'s `key` (off the UI thread), record that
-/// it is set, and start the adapter again. `done` gets the error, if any.
+/// Keep `secret` as `key` of the connection Settings shows for extension
+/// `id` (made when it has none), off the UI thread; record that it is set,
+/// and start its adapter again. `done` gets the error, if any.
 pub fn set_secret(id: &str, key: &str, secret: String, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
-    change_secret(id, key, Some(secret), cx, done)
+    connections::set_settings_secret(id, key, Some(secret), cx, done)
 }
 
-/// Forget extension `id`'s secret `key`.
+/// Forget `key` of the connection Settings shows for extension `id`.
 pub fn remove_secret(id: &str, key: &str, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
-    change_secret(id, key, None, cx, done)
-}
-
-fn change_secret(id: &str, key: &str, secret: Option<String>, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
-    let store = secret_store(cx);
-    let acct = account(id, key, cx);
-    let set = secret.is_some();
-    let job = cx.background_executor().spawn(async move {
-        match secret {
-            Some(s) => store.set(&acct, &s),
-            None => store.delete(&acct),
-        }
-    });
-    let (id, key) = (id.to_string(), key.to_string());
-    cx.spawn(async move |cx| {
-        let res = job.await;
-        cx.update(|cx| {
-            let err = res.err();
-            if err.is_none() {
-                crate::ui_state::update(cx, |ui| {
-                    *ui = std::mem::take(ui).with_extension(&id, |e| {
-                        e.secrets_set.retain(|k| *k != key);
-                        if set {
-                            e.secrets_set.push(key.clone());
-                            e.secrets_set.sort();
-                        }
-                    });
-                });
-                let h = hub::hub(cx);
-                h.update(cx, |h, cx| h.secrets_changed(&id, cx));
-            }
-            done(err, cx);
-        });
-    })
-    .detach();
+    connections::set_settings_secret(id, key, None, cx, done)
 }
 
 /// Run adapters from now on: the system's secure store for data folder
@@ -136,6 +106,7 @@ pub fn start(root: Option<&std::path::Path>, engine: Option<pitwall_core::engine
     if let Some(e) = engine {
         cx.set_global(Engine(e));
     }
+    connections::migrate(cx);
     follow(cx);
 }
 
@@ -144,21 +115,19 @@ struct Engine(pitwall_core::engine::Shared);
 
 impl Global for Engine {}
 
-/// The extensions that are on, with their plain settings: what launches
-/// put in agents' environment.
-pub fn env_sources(cx: &App) -> Vec<(Manifest, std::collections::BTreeMap<String, String>)> {
+/// The extensions that are on and set variables on agents: launches fill
+/// them from each agent's connection (`Engine::extension_env`).
+pub fn env_sources(cx: &App) -> Vec<Manifest> {
     let ui = crate::ui_state::get(cx);
-    enabled(&found(cx), &ui).into_iter().filter(|m| !m.agent_env.is_empty()).map(|m| {
-        let values = ui.extension(&m.id).values;
-        (m, values)
-    }).collect()
+    enabled(&found(cx), &ui).into_iter().filter(|m| !m.agent_env.is_empty()).collect()
 }
 
-/// The hub follows `ui.json` and the extensions found; so do the
-/// variables launched agents get.
+/// The hub follows `ui.json`, the extensions found and their connections
+/// (the accounts); so do the variables launched agents get.
 pub fn follow(cx: &mut App) {
     let h = hub::hub(cx);
     let ui = crate::ui_state::store(cx);
+    let accounts = crate::accounts::model(cx);
     let changed = move |cx: &mut App| {
         h.update(cx, |h, cx| h.reconcile(cx));
         if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
@@ -185,20 +154,37 @@ pub fn follow(cx: &mut App) {
         move |cx| c(cx)
     })
     .detach();
+    cx.observe(&accounts, {
+        let c = c.clone();
+        move |_, cx| c(cx)
+    })
+    .detach();
     c(cx);
 }
 
-/// Whether the thread from `from` is agent `a`'s, by `m`'s `matchAgents`.
-pub fn is_agents(m: &Manifest, a: &pitwall_proto::AgentView, from: &pitwall_core::extensions::protocol::From) -> bool {
+/// Whether thread `thread` (its id as views know it), from `from`, is
+/// agent `a`'s, by `m`'s `matchAgents`: the names must match, and a
+/// thread of a connection only matches agents whose project's connection
+/// for the extension it is now (docs/spec/profiles.md); `list`: the
+/// accounts.
+pub fn is_agents(m: &Manifest, a: &pitwall_proto::AgentView, thread: &str, from: &pitwall_core::extensions::protocol::From, list: Option<&pitwall_core::accounts::Accounts>) -> bool {
     let Some(rule) = &m.match_agents else { return false };
+    let (conn, _) = hub::split_thread(m, thread);
+    if !conn.is_empty() {
+        let mine = list.and_then(|l| l.connection_for(&m.id, &a.cwd, &a.project)).map(|c| c.id.as_str());
+        if mine != Some(conn) {
+            return false;
+        }
+    }
     let f = pitwall_core::extensions::Facts { project: &a.project, agent: &a.name, agent_id: &a.id, settings: None };
     let expand = |t: &str| pitwall_core::extensions::expand(t, &f);
     expand(&rule.agent).as_deref() == Some(from.agent.as_str()) && expand(&rule.session).as_deref() == Some(from.session.as_str())
 }
 
-/// The Pitwall agent a thread from `from` is from.
-pub fn agent_of<'a>(m: &Manifest, agents: &'a [pitwall_proto::AgentView], from: &pitwall_core::extensions::protocol::From) -> Option<&'a pitwall_proto::AgentView> {
-    agents.iter().find(|a| is_agents(m, a, from))
+/// The Pitwall agent thread `thread`, from `from`, is from.
+pub fn agent_of<'a>(m: &Manifest, agents: &'a [pitwall_proto::AgentView], thread: &str, from: &pitwall_core::extensions::protocol::From, cx: &App) -> Option<&'a pitwall_proto::AgentView> {
+    let list = crate::accounts::list(cx);
+    agents.iter().find(|a| is_agents(m, a, thread, from, list))
 }
 
 /// An agent's open asks in an extension: how many, whether one blocks it,
@@ -217,12 +203,13 @@ pub fn asks_for(a: &pitwall_proto::AgentView, cx: &App) -> Option<AgentAsks> {
     let hub = hub::try_hub(cx)?;
     let hub = hub.read(cx);
     let ui = crate::ui_state::get(cx);
+    let list = crate::accounts::list(cx);
     enabled(&found(cx), &ui).into_iter().find_map(|m| {
         let st = hub.get(&m.id)?;
         if st.run != hub::Run::Running {
             return None;
         }
-        let mine: Vec<_> = st.threads.iter().filter(|t| t.open_asks > 0 && t.from.as_ref().is_some_and(|f| is_agents(&m, a, f))).collect();
+        let mine: Vec<_> = st.threads.iter().filter(|t| t.open_asks > 0 && t.from.as_ref().is_some_and(|f| is_agents(&m, a, &t.id, f, list))).collect();
         let oldest = mine.iter().min_by(|x, y| x.last_activity.cmp(&y.last_activity))?;
         Some(AgentAsks { ext: m.id.clone(), name: m.name.clone(), thread: oldest.id.clone(), asks: mine.iter().map(|t| t.open_asks).sum(), blocking: mine.iter().any(|t| t.blocking) })
     })
