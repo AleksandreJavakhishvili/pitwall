@@ -99,11 +99,13 @@ impl SettingsView {
                     Part::section("git", |s, ui, _, cx| any(s.git_section(ui, cx))),
                     Part::section("browser-accounts", |s, ui, _, cx| any(s.web_section(ui, cx))),
                 ];
-                // Only once an extension has a connection.
+                // Only once an extension has two connections.
                 if Self::has_connections(cx) {
                     v.push(Part::section("ext-connections", |s, ui, _, cx| any(s.connections_section(ui, cx))));
                 }
-                v.push(Part::section("profiles", |s, ui, _, cx| any(s.profiles_section(ui, cx))));
+                if Self::profiles_useful(cx) {
+                    v.push(Part::section("profiles", |s, ui, _, cx| any(s.profiles_section(ui, cx))));
+                }
                 v
             }
             Page::Extensions => self.extension_parts(cx),

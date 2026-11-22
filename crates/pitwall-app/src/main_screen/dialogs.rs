@@ -1786,8 +1786,8 @@ impl ProjectAccountsDialog {
         cx.notify();
     }
 
-    /// The browser row: Default and each profile as chips (the project's
-    /// ticked), "+ New profile", or the new one's name field.
+    /// The browser row: Default and each browser account as chips (the project's
+    /// ticked), "+ New browser account", or the new one's name field.
     fn web_row(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let separate = crate::web::profiles::separate(cx);
         let list = crate::web::profiles::all(cx);

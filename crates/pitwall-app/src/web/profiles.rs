@@ -1,21 +1,21 @@
 //! Browser accounts (docs/spec/web.md, "Browser accounts"): separate
 //! sign-ins for Pitwall's web pages, one store of cookies and site data
-//! each. A profile is an account of kind [`WEB`] (`accounts.json`, beside
+//! each. A browser account is an account of kind [`WEB`] (`accounts.json`, beside
 //! the tools' accounts): a name and its folder. Default is the store every
-//! page used before profiles (`<data>/webview/profile-default`).
+//! page used before browser accounts (`<data>/webview/profile-default`).
 //!
-//! Which profile a page opens in:
+//! Which browser account a page opens in:
 //! - an agent's (`show_web`, `pitwall open --web`): its project's (the
 //!   "Browser" row of the project's Accounts…), else Default; an agent
 //!   can't pick one;
 //! - one the user opens (⌘L, "Open web page…"): the project of the agent
 //!   whose tile has the focus, else Default;
-//! - a page keeps its profile (`ui.json` `webTiles[id].profile`) until the
-//!   user switches it from its bar; one whose profile is gone or can't be
+//! - a page keeps its browser account (`ui.json` `webTiles[id].profile`) until the
+//!   user switches it from its bar; one whose browser account is gone or can't be
 //!   used here opens in Default and says so once.
 //!
 //! macOS before 14 has one store for every view: only Default there.
-//! Previews keep their project's own store and have no profile.
+//! Previews keep their project's own store and have no browser account.
 
 use std::path::PathBuf;
 
@@ -25,17 +25,17 @@ use pitwall_core::accounts::{Account, Accounts, DEFAULT, WEB};
 /// "Default".
 pub const DEFAULT_NAME: &str = "Default";
 
-/// Why a profile other than Default can't be used on this system.
+/// Why a browser account other than Default can't be used on this system.
 pub const NEEDS_STORES: &str = "Browser accounts need macOS 14 or later: before it, every page shares one store, so pages here use Default.";
 
-/// Profile `id` (`None`: Default) can be used where each data folder has
+/// Browser account `id` (`None`: Default) can be used where each data folder has
 /// a store of its own (`separate`); Default always.
 pub fn usable(id: Option<&str>, separate: bool) -> bool {
     id.is_none_or(|i| i == DEFAULT) || separate
 }
 
-/// The profile a page asking for `wanted` gets: that one when it is a
-/// profile in `list` that can be used here, else Default (`None`) and
+/// The browser account a page asking for `wanted` gets: that one when it is a
+/// browser account in `list` that can be used here, else Default (`None`) and
 /// `true`: it fell back.
 pub fn resolve(list: &Accounts, wanted: Option<&str>, separate: bool) -> (Option<String>, bool) {
     match wanted.filter(|w| *w != DEFAULT) {
@@ -47,8 +47,8 @@ pub fn resolve(list: &Accounts, wanted: Option<&str>, separate: bool) -> (Option
     }
 }
 
-/// The profile `project`'s pages open in (`None`: Default, also where its
-/// profile can't be used).
+/// The browser account `project`'s pages open in (`None`: Default, also where its
+/// browser account can't be used).
 pub fn of_project(list: &Accounts, project: &str, separate: bool) -> Option<String> {
     list.project_web(project).filter(|_| separate).map(|a| a.id.clone())
 }
@@ -59,7 +59,7 @@ pub struct Separate(pub bool);
 
 impl Global for Separate {}
 
-/// This system keeps a store per profile ([`crate::webview::separate_stores`]).
+/// This system keeps a store per browser account ([`crate::webview::separate_stores`]).
 pub fn separate(cx: &App) -> bool {
     match cx.try_global::<Separate>() {
         Some(s) => s.0,
@@ -72,40 +72,40 @@ fn list(cx: &mut App) -> Accounts {
     crate::accounts::model(cx).read(cx).list.clone()
 }
 
-/// The profiles besides Default, in their order.
+/// The browser accounts besides Default, in their order.
 pub fn all(cx: &mut App) -> Vec<Account> {
     list(cx).of_kind(WEB).cloned().collect()
 }
 
-/// What profile `id` is called ("Default" for `None`, or one gone).
+/// What browser account `id` is called ("Default" for `None`, or one gone).
 pub fn name(id: Option<&str>, cx: &mut App) -> String {
     id.and_then(|i| list(cx).get(i).filter(|a| a.kind == WEB).map(|a| a.name.clone())).unwrap_or_else(|| DEFAULT_NAME.into())
 }
 
-/// The profile `project`'s pages open in now.
+/// The browser account `project`'s pages open in now.
 pub fn for_project(project: &str, cx: &mut App) -> Option<String> {
     let sep = separate(cx);
     of_project(&list(cx), project, sep)
 }
 
-/// The profile a page kept as `wanted` opens in, and whether it fell back
+/// The browser account a page kept as `wanted` opens in, and whether it fell back
 /// to Default.
 pub fn resolve_now(wanted: Option<&str>, cx: &mut App) -> (Option<String>, bool) {
     let sep = separate(cx);
     resolve(&list(cx), wanted, sep)
 }
 
-/// Profile `id`'s folder (`None`: Default's).
+/// Browser account `id`'s folder (`None`: Default's).
 pub fn dir(id: Option<&str>, cx: &mut App) -> PathBuf {
     crate::preview::profile_dir(&super::page::data_root(cx), id.unwrap_or(DEFAULT))
 }
 
-/// The pages kept in profile `id` (tile ids; in layouts or windows).
+/// The pages kept in browser account `id` (tile ids; in layouts or windows).
 pub fn pages_in(id: &str, cx: &App) -> Vec<String> {
     crate::ui_state::get(cx).web_tiles.iter().filter(|(_, t)| t.agent.is_none() && t.profile.as_deref() == Some(id)).map(|(k, _)| k.clone()).collect()
 }
 
-/// Why profile `id` can't be removed now: pages are open in it (they'd
+/// Why browser account `id` can't be removed now: pages are open in it (they'd
 /// lose their store under them). Switch or close them first.
 pub fn in_use(id: &str, name: &str, cx: &App) -> Option<String> {
     match pages_in(id, cx).len() {
@@ -115,13 +115,13 @@ pub fn in_use(id: &str, name: &str, cx: &App) -> Option<String> {
     }
 }
 
-/// Add profile `name`.
+/// Add browser account `name`.
 pub fn add(name: &str, cx: &mut App) -> Result<Account, String> {
     let m = crate::accounts::model(cx);
     m.update(cx, |m, cx| m.add_web(name, cx))
 }
 
-/// Remove profile `id` and delete its sign-ins, cookies and site data from
+/// Remove browser account `id` and delete its sign-ins, cookies and site data from
 /// this computer. Refused while pages are open in it ([`in_use`]). The
 /// projects that named it go back to Default. Its data is deleted after
 /// (the engine's store, then its folder), tried again a few times while
@@ -186,7 +186,7 @@ mod tests {
     use super::*;
     use pitwall_core::paths::Paths;
 
-    /// Default always; a profile only where each has its own store; one gone
+    /// Default always; a browser account only where each has its own store; one gone
     /// or a tool's account falls back to Default.
     #[test]
     fn which_profile_a_page_gets() {
