@@ -315,7 +315,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(s!("n"), MoveSpaceToWindow, None),
         KeyBinding::new(p!("l"), OpenWebPage, None),
         KeyBinding::new(p!("i"), OpenInbox, None),
-        KeyBinding::new(p!("enter"), ToggleMaximize, None),
+        // In the main screen's context, not none: a binding with none
+        // counts as deep as the focused element and, registered after the
+        // text fields' own, would outrank their ⌘↵ (send).
+        KeyBinding::new(p!("enter"), ToggleMaximize, Some("MainScreen")),
         KeyBinding::new(p!("="), FontBigger, None),
         KeyBinding::new(p!("+"), FontBigger, None),
         KeyBinding::new(p!("-"), FontSmaller, None),
