@@ -2,6 +2,8 @@
   "v": 1,
   "id": "agention",
   "name": "Agention",
+  "version": "1.0.0",
+  "docs": "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/extensions/agention",
   "icon": "inbox",
   "description": "Questions your agents ask you, from your own Agention server",
   "settings": [
@@ -31,6 +33,7 @@
   "actions": [
     {
       "id": "setup",
+      "setup": true,
       "label": "Set up Agention in my agents",
       "description": "Installs Agention's plugin, pinned to v0.4.0, in Claude Code and Codex (whichever you have).",
       "steps": [

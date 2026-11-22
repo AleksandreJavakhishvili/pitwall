@@ -2,6 +2,8 @@
   "v": 1,
   "id": "demo-inbox",
   "name": "Demo inbox",
+  "version": "1.0.0",
+  "demo": true,
   "icon": "chat",
   "description": "Made-up threads from a fake adapter: shows how an extension's inbox looks",
   "settings": [
