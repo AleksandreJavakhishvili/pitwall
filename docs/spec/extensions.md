@@ -297,11 +297,19 @@ Status: built below the screens (docs/spec/profiles.md has the design).
   variables on every agent, as before.
 - **Carried over:** an extension whose `ui.json` entry has `values` or
   `secretsSet` becomes, on start, one connection named after it, the
-  default; those keys leave `ui.json` and `selected` gets the
-  connection's prefix. Nothing is re-entered.
-- Settings (until its screens for several connections) edits the default
-  connection, making it when the first value is set; setup actions use
-  its settings.
+  default; `selected` gets the connection's prefix. Nothing is
+  re-entered. Those keys stay in `ui.json` as a copy of that connection,
+  kept up to date, so an older Pitwall still finds it set up; a copy an
+  older build changed is taken back on the next start
+  (docs/spec/profiles.md, "Migration").
+- **The card owns its connections.** With one, the card is as before
+  plus "Add connection". With two or more: a tab per connection (status
+  dot, the default marked) over the selected one's checklist and setup
+  actions, with Rename, Make default and Remove; the pill says "N of M
+  connected". A setup action that uses `{setting:KEY}` runs for, and is
+  ticked on, the selected connection (`accounts.json` `actionsDone`);
+  others are the extension's (`ui.json` `actionsDone`). Removing the
+  default asks which connection becomes the default, or none.
 
 ## On and off
 - **Off until the user turns it on.**

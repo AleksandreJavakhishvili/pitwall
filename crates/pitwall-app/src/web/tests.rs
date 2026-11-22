@@ -284,8 +284,8 @@ fn what_isnt_shown_is_refused_or_said(cx: &mut TestAppContext) {
 
 // ── Browser accounts ─────────────────────────────────────────────────────
 
-/// Profiles kept in a temp folder (no engine), as macOS 14+ when
-/// `separate`. Returns the folder and profile Work's id.
+/// Browser accounts kept in a temp folder (no engine), as macOS 14+ when
+/// `separate`. Returns the folder and browser account Work's id.
 fn with_profiles(cx: &mut TestAppContext, separate: bool) -> (pitwall_core::testing::TempDir, String) {
     let t = pitwall_core::testing::TempDir::new("web-profiles-app");
     let paths = pitwall_core::paths::Paths::new(t.path().join("pw"));
@@ -307,7 +307,7 @@ fn set_project_profile(project: &str, id: Option<&str>, cx: &mut TestAppContext)
     });
 }
 
-/// The folder (store) of the view made last; checks that a profile's has a
+/// The folder (store) of the view made last; checks that a browser account's has a
 /// store of its own and Default's the one it always had.
 fn last_dir(log: &fake::Shared) -> String {
     let l = log.borrow();
@@ -318,14 +318,14 @@ fn last_dir(log: &fake::Shared) -> String {
     dir
 }
 
-/// An agent's page opens in its project's profile, and the answer says
-/// which; the project's profile changed, its page stays until the agent
+/// An agent's page opens in its project's browser account, and the answer says
+/// which; the project's browser account changed, its page stays until the agent
 /// shows it again, which moves it there (loaded again) and says so.
 #[gpui::test]
 fn an_agents_page_opens_in_its_projects_profile(cx: &mut TestAppContext) {
     let (_, log) = app(cx, None);
     let (_t, work) = with_profiles(cx, true);
-    // No profile for the project: Default, as before profiles.
+    // No browser account for the project: Default, as before browser accounts.
     let r = show(&ask("api", Some("example.org"), None, None), cx).expect("shown");
     assert_eq!(r.profile, "Default");
     assert_eq!(last_dir(&log), "profile-default");
@@ -364,8 +364,8 @@ fn page_of_app(agent: &str, cx: &gpui::App) -> String {
     crate::ui_state::get(cx).web_by(agent).expect("its page")
 }
 
-/// The bar's profile menu switches a page: its view made again in the
-/// other store on the address it shows; a profile can't be removed while a
+/// The bar's browser account menu switches a page: its view made again in the
+/// other store on the address it shows; a browser account can't be removed while a
 /// page is in it, and once removed its data is erased and its projects
 /// forget it.
 #[gpui::test]
@@ -408,7 +408,7 @@ fn a_page_switches_profile_and_a_profile_in_use_isnt_removed(cx: &mut TestAppCon
     });
 }
 
-/// A page comes back in its profile after a restart; one whose profile is
+/// A page comes back in its browser account after a restart; one whose browser account is
 /// gone comes back in Default and says so once (ui.json forgets it).
 #[gpui::test]
 fn restored_pages_keep_their_profile_or_fall_back_once(cx: &mut TestAppContext) {
@@ -448,7 +448,7 @@ fn restored_pages_keep_their_profile_or_fall_back_once(cx: &mut TestAppContext) 
 }
 
 /// Before macOS 14 (one store for every view): only Default. A project's
-/// profile isn't used, and no view is ever made for another profile there.
+/// browser account isn't used, and no view is ever made for another browser account there.
 #[gpui::test]
 fn without_separate_stores_only_default_is_used(cx: &mut TestAppContext) {
     let (_, log) = app(cx, None);
@@ -468,7 +468,7 @@ fn without_separate_stores_only_default_is_used(cx: &mut TestAppContext) {
     assert!(e.contains("macOS 14"), "{e}");
 }
 
-/// A page the user opens (⌘L, "Open web page…") is in the profile of the
+/// A page the user opens (⌘L, "Open web page…") is in the browser account of the
 /// project of the agent whose tile has the focus; with none, Default.
 #[gpui::test]
 fn a_page_you_open_takes_the_focused_agents_project_profile(cx: &mut TestAppContext) {

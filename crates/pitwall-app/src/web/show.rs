@@ -11,7 +11,7 @@
 //! a place it isn't in. It is a page like one the user opened (no Preview
 //! rules, it stays when the agent goes), in the browser account of the
 //! agent's project ([`super::profiles`]; Default when it names none). The
-//! agent can't pick one. A page shown before that is in another profile
+//! agent can't pick one. A page shown before that is in another browser account
 //! than the project's now moves into it at the agent's next call (loaded
 //! again there), and the answer says so.
 //!
@@ -84,7 +84,7 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
             return Err(err(e));
         }
     };
-    // A page shown before, in another profile than its project's now (the
+    // A page shown before, in another browser account than its project's now (the
     // project's changed, or the user switched the page): into the
     // project's, loaded again there.
     if reused {

@@ -370,6 +370,21 @@ impl MainView {
             }
             return;
         }
+        // `project-accounts <folder>`: that project's Accounts… open.
+        if let Some(folder) = cmd.strip_prefix("project-accounts ") {
+            if let Some(s) = &self.screen {
+                let folder = folder.trim().to_string();
+                s.update(cx, |s, cx| s.debug_project_accounts(folder, window, cx));
+            }
+            return;
+        }
+        // `profile-open <id>`: in the open Settings, that profile unfolded.
+        if let Some(id) = cmd.strip_prefix("profile-open ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_profile_open(id.trim(), cx));
+            }
+            return;
+        }
         // `ext-disclose <ext>`: in the open Settings, what that extension
         // does on this computer, unfolded.
         if let Some(ext) = cmd.strip_prefix("ext-disclose ") {

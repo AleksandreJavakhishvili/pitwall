@@ -1,6 +1,6 @@
 //! Settings → Accounts, after the accounts themselves:
 //!
-//! - **Extension connections** (only once an extension has one): each
+//! - **Extension connections** (only once an extension has two): each
 //!   extension's connections by name, the default marked, with the
 //!   profiles and projects that use each; read-only, "Edit in Extensions"
 //!   opens the extension's card, the one place they are set up.
@@ -42,9 +42,22 @@ fn short(p: &str) -> String {
 }
 
 impl SettingsView {
-    /// An extension has a connection: its section shows.
+    /// An extension has two connections or more: their section shows (one
+    /// is just the extension's settings, on its card).
     pub(super) fn has_connections(cx: &gpui::App) -> bool {
-        acc::list(cx).is_some_and(|l| l.accounts.iter().any(|a| pitwall_core::accounts::ext_of(&a.kind).is_some()))
+        acc::list(cx).is_some_and(|l| {
+            let mut seen = std::collections::HashSet::new();
+            l.accounts.iter().filter_map(|a| pitwall_core::accounts::ext_of(&a.kind)).any(|e| !seen.insert(e.to_string()))
+        })
+    }
+
+    /// Profiles show once there is a choice to bundle: a second login, a
+    /// git identity, a browser account or a second connection of an
+    /// extension (or once one exists). One login and one connection: no
+    /// section, nothing to explain.
+    pub(super) fn profiles_useful(cx: &gpui::App) -> bool {
+        let has_profiles = acc::list(cx).is_some_and(|l| !l.profiles.is_empty());
+        has_profiles || acc::slot_rows(cx).iter().any(|r| if pitwall_core::accounts::ext_of(&r.slot).is_some() { r.choices.len() > 3 } else { r.choices.len() > 1 })
     }
 
     /// Each extension's connections, read-only, with where they are used.
@@ -116,6 +129,12 @@ impl SettingsView {
             }
         }
         sec
+    }
+
+    /// Bench and debug builds: profile `id` unfolded.
+    pub fn debug_profile_open(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.profiles.open.insert(id.to_string());
+        cx.notify();
     }
 
     fn start_profile_naming(&mut self, id: Option<String>, window: &mut gpui::Window, cx: &mut Context<Self>) {

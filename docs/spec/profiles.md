@@ -1,7 +1,9 @@
 # Accounts, connections and profiles
 
 Status: Phase A built (storage, migration, resolution, launches,
-extension connections in the hub, CLI); Phase B (the screens) to come.
+extension connections in the hub, CLI). Phase B: Settings, extension
+cards and the project's Accounts… built; the inbox's connection filter
+comes after the inbox's own window (#65).
 
 Pitwall launches an agent with an identity: which login of its tool it
 runs on, who it commits as, which sign-ins its web pages use, and which
@@ -110,7 +112,11 @@ keys a later one adds are kept by this one):
 }
 ```
 `ui.json` keeps what is per extension, not per connection:
-`extensions.<id>.enabled` and `.selected` (the thread its inbox shows).
+`extensions.<id>.enabled`, `.selected` (the thread its inbox shows),
+`.window` once the inbox can have a window of its own (one inbox per
+extension, so the window is the extension's) and `.actionsDone` for setup actions that
+don't use `{setting:KEY}`. A setup action that does is per connection:
+its tick is the connection's `actionsDone` in `accounts.json`.
 
 ## Migration from before connections
 On start, an extension with `values` or `secretsSet` in `ui.json` and no
@@ -118,8 +124,21 @@ connection yet becomes **one connection named after the extension**, with
 those values, its secrets' keys and `secretKey` = the extension id (so
 the keychain items it already has are used as they are: nothing is
 re-entered and nothing is read or rewritten in the keychain), made the
-extension's **default connection**. Then `values` and `secretsSet` leave
-`ui.json`, and `selected` is given the connection's prefix.
+extension's **default connection**, with the ticks of the setup actions
+that use `{setting:KEY}` as its `actionsDone`; `selected` is given the
+connection's prefix.
+
+**Downgrade-safe**: `values`, `secretsSet` and those ticks **stay** in
+`ui.json` as a copy of that carried-over connection (the account whose
+`secretKey` is the extension id), rewritten whenever it changes, so an
+older Pitwall started again finds the extension set up as it left it.
+On each start, a copy that differs from the connection means an older
+build changed it: the connection takes the copy's values, secrets' keys
+and ticks. Removing that connection clears the copy (it isn't adopted
+again). Other connections never touch the copy, so an older build only
+ever sees the carried-over one. (A crash between writing
+`accounts.json` and the copy would, on the next start, take the copy's
+older values: the one window in which a change can be undone.)
 
 Why a default connection rather than "every current project picks it":
 before, the variables went on **every** agent Pitwall launched, in
@@ -155,7 +174,11 @@ The same as changing a pick in the project's Accounts… dialog today:
 - a browser account or extension connection that changes: pages and
   agents started from then on use it (nothing restarts).
 `Accounts::changed_slots(before, after, folder)` says which slots
-changed. From the CLI the change is recorded and its answer lists the
+changed. In the app every pick change (Settings' Profiles, a project's
+Accounts…) goes through `AccountsModel::change_picks`, which emits
+`PicksChanged` with each project's changed slots; the main screen applies
+them as above, and says a connection change in a toast when the
+project's agents are running. From the CLI the change is recorded and its answer lists the
 running agents that still use the old pick; nothing restarts without the
 user doing it in Pitwall.
 
@@ -179,7 +202,7 @@ user doing it in Pitwall.
   one connection there is neither label nor filter. The merged state
   carries each thread's connection (`ExtState::connection_of`) and counts
   per connection as well as in total (`ExtState::counts_of`), so the
-  filter needs nothing from the protocol. (Screens: Phase B.)
+  filter needs nothing from the protocol.
 - **Agent variables** come from the agent's connection for that
   extension (resolution above), with `{setting:KEY}` filled from that
   connection's settings; with none, the extension sets nothing on it.
@@ -187,6 +210,34 @@ user doing it in Pitwall.
   only if C is A's connection for that extension now.
 - **Setup actions** that use `{setting:KEY}` run for one connection (its
   settings filled in); the others are extension-wide.
+
+## Where the user sets them
+- **Settings → Accounts**: agent logins, git identities, browser
+  accounts as before; then, once an extension has two connections or
+  more, **Extension connections** (read-only: each connection's address,
+  the default marked, the profiles and projects using it, "Edit in
+  Extensions"); then **Profiles** once there is something to bundle (a
+  second login, a git identity, a browser account, a second connection)
+  or a profile exists: add, rename, delete (asks; says which projects
+  keep its picks as their own), and each slot's choices as chips: "Not
+  set", the default, each account of that kind only, and for an
+  extension None.
+- **The extension's card** owns its connections: with one connection the
+  card is as before plus an "Add connection" button; with two or more, a
+  row of connection tabs (a status dot each, the default marked, the
+  state in its tooltip) over the selected connection's checklist and
+  setup actions, with Rename, Make default and Remove. Removing the
+  default asks which becomes the default, or none; it never promotes one
+  silently. The pill says "N of M connected".
+- **A project's Accounts…**: "Profile" first (only once a profile
+  exists); each slot says where its answer comes from ("from Work",
+  "this project's own" with "Back to Work", "default"); a chip picked
+  there is the project's own. An extension gets a row with two or more
+  connections, or when the project or its profile picks one.
+- **The sidebar** groups by the tool account each project resolves to
+  (its own pick, else its profile's, else the default); dropping a
+  project on another account writes the project's own pick, which
+  overrides its profile.
 
 ## CLI
 `pitwall account list`, `pitwall profile list|create|rename|delete|set`,

@@ -1456,6 +1456,11 @@ impl MainScreen {
         cx.notify();
     }
 
+    /// Bench and debug builds: `project`'s Accounts… open.
+    pub fn debug_project_accounts(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_project_accounts(project, window, cx);
+    }
+
     /// The accounts a project's new agents use (its right-click menu).
     pub(super) fn open_project_accounts(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
         let engine = self.engine.clone();

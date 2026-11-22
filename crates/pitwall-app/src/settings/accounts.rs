@@ -13,7 +13,7 @@
 //! pushes use, for the projects that name one; each login's "Log in" opens
 //! a terminal where `gh` or `az` logs in.
 //!
-//! Then the browser profiles (`crate::web::profiles`): Default and the ones
+//! Then the browser accounts (`crate::web::profiles`): Default and the ones
 //! added, each its own sign-ins for Pitwall's web pages; removing one
 //! deletes its data (asked first, refused while pages are open in it).
 
@@ -49,11 +49,11 @@ pub struct Section {
     git_form: Option<GitForm>,
     /// Asking before removing this git identity.
     git_removing: Option<String>,
-    /// A browser profile being named (its input).
+    /// A browser account being named (its input).
     web_adding: Option<Entity<TextInput>>,
-    /// Renaming this browser profile (with its input).
+    /// Renaming this browser account (with its input).
     web_renaming: Option<(String, Entity<TextInput>)>,
-    /// Asking before removing this browser profile.
+    /// Asking before removing this browser account.
     web_removing: Option<String>,
     web_error: Option<String>,
     _subs: Vec<Subscription>,
@@ -506,7 +506,7 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Browser profiles: Default and each one added, with the projects
+    /// Browser accounts: Default and each one added, with the projects
     /// that use it; Add, Rename, Remove (which deletes its data, refused
     /// while pages are open in it).
     pub(super) fn web_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
@@ -578,7 +578,7 @@ impl SettingsView {
         sec
     }
 
-    /// One browser profile (`None`: Default): name, folder, projects, open
+    /// One browser account (`None`: Default): name, folder, projects, open
     /// pages; Rename, Remove.
     fn web_row(&mut self, ui: &Ui, a: Option<pitwall_core::accounts::Account>, cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
