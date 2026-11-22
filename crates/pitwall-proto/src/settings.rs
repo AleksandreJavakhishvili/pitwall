@@ -27,6 +27,10 @@ use ts_rs::TS;
 pub enum Page {
     General,
     Agents,
+    /// Profiles: named sets of accounts a project picks in one go
+    /// (docs/spec/profiles.md); in the nav only once there is something to
+    /// bundle.
+    Profiles,
     /// Logins: agent accounts and their usage, git identities.
     Accounts,
     /// Extensions: those installed (each with its switch, settings and
@@ -41,13 +45,14 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 9] = [Page::General, Page::Agents, Page::Accounts, Page::Extensions, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
+    pub const ALL: [Page; 10] = [Page::General, Page::Agents, Page::Profiles, Page::Accounts, Page::Extensions, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
 
     /// The id in `ui.json` (`settingsPage`) and the CLI.
     pub fn id(self) -> &'static str {
         match self {
             Page::General => "general",
             Page::Agents => "agents",
+            Page::Profiles => "profiles",
             Page::Accounts => "accounts",
             Page::Extensions => "extensions",
             Page::Rules => "rules",
@@ -62,6 +67,7 @@ impl Page {
         match self {
             Page::General => "General",
             Page::Agents => "Agents",
+            Page::Profiles => "Profiles",
             Page::Accounts => "Accounts",
             Page::Extensions => "Extensions",
             Page::Rules => "Rules & skills",

@@ -616,10 +616,12 @@ impl MainScreen {
                 this.open_new_agent(Some(p2.clone()), window, cx)
             }),
         ];
-        // Which login its new agents use (agents with more than one).
+        // Which login its new agents use (agents with more than one);
+        // once a profile exists, which profile.
         if !crate::accounts::model(cx).read(cx).kinds().is_empty() {
             let p = project.to_string();
-            items.push(MenuItem::new("", "Accounts…", move |this, window, cx| {
+            let label = if crate::accounts::model(cx).read(cx).list.profiles.is_empty() { "Accounts…" } else { "Profile…" };
+            items.push(MenuItem::new("", label, move |this, window, cx| {
                 this.open_project_accounts(p.clone(), window, cx)
             }));
             items.push(MenuItem::new("", "Group by account", |this, _, cx| {

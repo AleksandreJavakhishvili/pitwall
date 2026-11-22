@@ -495,6 +495,19 @@ pub struct SlotRow {
 /// its own, git identities, browser accounts, an extension's
 /// connections), in that order.
 pub fn slot_rows(cx: &App) -> Vec<SlotRow> {
+    rows(cx, false)
+}
+
+/// Every slot a profile can fill, also git and browser accounts (where
+/// this system keeps them apart) with nothing to pick yet, so a profile
+/// can be completed by making what it lacks. A tool shows once it has a
+/// login of its own (added on Accounts), an extension once it has a
+/// connection.
+pub fn profile_slot_rows(cx: &App) -> Vec<SlotRow> {
+    rows(cx, true)
+}
+
+fn rows(cx: &App, all: bool) -> Vec<SlotRow> {
     let Some(h) = cx.try_global::<Handle>() else { return vec![] };
     let m = h.0.read(cx);
     let mut out = Vec::new();
@@ -507,13 +520,13 @@ pub fn slot_rows(cx: &App) -> Vec<SlotRow> {
         choices.extend(list.into_iter().map(|a| (a.id, a.name)));
         out.push(SlotRow { slot: k.id.clone(), label: k.name.clone(), choices });
     }
-    if !m.list.git.is_empty() {
+    if !m.list.git.is_empty() || all {
         let mut choices = vec![(accounts::DEFAULT.to_string(), "Your git setup".to_string())];
         choices.extend(m.list.git.iter().map(|g| (g.id.clone(), g.name.clone())));
         out.push(SlotRow { slot: accounts::GIT.into(), label: "Git identity".into(), choices });
     }
     let web = m.of_kind(accounts::WEB);
-    if !web.is_empty() {
+    if !web.is_empty() || (all && crate::web::profiles::separate(cx)) {
         let mut choices = vec![(accounts::DEFAULT.to_string(), crate::web::profiles::DEFAULT_NAME.to_string())];
         choices.extend(web.into_iter().map(|a| (a.id, a.name)));
         out.push(SlotRow { slot: accounts::WEB.into(), label: "Browser account".into(), choices });
@@ -742,5 +755,20 @@ mod tests {
         cx.update(|cx| m.update(cx, |m, cx| m.set_profile_pick(&pid, "zed", Some(&zed), cx))).unwrap();
         cx.run_until_parked();
         assert!(seen.borrow().is_empty());
+    }
+
+    #[gpui::test]
+    fn a_profile_lists_git_before_there_is_one_to_pick(cx: &mut gpui::TestAppContext) {
+        let t = pitwall_core::testing::TempDir::new("app-slots");
+        let paths = Paths::new(t.path().join("pw"));
+        cx.update(|cx| model(cx).update(cx, |m, _| m.set_paths(paths)));
+        let (picks, profile) = cx.update(|cx| {
+            let slots = |rows: Vec<SlotRow>| rows.into_iter().map(|r| r.slot).collect::<Vec<_>>();
+            (slots(slot_rows(cx)), slots(profile_slot_rows(cx)))
+        });
+        // The project dialog lists only what has a choice; a profile can
+        // be completed with "+ New git identity".
+        assert!(!picks.contains(&accounts::GIT.to_string()));
+        assert!(profile.contains(&accounts::GIT.to_string()));
     }
 }

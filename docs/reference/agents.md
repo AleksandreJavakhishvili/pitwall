@@ -182,7 +182,7 @@ With **Agents can show you web pages** on (Settings → Agents, `agents.showWeb`
 
 A kind with `account_env` can run on more than one login, say a work and a personal subscription. Each account is a login folder; the agent starts with `account_env` set to that folder. Default is your own login, in `account_home`.
 
-- Add accounts in Settings → Accounts, or from a project's right-click menu → Accounts…. Choosing a folder you already use is fine.
+- Add accounts in Settings → Accounts, or from a project's right-click menu → Accounts… (Profile… once you have profiles: Settings → Profiles puts a login, git identity, browser account and connections together under a name, and a project picks one). Choosing a folder you already use is fine.
 - Pick one in New agent, set one per project, or move an agent with its right-click menu → Run on account.
 - The CLI takes `pitwall agent new --account <name>`.
 

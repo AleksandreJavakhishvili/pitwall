@@ -2,7 +2,8 @@
 
 Status: built. Phase A: storage, migration, resolution, launches,
 extension connections in the hub, CLI. Phase B: Settings, extension
-cards, the project's Accounts…, the inbox's connections.
+cards, the project's Profile… (Accounts… without profiles), the inbox's
+connections.
 
 Pitwall launches an agent with an identity: which login of its tool it
 runs on, who it commits as, which sign-ins its web pages use, and which
@@ -163,7 +164,8 @@ connection the default.
   under changes.
 
 ## Changing a project's profile or picks
-The same as changing a pick in the project's Accounts… dialog today:
+The same as changing a pick in the project's Accounts… dialog did
+before profiles:
 - a tool account that changes: the project's agents of that tool move to
   it at once (their conversations with them; an account not logged in yet
   starts its login terminal first and they move once it is), as dropping
@@ -174,8 +176,8 @@ The same as changing a pick in the project's Accounts… dialog today:
 - a browser account or extension connection that changes: pages and
   agents started from then on use it (nothing restarts).
 `Accounts::changed_slots(before, after, folder)` says which slots
-changed. In the app every pick change (Settings' Profiles, a project's
-Accounts…) goes through `AccountsModel::change_picks`, which emits
+changed. In the app every pick change (Settings → Profiles, a project's
+Profile… or Accounts…) goes through `AccountsModel::change_picks`, which emits
 `PicksChanged` with each project's changed slots; the main screen applies
 them as above, and says a connection change in a toast when the
 project's agents are running. From the CLI the change is recorded and its answer lists the
@@ -222,16 +224,35 @@ user doing it in Pitwall.
   settings filled in); the others are extension-wide.
 
 ## Where the user sets them
-- **Settings → Accounts**: agent logins, git identities, browser
-  accounts as before; then, once an extension has two connections or
-  more, **Extension connections** (read-only: each connection's address,
-  the default marked, the profiles and projects using it, "Edit in
-  Extensions"); then **Profiles** once there is something to bundle (a
-  second login, a git identity, a browser account, a second connection)
-  or a profile exists: add, rename, delete (asks; says which projects
-  keep its picks as their own), and each slot's choices as chips: "Not
-  set", the default, each account of that kind only, and for an
-  extension None.
+Once a profile exists, profiles are the primary idea: a project is given
+a profile, and single picks are the exception.
+
+- **Settings → Profiles**, its own page in the nav directly above
+  Accounts, shown once there is something to bundle (a second login, a
+  git identity, a browser account, a second connection) or a profile
+  exists; hidden otherwise, so one login, one connection and no profile
+  show nothing new. It holds only profiles: one line saying what a
+  profile is ("A profile is a set: which login, git identity, browser
+  account and connections go together. Give a project a profile and it
+  uses all of them."), "Add profile", then each profile: its name, the
+  projects using it, Rename, Delete (asks; says which projects keep its
+  picks as their own). Folded, its picks as small labelled chips that
+  wrap ("Claude Code Work"); unfolded (a just-added one opens unfolded),
+  each slot's chips: "Not set", the default, each account of that kind,
+  for an extension None, and "+ New …". "+ New account", "+ New browser
+  account" and "+ New connection" ask a name in place, make it and give
+  it to the profile (a login then opens its login terminal; a connection
+  not set up yet says so with "Set it up on <extension>'s card", which
+  opens that card on it). "+ New git identity" opens Accounts' git form;
+  once saved the profile gets it and Profiles shows again. Slots listed:
+  each tool with a login of its own, git, browser accounts (where this
+  system keeps them apart), each extension with a connection.
+- **Settings → Accounts**: the accounts to choose from only: agent
+  logins, git identities, browser accounts, and once an extension has
+  two connections or more, **Extension connections** (read-only: each
+  connection's address, the default marked, the profiles and projects
+  using it, "Edit in Extensions"). While Profiles shows, a line at its
+  top points there ("Open Profiles").
 - **The extension's card** owns its connections: with one connection the
   card is as before plus an "Add connection" button; with two or more, a
   row of connection tabs (a status dot each, the default marked, the
@@ -239,11 +260,21 @@ user doing it in Pitwall.
   setup actions, with Rename, Make default and Remove. Removing the
   default asks which becomes the default, or none; it never promotes one
   silently. The pill says "N of M connected".
-- **A project's Accounts…**: "Profile" first (only once a profile
-  exists); each slot says where its answer comes from ("from Work",
-  "this project's own" with "Back to Work", "default"); a chip picked
-  there is the project's own. An extension gets a row with two or more
-  connections, or when the project or its profile picks one.
+- **A project's Profile…** (the right-click menu item; "Accounts…"
+  while no profile exists, and then the dialog is as before, titled
+  "Accounts · <project>"). Titled "Profile · <project>": the profile
+  chips (None, Work, Personal); under them what the project runs with, a
+  read-only line per slot that has a choice ("Claude Code  Work", "Team
+  inbox  Acme"), a pick of the project's own marked "this project's own"
+  with "Back to <profile>". The per-slot chip rows sit in a folded
+  "Change for this project only", open at first only when the project
+  has a pick of its own; each slot there says where its answer comes
+  from ("from Work", "this project's own" with "Back to Work",
+  "default"), and a chip picked there is the project's own. An extension
+  gets a row with two or more connections, or when the project or its
+  profile picks one. The footer's "Edit profile Work…" opens Settings →
+  Profiles with Work unfolded ("Manage profiles…" with no profile
+  picked).
 - **The sidebar** groups by the tool account each project resolves to
   (its own pick, else its profile's, else the default); dropping a
   project on another account writes the project's own pick, which

@@ -117,7 +117,7 @@ impl SettingsView {
 
     /// Start an agent of `kind` on account `id` in the home folder: the
     /// tool asks to log in on its first run. Handed to the window.
-    fn log_in(&mut self, kind: &str, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn log_in(&mut self, kind: &str, id: &str, cx: &mut Context<Self>) {
         let Some(engine) = cx.try_global::<super::SettingsHost>().and_then(|h| h.engine.clone()) else { return };
         let req = acc::login_request(kind, id, &pitwall_core::paths::home().to_string_lossy());
         self.accounts.busy = true;
@@ -163,7 +163,9 @@ impl SettingsView {
 
     /// Open the git identity form: empty (the user's own name filled in),
     /// or `g`'s to edit.
-    fn open_git_form(&mut self, g: Option<&GitIdentity>, cx: &mut Context<Self>) {
+    pub(super) fn open_git_form(&mut self, g: Option<&GitIdentity>, cx: &mut Context<Self>) {
+        // Asked for by a profile: `start_creating` says so after this.
+        self.profiles.git_for = None;
         let own = if g.is_none() { acc::own_git_name() } else { String::new() };
         let name = cx.new(|cx| TextInput::new(cx, g.map(|g| g.name.as_str()).unwrap_or(""), "Work"));
         let user_name = cx.new(|cx| TextInput::new(cx, g.map(|g| g.user_name.as_str()).unwrap_or(&own), "Your Name"));
@@ -204,11 +206,17 @@ impl SettingsView {
         let id = f.id.clone();
         let model = acc::model(cx);
         let res = match &id {
-            Some(id) => model.update(cx, |m, cx| m.edit_git(id, &fields, cx)),
-            None => model.update(cx, |m, cx| m.add_git(&fields, cx)).map(|_| ()),
+            Some(id) => model.update(cx, |m, cx| m.edit_git(id, &fields, cx)).map(|_| None),
+            None => model.update(cx, |m, cx| m.add_git(&fields, cx)).map(|g| Some(g.id)),
         };
         match res {
-            Ok(_) => self.accounts.git_form = None,
+            Ok(added) => {
+                self.accounts.git_form = None;
+                // A profile asked for it: it gets it, and shows again.
+                if let Some(g) = added {
+                    self.git_added(&g, cx);
+                }
+            }
             Err(e) => {
                 if let Some(f) = self.accounts.git_form.as_mut() {
                     f.error = Some(e);
@@ -532,7 +540,7 @@ impl SettingsView {
                 }),
         );
         sec = sec.child(crate::kit::muted(
-            "Separate sign-ins for the web pages in Pitwall (Teams, Slack, mail…): each browser account keeps its own cookies and site data on this computer. A project picks one in its Accounts…; the pages its agents open use it, and so does a page you open while one of its agents has the focus. Others use Default. Sign in to sites in the page itself.",
+            "Separate sign-ins for the web pages in Pitwall (Teams, Slack, mail…): each browser account keeps its own cookies and site data on this computer. A project picks one from its right-click menu (Accounts…, or Profile… once there are profiles); the pages its agents open use it, and so does a page you open while one of its agents has the focus. Others use Default. Sign in to sites in the page itself.",
             t,
         ));
         if !separate {

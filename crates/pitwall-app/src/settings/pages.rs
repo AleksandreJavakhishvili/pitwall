@@ -93,18 +93,21 @@ impl SettingsView {
                 Part::section("edit-files", |_, ui, _, cx| any(Self::edit_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
+            Page::Profiles => vec![Part::section("profiles", |s, ui, _, cx| any(s.profiles_section(ui, cx)))],
             Page::Accounts => {
-                let mut v = vec![
+                let mut v = Vec::new();
+                // Once Profiles shows: where these are put together.
+                if Self::profiles_useful(cx) {
+                    v.push(Part::section("to-profiles", |s, ui, _, cx| any(s.profiles_pointer(ui, cx))));
+                }
+                v.extend([
                     Part::section("accounts", |s, ui, _, cx| any(s.accounts_section(ui, cx))),
                     Part::section("git", |s, ui, _, cx| any(s.git_section(ui, cx))),
                     Part::section("browser-accounts", |s, ui, _, cx| any(s.web_section(ui, cx))),
-                ];
+                ]);
                 // Only once an extension has two connections.
                 if Self::has_connections(cx) {
                     v.push(Part::section("ext-connections", |s, ui, _, cx| any(s.connections_section(ui, cx))));
-                }
-                if Self::profiles_useful(cx) {
-                    v.push(Part::section("profiles", |s, ui, _, cx| any(s.profiles_section(ui, cx))));
                 }
                 v
             }

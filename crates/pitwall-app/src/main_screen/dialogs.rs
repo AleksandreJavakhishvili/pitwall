@@ -1712,11 +1712,14 @@ fn picker_content(v: &PickerView, t: &Theme) -> gpui::Stateful<gpui::Div> {
 /// it becomes the project's, and an agent starts on it in the project,
 /// where the tool asks for its login.
 ///
-/// With profiles (docs/spec/profiles.md), "Profile" comes first: picking
-/// one picks every slot it decides. Each slot then says where its answer
-/// comes from ("from Work", or "this project's own" with "Back to Work");
-/// a chip picked there is the project's own. Extensions with two or more
-/// connections get a row too. Without profiles nothing of this shows.
+/// Once a profile exists (docs/spec/profiles.md) it is "Profile ·
+/// <project>": the profile chips first (None, Work, Personal), then what
+/// the project runs with, a line per slot that has a choice ("Claude Code
+/// Work"), its own picks marked with "Back to <profile>"; the chip rows
+/// above move into "Change for this project only", folded unless the
+/// project has a pick of its own. "Edit profile Work…" opens Settings →
+/// Profiles on it. Extensions with two or more connections get a row.
+/// Without profiles it is "Accounts · <project>" as ever.
 pub struct ProjectAccountsDialog {
     engine: Option<Shared>,
     project: String,
@@ -1728,6 +1731,9 @@ pub struct ProjectAccountsDialog {
     web_adding: Option<Entity<TextInput>>,
     busy: bool,
     error: Option<String>,
+    /// "Change for this project only" unfolded (`None`: when the project
+    /// has a pick of its own).
+    overrides_open: Option<bool>,
     _subs: Vec<Subscription>,
     _task: Option<Task<()>>,
 }
@@ -1738,7 +1744,7 @@ impl ProjectAccountsDialog {
     pub fn new(engine: Option<Shared>, project: String, agents: Vec<AgentView>, cx: &mut Context<Self>) -> Self {
         let m = crate::accounts::model(cx);
         let subs = vec![cx.observe(&m, |_, _, cx| cx.notify())];
-        ProjectAccountsDialog { engine, project, agents, adding: None, web_adding: None, busy: false, error: None, _subs: subs, _task: None }
+        ProjectAccountsDialog { engine, project, agents, adding: None, web_adding: None, busy: false, error: None, overrides_open: None, _subs: subs, _task: None }
     }
 
     /// Name the browser account the project's pages use (`None`: Default).
@@ -1976,9 +1982,111 @@ impl ProjectAccountsDialog {
                 .pb(px(4.))
                 .child(field_label("Profile", t))
                 .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
-                .child(hint("Picks the accounts below in one go; you can still change single ones for this project.", t))
                 .into_any_element(),
         )
+    }
+
+    /// The project picks something itself in a slot that has a choice.
+    fn has_own(&self, cx: &mut Context<Self>) -> bool {
+        let list = crate::accounts::model(cx).read(cx).list.clone();
+        crate::accounts::slot_rows(cx).iter().any(|r| matches!(list.resolve_slot(&self.project, &r.slot).from, pitwall_core::accounts::From::Project))
+    }
+
+    /// What the project runs with: a line per slot that has a choice, its
+    /// own picks marked, with "Back to <profile>".
+    fn summary(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let list = crate::accounts::model(cx).read(cx).list.clone();
+        let profile = list.profile_of(&self.project).cloned();
+        let mut lines: Vec<AnyElement> = Vec::new();
+        for r in crate::accounts::slot_rows(cx) {
+            let res = list.resolve_slot(&self.project, &r.slot);
+            let ext = pitwall_core::accounts::ext_of(&r.slot).is_some();
+            let value = match &res.id {
+                Some(id) => r.choices.iter().find(|(c, _)| c == id).map(|(_, n)| n.clone()).unwrap_or_else(|| id.clone()),
+                None if ext => "None".to_string(),
+                None => r.choices.first().map(|(_, n)| n.clone()).unwrap_or_default(),
+            };
+            let own = matches!(res.from, pitwall_core::accounts::From::Project);
+            let back = profile.as_ref().filter(|p| own && p.picks.contains_key(&r.slot)).map(|p| p.name.clone());
+            let slot = r.slot.clone();
+            lines.push(
+                div()
+                    .id(SharedString::from(format!("pa-sum-{}", r.slot)))
+                    .debug_selector({
+                        let s = r.slot.clone();
+                        move || format!("pa-sum-{s}")
+                    })
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .min_h(px(22.))
+                    .child(div().w(px(130.)).flex_none().text_size(px(12.5)).text_color(t.text_3).child(r.label.clone()))
+                    .child(div().text_size(px(12.5)).text_color(t.text).font_weight(FontWeight::MEDIUM).child(value))
+                    .when(own, |d| {
+                        d.child(
+                            div()
+                                .debug_selector({
+                                    let s = r.slot.clone();
+                                    move || format!("pa-own-{s}")
+                                })
+                                .px(px(6.))
+                                .rounded(px(4.))
+                                .bg(t.surface_3)
+                                .text_size(px(11.))
+                                .text_color(t.text_2)
+                                .child("this project's own"),
+                        )
+                    })
+                    .when_some(back, |d, name| {
+                        d.child(
+                            div()
+                                .id(SharedString::from(format!("pa-back-{slot}")))
+                                .text_size(px(11.5))
+                                .text_color(t.text_3)
+                                .cursor_pointer()
+                                .hover_text(t.text, |s| s.underline())
+                                .on_click(cx.listener(move |d, _, _, cx| d.back_to_profile(&slot, cx)))
+                                .child(format!("Back to {name}")),
+                        )
+                    })
+                    .into_any_element(),
+            );
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .p(px(12.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(t.line)
+            .child(div().pb(px(4.)).text_size(px(11.5)).text_color(t.text_3).child(match &profile {
+                Some(p) => format!("Its agents run with {}'s accounts:", p.name),
+                None => "Its agents run with:".to_string(),
+            }))
+            .children(lines)
+            .into_any_element()
+    }
+
+    /// "Change for this project only": its chevron and title.
+    fn overrides_head(&self, open: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("pa-overrides")
+            .debug_selector(|| "pa-overrides".into())
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .cursor_pointer()
+            .text_size(px(12.5))
+            .text_color(t.text_2)
+            .hover_text(t.text, |s| s)
+            .child(crate::kit::chevron_at(open, 11., t.text_3))
+            .child("Change for this project only")
+            .on_click(cx.listener(move |d, _, _, cx| {
+                d.overrides_open = Some(!open);
+                cx.notify();
+            }))
+            .into_any_element()
     }
 
     /// An extension with two or more connections (or one the project
@@ -2279,9 +2387,38 @@ impl Render for ProjectAccountsDialog {
         let project = folder_name(&self.project).to_string();
         let kinds = crate::accounts::model(cx).read(cx).kinds();
         let rows: Vec<AnyElement> = kinds.iter().enumerate().map(|(n, k)| self.kind_row(k, n, &t, cx)).collect();
+        let list = crate::accounts::model(cx).read(cx).list.clone();
+        // Once a profile exists, profiles lead.
+        let profiled = !list.profiles.is_empty();
+        let profile = list.profile_of(&self.project).cloned();
+        let open = !profiled || self.overrides_open.unwrap_or_else(|| self.has_own(cx));
+        // The chip rows, as body's own children (as without profiles).
+        let mut picks: Vec<AnyElement> = Vec::new();
+        if open {
+            picks.push(
+                hint(
+                    format!("The login {project}'s agents run on. Picking one moves its agents there too, conversations included; one not logged in yet opens its login first."),
+                    &t,
+                )
+                .into_any_element(),
+            );
+            picks.extend(rows);
+            if kinds.is_empty() {
+                picks.push(hint("None of your agents can have more than one login.", &t).into_any_element());
+            }
+            picks.push(self.git_row(&t, cx));
+            picks.push(self.web_row(&t, cx));
+            picks.extend(self.ext_rows(&t, cx));
+        }
         let close = cx.entity();
+        let title = if profiled { format!("Profile · {project}") } else { format!("Accounts · {project}") };
+        let (link, to_profile): (String, Option<Option<String>>) = match (&profile, profiled) {
+            (Some(p), _) => (format!("Edit profile {}…", p.name), Some(Some(p.id.clone()))),
+            (None, true) => ("Manage profiles…".into(), Some(None)),
+            (None, false) => ("Manage accounts…".into(), None),
+        };
         frame(
-            Some(&format!("Accounts · {project}")),
+            Some(&title),
             480.,
             &t,
             crate::theme::motion_on(cx),
@@ -2291,16 +2428,12 @@ impl Render for ProjectAccountsDialog {
                 .flex_col()
                 .child(
                     body()
-                        .children(self.profile_row(&t, cx))
-                        .child(hint(
-                            format!("The login {project}'s agents run on. Picking one moves its agents there too, conversations included; one not logged in yet opens its login first."),
-                            &t,
-                        ))
-                        .children(rows)
-                        .when(kinds.is_empty(), |d| d.child(hint("None of your agents can have more than one login.", &t)))
-                        .child(self.git_row(&t, cx))
-                        .child(self.web_row(&t, cx))
-                        .children(self.ext_rows(&t, cx))
+                        .when(profiled, |d| {
+                            d.children(self.profile_row(&t, cx))
+                                .child(self.summary(&t, cx))
+                                .child(self.overrides_head(open, &t, cx))
+                        })
+                        .children(picks)
                         .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t))),
                 )
                 .child(
@@ -2308,16 +2441,20 @@ impl Render for ProjectAccountsDialog {
                         .child(
                             div()
                                 .id("pa-manage")
+                                .debug_selector(|| "pa-manage".into())
                                 .flex_1()
                                 .text_size(px(12.5))
                                 .text_color(t.text_3)
                                 .cursor_pointer()
                                 .hover_text(t.text, |s| s.underline())
-                                .on_click(cx.listener(|_, _, window, cx| {
+                                .on_click(cx.listener(move |_, _, window, cx| {
                                     cx.emit(DialogEvent::Close);
+                                    if let Some(p) = &to_profile {
+                                        crate::settings::profiles::show_profile(p.as_deref(), cx);
+                                    }
                                     window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
                                 }))
-                                .child("Manage accounts…"),
+                                .child(link),
                         )
                         .child(
                             button("pa-done", BtnKind::Primary, false, &t)
