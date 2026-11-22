@@ -45,7 +45,7 @@ way and start it again with the same `--data` and `--origin`.
 Agents reach Agention through its plugin, which runs the bridge
 (`agention-mcp`) as an MCP server, pinned to the release that matches
 your server. Either press **Set up Agention in my agents** in Settings →
-General → Extensions (once the extension is on): it shows the exact
+Extensions (step 3 of its checklist, once the extension is on): it shows the exact
 commands below and runs them only when you confirm, skipping a tool you
 don't have. Or run them yourself:
 
@@ -87,7 +87,8 @@ or Claude Code's settings, as the operator guide says. An agent that
 calls the bridge's `register` with its own names uses those instead, and
 Pitwall can't match its threads to it.
 
-Settings → General → Extensions shows exactly which variables the
+Settings → Extensions ("What this extension does on your computer")
+shows exactly which variables the
 extension sets. They take effect for agents started (or restarted) after
 you turn it on.
 
@@ -97,30 +98,33 @@ In Agention's web UI: Settings → API keys → create one with the scopes
 **`threads:write`** (read and answer threads) and **`sessions:read`**
 (match threads to agents). Copy it.
 
-## 4. Put this folder into Pitwall and turn it on
+## 4. Install it in Pitwall and turn it on
 
-Copy the folder into the `extensions` folder of Pitwall's data folder
-(`~/.pitwall` on macOS, `$XDG_DATA_HOME/pitwall` on Linux, or
-`$PITWALL_HOME` when set; Settings → General → Extensions shows the exact
-folder). The folder's name must be `agention`:
+Pitwall ships this extension. In Pitwall, open Settings → Extensions and
+press **Install** on Agention under Available. Installing runs nothing:
+it stays off until you turn it on. When a later Pitwall ships a newer
+version, the card offers Update (your settings and API key stay).
 
-```bash
-mkdir -p ~/.pitwall/extensions
-cp -R extensions/agention ~/.pitwall/extensions/
-```
+(Working from a checkout instead? Copy this folder into the `extensions`
+folder of Pitwall's data folder — `~/.pitwall` on macOS,
+`$XDG_DATA_HOME/pitwall` on Linux, or `$PITWALL_HOME` when set; Settings
+→ Extensions shows the exact folder — named `agention`, then "Look
+again".)
 
-Then in Pitwall, Settings → General → Extensions:
+Then turn Agention on; its card becomes a checklist:
 
-1. "Look again", and turn Agention on (it is off until you do).
-2. Server address: your server's origin, such as
+1. Server address: your server's origin, such as
    `https://agention.example.ts.net`.
-3. API key: copy the key, then "Paste from clipboard". It goes to your
+2. API key: copy the key, then "Paste from clipboard". It goes to your
    system's secure store (Keychain, Credential Manager or Secret
    Service); Pitwall's files only record that it is set. It is given to
    the adapter when it starts, never to agents.
+3. Set up Agention in my agents (section 2), if you haven't.
+4. Connected: ticked once the adapter reaches your server; otherwise
+   its words on why (signed out, unreachable, or why it stopped, with
+   Try again).
 
-The adapter's state shows there (connecting, connected, signed out, or why
-it stopped, with Restart). Open the inbox with ⌘I (Ctrl+Shift+I on
+The status pill on the card's top row says the same at a glance. Open the inbox with ⌘I (Ctrl+Shift+I on
 Windows and Linux) or "Open Agention inbox" in the command palette: a
 tile of your layout, with your agents' questions first. An agent with an
 open question also gets a small badge on its sidebar row; a click opens

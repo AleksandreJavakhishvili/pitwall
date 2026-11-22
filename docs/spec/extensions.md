@@ -25,8 +25,44 @@ the environment variables its manifest lists, shown in Settings.
 - One folder per extension, named after its id. Hidden folders and files
   in `extensions/` are skipped.
 - Read when Pitwall starts, and again with "Look again" in Settings →
-  General → Extensions. Not watched.
-- Installing is copying the folder in (the example's README says how).
+  Extensions (and after Install, Update or Remove there). Not watched.
+- Installed from Settings → Extensions (below), or by copying a folder
+  in by hand: a folder put there by hand works the same.
+
+## Installing (the extensions Pitwall ships)
+Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
+- **Shipped with the app**, like the skills: the repo's `extensions/`
+  folders that have an `extension.json`, staged by
+  `scripts/stage-extensions.sh` without their tests (`test/`), any
+  `node_modules` and `.DS_Store`. macOS: `Contents/Resources/extensions`;
+  Linux and Windows packages: an `extensions` folder beside the program.
+  Found as the skills are: `$PITWALL_BUNDLED_EXTENSIONS`, then
+  `../Resources/extensions`, `../lib/pitwall/extensions` and
+  `extensions` next to the program, then (development builds) the
+  repo's `extensions/`.
+- **Available:** each shipped one whose id isn't installed, demos
+  (`"demo": true`) last and marked "demo". Install copies it into
+  `<data>/extensions/<id>/` atomically: into a hidden folder beside it
+  first, then renamed into place, so a failed copy leaves nothing. It
+  stays **off**; installing runs nothing.
+- **The marker:** an installed copy has `.pitwall-install.json` with the
+  version installed and a digest of its files (all but `node_modules`,
+  `.git`, `.DS_Store` and the marker). A folder whose files no longer
+  match, or that has no marker (put there by hand), is "changed
+  locally".
+- **Update** is offered when the shipped copy's `version` is newer than
+  the installed one's (numeric parts compared in order; a pre-release
+  such as `1.2.0-beta` sorts before `1.2.0`; an installed one without a
+  version counts as older). Its settings and secrets stay. An extension
+  that is on is turned off for the swap (its adapter stops) and on again
+  after. The new folder is staged, the old one moved aside, the new one
+  moved in (the old one back if that fails), the old one deleted. A
+  folder changed locally asks first: "Replace", and those changes are
+  lost.
+- **Remove** asks first. It turns the extension off (its adapter stops),
+  forgets its settings and recorded setup actions in `ui.json`, deletes
+  its secrets from the system's secure store and deletes its folder.
+- Not on the command line yet ("Later").
 
 ## The manifest (`extension.json`, format 1)
 ```json
@@ -55,6 +91,12 @@ the environment variables its manifest lists, shown in Settings.
   `-`, starting with a letter, not ending with `-`. It must be the
   folder's name. It keys the extension's settings and its inbox tile.
 - `name` (required): one line, at most 40 characters (trimmed).
+- `version` (optional): at most 32 characters, starting with a digit;
+  letters, digits and `.-+`. Shown beside the name; what Update compares.
+- `demo` (optional, `true`/`false`): a demonstration, listed last under
+  Available and marked "demo".
+- `docs` (optional): an `https://` address of at most 300 characters,
+  linked as "Docs" in the extension's card.
 - `icon` (optional): the name of one of Pitwall's icons (`kit::icons`;
   `inbox`, `bell` and `chat` were added for extensions). Checked like an
   id; a name this Pitwall doesn't have draws the extension icon (a puzzle
@@ -83,7 +125,8 @@ the environment variables its manifest lists, shown in Settings.
   agent started: Pitwall badges that agent and offers "Go to agent".
 - `actions` (optional, at most 5): setup actions, buttons in Settings
   ("Setup actions" below). Each: `id` (like an icon name), `label` (the
-  button, ≤ 40), `description` (one line, ≤ 200) and `steps` (1–12).
+  button, ≤ 40), `description` (one line, ≤ 200), optional `setup`
+  (`true`: a step of the extension's setup checklist) and `steps` (1–12).
   A step: `run`, the program and its arguments as a list of 1–32 strings
   (≤ 500 each; never one shell line: a string is refused); the program
   is a name looked up on the login shell's PATH, not a path or a
@@ -192,10 +235,42 @@ gets one `result`)
   Settings, where "Restart" starts it again. Pitwall doesn't restart a
   crashed adapter by itself.
 
+## Settings → Extensions
+A tab of its own (after Accounts). Code: `settings/extensions.rs`.
+- **Installed:** one card per folder found. Its top row: icon, name,
+  version (a "demo" mark), description, a status pill of fixed width
+  (Off, Needs setup, Connecting, Connected, Signed out, Stopped, Error;
+  On for one without an adapter), the switch and a fold chevron. Folded
+  while off, unfolded while on; the user can fold or unfold it. One
+  that can't be used shows its folder and why. With none installed: a
+  dashed box pointing at Available.
+- **The checklist** (an extension that is on), built from the manifest,
+  numbered, each step a tick once done, its field or button on the step:
+  each required setting (an optional one counts as done), then each
+  `setup` action, then "Connected" (for one with an adapter: the
+  adapter's own words when it isn't, and Try again). For Agention:
+  1 Server address, 2 API key, 3 Set up Agention in my agents,
+  4 Connected. A setup action whose last run had a step done and none
+  failed or cancelled is recorded (`extensions.<id>.actionsDone`), so
+  its step stays ticked; a later failed run unticks it.
+- **Fields:** a `url` field saves when it loses focus or on Enter; one
+  that isn't a web address says "That isn't a web address (like
+  https://example.com)." under it and isn't saved. Hints sit under their
+  field. A secret that is set shows "Saved in your keychain" (Credential
+  Manager, keyring) with Replace and Remove, never its value; unset,
+  "Paste from clipboard".
+- **More:** actions that aren't `setup` (Agention's "Remove Agention from
+  my agents"), under the checklist.
+- **The footer:** "What this extension does on your computer", folded:
+  the command its adapter runs while on, the variables it sets on agents
+  (with its settings put in), each action's command lines, its folder.
+  Then Docs (the manifest's `docs`) and Remove.
+- **Update / changed locally / failures** show as a line under the top
+  row; Remove and Replace confirm in a card there.
+- **Available:** compact cards (icon, name, version, description,
+  Install), wrapping to the width.
+
 ## On and off
-- Each extension found is listed in Settings → General → Extensions: its
-  icon, name, description and a switch. One that can't be used shows its
-  folder and why.
 - **Off until the user turns it on.**
 - Kept in `ui.json` as `extensions.<id>.enabled` (absent: off). Keys a
   later version adds to an entry are kept. The settings schema
@@ -262,7 +337,11 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
   `inbox details <message>`, `inbox pick <n>`, `inbox reply <text>`,
   `inbox close`, and
   `ext-action <ext> <action>` (Settings → Extensions with that action's
-  confirmation shown).
+  confirmation shown), `ext-run <ext> <action> <prog args|prog args…>`
+  (that action run with these harmless steps in its place),
+  `ext-disclose <ext>`, `ext-secret <ext> <key> <value>` (a bench
+  instance keeps secrets in memory, never in the keychain) and
+  `settings-end` (the Settings page scrolled to its end).
 - **Shipped extensions' checks:** Pitwall's tests read every folder
   under the repo's `extensions/`: each manifest parses and plans its
   actions, and its `test/pitwall.json`, when there is one, says what
@@ -295,10 +374,18 @@ as installing a tool's plugin in the user's agents. Code:
   ("set Server address first"). Run and Cancel.
 - After Run: the steps run in order, off the UI thread, in the user's
   home folder, each with a 3-minute timeout and its output kept short.
-  Each step then says **Done**, **Failed** (why: the exit code and the
-  last lines of output, or that it took too long and was stopped), or
-  **Skipped** (why). A failed step that isn't `optional` skips the later
-  steps for the same kind (or every later step when it is for none).
+  The step list shows from the moment Run is pressed, each step with its
+  command line and its state: waiting, running (a spinner, its time in
+  seconds, and its latest output lines in a small mono box of at most
+  five lines), done, failed (why: the exit code and the last lines of
+  output, or that it took too long and was stopped) or skipped (why). A
+  failed step that isn't `optional` skips the later steps for the same
+  kind (or every later step when it is for none). At the end: "All set"
+  or "2 of 6 steps failed" ("Cancelled").
+- **Cancel** while it runs stops the running step's program and skips
+  the rest. "Run again" after it ends.
+- The run belongs to the app, not to Settings (`actions::Runs`):
+  closing Settings and opening it again mid-run shows it as it is.
 - Nothing runs when an extension is found, turned on, at startup, or at
   an adapter's request: only from the button, after the confirmation.
 
@@ -312,6 +399,7 @@ as installing a tool's plugin in the user's agents. Code:
   list of archived threads.
 - Dragging the inbox tile to another place (it is closed and opened
   again instead).
-- Installing from a folder or a link (`pitwall extension install`, a
-  Settings row), and watching the folder.
+- `pitwall extension list|install|remove` on the command line (it needs
+  the app's socket protocol to reach the running app's state).
+- Installing from a folder or a link, and watching the folder.
 - View kinds besides the inbox.
