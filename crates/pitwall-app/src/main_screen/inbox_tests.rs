@@ -301,6 +301,13 @@ fn a_tile_shows_when_there_are_no_agents(cx: &mut TestAppContext) {
     }
 }
 
+/// The platform's Maximise key, as `main_screen::bindings` has it (⌘⏎ on
+/// macOS, Ctrl+Shift+Enter elsewhere: "cmd" is Super off macOS).
+const MAXIMISE: &str = if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-shift-enter" };
+
+/// The platform's key a field sends with (⌘↵ / Ctrl+↵).
+const SEND: &str = if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-enter" };
+
 /// Every key a word or a number is typed with, none of them a tile key
 /// when a field has the keyboard (J, K, E, R, 1–9 are, in the tile).
 const TYPED: &str = "the quick brown fox jumps over a lazy dog 0123456789 JKER";
@@ -361,7 +368,7 @@ fn what_is_typed_in_the_reply_box_goes_in_it(cx: &mut TestAppContext) {
     assert_eq!(field_text(&v, "reply", cx), format!("{TYPED}!"));
 
     // Sent with ⌘↵: the box is empty and still has the keys.
-    cx.simulate_keystrokes("cmd-enter");
+    cx.simulate_keystrokes(SEND);
     frame(cx);
     let s = acted(&h, cx);
     assert_eq!(s.len(), 1, "{s:?}");
@@ -428,11 +435,11 @@ fn the_inbox_tile_takes_part_in_the_tile_keys(cx: &mut TestAppContext) {
     let pane = view.read_with(cx, |s, _| s.active_space().unwrap().layout.leaves().iter().find(|p| p.inbox.is_some()).unwrap().id.clone());
     let space = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| view.read_with(cx, |s, _| s.active_space().cloned().unwrap());
     assert_eq!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "⌘I focuses its tile");
-    cx.simulate_keystrokes("cmd-enter");
+    cx.simulate_keystrokes(MAXIMISE);
     frame(cx);
     assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()), "maximised");
     assert!(cx.debug_bounds("inbox-row-t1").is_some(), "drawn maximised");
-    cx.simulate_keystrokes("cmd-enter");
+    cx.simulate_keystrokes(MAXIMISE);
     frame(cx);
     assert_eq!(space(&view, cx).maximized_pane_id, None, "restored");
 
@@ -444,7 +451,7 @@ fn the_inbox_tile_takes_part_in_the_tile_keys(cx: &mut TestAppContext) {
     cx.simulate_click(gpui::point(empty.left() + gpui::px(200.), empty.center().y), Modifiers::none());
     frame(cx);
     assert_eq!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "a click focuses its tile");
-    cx.simulate_keystrokes("cmd-enter");
+    cx.simulate_keystrokes(MAXIMISE);
     frame(cx);
     assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()));
     // Its bar's Restore / Maximise.
