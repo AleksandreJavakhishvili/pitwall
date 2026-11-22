@@ -26,7 +26,7 @@ pub mod pages;
 mod peers;
 pub mod permissions;
 pub mod prefs;
-mod profiles;
+pub mod profiles;
 pub mod view;
 pub mod watch;
 pub mod widgets;
@@ -112,6 +112,7 @@ fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
     match p {
         Page::General => "scan again elsewhere command line cli tool",
         Page::Agents => "claude codex hooks race engineer assistant updates",
+        Page::Profiles => "profiles work personal bundle set accounts project",
         Page::Accounts => "accounts logins usage tokens limits plan git identity github azure ssh",
         Page::Extensions => "extensions install update remove inbox adapter plugin setup",
         Page::Rules => "rulesync rule sets skills skill.md library",

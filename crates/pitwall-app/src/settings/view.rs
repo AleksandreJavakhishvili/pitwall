@@ -189,11 +189,17 @@ pub fn keys(s: &str) -> String {
     }
 }
 
-/// The page before or after `p` (wrapping).
-pub fn step(p: Page, delta: i32) -> Page {
-    let all = Page::ALL;
+/// The page before or after `p` among `all` (wrapping).
+pub fn step(all: &[Page], p: Page, delta: i32) -> Page {
     let i = all.iter().position(|x| *x == p).unwrap_or(0) as i32;
     all[(i + delta).rem_euclid(all.len() as i32) as usize]
+}
+
+/// The pages in the nav: Profiles only once there is something to bundle
+/// or a profile exists (or it is the page open).
+pub fn shown_pages(cx: &gpui::App) -> Vec<Page> {
+    let open = data::page(cx);
+    Page::ALL.into_iter().filter(|p| *p != Page::Profiles || open == Page::Profiles || SettingsView::profiles_useful(cx)).collect()
 }
 
 impl SettingsView {
@@ -431,12 +437,12 @@ impl SettingsView {
     }
 
     fn prev_page(&mut self, _: &PrevPage, window: &mut Window, cx: &mut Context<Self>) {
-        let p = step(data::page(cx), -1);
+        let p = step(&shown_pages(cx), data::page(cx), -1);
         self.go(p, window, cx);
     }
 
     fn next_page(&mut self, _: &NextPage, window: &mut Window, cx: &mut Context<Self>) {
-        let p = step(data::page(cx), 1);
+        let p = step(&shown_pages(cx), data::page(cx), 1);
         self.go(p, window, cx);
     }
 
@@ -573,7 +579,7 @@ impl SettingsView {
             .py(px(8.))
             .border_r_1()
             .border_color(t.line)
-            .children(Page::ALL.into_iter().enumerate().map(|(i, p)| {
+            .children(shown_pages(cx).into_iter().enumerate().map(|(i, p)| {
                 let on = p == page;
                 div()
                     .id(("settings-page", i))
@@ -661,11 +667,15 @@ mod tests {
 
     #[test]
     fn arrows_move_between_pages_and_wrap() {
-        assert_eq!(step(Page::General, 1), Page::Agents);
-        assert_eq!(step(Page::General, -1), Page::About);
-        assert_eq!(step(Page::About, 1), Page::General);
-        assert_eq!(step(Page::Rules, -1), Page::Extensions);
-        assert_eq!(step(Page::Accounts, 1), Page::Extensions);
+        assert_eq!(step(&Page::ALL, Page::General, 1), Page::Agents);
+        assert_eq!(step(&Page::ALL, Page::General, -1), Page::About);
+        assert_eq!(step(&Page::ALL, Page::About, 1), Page::General);
+        assert_eq!(step(&Page::ALL, Page::Rules, -1), Page::Extensions);
+        assert_eq!(step(&Page::ALL, Page::Accounts, 1), Page::Extensions);
+        // Profiles hidden: Agents is next to Accounts.
+        let shown: Vec<Page> = Page::ALL.into_iter().filter(|p| *p != Page::Profiles).collect();
+        assert_eq!(step(&shown, Page::Agents, 1), Page::Accounts);
+        assert_eq!(step(&Page::ALL, Page::Agents, 1), Page::Profiles);
     }
 
     #[test]

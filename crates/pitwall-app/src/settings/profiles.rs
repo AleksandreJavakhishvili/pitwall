@@ -1,28 +1,33 @@
-//! Settings → Accounts, after the accounts themselves:
+//! Settings → Profiles (docs/spec/profiles.md), a page of its own, in the
+//! nav once there is something to bundle (a second login, a git identity,
+//! a browser account, a second connection) or a profile exists:
 //!
-//! - **Extension connections** (only once an extension has two): each
-//!   extension's connections by name, the default marked, with the
-//!   profiles and projects that use each; read-only, "Edit in Extensions"
-//!   opens the extension's card, the one place they are set up.
-//! - **Profiles** (docs/spec/profiles.md): named bundles ("Work",
-//!   "Personal") of one pick per slot that has something to pick (a
-//!   tool's login, a git identity, a browser account, a connection per
-//!   extension). Add, rename, delete (its projects keep what they run
-//!   under); each slot's choices as chips: "Not set" (the project decides,
-//!   else the default), the default, each account, and for an extension
-//!   None. A change to a profile projects use applies as a pick in their
-//!   Accounts… does (`accounts::PicksChanged`).
+//! - what a profile is, in a line, and "Add profile";
+//! - each profile: its name and the projects that use it; folded, what it
+//!   picks as small labelled chips; unfolded (a new one is, at once), each
+//!   slot's choices as chips: "Not set" (each project decides, else the
+//!   default), the default, each account of that kind, for an extension
+//!   None, and "+ New …": a login, browser account or connection is made
+//!   in place (a login then opens its login), a git identity on Accounts'
+//!   form, back here once saved. Rename; delete (asks; its projects keep
+//!   what they run under). A change to a profile projects use applies as
+//!   a pick in their Profile… dialog does (`accounts::PicksChanged`).
+//!
+//! Settings → Accounts keeps the accounts to choose from; its read-only
+//! **Extension connections** (only once an extension has two) are here
+//! too, and a line at its top points to Profiles when that page shows.
 
-use gpui::{div, prelude::*, px, Context, Div, Entity, FontWeight, SharedString};
+use gpui::{div, prelude::*, px, App, Context, Div, Entity, FontWeight, SharedString};
+use pitwall_proto::settings::Page;
 
 use super::view::SettingsView;
 use super::widgets::Ui;
 use crate::accounts::{self as acc, SlotRow};
 use crate::kit::Ellipsis as _;
 use crate::kit::{BtnKind, InputEvent, TextInput};
-use pitwall_core::accounts::Profile;
+use pitwall_core::accounts::{self as core_acc, Profile};
 
-/// The sections' own state.
+/// The page's own state.
 #[derive(Default)]
 pub struct Section {
     /// A profile being named: the one renamed (`None`: a new one) and its
@@ -32,13 +37,45 @@ pub struct Section {
     deleting: Option<String>,
     /// Profiles unfolded (a new one is, until folded).
     open: std::collections::HashSet<String>,
+    /// "+ New …" in a profile's slot: (profile, slot) and the new one's
+    /// name.
+    creating: Option<(String, String, Entity<TextInput>)>,
+    /// A git identity being added on Accounts for (profile): it is given
+    /// that identity, and Profiles shows again, once it is saved.
+    pub(super) git_for: Option<String>,
     error: Option<String>,
     _subs: Vec<gpui::Subscription>,
+}
+
+/// Settings opens next on Profiles with this profile unfolded (the
+/// project dialog's "Edit profile …").
+struct OpenProfile(Option<String>);
+
+impl gpui::Global for OpenProfile {}
+
+/// Settings next opens on Profiles, profile `id` unfolded (`None`: just the
+/// page).
+pub fn show_profile(id: Option<&str>, cx: &mut App) {
+    cx.set_global(OpenProfile(id.map(String::from)));
+    super::data::set_page(cx, Page::Profiles);
 }
 
 /// A project folder's last part.
 fn short(p: &str) -> String {
     p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string()
+}
+
+/// What "+ New …" makes in `slot` (`None`: nothing can be made there).
+fn new_label(slot: &str, cx: &App) -> Option<&'static str> {
+    if slot == core_acc::GIT {
+        Some("+ New git identity")
+    } else if slot == core_acc::WEB {
+        crate::web::profiles::separate(cx).then_some("+ New browser account")
+    } else if core_acc::ext_of(slot).is_some() {
+        Some("+ New connection")
+    } else {
+        Some("+ New account")
+    }
 }
 
 impl SettingsView {
@@ -47,17 +84,29 @@ impl SettingsView {
     pub(super) fn has_connections(cx: &gpui::App) -> bool {
         acc::list(cx).is_some_and(|l| {
             let mut seen = std::collections::HashSet::new();
-            l.accounts.iter().filter_map(|a| pitwall_core::accounts::ext_of(&a.kind)).any(|e| !seen.insert(e.to_string()))
+            l.accounts.iter().filter_map(|a| core_acc::ext_of(&a.kind)).any(|e| !seen.insert(e.to_string()))
         })
     }
 
     /// Profiles show once there is a choice to bundle: a second login, a
     /// git identity, a browser account or a second connection of an
     /// extension (or once one exists). One login and one connection: no
-    /// section, nothing to explain.
+    /// page, nothing to explain.
     pub(super) fn profiles_useful(cx: &gpui::App) -> bool {
         let has_profiles = acc::list(cx).is_some_and(|l| !l.profiles.is_empty());
-        has_profiles || acc::slot_rows(cx).iter().any(|r| if pitwall_core::accounts::ext_of(&r.slot).is_some() { r.choices.len() > 3 } else { r.choices.len() > 1 })
+        has_profiles || acc::slot_rows(cx).iter().any(|r| if core_acc::ext_of(&r.slot).is_some() { r.choices.len() > 3 } else { r.choices.len() > 1 })
+    }
+
+    /// Accounts' first line once Profiles shows: where they are put
+    /// together.
+    pub(super) fn profiles_pointer(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let t = &ui.t;
+        div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(div().flex_1().min_w_0().child(crate::kit::muted("The accounts a profile picks from. Projects get them through their profile.", t)))
+            .child(div().flex_none().child(crate::kit::text_button("acct-to-profiles", "Open Profiles", BtnKind::Small, false, t).on_click(cx.listener(|v, _, w, cx| v.go_page(Page::Profiles, w, cx)))))
     }
 
     /// Each extension's connections, read-only, with where they are used.
@@ -184,14 +233,88 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Profiles: what one is, each profile's card, Add profile.
+    /// "+ New …" in profile `pid`'s `slot`: a git identity is added on
+    /// Accounts (its form needs more than a name); the rest are named here.
+    fn start_creating(&mut self, pid: &str, slot: &str, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        if slot == core_acc::GIT {
+            self.open_git_form(None, cx);
+            self.profiles.git_for = Some(pid.to_string());
+            self.go_page(Page::Accounts, window, cx);
+            return;
+        }
+        let input = cx.new(|cx| TextInput::new(cx, "", "Work"));
+        input.update(cx, |i, cx| i.focus(window, cx));
+        let sub = cx.subscribe(&input, |v, _, e: &InputEvent, cx| match e {
+            InputEvent::Submit => v.finish_creating(cx),
+            InputEvent::Cancel => {
+                v.profiles.creating = None;
+                cx.notify();
+            }
+            InputEvent::Changed => {
+                v.profiles.error = None;
+                cx.notify();
+            }
+            _ => {}
+        });
+        self.profiles._subs.push(sub);
+        self.profiles.creating = Some((pid.to_string(), slot.to_string(), input));
+        self.profiles.error = None;
+        cx.notify();
+    }
+
+    /// Make the account named in "+ New …" and give it to the profile: a
+    /// login then starts its login, a connection is then set up on its
+    /// extension's card (said under the slot).
+    fn finish_creating(&mut self, cx: &mut Context<Self>) {
+        let Some((pid, slot, input)) = self.profiles.creating.clone() else { return };
+        let name = input.read(cx).text().trim().to_string();
+        let model = acc::model(cx);
+        let made = if slot == core_acc::WEB {
+            crate::web::profiles::add(&name, cx).map(|a| a.id)
+        } else if let Some(ext) = core_acc::ext_of(&slot) {
+            let ext = ext.to_string();
+            model.update(cx, |m, cx| m.add_connection(&ext, &name, cx)).map(|a| a.id)
+        } else {
+            model.update(cx, |m, cx| m.add(&slot, &name, None, cx)).map(|a| a.id)
+        };
+        match made.and_then(|id| model.update(cx, |m, cx| m.set_profile_pick(&pid, &slot, Some(&id), cx)).map(|_| id)) {
+            Ok(id) => {
+                self.profiles.creating = None;
+                if acc::is_tool_kind(&slot) {
+                    self.log_in(&slot, &id, cx);
+                }
+            }
+            Err(e) => self.profiles.error = Some(e),
+        }
+        cx.notify();
+    }
+
+    /// A git identity was just added on Accounts: the profile that asked
+    /// for it gets it, and Profiles shows again with it unfolded.
+    pub(super) fn git_added(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(pid) = self.profiles.git_for.take() else { return };
+        let model = acc::model(cx);
+        if let Err(e) = model.update(cx, |m, cx| m.set_profile_pick(&pid, core_acc::GIT, Some(id), cx)) {
+            self.profiles.error = Some(e);
+        }
+        self.profiles.open.insert(pid);
+        super::data::set_page(cx, Page::Profiles);
+        cx.notify();
+    }
+
+    /// Profiles: what one is, Add profile, each profile's card.
     pub(super) fn profiles_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
+        // Opened from a project's dialog: that profile unfolded.
+        if let Some(id) = cx.try_global::<OpenProfile>().and_then(|o| o.0.clone()) {
+            cx.set_global(OpenProfile(None));
+            self.profiles.open.insert(id);
+        }
         let model = acc::model(cx);
         let live = model.read(cx).live();
         let list = model.read(cx).list.clone();
         let adding = matches!(self.profiles.naming, Some((None, _)));
-        let mut sec = div().flex().flex_col().gap(px(8.)).child(
+        let mut sec = div().flex().flex_col().gap(px(10.)).child(
             div()
                 .flex()
                 .items_center()
@@ -203,13 +326,13 @@ impl SettingsView {
                 .when(live && !adding, |d| d.child(crate::kit::text_button("profile-add", "Add profile", BtnKind::Small, false, t).on_click(cx.listener(|v, _, w, cx| v.start_profile_naming(None, w, cx))))),
         );
         sec = sec.child(crate::kit::muted(
-            "A profile bundles one of each of the accounts above under a name, like Work or Personal. A project picks a profile in its Accounts… instead of each account, and can still change single ones.",
+            "A profile is a set: which login, git identity, browser account and connections go together. Give a project a profile and it uses all of them.",
             t,
         ));
         if !live {
             return sec.child(crate::kit::hint("Profiles need Pitwall's engine, which isn't running.", t));
         }
-        let rows = acc::slot_rows(cx);
+        let rows = acc::profile_slot_rows(cx);
         if let Some((None, input)) = self.profiles.naming.clone() {
             let empty = input.read(cx).text().trim().is_empty();
             sec = sec.child(
@@ -233,10 +356,15 @@ impl SettingsView {
             );
         }
         if list.profiles.is_empty() && !adding {
-            sec = sec.child(div().p(px(12.)).rounded(px(10.)).border_1().border_dashed().border_color(t.line).child(crate::kit::muted(
-                if rows.is_empty() { "No profiles. Add a second login, a git identity, a browser account or an extension connection above first: a profile picks among them." } else { "No profiles yet. Without one, each project picks its accounts itself, as now." },
-                t,
-            )));
+            sec = sec.child(
+                div()
+                    .p(px(12.))
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(t.line)
+                    .child(crate::kit::muted("No profiles yet. Add one, like Work, pick its accounts, then give it to projects from their Profile… menu item.", t)),
+            );
         }
         for p in &list.profiles {
             sec = sec.child(self.profile_card(ui, p, &rows, cx));
@@ -247,8 +375,8 @@ impl SettingsView {
         sec
     }
 
-    /// One profile: its name and who uses it; folded, what it picks in a
-    /// line; unfolded, each slot's chips.
+    /// One profile: its name and who uses it; folded, its picks as small
+    /// labelled chips; unfolded, each slot's chips.
     fn profile_card(&mut self, ui: &Ui, p: &Profile, rows: &[SlotRow], cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
         let list = acc::list(cx).cloned().unwrap_or_default();
@@ -269,12 +397,13 @@ impl SettingsView {
                 }
                 cx.notify();
             }));
-        let summary: Vec<String> = rows
+        // What it picks, for the folded card: "Claude Code  Work".
+        let picks: Vec<(String, String)> = rows
             .iter()
             .filter_map(|r| {
                 let v = p.picks.get(&r.slot)?;
                 let name = r.choices.iter().find(|(c, _)| c == v).map(|(_, n)| n.clone())?;
-                Some(format!("{}: {name}", r.label))
+                Some((r.label.clone(), name))
             })
             .collect();
         let mut actions = div().flex().items_center().gap(px(6.)).flex_none();
@@ -305,15 +434,13 @@ impl SettingsView {
                     cx.notify();
                 })));
         }
-        let line = |text: String| div().min_w_0().ellipsis().text_size(px(11.5)).text_color(t.text_3).child(crate::kit::one_line(text));
-        let mut sub: Vec<String> = Vec::new();
-        if self.profiles.deleting.as_deref() == Some(&p.id) {
-            sub.push(if projects.is_empty() { "Delete it? Its accounts stay.".into() } else { format!("Delete it? Its accounts stay; {} keep what they run under as their own picks.", projects.join(", ")) });
+        let sub = if self.profiles.deleting.as_deref() == Some(&p.id) {
+            if projects.is_empty() { "Delete it? Its accounts stay.".to_string() } else { format!("Delete it? Its accounts stay; {} keep what they run under as their own picks.", projects.join(", ")) }
         } else if !projects.is_empty() {
-            sub.push(format!("Used by {}", projects.join(", ")));
+            format!("Used by {}", projects.join(", "))
         } else {
-            sub.push("No project uses it yet: pick it in a project's Accounts…".into());
-        }
+            "No project uses it yet: give it to one from the project's Profile… menu item.".into()
+        };
         let head = div()
             .flex()
             .items_center()
@@ -325,22 +452,41 @@ impl SettingsView {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap(px(1.))
+                    .gap(px(2.))
                     .child(match renaming {
                         Some(input) => div().w(px(220.)).child(input).into_any_element(),
                         None => div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child(p.name.clone()).into_any_element(),
                     })
-                    .children(sub.into_iter().map(line))
-                    .when(!open && !summary.is_empty(), |d| d.child(line(summary.join(" · "))))
-                    .when(!open && summary.is_empty(), |d| d.child(line("Picks nothing yet: unfold it to choose.".into()))),
+                    .child(div().text_size(px(11.5)).text_color(t.text_3).child(sub)),
             )
             .child(actions);
         let mut card = div().flex().flex_col().gap(px(10.)).px(px(10.)).py(px(8.)).rounded(crate::theme::RADIUS).border_1().border_color(t.line).child(head);
-        if open {
-            let mut grid = div().flex().flex_col().gap(px(10.)).pl(px(26.)).pb(px(4.));
-            if rows.is_empty() {
-                grid = grid.child(crate::kit::hint("There is nothing to pick yet: add accounts above.", t));
-            }
+        if !open {
+            // Small labelled chips, wrapping: nothing cut mid-word.
+            let chips = if picks.is_empty() {
+                vec![div().text_size(px(11.5)).text_color(t.text_3).child("Picks nothing yet: unfold it to choose its accounts.").into_any_element()]
+            } else {
+                picks
+                    .into_iter()
+                    .map(|(label, name)| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(5.))
+                            .h(px(22.))
+                            .px(px(8.))
+                            .rounded(px(5.))
+                            .bg(t.surface_2)
+                            .text_size(px(11.5))
+                            .child(div().text_color(t.text_3).child(label))
+                            .child(div().text_color(t.text).child(name))
+                            .into_any_element()
+                    })
+                    .collect()
+            };
+            card = card.child(div().pl(px(32.)).pb(px(2.)).flex().flex_wrap().gap(px(6.)).children(chips));
+        } else {
+            let mut grid = div().flex().flex_col().gap(px(10.)).pl(px(32.)).pb(px(4.));
             for (n, r) in rows.iter().enumerate() {
                 grid = grid.child(self.profile_slot(ui, p, r, n, cx));
             }
@@ -349,8 +495,9 @@ impl SettingsView {
         card
     }
 
-    /// A profile's slot: its label, then "Not set" and each choice as
-    /// chips, its pick ticked.
+    /// A profile's slot: its label, then "Not set", each choice and
+    /// "+ New …" as chips, its pick ticked; the new one's name field while
+    /// it is made; a connection picked that isn't set up yet says so.
     fn profile_slot(&mut self, ui: &Ui, p: &Profile, r: &SlotRow, n: usize, cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
         let current = p.picks.get(&r.slot).cloned();
@@ -387,6 +534,67 @@ impl SettingsView {
                     })),
             );
         }
-        div().flex().items_start().gap(px(10.)).child(div().w(px(130.)).flex_none().pt(px(5.)).text_size(px(12.)).text_color(t.text_2).child(r.label.clone())).child(div().flex_1().min_w_0().child(chips))
+        let creating = self.profiles.creating.as_ref().filter(|(pid, slot, _)| *pid == p.id && *slot == r.slot).map(|(_, _, i)| i.clone());
+        if let (None, Some(label)) = (&creating, new_label(&r.slot, cx)) {
+            let (pid, slot) = (p.id.clone(), r.slot.clone());
+            chips = chips.child(
+                div()
+                    .id(SharedString::from(format!("profile-new-{}-{n}", p.id)))
+                    .flex()
+                    .items_center()
+                    .h(px(26.))
+                    .px(px(10.))
+                    .rounded_full()
+                    .border_1()
+                    .border_dashed()
+                    .border_color(t.line_strong)
+                    .text_size(px(12.))
+                    .text_color(t.text_3)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.surface_2))
+                    .child(label)
+                    .on_click(cx.listener(move |v, _, w, cx| v.start_creating(&pid, &slot, w, cx))),
+            );
+        }
+        let mut col = div().flex_1().min_w_0().flex().flex_col().gap(px(6.)).child(chips);
+        if let Some(input) = creating {
+            let what = if acc::is_tool_kind(&r.slot) { "Create and log in" } else { "Create" };
+            col = col.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().w(px(200.)).child(input))
+                    .child(crate::kit::text_button(SharedString::from(format!("profile-new-cancel-{n}")), "Cancel", BtnKind::Ghost, false, t).on_click(cx.listener(|v, _, _, cx| {
+                        v.profiles.creating = None;
+                        cx.notify();
+                    })))
+                    .child(crate::kit::text_button(SharedString::from(format!("profile-new-ok-{n}")), what, BtnKind::Primary, false, t).on_click(cx.listener(|v, _, _, cx| v.finish_creating(cx)))),
+            );
+        }
+        // A connection picked that isn't set up yet: where to.
+        if let (Some(ext), Some(cid)) = (core_acc::ext_of(&r.slot), current.as_deref().filter(|c| *c != core_acc::DEFAULT && *c != core_acc::NONE)) {
+            let unset = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).cloned().zip(acc::list(cx).and_then(|l| l.get(cid)).cloned()).filter(|(m, c)| {
+                m.settings.iter().filter(|s| s.required).any(|s| match s.kind {
+                    pitwall_core::extensions::SettingKind::Secret => !c.secrets_set.contains(&s.key),
+                    _ => c.values.get(&s.key).is_none_or(|v| v.trim().is_empty()),
+                })
+            });
+            if let Some((m, c)) = unset {
+                let (ext, cid) = (ext.to_string(), c.id.clone());
+                col = col.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(crate::kit::hint(format!("{} isn't set up yet.", c.name), t))
+                        .child(crate::kit::text_button(SharedString::from(format!("profile-setup-{n}")), format!("Set it up on {}'s card", m.name), BtnKind::Link, false, t).on_click(cx.listener(move |v, _, w, cx| {
+                            v.exts_show_conn(&ext, &cid);
+                            v.go_page(Page::Extensions, w, cx);
+                        }))),
+                );
+            }
+        }
+        div().flex().items_start().gap(px(10.)).child(div().w(px(130.)).flex_none().pt(px(5.)).text_size(px(12.)).text_color(t.text_2).child(r.label.clone())).child(col)
     }
 }

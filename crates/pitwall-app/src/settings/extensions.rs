@@ -222,6 +222,13 @@ impl SettingsView {
         self.exts.open.insert(id.to_string(), true);
     }
 
+    /// Extension `ext`'s card unfolded on connection `conn` (from a
+    /// profile's "Set it up").
+    pub(super) fn exts_show_conn(&mut self, ext: &str, conn: &str) {
+        self.exts.open.insert(ext.to_string(), true);
+        self.exts.conn.insert(ext.to_string(), conn.to_string());
+    }
+
     /// The Extensions page: what extensions are, each installed one in a
     /// card of its own, then those Pitwall ships that aren't installed.
     pub(super) fn extension_parts(&mut self, cx: &mut Context<Self>) -> Vec<Part> {
@@ -563,7 +570,7 @@ impl SettingsView {
         if let Some(n) = self.exts.naming_note.as_ref().filter(|_| naming.is_some()) {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
         } else if matches!(naming, Some((None, _))) {
-            col = col.child(crate::kit::hint("Another server or key, like Work or Personal. Each project then picks which one its agents use (in its Accounts…, or through its profile).", &ui.t));
+            col = col.child(crate::kit::hint("Another server or key, like Work or Personal. Each project then picks which one its agents use, itself or through its profile (the project's right-click menu).", &ui.t));
         }
         col
     }
