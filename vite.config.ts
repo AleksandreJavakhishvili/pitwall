@@ -1,4 +1,6 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // The React UI, built as the website's live demo (website/scripts/build-demo.mjs)
@@ -24,6 +26,12 @@ export default defineConfig(() => ({
       "@lezer/highlight",
       "@replit/codemirror-indentation-markers",
     ],
+  },
+
+  // Extensions bring their own tests, run with Node's test runner
+  // (extensions/agention/adapter/README.md), not with vitest.
+  test: {
+    exclude: [...configDefaults.exclude, "extensions/**"],
   },
 
   clearScreen: false,
