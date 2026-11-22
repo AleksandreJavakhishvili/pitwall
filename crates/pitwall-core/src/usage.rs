@@ -341,7 +341,7 @@ mod tests {
     }
 
     fn account(dir: &Path) -> Account {
-        Account { id: "a".into(), kind: "claude".into(), name: "A".into(), dir: dir.to_string_lossy().into_owned() }
+        Account { id: "a".into(), kind: "claude".into(), name: "A".into(), dir: dir.to_string_lossy().into_owned(), ..Default::default() }
     }
 
     const NOW: u64 = 1_792_787_783_668; // 2026-10-23T20:36:23.668Z
