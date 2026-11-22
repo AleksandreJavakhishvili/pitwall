@@ -76,7 +76,7 @@ mod tests {
     use crate::ui_state::UiState;
 
     fn ext(id: &str) -> Found {
-        Found { folder: id.into(), manifest: Ok(Manifest { id: id.into(), name: id.to_uppercase(), icon: None, description: None }) }
+        Found { folder: id.into(), manifest: Ok(Manifest::named(id, &id.to_uppercase())) }
     }
 
     /// Off until turned on; a broken one is never on; the switch is kept
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn an_unknown_icon_gets_the_extension_icon() {
-        let mut m = Manifest { id: "a".into(), name: "A".into(), icon: Some("inbox".into()), description: None };
+        let mut m = Manifest { icon: Some("inbox".into()), ..Manifest::named("a", "A") };
         assert_eq!(icon_of(&m), "inbox");
         m.icon = Some("no-such-icon".into());
         assert_eq!(icon_of(&m), DEFAULT_ICON);

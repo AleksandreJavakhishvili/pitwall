@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "demo-inbox",
+  "name": "Demo inbox",
+  "icon": "chat",
+  "description": "Made-up threads from a fake adapter: shows how an extension's inbox looks",
+  "settings": [
+    { "key": "greeting", "type": "url", "label": "Any address (shown in the first thread)", "placeholder": "https://example.com" }
+  ],
+  "adapter": { "command": ["node", "adapter.mjs"] },
+  "matchAgents": { "agent": "{project}", "session": "{agent_id}" }
+}

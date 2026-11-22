@@ -1006,7 +1006,7 @@ fn new_agent_takes_a_typed_name_flat_and_on_glass(cx: &mut TestAppContext) {
 fn an_extension_that_is_on_has_a_sidebar_section(cx: &mut TestAppContext) {
     use pitwall_core::extensions::{Found, Manifest};
     let (view, _, cx) = screen(cx);
-    let inbox = Manifest { id: "inbox".into(), name: "Inbox".into(), icon: Some("inbox".into()), description: None };
+    let inbox = Manifest { icon: Some("inbox".into()), ..Manifest::named("inbox", "Inbox") };
     cx.update(|_, cx| {
         crate::extensions::set_found(
             vec![Found { folder: "broken".into(), manifest: Err("no".into()) }, Found { folder: "inbox".into(), manifest: Ok(inbox) }],

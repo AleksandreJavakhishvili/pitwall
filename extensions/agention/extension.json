@@ -3,5 +3,28 @@
   "id": "agention",
   "name": "Agention",
   "icon": "inbox",
-  "description": "Questions your agents ask you, from your own Agention server"
+  "description": "Questions your agents ask you, from your own Agention server",
+  "settings": [
+    {
+      "key": "server",
+      "type": "url",
+      "label": "Server address",
+      "placeholder": "https://agention.example.ts.net",
+      "hint": "Your Agention server's origin, as you open it in a browser.",
+      "required": true
+    },
+    {
+      "key": "apiKey",
+      "type": "secret",
+      "label": "API key",
+      "hint": "Create one in Agention's Settings → API keys with the scopes threads:write and sessions:read, copy it, then paste it here.",
+      "required": true
+    }
+  ],
+  "adapter": { "command": ["node", "adapter/main.mjs"] },
+  "agentEnv": [
+    { "name": "AGENTWORKS_AGENT", "value": "{project}" },
+    { "name": "AGENTWORKS_SESSION", "value": "{agent_id}" }
+  ],
+  "matchAgents": { "agent": "{project}", "session": "{agent_id}" }
 }

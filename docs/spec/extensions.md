@@ -1,14 +1,22 @@
 # Extensions
 
-Status: **draft**. Built: finding extensions, their manifest, the switch
-in Settings, and an empty sidebar section. Open: what an extension shows
-(below, "Panels"). The first example is Agention
-([`extensions/agention/`](../../extensions/agention/README.md)).
+Status: being built. Done: finding extensions, the manifest (with
+settings, adapter, agent variables and agent matching), the adapter
+protocol (below, fixed for version 1). In progress: the adapter's
+lifecycle, settings and secrets, the inbox in the sidebar and its thread
+tile, agent variables and badges. The first example is Agention
+([`extensions/agention/`](../../extensions/agention/README.md)); a fake
+adapter that speaks the protocol is in
+[`extensions/demo-inbox/`](../../extensions/demo-inbox/adapter.mjs).
 
 Something that isn't Pitwall's own (a tool, a service the user runs) gets
 a place in Pitwall's UI without being part of Pitwall's code. An extension
-is a folder with a declarative manifest: **no code from it is loaded or
-run**, and it never changes how agents behave.
+is a folder with a declarative manifest and, optionally, an **adapter**: a
+separate process that fetches the extension's data and sends it to
+Pitwall over a small protocol. **No code from an extension is loaded into
+Pitwall**: the app draws everything natively from the protocol's data. It
+never changes how agents behave; the only thing it can add to an agent is
+the environment variables its manifest lists, shown in Settings.
 
 ## Where extensions are
 - `<data>/extensions/<id>/extension.json`, in Pitwall's data folder (the
@@ -19,8 +27,7 @@ run**, and it never changes how agents behave.
   in `extensions/` are skipped.
 - Read when Pitwall starts, and again with "Look again" in Settings →
   General → Extensions. Not watched.
-- Installing is copying the folder in (the example's README says how). No
-  `pitwall` command for it yet.
+- Installing is copying the folder in (the example's README says how).
 
 ## The manifest (`extension.json`, format 1)
 ```json
@@ -29,7 +36,17 @@ run**, and it never changes how agents behave.
   "id": "agention",
   "name": "Agention",
   "icon": "inbox",
-  "description": "Questions your agents ask you, from your own Agention server"
+  "description": "Questions your agents ask you, from your own Agention server",
+  "settings": [
+    { "key": "server", "type": "url", "label": "Server address", "placeholder": "https://agention.example.ts.net", "required": true },
+    { "key": "apiKey", "type": "secret", "label": "API key", "hint": "…", "required": true }
+  ],
+  "adapter": { "command": ["node", "adapter/main.mjs"] },
+  "agentEnv": [
+    { "name": "AGENTWORKS_AGENT", "value": "{project}" },
+    { "name": "AGENTWORKS_SESSION", "value": "{agent_id}" }
+  ],
+  "matchAgents": { "agent": "{project}", "session": "{agent_id}" }
 }
 ```
 - `v`: the manifest format (optional, 1). A higher one is refused: "it
@@ -42,25 +59,117 @@ run**, and it never changes how agents behave.
   `inbox`, `bell` and `chat` were added for extensions). Checked like an
   id; a name this Pitwall doesn't have draws the extension icon (a puzzle
   piece), so a manifest written for a later Pitwall still loads.
-- `description` (optional): one line, at most 200 characters, for
-  Settings and the heading's tooltip.
-- Keys Pitwall doesn't know are ignored, so later versions can add theirs
-  without breaking this one.
-- Not JSON, not an object, a field of the wrong type, a missing `id` or
-  `name`, or more than 64 KiB: the extension can't be used, and Settings
-  says why (`pitwall_core::extensions::parse`).
+- `description` (optional): one line, at most 200 characters.
+- `settings` (optional, at most 10): what the user fills in, drawn by
+  Pitwall in Settings under the extension. `key` (letters, digits, `_`,
+  starting with a letter, at most 32; unique), `type` (`url`: an http(s)
+  address kept in `ui.json`; `secret`: kept in the system's secure store),
+  `label` (≤ 60), optional `hint` (≤ 300), `placeholder` (≤ 100) and
+  `required` (the adapter doesn't start until it is set).
+- `adapter` (optional): `command`, 1–16 strings: the program and its
+  arguments, run in the extension's folder. A program with a `/` is a path
+  in that folder; otherwise it is looked up on the login shell's PATH.
+- `agentEnv` (optional, at most 10): variables set on agents Pitwall starts
+  while the extension is on. `name`: upper-case letters, digits, `_`; not
+  Pitwall's own (`PITWALL_*`) nor ones a program's start depends on
+  (`PATH`, `HOME`, `SHELL`, `USER`, `TERM`, `LD_*`, `DYLD_*`, `LC_*`, …).
+  `value`: a template (below).
+- `matchAgents` (optional): two templates, `agent` and `session`, whose
+  values for a Pitwall agent are the names (`from`) of the threads that
+  agent started: Pitwall badges that agent and offers "Go to agent".
+- **Templates** use `{project}` (the last part of the agent's project
+  folder), `{agent}` (its name when it starts; it can change) and
+  `{agent_id}` (Pitwall's id for it, kept across restarts); other text is
+  kept. Each value is put in name form: lower case, anything but `a-z`,
+  `0-9`, `_`, `-` becomes `-`, starting with a letter or digit, at most 63
+  characters (`pitwall_core::extensions::name_form`), so it satisfies the
+  usual `^[a-z0-9][a-z0-9_-]{0,62}$` name rule.
+- Keys Pitwall doesn't know are ignored, so later versions can add theirs.
+- Not JSON, not an object, a field of the wrong type or out of its limits,
+  a missing `id` or `name`, or more than 64 KiB: the extension can't be
+  used, and Settings says why (`pitwall_core::extensions::parse`).
+
+## Adapter protocol (version 1)
+JSON lines over the adapter's stdin (from Pitwall) and stdout (from the
+adapter): one JSON object per line, UTF-8, each with a `type`. The
+adapter's stderr is kept (its last few KiB) and shown when it stops.
+Types and keys a side doesn't know are ignored. Code:
+`pitwall_core::extensions::protocol`.
+
+**Start.** Pitwall starts the adapter when the extension is on and its
+required settings are set, in the extension's folder, with Pitwall's
+environment (the login shell's PATH) and nothing of the extension's in
+argv or the environment. Its first line to the adapter is:
+```json
+{"type":"hello","protocol":1,"pitwall":"0.7.0","settings":{"server":"https://…"},"secrets":{"apiKey":"…"}}
+```
+Settings and secrets reach the adapter **only** here (a setting not set is
+absent). The adapter answers `{"type":"hello","protocol":1}` within 10
+seconds, else it is stopped. It is stopped (stdin closed, then killed
+after 2 s) when the extension is turned off, its settings change (then
+started again), or Pitwall quits; it must also exit when its stdin
+closes.
+
+**Adapter → Pitwall**
+- `{"type":"status","state":S,"message":"…"}`: S is `connecting`,
+  `ready`, `signedOut` (a credential is missing, wrong, expired or lacks
+  access) or `error`. `message` is plain words for the user, saying what
+  to do (≤ 500).
+- `{"type":"threads","threads":[Thread…]}`: the whole list, replacing the
+  last one (≤ 500). Send it after start, whenever it changes, and after
+  `refresh`.
+  - Thread: `{"id","title","from":{"agent","session"},"unread":bool,"openAsks":n,"lastActivity":"ISO 8601"}`.
+    `id` is the adapter's own (1–200 characters; it comes back in
+    requests). `from` is optional (both names, ≤ 100 each). `title` ≤ 300.
+- `{"type":"thread","thread":ThreadDetail}`: a thread with its messages,
+  after `open` and whenever an open thread changes.
+  - ThreadDetail: `{"id","title","from","unread","canReply":bool (default true),"messages":[Message…]}`
+    (≤ 200 messages; the latest are kept).
+  - Message: `{"id","author":{"kind":"agent"|"person"|"you","name"},"time","text","detail","asks":[Ask…]}`.
+    `text` (≤ 8000) and `detail` (≤ 40000, shown folded) are Markdown.
+  - Ask: `{"number":n,"question","multiple":bool,"open":bool,"suggestions":[{"label","description"}],"answer":{"declined":bool,"picks":[i…],"text"},"withdrawn":"why"}`
+    (≤ 10 asks, ≤ 10 suggestions; `answer` and `withdrawn` only when
+    so; `picks` index `suggestions`).
+- `{"type":"result","req":n,"ok":bool,"message":"…"}`: how request `req`
+  went; `message` says why not, in plain words.
+
+**Pitwall → adapter** (`req` is a number Pitwall picks per request; each
+gets one `result`)
+- `{"type":"open","thread":id}`: send this thread now and keep it current
+  while it is open; `{"type":"close","thread":id}`: its view closed.
+- `{"type":"answer","req":n,"thread":id,"ask":n,"picks":[i…],"text":"…","declined":bool}`:
+  picks and/or the user's own words (`text`, ≤ 4000, absent when none),
+  or a decline (no picks, no text).
+- `{"type":"message","req":n,"thread":id,"text":"…"}`: a plain message
+  (≤ 4000).
+- `{"type":"markRead","req":n,"thread":id}`, `{"type":"archive","req":n,"thread":id}`.
+- `{"type":"refresh"}`: send the list again.
+
+**Untrusted.** Everything from an adapter is data:
+- a line over 1 MiB, or more than 200 lines in a second, stops the adapter
+  with that reason ("it sent more than 200 lines in a second");
+- strings are cut to their limits (with "…"), control characters (but
+  newlines in Markdown) and bidirectional overrides are removed, lists are
+  cut to their lengths, an item without a usable id is dropped;
+- Markdown is drawn by Pitwall's own inert renderer: no HTML, no images
+  loaded, no script; a link opens only when the user clicks it, in the
+  browser, and only http(s);
+- nothing from an adapter is run, followed or used to pick a file.
+- The adapter is read and written off the UI thread; an adapter that
+  stops, crashes or floods shows why in its sidebar section and in
+  Settings, where "Restart" starts it again. Pitwall doesn't restart a
+  crashed adapter by itself.
 
 ## On and off
 - Each extension found is listed in Settings → General → Extensions: its
   icon, name, description and a switch. One that can't be used shows its
   folder and why.
-- **Off until the user turns it on**, as other opt-in features (an
-  extension copied into the folder shows nothing until then).
-- Kept in `ui.json` as `extensions.<id>.enabled` (absent: off; the entry
-  goes when turned off). Keys a later version adds to an entry are kept.
-  The settings schema (`docs/settings.schema.json`) describes it. It isn't
-  a `pitwall settings` key (the registry has fixed keys; these are the
-  extensions' ids); editing `ui.json` applies live, as for other settings.
+- **Off until the user turns it on.**
+- Kept in `ui.json` as `extensions.<id>.enabled` (absent: off). Keys a
+  later version adds to an entry are kept. The settings schema
+  (`docs/settings.schema.json`) describes it. It isn't a `pitwall
+  settings` key (the registry has fixed keys; these are the extensions'
+  ids); editing `ui.json` applies live, as for other settings.
 - Right-click on its sidebar heading: "Turn off".
 
 ## The sidebar section
@@ -68,24 +177,11 @@ run**, and it never changes how agents behave.
   machines), in folder order: a heading shaped like a project's (chevron,
   its icon, its name; its description in the tooltip). Click folds it;
   folded is kept in `ui.json` `collapsed` as `ext:<id>`.
-- Open, it shows one quiet line, "Nothing to show yet", until panels are
-  decided.
-- Not dragged (projects' order doesn't include it), and not in the narrow
-  icon rail.
+- Not dragged, and not in the narrow icon rail.
 
-## Panels (open)
-What an extension shows under its heading and when it is opened is not
-decided. The first idea, web pages in web tiles, was dropped: extensions
-get native UI. Until this is designed, the manifest has no panel fields
-and the section stays empty.
-
-## Later (not built; the manifest leaves room for these)
-- What the extension shows: native panels (above).
-- A badge count on the heading (waiting questions, unread items).
-- A background process Pitwall starts and stops for it (its server).
-- Agent add-ons: an MCP server or plugin offered to a project's agents,
-  added only when the user says so; agents keep their own behaviour.
+## Later (not built)
+- A badge count on the Dock / taskbar from extensions.
 - Notifications.
 - Installing from a folder or a link (`pitwall extension install`, a
   Settings row), and watching the folder.
-- Settings of its own (an address, a token), kept by Pitwall.
+- View kinds besides the inbox.
