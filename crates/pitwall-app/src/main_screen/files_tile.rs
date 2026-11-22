@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{canvas, div, prelude::*, px, AnyElement, App, AppContext, Bounds, Context, DragMoveEvent, FontWeight, Pixels, Point, SharedString, Window};
+use gpui::{canvas, div, prelude::*, px, AnyElement, App, AppContext, Bounds, Context, DragMoveEvent, FocusHandle, Focusable, FontWeight, Pixels, Point, SharedString, Subscription, Window};
 
 use super::topbar::AgentDrag;
 use super::tree::{self, Content, Side};
@@ -37,6 +37,11 @@ impl TileDrag {
         cx.new(|_| super::topbar::AgentGhost::named(name, grab))
     }
 }
+
+/// The tiles whose content can take the keys by itself (a click in a web
+/// page, which GPUI doesn't see; a field): what each is followed by.
+#[derive(Default)]
+pub struct TileKeys(HashMap<Content, (FocusHandle, Subscription)>);
 
 /// What a tile shows (where files may go on it).
 #[derive(Debug, Clone, PartialEq)]
@@ -272,6 +277,11 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = crate::explorer::dock::view_for(owner, window, cx);
+        let what = Content::Files(owner.to_string());
+        let keys = crate::explorer::dock::viewer(owner, cx).map(|v| v.focus_handle(cx));
+        if let Some(k) = &keys {
+            self.follow_tile_keys(&what, k, window, cx);
+        }
         let body: AnyElement = match view {
             Some(v) => {
                 // Its agent was removed: kept for unsaved edits, says so.
@@ -305,27 +315,123 @@ impl MainScreen {
                     .into_any_element()
             }
         };
-        self.tile_shell(pane, Content::Files(owner.to_string()), format!("files-tile-{owner}"), body, t, cx)
+        self.tile_shell(pane, what, format!("files-tile-{owner}"), body, keys, t, cx)
     }
 
-    /// A files or web tile around `body`: its box (for [`zone_at`]), an
-    /// agent dropped on a side splits it, and where dragged tiles land.
+    /// Debug builds, `tile …` (bench commands): `terminal <folder>` (a
+    /// terminal there), `files` (the focused agent's files right of its
+    /// terminal), `press files|terminal|web` (a press in the middle of
+    /// that tile of the active space, through the window's mouse events:
+    /// nothing is clicked on the screen), `state` (on stderr: the focused
+    /// and maximised tiles, where the keys are, the viewers' tabs).
+    #[cfg(debug_assertions)]
+    pub fn debug_tile(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let say = |s: String| eprintln!("pitwall-debug: tile {s}");
+        let mut words = cmd.splitn(2, ' ');
+        let (what, arg) = (words.next().unwrap_or_default(), words.next().unwrap_or_default().trim());
+        let Some(space) = self.active_space().cloned() else { return say("no space".into()) };
+        match what {
+            "terminal" => self.open_terminal(arg.to_string(), window, cx),
+            // (Once this window's update is done: placing updates it.)
+            "files" => match space.focused_agent() {
+                Some(a) => cx.defer(move |cx| match crate::explorer::dock::place(&a, crate::explorer::dock::FilesPlace::Next(Side::Right), None, cx) {
+                    Ok(at) => eprintln!("pitwall-debug: tile files of {a}: {at}"),
+                    Err(e) => eprintln!("pitwall-debug: tile files of {a}: {e}"),
+                }),
+                None => say("no focused agent".into()),
+            },
+            "press" => {
+                let pane = space.layout.leaves().into_iter().find(|p| match arg {
+                    "files" => p.files.is_some(),
+                    "web" => p.web.is_some(),
+                    _ => p.agent_id.is_some(),
+                });
+                let Some(b) = pane.and_then(|p| self.files_boxes.pane(&p.id)) else { return say(format!("no {arg} tile drawn")) };
+                let position = b.center();
+                window.defer(cx, move |window, cx| {
+                    let (button, modifiers) = (gpui::MouseButton::Left, gpui::Modifiers::default());
+                    let down = gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false };
+                    window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                    let up = gpui::MouseUpEvent { position, button, modifiers, click_count: 1 };
+                    window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+                });
+            }
+            "state" => {
+                let leaves = space.layout.leaves();
+                let name = |id: Option<&String>| {
+                    let p = id.and_then(|id| leaves.iter().find(|p| &p.id == id));
+                    p.map(|p| match (&p.agent_id, &p.files, &p.web, &p.inbox) {
+                        (Some(a), ..) => format!("terminal {a}"),
+                        (_, Some(f), ..) => format!("files {f}"),
+                        (_, _, Some(w), _) => format!("web {w}"),
+                        (_, _, _, Some(e)) => format!("inbox {e}"),
+                        _ => "empty".into(),
+                    })
+                };
+                let keys: Vec<String> = leaves
+                    .iter()
+                    .filter_map(|p| p.files.as_ref())
+                    .filter_map(|f| crate::explorer::dock::viewer(f, cx).map(|v| (f, v)))
+                    .map(|(f, v)| {
+                        let v = v.read(cx);
+                        format!("{f}: keys {}, tabs {:?}, active {:?}", v.focus_handle(cx).contains_focused(window, cx), v.tabs(), v.active())
+                    })
+                    .collect();
+                say(format!(
+                    "focused {:?}, maximised {:?}, focused agent {:?}, viewers [{}]",
+                    name(space.focused_pane_id.as_ref()),
+                    name(space.maximized_pane_id.as_ref()),
+                    space.focused_agent(),
+                    keys.join("; ")
+                ));
+            }
+            _ => say(format!("what? {cmd}")),
+        }
+    }
+
+    /// Tile `what`'s content taking the keys (`keys`, or anything in it)
+    /// makes it the focused tile, as a press in it does: a click in a web
+    /// page (the native view's, which GPUI never sees), a field.
+    pub(super) fn follow_tile_keys(&mut self, what: &Content, keys: &FocusHandle, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tile_keys.0.get(what).is_some_and(|(k, _)| k == keys) {
+            return;
+        }
+        // (Those whose tile is gone go now.)
+        let gone: Vec<Content> = self.tile_keys.0.keys().filter(|c| self.ui.tile_of(c).is_none()).cloned().collect();
+        for c in gone {
+            self.tile_keys.0.remove(&c);
+        }
+        let c = what.clone();
+        let sub = cx.on_focus_in(keys, window, move |this, _, cx| {
+            let here = this.active_space().map(|s| s.id.clone());
+            if let Some((_, pane)) = this.ui.tile_of(&c).filter(|(space, _)| Some(space) == here.as_ref()) {
+                this.focus_tile(&pane, cx);
+            }
+        });
+        self.tile_keys.0.insert(what.clone(), (keys.clone(), sub));
+    }
+
+    /// A files, web or inbox tile around `body`: its box (for
+    /// [`zone_at`]), an agent dropped on a side splits it, and where
+    /// dragged tiles land. It takes part in the tile keys as a terminal
+    /// does: a press anywhere in it (its controls too) makes it the space's
+    /// focused tile (⌘⏎ maximises it), shown by its border, and gives
+    /// `keys` the keyboard unless something in it has it already (a press
+    /// in a field then takes it on).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn tile_shell(
         &mut self,
         pane: &str,
         what: Content,
         selector: String,
         body: AnyElement,
+        keys: Option<FocusHandle>,
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let hint = self.drop_hint.as_ref().filter(|(p, _)| p == pane).and_then(|(_, z)| *z);
         let (move_id, drop_id) = (pane.to_string(), pane.to_string());
-        // An inbox takes part in the tile keys as a terminal does: a press
-        // anywhere in it (its controls too) makes it the space's focused
-        // tile (⌘⏎ maximises it), shown by its border.
-        let focusable = matches!(what, Content::Inbox(_));
-        let focused = focusable && self.active_space().and_then(|s| s.focused_pane_id.as_deref()) == Some(pane);
+        let focused = self.active_space().and_then(|s| s.focused_pane_id.as_deref()) == Some(pane);
         let focus_id = pane.to_string();
         div()
             .id(SharedString::from(format!("pane-{pane}")))
@@ -347,15 +453,15 @@ impl MainScreen {
             } else {
                 t.line
             })
-            .when(focusable, |d| {
-                d.capture_any_mouse_down(cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                    if e.button == gpui::MouseButton::Left && this.active_space().and_then(|s| s.focused_pane_id.as_deref()) != Some(focus_id.as_str()) {
-                        let p = focus_id.clone();
-                        this.with_active(|s, id| s.focus_pane(id, &p), cx);
-                        this.changes_follow(cx);
-                    }
-                }))
-            })
+            .capture_any_mouse_down(cx.listener(move |this, e: &gpui::MouseDownEvent, window, cx| {
+                if e.button != gpui::MouseButton::Left {
+                    return;
+                }
+                this.focus_tile(&focus_id, cx);
+                if let Some(k) = keys.as_ref().filter(|k| !k.contains_focused(window, cx)) {
+                    window.focus(k, cx);
+                }
+            }))
             .child(self.files_measure(pane, Kind::Tile(what)))
             // An agent dragged here: on a side only (the tile stays).
             .on_drag_move::<AgentDrag>(cx.listener(move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {

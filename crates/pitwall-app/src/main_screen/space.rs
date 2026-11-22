@@ -592,6 +592,19 @@ impl MainScreen {
         cx.notify();
     }
 
+    /// A press in tile `pane` of the active space (a terminal, files, a web
+    /// page, an inbox): it becomes the space's focused tile, the one ⌘⏎
+    /// maximises and ⌘+ / ⌘− size, shown by its border.
+    pub(super) fn focus_tile(&mut self, pane: &str, cx: &mut Context<Self>) {
+        if self.active_space().and_then(|s| s.focused_pane_id.as_deref()) != Some(pane) {
+            if let (Some(space), Some(agent)) = (self.active_space().map(|s| s.id.clone()), self.focused_agent_id()) {
+                self.agent_before_tile = Some((space, agent));
+            }
+            self.with_active(|s, id| s.focus_pane(id, pane), cx);
+            self.changes_follow(cx);
+        }
+    }
+
     fn render_pane(
         &mut self,
         pane_id: &str,
@@ -697,17 +710,7 @@ impl MainScreen {
             })
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    if this
-                        .active_space()
-                        .and_then(|s| s.focused_pane_id.as_deref())
-                        != Some(focus_id.as_str())
-                    {
-                        let p = focus_id.clone();
-                        this.with_active(|s, id| s.focus_pane(id, &p), cx);
-                        this.changes_follow(cx);
-                    }
-                }),
+                cx.listener(move |this, _, _, cx| this.focus_tile(&focus_id, cx)),
             )
             .on_drag_move::<AgentDrag>(cx.listener(
                 move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {

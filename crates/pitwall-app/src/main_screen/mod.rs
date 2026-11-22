@@ -549,6 +549,12 @@ pub struct MainScreen {
     /// the last frame drew (to find it).
     files_hint: Option<files_tile::FilesHint>,
     files_boxes: files_tile::Boxes,
+    /// Files and web tiles whose content takes the keys by itself (a
+    /// click in a page, a field): it then becomes the focused tile.
+    tile_keys: files_tile::TileKeys,
+    /// The agent focused when a web or inbox tile was pressed, by space
+    /// ([`MainScreen::focused_agent_id`]).
+    agent_before_tile: Option<(String, String)>,
     /// How often it rendered (tests).
     #[cfg(test)]
     renders: usize,
@@ -694,6 +700,8 @@ impl MainScreen {
             webs: Default::default(),
             files_hint: None,
             files_boxes: Default::default(),
+            tile_keys: Default::default(),
+            agent_before_tile: None,
             #[cfg(test)]
             renders: 0,
             _subs: subs,
@@ -753,9 +761,19 @@ impl MainScreen {
         self.active_space().cloned()
     }
 
-    /// The agent in the active space's focused pane.
+    /// The agent in the active space's focused pane. A web page or an
+    /// inbox focused has none of its own: the agent focused before it
+    /// stays the one the right panel, the sidebar and ⌘+ / ⌘− are about,
+    /// as before a press could focus those tiles (so the layout doesn't
+    /// move when one is pressed).
     pub fn focused_agent_id(&self) -> Option<String> {
-        self.active_space().and_then(|s| s.focused_agent())
+        let sp = self.active_space()?;
+        sp.focused_agent().or_else(|| {
+            let pane = sp.layout.find_pane(sp.focused_pane_id.as_deref()?)?;
+            pane.content()?;
+            let (space, agent) = self.agent_before_tile.as_ref()?;
+            (*space == sp.id && sp.layout.find_by_agent(agent).is_some()).then(|| agent.clone())
+        })
     }
 
     pub fn selected(&self, cx: &App) -> Option<AgentView> {
@@ -2203,6 +2221,8 @@ mod tests;
 mod web_tests;
 #[cfg(test)]
 mod inbox_tests;
+#[cfg(test)]
+mod files_tile_tests;
 #[cfg(test)]
 mod side_edge_tests;
 

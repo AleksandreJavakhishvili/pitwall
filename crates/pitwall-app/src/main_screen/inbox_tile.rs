@@ -1562,7 +1562,7 @@ impl MainScreen {
         let agents = self.agents(cx).to_vec();
         v.update(cx, |v, cx| v.held(false, agents, cx));
         let body = div().flex_1().min_w_0().min_h_0().flex().child(v).into_any_element();
-        self.tile_shell(pane, Content::Inbox(ext.to_string()), format!("inbox-tile-{ext}"), body, t, cx)
+        self.tile_shell(pane, Content::Inbox(ext.to_string()), format!("inbox-tile-{ext}"), body, None, t, cx)
     }
 
     /// The badge on agent `a`'s row: its open asks in an extension (amber
