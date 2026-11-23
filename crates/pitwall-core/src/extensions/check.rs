@@ -176,6 +176,13 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
         Some(v) => r.add(Level::Ok, format!("version {v}")),
         None => r.add(Level::Warn, "it has no \"version\": Pitwall can't tell a newer copy (add one like 1.0.0)"),
     }
+    if let Some(s) = &m.source {
+        let at = super::install::source_line(s);
+        match &m.version {
+            Some(v) => r.add(Level::Ok, format!("its updates come from {at}: this version's release is the tag {}", s.tags.replace(super::VERSION_PLACEHOLDER, v))),
+            None => r.add(Level::Fail, format!("its updates come from {at}, but without a \"version\" no release tag can be told newer")),
+        }
+    }
     if let Some(a) = &m.adapter {
         let program = &a.command[0];
         if program.contains('/') || program.contains('\\') {
@@ -260,6 +267,9 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
             .collect();
         let kind = if a.setup { "a setup step" } else { "a button" };
         push(format!("“{}” ({kind}) runs, only when pressed and confirmed:", a.label), lines);
+    }
+    if let Some(s) = &m.source {
+        push("Its updates come from (a newer release tag, looked at and installed only when the user presses Update):".to_string(), vec![super::install::source_line(s)]);
     }
     out
 }
@@ -790,6 +800,27 @@ mod tests {
         let r = check(&d, Some(""));
         assert!(r.passed(), "{}", r.text());
         assert_eq!(file_args(&["node".into(), "a.mjs".into(), "--x".into(), "lib/b".into(), "2.5".into()]), ["a.mjs", "lib/b", "2.5"]);
+    }
+
+    /// A `source` is described with the tag of this version's release; one
+    /// without a version fails; a pattern that can't be used fails the
+    /// manifest.
+    #[test]
+    fn check_describes_where_updates_come_from() {
+        let t = crate::testing::TempDir::new("check-source");
+        let source = r#""source": {"git": "https://example.com/r", "dir": "exts/x", "tags": "x-v{version}"}"#;
+        let d = folder(&t, "x", &format!(r#"{{"id": "x", "name": "X", "version": "1.2.0", {source}}}"#));
+        std::fs::write(d.join("README.md"), "").unwrap();
+        let r = check(&d, Some(""));
+        let text = r.text();
+        assert!(r.passed(), "{text}");
+        assert!(text.contains("its updates come from example.com/r (exts/x), tags x-v{version}: this version's release is the tag x-v1.2.0"), "{text}");
+        assert!(text.contains("Its updates come from") && text.contains("example.com/r (exts/x), tags x-v{version}"), "{text}");
+        std::fs::write(d.join(MANIFEST), format!(r#"{{"id": "x", "name": "X", {source}}}"#)).unwrap();
+        let r = check(&d, Some(""));
+        assert!(!r.passed() && r.text().contains("no release tag can be told newer"), "{}", r.text());
+        std::fs::write(d.join(MANIFEST), r#"{"id": "x", "name": "X", "version": "1.0.0", "source": {"git": "http://example.com/r", "tags": "v{version}"}}"#).unwrap();
+        assert!(!check(&d, Some("")).passed());
     }
 
     #[test]

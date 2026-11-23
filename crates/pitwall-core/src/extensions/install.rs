@@ -85,6 +85,12 @@ pub fn repo_name(url: &str) -> String {
     url.trim_start_matches("https://").trim_end_matches('/').trim_end_matches(".git").to_string()
 }
 
+/// Where source `s`'s releases are, in a line: "example.com/r (ext), tags
+/// ext-v{version}".
+pub fn source_line(s: &super::Source) -> String {
+    format!("{}{}, tags {}", repo_name(&s.git), if s.dir.is_empty() { String::new() } else { format!(" ({})", s.dir) }, s.tags)
+}
+
 /// Whether repository addresses `a` and `b` are the same repository.
 pub fn same_repo(a: &str, b: &str) -> bool {
     repo_name(a).eq_ignore_ascii_case(&repo_name(b))
@@ -200,10 +206,7 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
         super::SettingKind::Secret => format!("{} (a secret, kept in the system's secure store)", s.label),
         super::SettingKind::Url => s.label.clone(),
     };
-    let updates_from = |m: &Manifest| match &m.source {
-        Some(s) => format!("{}{}, tags {}", repo_name(&s.git), if s.dir.is_empty() { String::new() } else { format!(" ({})", s.dir) }, s.tags),
-        None => "Pitwall's own copy only".into(),
-    };
+    let updates_from = |m: &Manifest| m.source.as_ref().map_or_else(|| "Pitwall's own copy only".into(), source_line);
     let Some((old, old_origin)) = installed else {
         let mut from = vec![offer.origin.describe()];
         if offer.origin != Origin::Bundled {
