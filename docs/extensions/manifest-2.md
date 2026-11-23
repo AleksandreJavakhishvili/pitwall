@@ -1,0 +1,94 @@
+# The manifest, format 2
+
+Format 2 is [format 1](manifest.md) with four additions: the Pitwall it
+needs, the permissions it asks for, what it contributes, and more kinds
+of settings. Everything else reads as in format 1. Use it when your
+adapter speaks [protocol 2](protocol-2.md) or when you need the new
+setting types.
+
+```json
+{
+  "v": 2,
+  "id": "ci-runs",
+  "name": "CI runs",
+  "version": "0.1.0",
+  "pitwall": ">=0.9.0",
+  "permissions": {
+    "agents.read": "To match each run to the agent that pushed it",
+    "worktrees.read": "To show which worktree a run built"
+  },
+  "contributes": { "inbox": true },
+  "settings": [
+    { "key": "server", "type": "url", "label": "CI server", "required": true },
+    { "key": "token", "type": "secret", "label": "Token", "required": true },
+    { "key": "team", "type": "text", "label": "Team", "placeholder": "platform" },
+    { "key": "level", "type": "choice", "label": "Show", "default": "failed",
+      "options": [{ "value": "all", "label": "Every run" }, { "value": "failed", "label": "Failed runs" }] },
+    { "key": "branchesOnly", "type": "bool", "label": "Only agents' branches", "default": true },
+    { "key": "limit", "type": "number", "label": "Runs to keep", "min": 1, "max": 200, "default": 50 }
+  ],
+  "adapter": { "command": ["node", "adapter.mjs"] }
+}
+```
+
+## `v` and `pitwall`
+
+- `v`: 2. A Pitwall that reads only format 1 refuses the manifest with
+  "it needs a newer Pitwall".
+- `pitwall`: the lowest Pitwall it needs, as `>=X.Y.Z`. An older Pitwall
+  refuses it with "it needs Pitwall X.Y.Z or later (this is …)", before
+  anything else in it. `check` warns when it is missing.
+
+## `permissions`
+
+Each permission's name, and your reason for it in one line of at most
+200 characters. There are at most 16. The user sees your reason next to
+what the permission gives, and grants or refuses each one. See
+[permissions](permissions.md) for the list and what the user sees.
+
+A name this Pitwall doesn't serve still loads: it is shown as not
+available and never granted.
+
+## `contributes`
+
+What it adds to Pitwall's UI. In this Pitwall there is one:
+
+- `inbox`: `true` when its threads show in the inbox. It needs an
+  `adapter`.
+
+A kind a later Pitwall will draw (`views`, `commands`, `badges`,
+`notifications`, `panels`, `cards`, `webViews`) is refused with "it
+contributes “views”, which needs a newer Pitwall". A key no Pitwall knows
+is refused too. In format 1, an extension with an adapter is an inbox.
+
+An adapter that contributes nothing is allowed: it can read what it is
+granted and work outside Pitwall's UI. `check` mentions it.
+
+## Setting types
+
+On top of format 1's `url` and `secret`:
+
+| Type | The field | In `hello` | Keys |
+|---|---|---|---|
+| `text` | One line, at most 500 characters | a string | `placeholder`, `default` |
+| `choice` | One button for each option | the option's `value` | `options` (2–20): each a string, or `{"value","label"}`; `default` |
+| `bool` | A switch | `true` or `false` | `default` (`true` or `false`) |
+| `number` | A number field, checked | a number | `min`, `max`, `default` |
+
+- `default` is what the adapter gets while the user hasn't set one. A
+  `required` setting with a `default` counts as set.
+- A `number` outside `min`–`max` isn't saved: the field says
+  "Between 1 and 200.".
+- A `secret` can't have a `default`.
+
+The new types are read in format 1 too, but a Pitwall from before them
+refuses a manifest that uses them. Give such a manifest `v: 2` and a
+`pitwall`, so an older Pitwall says what it needs.
+
+## Checking it
+
+`pitwall extension check <folder> --human` prints the format, each
+setting with its type, options, range and default, the permissions with
+your reasons, and what it contributes. It warns about format-2 keys in a
+format 1 manifest (they are ignored there) and about permissions this
+Pitwall doesn't serve.

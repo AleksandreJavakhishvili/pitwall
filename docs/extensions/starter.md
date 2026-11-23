@@ -22,6 +22,24 @@ It writes:
 As written, it passes `pitwall extension check` and `pitwall extension
 test`. Pitwall's own tests make sure of that.
 
+## `--protocol 2`
+
+```sh
+pitwall extension new <folder> --protocol 2
+```
+
+Writes an extension that reads Pitwall's data instead
+([protocol 2](protocol-2.md)):
+
+| File | What it is |
+| --- | --- |
+| `extension.json` | [Format 2](manifest-2.md): `pitwall` set to this version, the `agents.read` [permission](permissions.md) with its reason, and `contributes.inbox`. |
+| `adapter.mjs` | Answers hello with protocol 2 when Pitwall offers it, calls `agent.list`, subscribes to `agents` and shows the agents in one thread, "Your agents", kept current from `agents.changed` events. Without the grant it says so in the thread rather than failing. |
+| `test/pitwall.json` | A [`calls`](checks.md#calls) check: a fake Pitwall answers `agent.list` and sends one event; the thread shows the agents before and after. |
+
+Turning it on shows the permission screen with your reason. Its calls
+show under **Activity** in its card.
+
 ## From here
 
 1. Load it in Pitwall ([dev mode](dev-mode.md)) and turn it on. Open the

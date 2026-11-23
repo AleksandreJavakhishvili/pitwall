@@ -1,4 +1,4 @@
-Status: proposal, not built.
+Status: proposal. Phases 1, 2 and 3 are built (see "Phased plan"); phases 4–6 are not.
 
 # Extension API
 
@@ -171,7 +171,7 @@ year; the adapter's language is the author's.
 
 ---
 
-## The manifest, format 2 [proposed]
+## The manifest, format 2 [built, phase 3]
 
 Format 1 [today] stays valid forever. Format 2 adds keys; a v1 Pitwall
 already refuses `"v": 2` with "it needs a newer Pitwall", which is what
@@ -363,7 +363,7 @@ arguments as `url` ones do; secrets still never.
 
 ---
 
-## What Pitwall gives an extension [proposed, phase 3]
+## What Pitwall gives an extension [built, phase 3]
 
 ### One method table
 The daemon already has every method with its access level in one table
@@ -779,7 +779,27 @@ Each phase ships on its own.
   `pitwall_core::extensions::check`; `pitwall-cli`: `extension check`,
   `extension test`, `extension new` (offline, no socket needed).
 
-### Phase 3 — Protocol 2: negotiation, permissions, reading
+### Phase 3 — Protocol 2: negotiation, permissions, reading [built]
+
+Built as below, with these differences from the proposal:
+- Only the reads are served: `agents.read`, `projects.read`,
+  `worktrees.read` (a new `worktree.list` method) and `profiles.read`
+  (only the extension's own `ext:<id>` connections). `show`,
+  `agents.focus`, `agents.queue`, `agents.start` and `notify` are known
+  names, shown as "not available in this Pitwall yet" and never granted;
+  their methods are refused with `unsupported`.
+- No `projects` event topic yet; events are the agents topics behind
+  `agents.read`.
+- Limits: 20 calls a second per extension (socket and stdio together,
+  `busy`), 8 calls in flight per adapter, 10 events a second, params
+  64 KiB, answers and events 512 KiB; 100 refusals in a row for limits
+  stop the adapter. The activity log keeps 500 entries for 30 days.
+- A revoke applies to the next call; a protocol 2 adapter gets a
+  `grants` line and is not restarted.
+- Author docs: `docs/extensions/manifest-2.md`, `protocol-2.md`,
+  `permissions.md`, and `methods.md` generated from `METHODS`.
+
+The plan as proposed:
 - `protocol.rs`: `PROTOCOLS = [1, 2]`; `hello` with `protocols`,
   `grants`, `offers`, `connection`; `call`/`reply`/`event`; split the
   inbox messages from the general ones (today one `FromAdapter` enum
