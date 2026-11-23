@@ -15,6 +15,7 @@ pub fn requester_line(a: &ApprovalView) -> String {
     let who = match r.kind {
         RequesterKind::Agent => format!("agent “{}” in Pitwall", r.name),
         RequesterKind::Outside => "a process outside Pitwall's agents".to_string(),
+        RequesterKind::Extension => format!("extension “{}” (a process its adapter started)", r.name),
     };
     let proc: Vec<String> = [r.process.clone(), r.pid.map(|p| format!("pid {p}"))]
         .into_iter()
@@ -33,6 +34,7 @@ pub fn remember_label(a: &ApprovalView) -> String {
     let who = match a.requester.kind {
         RequesterKind::Agent => a.requester.name.as_str(),
         RequesterKind::Outside => "processes outside Pitwall",
+        RequesterKind::Extension => a.requester.name.as_str(),
     };
     format!("Allow {who} to do this again without asking")
 }

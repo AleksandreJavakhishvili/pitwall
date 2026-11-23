@@ -150,12 +150,13 @@ pub fn run() {
             }
         };
         let engine = state.host.as_ref().map(|h| h.engine.clone());
+        let api = state.host.as_ref().map(|h| h.api.clone());
         let root = state.root.clone();
         cx.set_global(state);
         ui_state::init(root.clone(), cx);
         extensions::init(root.clone(), cx);
         if cx.global::<AppState>().host.is_some() {
-            extensions::start(root.as_deref(), engine.clone(), cx);
+            extensions::start(root.as_deref(), engine.clone(), api, cx);
             extensions::actions::seal_steps(cx);
             extensions::catalog::watch_updates(cx);
         }

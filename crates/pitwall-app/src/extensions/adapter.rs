@@ -37,10 +37,13 @@ const GRACE: Duration = Duration::from_secs(2);
 const STDERR_KEEP: usize = 4096;
 
 type Shared = Arc<Mutex<Option<Process>>>;
+/// Lines to it: one channel, closed for every sender when it is stopped
+/// (its stdin closes then).
+type Lines = Arc<Mutex<Option<mpsc::Sender<String>>>>;
 
 /// The way to an adapter: lines to it, and stopping it.
 pub struct Link {
-    lines: Option<mpsc::Sender<String>>,
+    lines: Lines,
     child: Option<Shared>,
     log: Option<log::Shared>,
 }
@@ -52,21 +55,49 @@ fn note(log: &Option<log::Shared>, dir: Dir, text: &str) {
     }
 }
 
-impl Link {
+/// A way to send lines to an adapter from any thread (replies to its
+/// calls, events), for as long as it runs.
+#[derive(Clone)]
+pub struct Sender {
+    lines: Lines,
+    log: Option<log::Shared>,
+}
+
+impl Sender {
     /// Send `m` (false: it is gone).
     pub fn send(&self, m: &ToAdapter) -> bool {
         let line = m.line();
-        let sent = self.lines.as_ref().is_some_and(|l| l.send(line.clone()).is_ok());
+        let sent = self.lines.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|l| l.send(line.clone()).is_ok());
         if sent {
             note(&self.log, Dir::ToAdapter, &line);
         }
         sent
     }
+}
+
+impl Link {
+    /// Send `m` (false: it is gone).
+    pub fn send(&self, m: &ToAdapter) -> bool {
+        self.sender().is_some_and(|s| s.send(m))
+    }
+
+    /// A sender for other threads.
+    pub fn sender(&self) -> Option<Sender> {
+        self.lines.lock().unwrap_or_else(|e| e.into_inner()).is_some().then(|| Sender { lines: self.lines.clone(), log: self.log.clone() })
+    }
+
+    /// Its process's id (none in tests, or once stopped): what the socket
+    /// tells its callers by.
+    pub fn pid(&self) -> Option<u32> {
+        let c = self.child.as_ref()?;
+        let g = c.lock().unwrap_or_else(|e| e.into_inner());
+        g.as_ref().map(Process::id)
+    }
 
     /// Close its stdin; once it has exited, or after [`GRACE`], stop its
     /// group (what it started goes with it).
     pub fn stop(mut self) {
-        self.lines = None;
+        self.lines.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(child) = self.child.take() {
             std::thread::spawn(move || {
                 let end = Instant::now() + GRACE;
@@ -80,10 +111,17 @@ impl Link {
 
     /// Kill it now (Pitwall quits).
     pub fn stop_now(mut self) {
-        self.lines = None;
+        self.lines.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(child) = self.child.take() {
             kill(&child);
         }
+    }
+}
+
+/// A link let go closes its stdin, whatever senders are still about.
+impl Drop for Link {
+    fn drop(&mut self) {
+        self.lines.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -166,7 +204,7 @@ pub fn spawn(dir: &Path, command: &[String], hello: &ToAdapter, log: Option<log:
     let c = child.clone();
     let out_log = log.clone();
     std::thread::spawn(move || read_loop(BufReader::new(stdout), tx, c, (tail, err_ended), out_log));
-    Ok((Link { lines: Some(lines), child: Some(child), log }, rx))
+    Ok((Link { lines: Arc::new(Mutex::new(Some(lines))), child: Some(child), log }, rx))
 }
 
 /// Read its lines until it ends, floods or sends one too long.
@@ -261,16 +299,17 @@ pub fn pair(hello: &ToAdapter, log: Option<log::Shared>) -> (Link, UnboundedRece
     note(&log, Dir::ToAdapter, &hello.line());
     let _ = lines.send(hello.line());
     let (tx, rx) = unbounded();
-    (Link { lines: Some(lines), child: None, log }, rx, TestEnd { lines: to, events: tx })
+    (Link { lines: Arc::new(Mutex::new(Some(lines))), child: None, log }, rx, TestEnd { lines: to, events: tx })
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use futures::StreamExt;
+    use pitwall_core::extensions::protocol::{FromInbox, Hello, ToInbox};
 
     fn hello() -> ToAdapter {
-        ToAdapter::Hello { pitwall: "test".into(), settings: Default::default(), secrets: Default::default() }
+        ToAdapter::Hello(Hello { pitwall: "test".into(), ..Default::default() })
     }
 
     fn script(dir: &Path, body: &str) -> Vec<String> {
@@ -306,10 +345,10 @@ mod tests {
         let log: log::Shared = Arc::default();
         let mut secrets = serde_json::Map::new();
         secrets.insert("apiKey".into(), "hunter22".into());
-        let hello = ToAdapter::Hello { pitwall: "test".into(), settings: Default::default(), secrets };
+        let hello = ToAdapter::Hello(Hello { pitwall: "test".into(), secrets, ..Default::default() });
         let (link, mut rx) = spawn(t.path(), &cmd, &hello, Some(log.clone())).unwrap();
-        assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }));
-        assert!(link.send(&ToAdapter::Refresh));
+        assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1, uses: vec![] }));
+        assert!(link.send(&ToAdapter::Inbox(ToInbox::Refresh)));
         assert!(matches!(next(&mut rx), Event::Msg(FromAdapter::Status { .. })));
         match next(&mut rx) {
             Event::Stopped(why) => assert!(why.contains("code 3") && why.contains("bye now"), "{why}"),
@@ -346,7 +385,7 @@ mod tests {
         let cmd = script(t.path(), "read line\nsleep 60 &\necho \"{\\\"type\\\":\\\"hello\\\",\\\"protocol\\\":$!}\"\nwait\n");
         let (link, mut rx) = spawn(t.path(), &cmd, &hello(), None).unwrap();
         // The child's pid comes back as the "protocol" (a test only).
-        let Event::Msg(FromAdapter::Hello { protocol: pid }) = next(&mut rx) else { panic!("no hello") };
+        let Event::Msg(FromAdapter::Hello { protocol: pid, .. }) = next(&mut rx) else { panic!("no hello") };
         let alive = |pid: u64| std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
         assert!(alive(pid), "its child runs");
         link.stop();
@@ -389,19 +428,19 @@ mod tests {
             return;
         }
         let (link, mut rx) = spawn(&shipped("demo-inbox"), &["node".into(), "adapter.mjs".into()], &hello(), None).unwrap();
-        assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }));
-        let FromAdapter::Threads(list) = until(&mut rx, "threads", |m| matches!(m, FromAdapter::Threads(_))) else { unreachable!() };
+        assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1, uses: vec![] }));
+        let FromAdapter::Inbox(FromInbox::Threads(list)) = until(&mut rx, "threads", |m| matches!(m, FromAdapter::Inbox(FromInbox::Threads(_)))) else { unreachable!() };
         assert!(list.len() >= 4 && list.iter().any(|t| t.blocking && t.open_asks > 0 && t.unread > 0), "{list:?}");
-        let FromAdapter::Counts(c) = until(&mut rx, "counts", |m| matches!(m, FromAdapter::Counts(_))) else { unreachable!() };
+        let FromAdapter::Inbox(FromInbox::Counts(c)) = until(&mut rx, "counts", |m| matches!(m, FromAdapter::Inbox(FromInbox::Counts(_)))) else { unreachable!() };
         assert!(c.blocking >= 1 && c.open_asks >= 2, "{c:?}");
-        assert!(link.send(&ToAdapter::Open { thread: "demo/1".into() }));
-        let FromAdapter::Thread(d) = until(&mut rx, "the thread", |m| matches!(m, FromAdapter::Thread(_))) else { unreachable!() };
+        assert!(link.send(&ToAdapter::Inbox(ToInbox::Open { thread: "demo/1".into() })));
+        let FromAdapter::Inbox(FromInbox::Thread(d)) = until(&mut rx, "the thread", |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(_)))) else { unreachable!() };
         let ask = &d.messages[0].asks[0];
         assert!(ask.open && ask.blocking && ask.suggestions.len() == 3);
         assert!(d.messages[0].detail.contains("| Redis |"), "Markdown detail");
-        assert!(link.send(&ToAdapter::Answer { req: 7, thread: "demo/1".into(), ask: 1, picks: vec![1], text: None, declined: false }));
+        assert!(link.send(&ToAdapter::Inbox(ToInbox::Answer { req: 7, thread: "demo/1".into(), ask: 1, picks: vec![1], text: None, declined: false })));
         assert_eq!(until(&mut rx, "the result", |m| matches!(m, FromAdapter::Result { .. })), FromAdapter::Result { req: 7, ok: true, message: String::new() });
-        let FromAdapter::Thread(d) = until(&mut rx, "the answered thread", |m| matches!(m, FromAdapter::Thread(_))) else { unreachable!() };
+        let FromAdapter::Inbox(FromInbox::Thread(d)) = until(&mut rx, "the answered thread", |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(_)))) else { unreachable!() };
         assert!(!d.messages[0].asks[0].open);
         assert_eq!(d.messages.last().unwrap().answers[0].labels, ["SQLite"]);
         link.stop();

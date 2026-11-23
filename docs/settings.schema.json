@@ -77,6 +77,28 @@
             "description": "The extension is on: its adapter runs and its inbox can be opened.",
             "type": "boolean"
           },
+          "grants": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "properties": {
+                "at": {
+                  "description": "When the user answered, in seconds since 1970 (UTC).",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "granted": {
+                  "description": "Granted (true) or refused.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "granted"
+              ],
+              "type": "object"
+            },
+            "description": "The user's answer to each permission it asks for (docs/extensions/permissions.md), by name, with when. One it asks for without an answer here (added by an update) is not granted. Turning a grant off applies to its next call.",
+            "type": "object"
+          },
           "secretsSet": {
             "description": "A copy of which secrets that connection has set, for an older Pitwall. The secrets are in the system's secure store, never in this file.",
             "items": {

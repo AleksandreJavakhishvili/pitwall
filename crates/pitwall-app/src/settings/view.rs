@@ -209,6 +209,12 @@ impl SettingsView {
         self.list.scroll_to_reveal_item(n.saturating_sub(1));
     }
 
+    /// The page scrolled by `dy` (tests: a control brought into view).
+    #[cfg(test)]
+    pub fn scroll_by(&self, dy: gpui::Pixels) {
+        self.list.scroll_by(dy);
+    }
+
     pub fn new(live: bool, cx: &mut Context<Self>) -> SettingsView {
         let mut tasks = Vec::new();
         if let Some(t) = Self::read_hooks(cx) {

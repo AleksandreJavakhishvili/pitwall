@@ -689,7 +689,7 @@ fn two_connections_share_the_inbox_with_a_filter(cx: &mut TestAppContext) {
     let t = pitwall_core::testing::TempDir::new("inbox-conns");
     let paths = pitwall_core::paths::Paths::new(t.path().join("pw"));
     let man = Manifest {
-        settings: vec![SettingDef { key: "server".into(), kind: SettingKind::Url, label: "Server".into(), hint: None, placeholder: None, required: true }],
+        settings: vec![SettingDef { required: true, ..SettingDef::new("server", SettingKind::Url, "Server") }],
         ..manifest()
     };
     let (h, acme, side) = cx.update(|cx| {
