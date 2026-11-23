@@ -7,10 +7,10 @@
         "label": "Set up Agention in my agents",
         "lines": [
           "claude plugin marketplace remove agention",
-          "claude plugin marketplace add WayfarerLabs/agention#v0.4.0",
+          "claude plugin marketplace add WayfarerLabs/agention#v0.6.0",
           "claude plugin install agention@agention",
           "codex plugin marketplace remove agention",
-          "codex plugin marketplace add WayfarerLabs/agention --ref v0.4.0",
+          "codex plugin marketplace add WayfarerLabs/agention --ref v0.6.0",
           "codex plugin add agention@agention"
         ],
         "skips": [null, null, null, "Codex isn't installed", "Codex isn't installed", "Codex isn't installed"],

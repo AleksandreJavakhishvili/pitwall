@@ -1,5 +1,5 @@
 // A fake Agention server for tests, written from the operator API's OpenAPI
-// document (docs/api/openapi.json on Agention's build/operator-api branch):
+// document (docs/api/openapi.json in Agention's repository):
 // in-memory threads, messages and asks; bearer keys with scopes; the wait
 // long poll; and switches that make it misbehave. It listens on 127.0.0.1,
 // on a port the system picks, and nowhere else.

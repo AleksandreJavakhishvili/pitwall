@@ -2,7 +2,7 @@
   "v": 1,
   "id": "agention",
   "name": "Agention",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "docs": "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/extensions/agention",
   "icon": "inbox",
   "description": "Questions your agents ask you, from your own Agention server",
@@ -35,13 +35,13 @@
       "id": "setup",
       "setup": true,
       "label": "Set up Agention in my agents",
-      "description": "Installs Agention's plugin, pinned to v0.4.0, in Claude Code and Codex (whichever you have).",
+      "description": "Installs Agention's plugin, pinned to v0.6.0, in Claude Code and Codex (whichever you have).",
       "steps": [
         { "for": "claude", "run": ["claude", "plugin", "marketplace", "remove", "agention"], "optional": true },
-        { "for": "claude", "run": ["claude", "plugin", "marketplace", "add", "WayfarerLabs/agention#v0.4.0"] },
+        { "for": "claude", "run": ["claude", "plugin", "marketplace", "add", "WayfarerLabs/agention#v0.6.0"] },
         { "for": "claude", "run": ["claude", "plugin", "install", "agention@agention"] },
         { "for": "codex", "run": ["codex", "plugin", "marketplace", "remove", "agention"], "optional": true },
-        { "for": "codex", "run": ["codex", "plugin", "marketplace", "add", "WayfarerLabs/agention", "--ref", "v0.4.0"] },
+        { "for": "codex", "run": ["codex", "plugin", "marketplace", "add", "WayfarerLabs/agention", "--ref", "v0.6.0"] },
         { "for": "codex", "run": ["codex", "plugin", "add", "agention@agention"] }
       ]
     },
