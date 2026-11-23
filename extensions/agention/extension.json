@@ -46,6 +46,14 @@
       ]
     },
     {
+      "id": "server",
+      "label": "Install Agention's server here",
+      "description": "Installs Agention's server, v0.6.0, on this computer with npm. Only if you don't have a server yet; starting it is in the docs.",
+      "steps": [
+        { "run": ["npm", "install", "-g", "@wayfarerlabs/agention@0.6.0"] }
+      ]
+    },
+    {
       "id": "remove",
       "label": "Remove Agention from my agents",
       "description": "Removes Agention's plugin marketplace, and with it the plugin, from Claude Code and Codex.",

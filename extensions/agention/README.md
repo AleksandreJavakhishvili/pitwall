@@ -37,6 +37,13 @@ tailscale serve --bg http://127.0.0.1:8080
 agention serve --data ~/.local/share/agention --origin https://agention.example.ts.net
 ```
 
+The first line is also a button: **Install Agention's server here** in
+Settings → Extensions, under the extension's other actions, runs it after
+you confirm. Pitwall doesn't start the server or keep it running: it is its
+own program, which your agents and your other devices reach while Pitwall
+is closed, so start it yourself (and at login, if you like) with the last
+line. The extension's checklist turns to Connected once it answers.
+
 To upgrade an older server, install `@wayfarerlabs/agention@0.6.0` the same
 way and start it again with the same `--data` and `--origin`.
 
