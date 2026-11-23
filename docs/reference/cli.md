@@ -88,8 +88,8 @@ These work with every command.
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
 - [`peers`](#peers): Your other machines' Pitwalls over Tailscale (read-only): see their agents here. Only machines of your own Tailscale user; works on Pitwall's data folder directly, without the app
-- [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`
-- [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder` and `show_web` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
+- [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`. With --settings, Pitwall's Settings at a page instead, in the Settings tile (next to the agent's terminal unless it is open already); it only shows Settings to the user. Off with `agents.showSettings`
+- [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder`, `show_web` and `show_settings` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
 - [`extension`](#extension): For extension authors: check a folder, run its tests, or start a new one. Works on the folder, offline, without the app (exit status 1 when a check fails)
 
@@ -1204,7 +1204,7 @@ pitwall peers set [OPTIONS]
 
 ## open
 
-Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`.
+Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`. With --settings, Pitwall's Settings at a page instead, in the Settings tile (next to the agent's terminal unless it is open already); it only shows Settings to the user. Off with `agents.showSettings`.
 
 ```bash
 pitwall open [OPTIONS] [FILE]...
@@ -1217,6 +1217,8 @@ pitwall open [OPTIONS] [FILE]...
 | Option | |
 |---|---|
 | `--web [URL]` | A web page instead of files: its address (http or https; a bare host gets https://, localhost and LAN hosts http://). Alone, an empty page with its address field ready. It goes to the page the agent opened before unless --where names a place. |
+| `--settings [PAGE]` | Pitwall's Settings instead of files: at this page (general, agents, profiles, accounts, extensions, rules, appearance, folderAccess, peers, about; alone, the page shown last), in the Settings tile. |
+| `--extension <ID>` | With --settings: this extension's card unfolded on the Extensions page (its id). |
 | `--folder <DIR>` | A folder to show as a tree (relative to --root, default: this folder). With only --root, that folder is shown. |
 | `--root <DIR\|WORKTREE>` | What relative paths are in: a folder, or a worktree of the agent's repository by its folder name or branch. Default: this folder, shown in the git worktree it is in. |
 | `--agent <AGENT>` | Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this runs in). |
@@ -1226,7 +1228,7 @@ pitwall open [OPTIONS] [FILE]...
 
 ## mcp
 
-Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder` and `show_web` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it.
+Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder`, `show_web` and `show_settings` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it.
 
 ```bash
 pitwall mcp [OPTIONS]

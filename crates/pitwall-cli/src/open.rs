@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use pitwall_client::{Client, Error};
-use pitwall_proto::{caps, code, method, ErrorBody, ViewerOpen, ViewerPlace, WebOpen, VIEWER_PROTO, WEB_PROTO};
+use pitwall_proto::{caps, code, method, ErrorBody, SettingsOpen, ViewerOpen, ViewerPlace, WebOpen, SETTINGS_PROTO, VIEWER_PROTO, WEB_PROTO};
 
 use crate::args::OpenArgs;
 
@@ -45,6 +45,30 @@ pub fn web_request(a: &OpenArgs) -> Option<WebOpen> {
         of: a.of.clone(),
         proto: Some(WEB_PROTO),
     })
+}
+
+/// `pitwall open --settings`'s request (`None`: not Settings).
+pub fn settings_request(a: &OpenArgs) -> Option<SettingsOpen> {
+    let page = a.settings.as_deref()?;
+    Some(SettingsOpen {
+        agent_id: a.agent.clone().or_else(env_agent),
+        page: Some(page.trim().to_string()).filter(|p| !p.is_empty()),
+        extension: a.extension.clone().filter(|e| !e.trim().is_empty()),
+        proto: Some(SETTINGS_PROTO),
+    })
+}
+
+/// What a Pitwall from before `settings.open` is told it can't do.
+pub const NO_SETTINGS: &str = "This Pitwall is older than its command-line tool and can't show its Settings to an agent's user: quit Pitwall and open it again to update it. Nothing was opened.";
+
+/// `settings.open`: Pitwall's answer as it came, and in words.
+pub fn open_settings(c: &mut Client, req: &SettingsOpen) -> Result<(Value, String), Error> {
+    if !c.has(caps::SHOW_SETTINGS) {
+        return Err(Error::Server(ErrorBody::new(code::UNSUPPORTED, NO_SETTINGS)));
+    }
+    let v = c.call(method::SETTINGS_OPEN, req)?;
+    let text = pitwall_proto::settings_open::opened_text(&v);
+    Ok((v, text))
 }
 
 /// What a Pitwall from before `web.open` is told it can't do.
