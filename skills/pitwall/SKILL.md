@@ -221,6 +221,43 @@ the git worktree that holds it, with that worktree's branch and status. When
 you work in another worktree than the one you started in, give `--root`
 (its path) to be sure.
 
+## Extensions (setting one up for the user)
+
+```bash
+pitwall extension list                     # installed (on/off, version, update known) and available
+pitwall extension status inbox             # its checklist as data, and `next`: the one step to take
+pitwall extension log inbox --lines 50     # its card's Log (secrets already taken out)
+pitwall extension setup inbox              # e.g. what `next.command` says; asks the user
+```
+
+The loop: `status` → do `next` → `status` again. `next.who` says whose
+step it is: `agent` (run `next.command`), `user` (tell them `next.text`;
+only they can do it), `wait` (run `status` again in a few seconds) or
+`nobody` (all set). Every change (`install`, `on`, `off`, `update`
+after `check-updates`, `remove`, `setup [--action ID]`, `service ID
+confirm|start|stop|restart|update`, `first-run`, `set ID KEY VALUE`,
+`connection add|rename|remove`) shows the user an approval in Pitwall
+with exactly what will run, and waits; one request per extension at a
+time (another is refused `busy`). Declined (exit 3): nothing ran; don't
+ask again unless the user asks.
+
+- **Secrets**: never ask the user to paste a key into the chat, and never
+  pass one on the command line. `pitwall extension secret ID KEY` opens
+  Settings next to your terminal at that field; the user enters it there.
+  You only ever see whether it is set.
+- **Only the user** grants permissions beyond what turning on shows,
+  deletes an extension's data, allows "send without asking", enters
+  secrets and signs in.
+- **Service "running elsewhere"**: something else already listens on its
+  address (the user runs it). Use it; never start or stop it.
+- **"Version too old"** (both versions in `service`): `pitwall extension
+  service ID update` runs its install action, then starts it again.
+- **Signed out** (`adapter.state`): its key was refused or expired. The
+  user enters a new one (`secret`) or signs in again (`first-run`); read
+  `log` for the reason.
+- **First run**: opens a one-time sign-in link in the user's browser. You
+  never get the link, only that it was opened.
+
 ## Projects
 
 ```bash

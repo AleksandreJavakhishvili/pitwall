@@ -76,7 +76,8 @@ Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
   forgets its settings and recorded setup actions in `ui.json`, deletes
   its secrets from the system's secure store and deletes its folder (and
   the copy kept for Go back).
-- Not on the command line yet ("Later").
+- From the command line, by an agent: `pitwall extension install|update|
+  remove` ("Setup by an agent").
 
 ## Updates from a git source
 Status: built, unreleased. An extension updates from its own releases,
@@ -1112,6 +1113,53 @@ continuously) and checks its program or install action; `test`'s
 Not built: starting it at login without Pitwall, HTTPS or a public
 address, a sandbox, more than one service.
 
+## Setup by an agent
+Status: built, unreleased. An agent (the Race Engineer, or any agent the
+user asks) sees how an extension stands and moves its setup forward with
+`pitwall extension …`, each change approved by the user in Pitwall. Code:
+`pitwall_proto::extensions` (the shapes, `next_of`, the text),
+`pitwall-daemon/src/extension_setup.rs` (the methods, approvals, one at
+a time), `crates/pitwall-app/src/extensions/agent_setup.rs` (the app's
+side), `pitwall-cli/src/extension.rs`.
+- **Reading** (`extension.list`, `extension.status`, `extension.log`,
+  open to any caller, never an extension): the card as data. `status` has
+  the checklist (each step `done`, `todo` or `blocked` with why, from the
+  same `checklist` the card draws), its connections (plain values; each
+  secret only as set or not), the adapter's state and reason, the
+  service's (state, both versions when too old, "running elsewhere", the
+  first run pending), permissions, accounts a setup action hasn't covered,
+  and `next`: one step, with the command for the agent or what only the
+  user can do. Nothing is fetched (an update already found is shown).
+- **Acting** (`extension.act`): install, on, off, update, remove, setup,
+  service confirm|start|stop|restart|update, first-run, set (plain
+  settings), connection add|rename|remove. Each asks the user in
+  Pitwall's approval dialog, naming the agent that asks and listing
+  exactly what will run: an action's command lines per account; a
+  service's command, variables and data folder; turning on's permission
+  screen (reads granted, nothing that acts) and "what it does"; an
+  update's changes. What was shown is what runs: the host prepares it
+  first and runs exactly that, and a service whose commands changed since
+  (its digest) isn't started. Approved, it runs what the card's button
+  runs and the answer says how it went, with the new status; declined,
+  nothing runs and the agent is told not to ask again. `set` and
+  connection add/rename can be remembered for that agent (low risk); the
+  rest is asked every time. One request per extension at a time: another
+  while one waits or runs is refused `busy`.
+- `extension.checkUpdates` checks a source as "Check for updates" does,
+  without asking (it installs nothing).
+- **Secrets**: never through the CLI. `extension.secret` only opens the
+  Settings tile next to the agent's terminal at the card, the field
+  marked ("An agent asked you to set this…"), and answers that it waits
+  for the user. Showing Settings off, or no agent to put it beside: the
+  answer says where the user enters it.
+- **First run**: its one-time link goes from the service to the browser
+  only; the approval and the answer say a link is opened, never which.
+- **Remove** keeps the service's data (only the user deletes it, in
+  Settings).
+- Never offered to agents: permissions beyond what turning on grants,
+  deleting data, "send without asking", entering a secret. Extensions
+  never call any `extension.*` method.
+
 ## For authors
 The author's guide is [`docs/extensions/`](../extensions/README.md).
 Code: `crate::extensions::{load_dev, reload_dev, forget_dev}`,
@@ -1188,8 +1236,6 @@ plan, process, starter}`, `pitwall_core::platform::group`.
 - A badge count on the Dock / taskbar from extensions.
 - Marking a thread unread (the protocol has only "mark read"), and a
   list of archived threads.
-- `pitwall extension list|install|remove` on the command line (it needs
-  the app's socket protocol to reach the running app's state).
 - Watching a development folder for changes (Reload is by hand).
 - View components beyond list, detail, Markdown and status (forms, tables).
 - Floating-control cards from an extension's view items.

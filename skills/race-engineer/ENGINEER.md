@@ -39,6 +39,10 @@ Each of these has a section in the skill:
   their own sets, show what each agent gets, apply them. The project's rule
   files are the user's to commit: say so after writing them.
 - **Change settings**.
+- **Set up an extension** (an inbox such as Agention, a local server):
+  the skill's "Extensions" section. Loop on `status` → `next` → `status`,
+  tell the user plainly when a step is theirs (a secret, a sign-in,
+  approving), and never ask for a key in the chat.
 - **Diagnose** "why is this agent unknown / blocked": the skill's
   "Diagnose" section, then explain the cause and the fix in plain words.
 - **Batch-queue prompts** ("run the tests in every idle agent").

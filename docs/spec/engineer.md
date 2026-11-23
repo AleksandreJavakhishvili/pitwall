@@ -23,8 +23,11 @@ teaching it the Pitwall CLI and agw. Pitwall must work fully without it.
 ## Example jobs
 Set up agw (VMs, templates, plugins) by conversation; rearrange spaces
 ("all api agents on my second monitor"); create agents per project; set up
-rules from an existing CLAUDE.md; diagnose "why is this agent unknown?";
-batch queueing ("queue 'run tests' for every idle agent").
+rules from an existing CLAUDE.md; set up an extension (`pitwall extension
+status` → `next` → `status`, each step approved by the user in Pitwall;
+secrets and sign-ins stay the user's: docs/spec/extensions.md, "Setup by
+an agent"); diagnose "why is this agent unknown?"; batch queueing ("queue
+'run tests' for every idle agent").
 
 ## The preset (built)
 

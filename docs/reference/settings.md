@@ -153,7 +153,7 @@ The command the Race Engineer runs when engineer.agent is custom (a command line
 The prompt queued for a new Race Engineer when it first opens (empty: none).
 
 - **Values:** one line of text, up to 1000 characters
-- **Default:** `Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, tune settings.`
+- **Default:** `Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, set up an extension, tune settings.`
 - **Stored in:** `ui.json` → `engineerGreeting`
 - **When an agent changes it:** applies directly
 

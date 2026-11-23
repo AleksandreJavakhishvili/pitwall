@@ -156,7 +156,7 @@ pub const DENSITIES: &[&str] = &["comfortable", "compact", "dense"];
 pub const SIDEBAR_GROUPS: &[&str] = &["project", "account"];
 /// The Race Engineer's first prompt, by default (`engineer.greeting`).
 pub const ENGINEER_GREETING: &str =
-    "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, tune settings.";
+    "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, set up an extension, tune settings.";
 pub const FONT_MIN: i64 = 9;
 pub const FONT_MAX: i64 = 22;
 pub const FONT_DEFAULT: i64 = 13;
