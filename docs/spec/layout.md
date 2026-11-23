@@ -233,3 +233,49 @@ working dot and a sheen across primary buttons on hover. Only the working
 dot loops. Nothing animates on the Wall, while the page is hidden (minimised
 or occluded: `visibilitychange`), with Reduce motion or the system's reduced
 motion. No blur-in: animating `filter` would cost GPU work on every frame.
+
+## The Settings tile
+
+Settings can be a tile of the layout, beside terminals, files, web pages,
+the inbox and extensions' views: the same Settings as the dialog (one
+`SettingsView`: every page, its page list, its unsaved fields), drawn at
+the tile's full size. The page list is a column beside the page; in a tile
+narrower than 560 px it wraps in rows above the page. There is no fixed
+width or height as in the dialog, and no head (the tile's own bar has its
+name, Move…, Maximise, Open in a window of its own and Close).
+
+- **Opening it.** "Open as a tile" (a button in the dialog's head),
+  "Open Settings as a tile" in the command palette, or an agent's
+  `show_settings` / `pitwall open --settings [<page>]` (below). From the
+  dialog or the palette it goes where the inbox goes: into the focused
+  tile when that is empty, else right of it; focused, with the keys.
+- **A tile like the others.** A press anywhere in it makes it the space's
+  focused tile and gives it the keys; ⌘⏎ (Ctrl+Shift+Enter on Windows and
+  Linux) maximises and restores it; its bar drags it in the layout or out
+  of every window (a window of its own, as an inbox); Move… places it or
+  opens it in a window; Dock… brings it back, the same Settings. Close
+  closes it.
+- **Kept.** The pane is saved with `"settings": true` in `ui.json`; in a
+  window of its own, `settingsWindow: true`. The page is `settingsPage`,
+  shared with the dialog. After a restart the tile (or its window) is back
+  at that page.
+- **One Settings at a time.** The dialog's "Open as a tile" hands its view
+  to the tile and closes, so what you were typing moves with it. Opening
+  the tile any other way (the palette, an agent) closes a dialog left open
+  in any window, its view going into the tile when there is none yet.
+  While the tile is placed (in a layout or its own window), Settings'
+  shortcut, the menu's Settings… and the palette's "Settings: <page>"
+  focus the tile (showing its space, bringing its window forward) instead
+  of opening the dialog. So two copies of Settings' fields never exist,
+  and none can diverge: there is one view, and its fields are in one
+  place.
+- **Agents** (`show_settings`, `settings.open`, `agents.showSettings`):
+  the tile placed right of the agent's terminal, or (its terminal isn't in
+  a window) in the space the frontmost Pitwall window shows, with a note
+  saying so. A tile that is already somewhere stays there: its space is
+  shown in its window and it switches page. `extension` unfolds that
+  extension's card on the Extensions page. It never takes the keyboard,
+  never brings Pitwall or a window forward, and its answer is only where
+  it is and which page (never a value). The agent changes nothing.
+  Extensions are refused (`Ext::Never`): their `show` permission is for
+  files and pages.
