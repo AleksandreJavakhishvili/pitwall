@@ -34,6 +34,7 @@ pub mod activity;
 pub mod check;
 pub mod install;
 pub mod log;
+pub mod npm;
 pub mod permissions;
 pub mod plan;
 pub mod process;
@@ -251,21 +252,35 @@ impl Contributes {
     }
 }
 
-/// Where an extension's updates come from: the tags of a git repository.
+/// Where an extension's updates come from: the tags of a git repository,
+/// or the versions of an npm package.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Source {
-    /// The repository: an `https://` address without credentials.
-    pub git: String,
-    /// The folder in it that holds `extension.json`, `/`-separated (empty:
-    /// its root).
-    pub dir: String,
-    /// The tags that are its releases: a pattern with `{version}`, such as
-    /// `my-ext-v{version}`.
-    pub tags: String,
+pub enum Source {
+    Git {
+        /// The repository: an `https://` address without credentials.
+        git: String,
+        /// The folder in it that holds `extension.json`, `/`-separated
+        /// (empty: its root).
+        dir: String,
+        /// The tags that are its releases: a pattern with `{version}`,
+        /// such as `my-ext-v{version}`.
+        tags: String,
+    },
+    Npm {
+        /// The package's name (`@scope/name` or `name`), checked by
+        /// [`check_npm_package`].
+        package: String,
+        /// The registry: an `https://` address without credentials or a
+        /// trailing `/` ([`NPM_REGISTRY`] unless the manifest names one).
+        registry: String,
+    },
 }
 
-/// The placeholder of a [`Source`]'s tag pattern.
+/// The placeholder of a git [`Source`]'s tag pattern.
 pub const VERSION_PLACEHOLDER: &str = "{version}";
+
+/// The npm registry used when a source names none.
+pub const NPM_REGISTRY: &str = "https://registry.npmjs.org";
 
 impl Manifest {
     /// A manifest with only these (tests and fixtures).
@@ -1072,13 +1087,69 @@ pub fn check_source_dir(dir: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Why `name` can't be an npm package's name. npm's rules for a new
+/// package, kept strict: at most 214 characters; lower-case ASCII letters,
+/// digits and `-._`, starting with a letter or digit; optionally under a
+/// scope (`@scope/name`, the scope by the same rules). So no paths, no
+/// addresses and no version ranges (`name@1.x`, `../x`, `https://…`), and
+/// not `node_modules` or `favicon.ico`.
+pub fn check_npm_package(name: &str) -> Result<(), String> {
+    let part = |p: &str| !p.is_empty() && p.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit()) && p.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "-._".contains(c));
+    let ok = match name.strip_prefix('@') {
+        Some(scoped) => scoped.split_once('/').is_some_and(|(scope, n)| part(scope) && part(n)),
+        None => part(name),
+    };
+    if !ok || name.len() > 214 {
+        return Err(format!("“{name}” isn't an npm package name: lower-case letters, digits and -._, like my-ext or @me/my-ext (no path, address or version)"));
+    }
+    if ["node_modules", "favicon.ico"].contains(&name) {
+        return Err(format!("“{name}” can't be an npm package's name"));
+    }
+    Ok(())
+}
+
+/// Why `url` can't be an npm registry: as [`check_git_url`] (`https://`,
+/// no user or password, spaces, query or fragment), a host and optionally
+/// a path.
+pub fn check_npm_registry(url: &str) -> Result<(), String> {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return Err("it must be an https:// address".into());
+    };
+    if url.len() > 300 || url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.contains(['?', '#', '\\']) {
+        return Err("it must be an https address of at most 300 characters, without spaces".into());
+    }
+    let host = rest.split('/').next().unwrap_or_default();
+    if host.is_empty() || host.contains('@') {
+        return Err("it can't carry a user or password: Pitwall sends no credentials to a registry".into());
+    }
+    Ok(())
+}
+
 fn parse_source(v: Option<&Value>) -> Result<Option<Source>, String> {
     let o = match v {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::Object(o)) => o,
         Some(_) => return Err("\"source\" must be an object".into()),
     };
-    let git = opt_str(o, "git")?.ok_or("\"source\" needs \"git\": the repository's https address")?;
+    if o.contains_key("npm") {
+        if o.contains_key("git") {
+            return Err("\"source\" names both \"git\" and \"npm\": it must be one of them".into());
+        }
+        let package = opt_str(o, "npm")?.unwrap_or_default();
+        check_npm_package(package).map_err(|e| format!("\"source.npm\": {e}"))?;
+        let registry = opt_str(o, "registry")?.unwrap_or(NPM_REGISTRY).trim_end_matches('/');
+        check_npm_registry(registry).map_err(|e| format!("\"source.registry\": {e}"))?;
+        for key in ["dir", "tags"] {
+            if o.contains_key(key) {
+                return Err(format!("\"source.{key}\" is for a git source: an npm package's extension.json is at its root and its versions are its releases"));
+            }
+        }
+        return Ok(Some(Source::Npm { package: package.to_string(), registry: registry.to_string() }));
+    }
+    if o.contains_key("registry") {
+        return Err("\"source.registry\" is for an npm source (\"npm\": the package's name)".into());
+    }
+    let git = opt_str(o, "git")?.ok_or("\"source\" needs \"git\" (the repository's https address) or \"npm\" (the package's name)")?;
     check_git_url(git).map_err(|e| format!("\"source.git\": {e}"))?;
     let dir = opt_str(o, "dir")?.unwrap_or("").trim_matches('/');
     check_source_dir(dir).map_err(|e| format!("\"source.dir\": {e}"))?;
@@ -1088,7 +1159,7 @@ fn parse_source(v: Option<&Value>) -> Result<Option<Source>, String> {
     if !ok {
         return Err(format!("\"source.tags\" “{tags}” must hold {VERSION_PLACEHOLDER} once, with letters, digits and ._/- around it"));
     }
-    Ok(Some(Source { git: git.to_string(), dir: dir.to_string(), tags: tags.to_string() }))
+    Ok(Some(Source::Git { git: git.to_string(), dir: dir.to_string(), tags: tags.to_string() }))
 }
 
 /// An array field (absent: empty) of at most `max` items.
@@ -1465,8 +1536,8 @@ mod tests {
     fn a_source_is_read_and_checked() {
         let with = |src: &str| parse(&format!(r#"{{"id": "x", "name": "X", "source": {src}}}"#));
         let s = with(r#"{"git": "https://example.com/me/repo", "dir": "/extensions/x/", "tags": "x-v{version}"}"#).unwrap().source.unwrap();
-        assert_eq!(s, Source { git: "https://example.com/me/repo".into(), dir: "extensions/x".into(), tags: "x-v{version}".into() });
-        assert_eq!(with(r#"{"git": "https://example.com/me/repo.git", "tags": "{version}"}"#).unwrap().source.unwrap().dir, "");
+        assert_eq!(s, Source::Git { git: "https://example.com/me/repo".into(), dir: "extensions/x".into(), tags: "x-v{version}".into() });
+        assert!(matches!(with(r#"{"git": "https://example.com/me/repo.git", "tags": "{version}"}"#).unwrap().source.unwrap(), Source::Git { dir, .. } if dir.is_empty()));
         assert_eq!(parse(r#"{"id": "x", "name": "X"}"#).unwrap().source, None);
         let refused = |src: &str, why: &str| {
             let e = with(src).unwrap_err();
@@ -1484,6 +1555,35 @@ mod tests {
         refused(r#"{"git": "https://example.com/a", "tags": "a b{version}"}"#, "{version} once");
         refused(r#"{"git": "https://example.com/a"}"#, "needs \"tags\"");
         refused(r#""https://example.com/a""#, "must be an object");
+        refused(r#"{"git": "https://example.com/a", "tags": "{version}", "registry": "https://r.example.com"}"#, "is for an npm source");
+        refused(r#"{"dir": "x"}"#, "needs \"git\"");
+    }
+
+    /// An npm source: a package's name by npm's rules (strictly), and an
+    /// https registry (npm's own when none is named); never both git and
+    /// npm.
+    #[test]
+    fn an_npm_source_is_read_and_checked() {
+        let with = |src: &str| parse(&format!(r#"{{"id": "x", "name": "X", "source": {src}}}"#));
+        assert_eq!(with(r#"{"npm": "@me/my-ext"}"#).unwrap().source.unwrap(), Source::Npm { package: "@me/my-ext".into(), registry: NPM_REGISTRY.into() });
+        assert_eq!(with(r#"{"npm": "my.ext_2", "registry": "https://npm.example.com/r/"}"#).unwrap().source.unwrap(), Source::Npm { package: "my.ext_2".into(), registry: "https://npm.example.com/r".into() });
+        let refused = |src: &str, why: &str| {
+            let e = with(src).unwrap_err();
+            assert!(e.contains(why), "{src}: {e}");
+        };
+        for bad in ["My-Ext", "@me/", "@/x", "@me", "me/x", "../x", "./x", "x/../y", "@me/x/y", ".x", "_x", "-x", "x@1.0.0", "x@^1", "^1.0.0", "https://example.com/x.tgz", "git+https://example.com/x", "file:x", "x y", "", "x~y", "x!", "@ME/x", "node_modules", "favicon.ico", "/x", "x\\y"] {
+            refused(&format!(r#"{{"npm": {}}}"#, serde_json::to_string(bad).unwrap()), if bad == "node_modules" || bad == "favicon.ico" { "can't be an npm package" } else { "isn't an npm package name" });
+        }
+        refused(&format!(r#"{{"npm": "{}"}}"#, "a".repeat(215)), "isn't an npm package name");
+        assert!(with(&format!(r#"{{"npm": "{}"}}"#, "a".repeat(214))).is_ok());
+        refused(r#"{"npm": "x", "registry": "http://registry.example.com"}"#, "https://");
+        refused(r#"{"npm": "x", "registry": "https://me:token@registry.example.com"}"#, "user or password");
+        refused(r#"{"npm": "x", "registry": "https://registry.example.com/?a=b"}"#, "without spaces");
+        refused(r#"{"npm": "x", "registry": "file:///tmp/r"}"#, "https://");
+        refused(r#"{"npm": "x", "git": "https://example.com/a", "tags": "{version}"}"#, "both \"git\" and \"npm\"");
+        refused(r#"{"npm": "x", "dir": "ext"}"#, "is for a git source");
+        refused(r#"{"npm": "x", "tags": "v{version}"}"#, "is for a git source");
+        refused(r#"{"npm": 3}"#, "\"npm\"");
     }
 
     /// A setup action's digest changes with its steps, and only with them.

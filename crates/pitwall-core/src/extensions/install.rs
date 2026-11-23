@@ -1,7 +1,8 @@
 //! Installing extensions (docs/spec/extensions.md, "Installing"): the app
 //! carries copies of some extension folders (its bundle), and an extension
 //! whose manifest names a `source` gets its releases from a git repository
-//! ([`super::source`]). Settings lists those not yet in
+//! ([`super::source`]) or an npm package ([`super::npm`]). Settings lists
+//! those not yet in
 //! `<data>/extensions/` and copies one there on Install, updates it when a
 //! newer copy is offered (the newest wins, never a downgrade), goes back
 //! to the copy before the last update, and removes it. Nothing here runs
@@ -10,8 +11,8 @@
 //! A folder is always written next to its place and renamed into it, so a
 //! failed copy leaves nothing half-installed. Pitwall records what it
 //! installed in the folder ([`MARKER`]: the version, a digest of the
-//! files, and where it came from: Pitwall's copy, or a source's tag and
-//! commit), so it can tell a folder the user changed by hand and never
+//! files, and where it came from: Pitwall's copy, a source's tag and
+//! commit, or a package's version and integrity), so it can tell a folder the user changed by hand and never
 //! replaces one silently.
 
 use std::cmp::Ordering;
@@ -38,37 +39,52 @@ pub enum Origin {
     /// A release of a git source: the repository, the extension's folder
     /// in it, the tag and the commit it pointed at.
     Git { url: String, dir: String, tag: String, commit: String },
+    /// A version of an npm package: the package, its registry, the version
+    /// and the tarball's integrity (`sha512-…`) the registry gave.
+    Npm { package: String, registry: String, version: String, integrity: String },
 }
 
 impl Origin {
-    /// The repository, for a git one.
-    pub fn url(&self) -> Option<&str> {
-        match self {
-            Origin::Git { url, .. } => Some(url),
-            Origin::Bundled => None,
-        }
-    }
-
     /// Its tag and commit, for a git one.
     pub fn tag_commit(&self) -> Option<(&str, &str)> {
         match self {
             Origin::Git { tag, commit, .. } => Some((tag, commit)),
-            Origin::Bundled => None,
+            _ => None,
+        }
+    }
+
+    /// Its version and integrity, for an npm one.
+    pub fn version_integrity(&self) -> Option<(&str, &str)> {
+        match self {
+            Origin::Npm { version, integrity, .. } => Some((version, integrity)),
+            _ => None,
         }
     }
 
     /// Whether `other` comes from the same place (the same repository
-    /// and folder, or both Pitwall's copy).
+    /// and folder, the same package of the same registry, or both
+    /// Pitwall's copy).
     pub fn same_place(&self, other: &Origin) -> bool {
         match (self, other) {
             (Origin::Bundled, Origin::Bundled) => true,
             (Origin::Git { url: a, dir: da, .. }, Origin::Git { url: b, dir: db, .. }) => same_repo(a, b) && da == db,
+            (Origin::Npm { package: a, registry: ra, .. }, Origin::Npm { package: b, registry: rb, .. }) => a == b && same_registry(ra, rb),
             _ => false,
         }
     }
 
-    /// In a few words: "Pitwall's copy", or the repository, its folder,
-    /// tag and short commit.
+    /// Whether it is a release of source `s` (the same repository, or the
+    /// same package of the same registry).
+    pub fn is_from(&self, s: &super::Source) -> bool {
+        match (self, s) {
+            (Origin::Git { url, .. }, super::Source::Git { git, .. }) => same_repo(url, git),
+            (Origin::Npm { package, registry, .. }, super::Source::Npm { package: p, registry: r }) => package == p && same_registry(registry, r),
+            _ => false,
+        }
+    }
+
+    /// In a few words: "Pitwall's copy", the repository, its folder, tag
+    /// and short commit, or the package, version and short integrity.
     pub fn describe(&self) -> String {
         match self {
             Origin::Bundled => "Comes with Pitwall".into(),
@@ -76,6 +92,17 @@ impl Origin {
                 let at = if dir.is_empty() { String::new() } else { format!(" ({dir})") };
                 format!("{}{at}, tag {tag}, commit {}", repo_name(url), super::source::short(commit))
             }
+            Origin::Npm { package, registry, version, integrity } => format!("{}, version {version}, {}", npm_name(package, registry), super::npm::short(integrity)),
+        }
+    }
+
+    /// Where it comes from, without the release: "with this Pitwall",
+    /// "github.com/me/r", "npm: @me/x".
+    pub fn place(&self) -> String {
+        match self {
+            Origin::Bundled => "with this Pitwall".into(),
+            Origin::Git { url, .. } => repo_name(url),
+            Origin::Npm { package, registry, .. } => npm_name(package, registry),
         }
     }
 }
@@ -85,15 +112,42 @@ pub fn repo_name(url: &str) -> String {
     url.trim_start_matches("https://").trim_end_matches('/').trim_end_matches(".git").to_string()
 }
 
+/// Package `package` of `registry`, for reading: "npm: @me/x", with the
+/// registry when it isn't npm's own ("npm: @me/x (npm.example.com)").
+pub fn npm_name(package: &str, registry: &str) -> String {
+    if same_registry(registry, super::NPM_REGISTRY) {
+        format!("npm: {package}")
+    } else {
+        format!("npm: {package} ({})", repo_name(registry))
+    }
+}
+
 /// Where source `s`'s releases are, in a line: "example.com/r (ext), tags
-/// ext-v{version}".
+/// ext-v{version}", or "npm: @me/x, its versions".
 pub fn source_line(s: &super::Source) -> String {
-    format!("{}{}, tags {}", repo_name(&s.git), if s.dir.is_empty() { String::new() } else { format!(" ({})", s.dir) }, s.tags)
+    match s {
+        super::Source::Git { git, dir, tags } => format!("{}{}, tags {tags}", repo_name(git), if dir.is_empty() { String::new() } else { format!(" ({dir})") }),
+        super::Source::Npm { package, registry } => format!("{}, its versions", npm_name(package, registry)),
+    }
+}
+
+/// Where source `s`'s releases are, in a few words: "example.com/r",
+/// "npm: @me/x".
+pub fn source_place(s: &super::Source) -> String {
+    match s {
+        super::Source::Git { git, .. } => repo_name(git),
+        super::Source::Npm { package, registry } => npm_name(package, registry),
+    }
 }
 
 /// Whether repository addresses `a` and `b` are the same repository.
 pub fn same_repo(a: &str, b: &str) -> bool {
     repo_name(a).eq_ignore_ascii_case(&repo_name(b))
+}
+
+/// Whether registry addresses `a` and `b` are the same registry.
+pub fn same_registry(a: &str, b: &str) -> bool {
+    a.trim_end_matches('/').eq_ignore_ascii_case(b.trim_end_matches('/'))
 }
 
 /// An extension ready to install: its manifest, its folder (in the bundle,
@@ -320,6 +374,10 @@ pub fn origin(dir: &Path) -> Option<Origin> {
 }
 
 fn marker_origin(m: &Value) -> Origin {
+    if let (Some(package), Some(version), Some(integrity)) = (m["source"]["npm"].as_str(), m["version"].as_str(), m["integrity"].as_str()) {
+        let registry = m["source"]["registry"].as_str().unwrap_or(super::NPM_REGISTRY);
+        return Origin::Npm { package: package.to_string(), registry: registry.to_string(), version: version.to_string(), integrity: integrity.to_string() };
+    }
     match (&m["source"], m["tag"].as_str(), m["commit"].as_str()) {
         (Value::Object(s), Some(tag), Some(commit)) => Origin::Git {
             url: s.get("git").and_then(Value::as_str).unwrap_or_default().to_string(),
@@ -410,7 +468,8 @@ pub fn install(offer: &Offer, extensions: &Path) -> Result<(), String> {
 /// as the previous one, for [`rollback`] (one step back: an older previous
 /// one goes). A folder that isn't as Pitwall installed it is replaced only
 /// when `replace_changed`. Refused: a release whose tag the installed copy
-/// came from at another commit (the tag moved).
+/// came from at another commit (the tag moved), or a version of the npm
+/// package it came from with another integrity than the installed one.
 pub fn update(offer: &Offer, extensions: &Path, replace_changed: bool) -> Result<(), Refused> {
     let id = &offer.manifest.id;
     let target = extensions.join(id);
@@ -418,10 +477,14 @@ pub fn update(offer: &Offer, extensions: &Path, replace_changed: bool) -> Result
         return Err(Refused::Failed(format!("{} isn't installed", offer.manifest.name)));
     }
     let now = local(&target);
-    if let (Some(Origin::Git { url, tag, commit, .. }), Origin::Git { url: new_url, tag: new_tag, commit: new_commit, .. }) = (&now.origin, &offer.origin) {
-        if same_repo(url, new_url) && tag == new_tag && !commit.eq_ignore_ascii_case(new_commit) {
+    match (&now.origin, &offer.origin) {
+        (Some(Origin::Git { url, tag, commit, .. }), Origin::Git { url: new_url, tag: new_tag, commit: new_commit, .. }) if same_repo(url, new_url) && tag == new_tag && !commit.eq_ignore_ascii_case(new_commit) => {
             return Err(Refused::Failed(format!("The {tag} tag moved: it pointed at {} and now points at {}. Not installed.", super::source::short(commit), super::source::short(new_commit))));
         }
+        (Some(was @ Origin::Npm { version, integrity, .. }), Origin::Npm { version: new_version, integrity: new_integrity, package, .. }) if was.same_place(&offer.origin) && version == new_version && integrity != new_integrity => {
+            return Err(Refused::Failed(super::npm::changed_text(package, version, integrity, new_integrity)));
+        }
+        _ => {}
     }
     if !replace_changed && !now.as_installed {
         return Err(Refused::ChangedLocally);
@@ -508,7 +571,7 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
     let usable = match &offer.origin {
         Origin::Bundled => read(&offer.folder, id).map(|_| ()).map_err(|e| format!("The bundled copy can't be used: {e}")),
         // A fetched folder isn't named after its id.
-        Origin::Git { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
+        Origin::Git { .. } | Origin::Npm { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
             Ok(m) if m.id == *id => Ok(()),
             Ok(m) => Err(format!("The fetched copy is “{}”, not “{id}”", m.id)),
             Err(e) => Err(format!("The fetched copy can't be used: {e}")),
@@ -521,6 +584,8 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
         let marker = match &offer.origin {
             Origin::Bundled => json!({ "version": offer.manifest.version, "digest": d, "source": "bundled" }),
             Origin::Git { url, dir, tag, commit } => json!({ "version": offer.manifest.version, "digest": d, "source": { "git": url, "dir": dir }, "tag": tag, "commit": commit }),
+            // The package's version, which its manifest's must equal.
+            Origin::Npm { package, registry, version, integrity } => json!({ "version": version, "digest": d, "source": { "npm": package, "registry": registry }, "integrity": integrity }),
         };
         std::fs::write(staged.join(MARKER), format!("{marker:#}\n")).map_err(|e| e.to_string())
     });
@@ -762,6 +827,55 @@ mod tests {
         let mut wrong = git_offer(&t.path().join("f4"), "other", "2.0.0", "t-v2.0.0", "dddddddddd");
         wrong.manifest.id = "inbox".into();
         assert_eq!(update(&wrong, &data, false), Err(Refused::Failed("The fetched copy is “other”, not “inbox”".into())));
+    }
+
+    fn npm_offer(dir: &Path, id: &str, version: &str, integrity: &str) -> Offer {
+        ext(dir, id, Some(version), false);
+        let manifest = read(&dir.join(id), id).unwrap();
+        Offer { manifest, folder: dir.join(id), origin: Origin::Npm { package: "@me/inbox".into(), registry: super::super::NPM_REGISTRY.into(), version: version.into(), integrity: integrity.into() } }
+    }
+
+    /// A version from an npm package: its marker says the package,
+    /// registry, version and integrity; the same version with another
+    /// integrity later is refused; a newer one updates and keeps the
+    /// installed copy for Go back.
+    #[test]
+    fn an_npm_version_records_its_source_and_a_changed_one_is_refused() {
+        let t = TempDir::new("ext-npm-origin");
+        let data = t.path().join("data");
+        let (i1, i2) = (super::super::npm::integrity_of(b"1"), super::super::npm::integrity_of(b"2"));
+        let offer = npm_offer(&t.path().join("f1"), "inbox", "1.0.0", &i1);
+        install(&offer, &data).unwrap();
+        let l = local(&data.join("inbox"));
+        assert_eq!(l.origin, Some(offer.origin.clone()));
+        assert!(l.as_installed);
+        let marker: Value = serde_json::from_str(&std::fs::read_to_string(data.join("inbox").join(MARKER)).unwrap()).unwrap();
+        assert_eq!((marker["source"]["npm"].as_str(), marker["source"]["registry"].as_str(), marker["version"].as_str(), marker["integrity"].as_str()), (Some("@me/inbox"), Some("https://registry.npmjs.org"), Some("1.0.0"), Some(i1.as_str())));
+        assert!(offer.origin.describe().starts_with("npm: @me/inbox, version 1.0.0, sha512 "), "{}", offer.origin.describe());
+        assert_eq!(offer.origin.place(), "npm: @me/inbox");
+        assert!(offer.origin.is_from(&super::super::Source::Npm { package: "@me/inbox".into(), registry: "https://registry.npmjs.org/".into() }));
+        assert!(!offer.origin.is_from(&super::super::Source::Npm { package: "@me/other".into(), registry: super::super::NPM_REGISTRY.into() }));
+        let elsewhere = Origin::Npm { package: "@me/inbox".into(), registry: "https://npm.example.com".into(), version: "1.0.0".into(), integrity: i1.clone() };
+        assert!(!offer.origin.same_place(&elsewhere) && elsewhere.place() == "npm: @me/inbox (npm.example.com)");
+        let changed = npm_offer(&t.path().join("f2"), "inbox", "1.0.0", &i2);
+        match update(&changed, &data, true) {
+            Err(Refused::Failed(why)) => assert!(why.contains("Version 1.0.0 of @me/inbox changed on the registry"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        let newer = npm_offer(&t.path().join("f3"), "inbox", "1.1.0", &i2);
+        update(&newer, &data, false).unwrap();
+        assert_eq!(local(&data.join("inbox")).origin.and_then(|o| o.version_integrity().map(|(v, i)| (v.to_string(), i.to_string()))), Some(("1.1.0".into(), i2.clone())));
+        assert_eq!(previous(&data, "inbox").and_then(|p| p.origin), Some(offer.origin.clone()));
+        rollback(&data, "inbox", false).unwrap();
+        assert_eq!(local(&data.join("inbox")).origin, Some(offer.origin.clone()));
+        // From a git release to an npm one: where it comes from changes.
+        let m = read(&data.join("inbox"), "inbox").unwrap();
+        let git = Origin::Git { url: "https://example.com/r".into(), dir: "ext".into(), tag: "t-v1.0.0".into(), commit: "aaaaaaa".into() };
+        let c = changes(Some((&m, Some(&git))), &newer);
+        assert_eq!(c[0].title, "Where it comes from changes:");
+        assert!(c[0].lines[0].starts_with("now: npm: @me/inbox, version 1.1.0"), "{:?}", c[0].lines);
+        let fresh = changes(None, &newer);
+        assert_eq!(fresh[0].lines[1], "Not reviewed by Pitwall");
     }
 
     /// Bundled and source offers together: the newest wins, never a

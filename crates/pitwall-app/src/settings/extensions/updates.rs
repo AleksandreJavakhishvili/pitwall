@@ -89,13 +89,13 @@ impl SettingsView {
         // Where it came from, and its source's last check.
         let mut parts: Vec<String> = Vec::new();
         match &origin {
-            Some(o @ Origin::Git { .. }) => parts.push(format!("From {}", o.describe())),
+            Some(o @ (Origin::Git { .. } | Origin::Npm { .. })) => parts.push(format!("From {}", o.describe())),
             Some(Origin::Bundled) => parts.push("Comes with Pitwall".into()),
             None => parts.push("Put here by hand".into()),
         }
         if let Some(src) = &m.source {
-            if !origin.as_ref().and_then(Origin::url).is_some_and(|u| install::same_repo(u, &src.git)) {
-                parts.push(format!("updates from {}", install::repo_name(&src.git)));
+            if !origin.as_ref().is_some_and(|o| o.is_from(src)) {
+                parts.push(format!("updates from {}", install::source_place(src)));
             }
             parts.push(match (&check, checking) {
                 (_, true) => "checking…".into(),
@@ -116,7 +116,7 @@ impl SettingsView {
         let warn = |text: String| div().text_size(px(12.)).text_color(ui.t.amber).child(text).into_any_element();
         if let Some(c) = &check {
             if let Err(why) = &c.newest {
-                out.push(warn(format!("Couldn't check {}: {why}", install::repo_name(&c.url))));
+                out.push(warn(format!("Couldn't check {}: {why}", c.place)));
             }
             if let Some(why) = &c.moved {
                 out.push(warn(why.clone()));
@@ -129,7 +129,7 @@ impl SettingsView {
             let v = offer.manifest.version.clone().unwrap_or_default();
             let from = match &offer.origin {
                 Origin::Bundled => "with this Pitwall".to_string(),
-                Origin::Git { url, .. } => format!("from {}", install::repo_name(url)),
+                o => format!("from {}", o.place()),
             };
             let preparing = self.exts.preparing.contains(&m.id);
             let prepared = self.exts.prepared.get(&m.id).filter(|p| p.offer.manifest.version.as_deref() == Some(v.as_str())).cloned();

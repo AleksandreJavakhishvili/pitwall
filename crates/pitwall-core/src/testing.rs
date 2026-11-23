@@ -9,8 +9,10 @@ use std::sync::{Arc, Mutex};
 
 pub mod contract;
 mod fake;
+pub mod npm;
 
 pub use fake::{FakeProvider, FakeTerm, FakeTermCtl, Launched};
+pub use npm::{npm_extension, NpmRegistry, TarItem};
 
 use crate::clock::Clock;
 use crate::engine::{Deps, Engine, Shared};
