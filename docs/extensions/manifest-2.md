@@ -1,10 +1,11 @@
 # The manifest, format 2
 
-Format 2 is [format 1](manifest.md) with four additions: the Pitwall it
-needs, the permissions it asks for, what it contributes, and more kinds
-of settings. Everything else reads as in format 1. Use it when your
-adapter speaks [protocol 2](protocol-2.md) or when you need the new
-setting types.
+Format 2 is [format 1](manifest.md) with five additions: the Pitwall it
+needs, the permissions it asks for, what it contributes, more kinds
+of settings, and a [service](service.md) it keeps running. Everything
+else reads as in format 1. Use it when your adapter speaks
+[protocol 2](protocol-2.md), or when you need the new setting types or
+a service.
 
 ```json
 {
@@ -102,10 +103,22 @@ The new types are read in format 1 too, but a Pitwall from before them
 refuses a manifest that uses them. Give such a manifest `v: 2` and a
 `pitwall`, so an older Pitwall says what it needs.
 
+## `service`
+
+One program Pitwall keeps running on this computer while the extension
+is on, such as the server its agents talk to: its command (`{setting:KEY}`
+and `{data}`, its own private folder), the action that installs it, the
+lowest version it needs, how Pitwall tells it is up (an address on this
+computer or a line it prints), its variables and an optional first run
+such as a first sign-in. The user confirms its exact commands once.
+[A service](service.md) has the keys and the rules. A format 1 manifest
+ignores `service`.
+
 ## Checking it
 
 `pitwall extension check <folder> --human` prints the format, each
 setting with its type, options, range and default, the permissions with
-your reasons, and what it contributes. It warns about format-2 keys in a
+your reasons, what it contributes and its service (which runs
+continuously). It warns about format-2 keys in a
 format 1 manifest (they are ignored there) and about permissions this
 Pitwall doesn't serve.
