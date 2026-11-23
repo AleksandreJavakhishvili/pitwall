@@ -364,9 +364,11 @@ Format 1 reads as before.
   with dots, reasons one line of at most 200 characters. Names are kept
   even when this Pitwall doesn't serve them (`permissions::ALL`, with
   `available`).
-- `contributes`: `{"inbox": true}` is the only kind drawn; `views`,
-  `commands`, `badges`, `notifications`, `panels`, `cards`, `webViews` are
-  refused as needing a newer Pitwall, others as unknown. In format 2 the
+- `contributes`: `inbox`, `views` (≤ 10), `commands` (≤ 20),
+  `badges` and `notifications` are drawn (each needs an adapter;
+  `notifications` the `notify` permission; see "Views, commands, badges
+  and notifications" below); `panels`, `cards`, `webViews` are refused
+  as needing a newer Pitwall, others as unknown. In format 2 the
   inbox needs `contributes.inbox` (`Manifest::has_inbox`); in format 1,
   an adapter is an inbox.
 - Setting types `text` (≤ 500 characters), `choice` (2–20 options,
@@ -662,6 +664,60 @@ a peer of the files and web tiles, or a window of its own. Code:
   Pitwall's window has your attention, never from a bench instance; the
   first list after a start never notifies).
 
+## Views, commands, badges and notifications
+
+What an extension's adapter draws beyond its inbox (author's guide:
+`docs/extensions/views.md`; proposal and differences:
+`docs/spec/extension-api.md`, phase 4). Pitwall draws all of it; none of
+it acts on agents.
+
+- **Model** (`pitwall_core::extensions::view`): a view's `root` is a
+  `list` (sections of items: id, title, subtitle, tone, icon, ≤ 3
+  badges, time, ≤ 5 actions) with an optional pane beside it, or a pane
+  alone: `detail` (title, ≤ 30 fields with http(s) links, a Markdown
+  body ≤ 40 000 characters, actions), `markdown`, `status` (empty,
+  loading or error; ≤ 2 actions). `form` and `table` are refused, said
+  in the tile. A line ≤ 256 KiB, ≤ 500 items, ≤ 50 sections; text is cut
+  and cleaned as threads are.
+- **Protocol** (either version, gated by the manifest): in `view`,
+  `badges`, `notify`; out `show`, `hide`, `select`, `action {req, view,
+  item?, action}`, `command {req, command, agentId?}`, answered by
+  `result`. `hello`'s `offers` lists `views`, `commands`, `badges`,
+  `notify`. A view the manifest doesn't declare is refused and logged.
+- **Hub** (`extensions/hub.rs`, `hub/views.rs`): a view is kept only
+  while a tile shows it, each adapter is told `show` after its hello;
+  several connections' lists are merged section by section, item ids
+  carrying their connection (`<connection>:<id>`) as threads do. An
+  action's failure is a line in the tile until the next.
+- **The tile** (`main_screen/view_tile.rs`): one per view, opened by
+  "Open <title> (<extension>)" in the palette or a badge, note or
+  toast that names it; placed as the inbox is, moved, maximised, in a
+  window of its own (`inbox_window.rs` takes a surface key: the
+  extension's id for its inbox, `<extension>/<view>` for a view). A pane
+  keeps it as `view` beside `inbox` (an older Pitwall shows it empty); a
+  view in a window is kept in `extensions.<id>.viewWindows` and opened
+  again at start. ↑↓/J K select (sent as `select`), Enter presses the
+  selected row's primary action. Bench: `view open|select|action|close|
+  state <ext>/<view> …`.
+- **Commands**: "<Extension>: <title>" in the palette while it runs;
+  `agent` ones only with an agent focused (`agentId` only with
+  `agents.read`); sent to the first running connection; the answer's
+  message or failure is a toast. No keys.
+- **Badges and notes**: the whole set each time, applied at most four
+  times a second; an agent by id needs `agents.read`, by `matchAgents`
+  names nothing, a project by folder `projects.read` (refusals logged
+  once). Drawn beside the ask badge on agents' rows and before the count
+  on projects' headers; a click opens what `open` names. Cleared when
+  the adapter stops.
+- **Notifications**: need `contributes.notifications` and the `notify`
+  grant; ≤ 3 a minute per extension, the same id and words not again for
+  10 minutes; the extension's name before the title; through
+  `platform::notify_attention` (not while Pitwall is in front, never
+  from a bench instance) and a toast with "Open" in the main window.
+- **Settings**: the permission screen and an extension's card list what
+  it adds ("Adds to Pitwall"); the install and update review lists it,
+  and what an update adds and drops.
+
 ## In the floating control
 The floating "needs you" control (Settings → General,
 `general.floatingPrompts`; code: `float/`) shows the open questions of
@@ -832,4 +888,4 @@ plan, process, starter}`, `pitwall_core::platform::group`.
 - `pitwall extension list|install|remove` on the command line (it needs
   the app's socket protocol to reach the running app's state).
 - Watching a development folder for changes (Reload is by hand).
-- View kinds besides the inbox.
+- View components beyond list, detail, Markdown and status (forms, tables), and actions Pitwall runs itself from a view (open a file, focus an agent).

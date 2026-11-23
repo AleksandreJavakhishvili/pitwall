@@ -40,6 +40,20 @@ Writes an extension that reads Pitwall's data instead
 Turning it on shows the permission screen with your reason. Its calls
 show under **Activity** in its card.
 
+## `pitwall extension new <folder> --view`
+
+Writes an extension that draws a [view tile](views.md) instead of an
+inbox:
+
+| File | What it is |
+| --- | --- |
+| `extension.json` | [Format 2](manifest-2.md): the `agents.read` permission with its reason, and `contributes` with one view (`items`), one command (`refresh`) and `badges`. |
+| `adapter.mjs` | Answers hello with protocol 2. While the view is shown it sends a list of two items with the selected one's detail beside it; "Mark done" on an item is answered and moves it to a "Done" section; the palette command "<name>: Refresh" is answered; and it puts a short note on each agent's row (read with `agent.list`). |
+| `test/pitwall.json` | A [`views`](checks.md#views) check of all of that against a fake Pitwall. |
+
+In Pitwall, turn it on and pick **Open <name>** in the command palette
+(⌘K): the view opens as a tile beside the focused one.
+
 ## From here
 
 1. Load it in Pitwall ([dev mode](dev-mode.md)) and turn it on. Open the

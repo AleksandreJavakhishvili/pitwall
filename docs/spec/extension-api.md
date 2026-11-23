@@ -235,7 +235,7 @@ that need no protocol change: blocking asks in the floating control (7),
 and the inbox's ⌘I going to the most recently used inbox instead of the
 first one on.
 
-### 2. View tile [proposed, phase 4]
+### 2. View tile [built, phase 4]
 A tile of the layout (a peer of files, web and inbox tiles, placed and
 moved as the inbox is), built from components. One per declared view.
 
@@ -283,7 +283,7 @@ open a file, focus an agent) are `{"id":"…","open":{"url":"…"}}` /
 `{"open":{"file":"…","agentId":"…"}}` / `{"focus":"a1"}`, checked against
 grants.
 
-### 3. Commands [proposed, phase 4]
+### 3. Commands [built, phase 4]
 Manifest: `"commands": [{"id","title","context":"none|agent"}]` (≤ 20).
 They appear in the command palette as "<Extension>: <title>"; `agent`
 ones only while an agent is focused, and their message names it (only
@@ -293,7 +293,7 @@ No default keybindings: Pitwall's own shortcuts are dense (⌘ on macOS,
 Ctrl+Shift elsewhere) and two extensions would collide. When Pitwall gets
 a user keymap, a command can be bound there by the user.
 
-### 4. Sidebar badges and row notes [proposed, phase 4]
+### 4. Sidebar badges and row notes [built, phase 4]
 Generalizes the ask badge [today: `agent_ask_badge`, from inbox asks].
 ```json
 {"type":"badges","badges":[
@@ -307,7 +307,7 @@ row; a row with badges from more than two extensions shows the first two
 and "+N". A click opens what `open` says. The inbox's ask badge becomes
 one producer of this.
 
-### 5. Notifications [proposed, phase 4]
+### 5. Notifications [built, phase 4]
 ```json
 {"type":"notify","id":"r812","title":"api: tests failed","body":"agent/fix-auth","open":{"view":"runs","item":"r812"}}
 ```
@@ -815,7 +815,52 @@ The plan as proposed:
   `ui.json` `extensions.<id>.grants` with dates; the permission screen;
   setting types text, choice, bool, number; the activity log.
 
-### Phase 4 — Views, commands, badges, notifications
+### Phase 4 — Views, commands, badges, notifications [built]
+
+Built as below, with these differences from the proposal:
+- Components: `list` (with an optional `detail`, `markdown` or `status`
+  beside it), `detail`, `markdown`, `status`. `form` and `table` are
+  refused with a plain line in the tile ("a later Pitwall draws it").
+  No item `agent` link, no actions Pitwall runs itself (`open`,
+  `focus`), no `needs` on actions and no filter field in the list: those
+  act on agents or the system, phase 5.
+- Limits: a view line ≤ 256 KiB, ≤ 500 items, ≤ 50 sections, ≤ 3 badges
+  and ≤ 5 actions an item, ≤ 30 fields, Markdown ≤ 40 000 characters,
+  ≤ 500 badges a set, a note ≤ 16 characters. Over them a view is
+  refused in its tile; text is cut.
+- Views, commands, badges and notifications need a format 2 manifest
+  (`contributes`), not protocol 2: a protocol 1 adapter may send them
+  (the demo does). `hello`'s `offers` lists `views`, `commands`,
+  `badges`, `notify`.
+- A view is kept only while a tile shows it; `show` is sent again after
+  a restart. With several connections, a list's sections come from each
+  (named after it) and items' ids carry their connection, as threads do.
+- Panes keep a view as `view` (`<extension>/<view>`) beside `inbox`, so
+  older layouts load unchanged (an older Pitwall shows a view pane
+  empty); windows are kept by that key, a view's in
+  `extensions.<id>.viewWindows`. The inbox's window, place and drag code
+  takes either (`inbox_window.rs`, by key).
+- Commands go to the first running connection's adapter; the answer's
+  `message` shows as a toast.
+- Badges: at most four sets a second applied (the newest waits), each
+  extension's shown beside the ask badge (not merged into it, no "+N"
+  yet); gone when its adapter stops. A badge it may not draw is dropped
+  and logged once.
+- Notifications: the `notify` permission is served (on by default when
+  asked for) and is the switch; at most 3 a minute (more are dropped and
+  logged), the same `id` with the same words not again within 10
+  minutes. A system notification can't report a click: it is shown with
+  the extension's name and also as a toast in Pitwall, whose "Open"
+  opens what it names.
+- Each is in the activity log: actions and commands sent, notifications
+  shown, refusals. Settings show what an extension adds (the permission
+  screen and its card), the install and update review lists what it
+  adds and drops, and `pitwall extension check|test` describe and test
+  it (`views` in `test/pitwall.json`).
+- `pitwall extension new --view` writes a starter with a list view, a
+  command and badges; the shipped demo draws "Demo runs".
+
+The plan as proposed:
 - New `pitwall-core/src/extensions/view.rs`: the component model, its
   limits and cleaning (as `protocol.rs` cleans threads).
 - New `pitwall-app/src/main_screen/view_tile.rs`; factor the placement,

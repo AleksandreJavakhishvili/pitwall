@@ -30,7 +30,7 @@ user reads your reason next to Pitwall's own words for it.
 | `agents.focus` | Bring an agent's terminal to the front | not yet |
 | `agents.queue` | Queue a message for an agent | not yet |
 | `agents.start` | Start an agent | not yet |
-| `notify` | Show a notification | not yet |
+| `notify` | Show notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name ([notifications](views.md#notifications); it needs `contributes.notifications`) | yes |
 
 A permission this Pitwall doesn't serve yet is listed on the permission
 screen as "not available in this Pitwall yet" and is never granted. A
