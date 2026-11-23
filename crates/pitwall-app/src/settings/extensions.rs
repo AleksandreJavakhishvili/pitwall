@@ -225,7 +225,7 @@ impl SettingsView {
             .map(|s| {
                 let argv: Vec<String> = s.split_whitespace().map(str::to_string).collect();
                 let program = crate::extensions::adapter::resolve(std::path::Path::new("."), &argv[0], path.as_deref()).ok();
-                Planned { skip: program.is_none().then(|| format!("“{}” isn't installed", argv[0])), argv, program, for_kind: None, optional: false }
+                Planned { skip: program.is_none().then(|| format!("“{}” isn't installed", argv[0])), argv, program, for_kind: None, optional: false, account: None }
             })
             .collect();
         self.exts.confirm = Some((ext.to_string(), action.to_string(), plan));
