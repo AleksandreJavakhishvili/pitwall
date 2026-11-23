@@ -21,7 +21,7 @@ pub mod cli_install;
 pub mod data;
 mod engineer;
 pub(crate) mod extensions;
-mod extensions_dev;
+pub(crate) mod extensions_dev;
 pub mod onboarding;
 pub mod pages;
 mod peers;

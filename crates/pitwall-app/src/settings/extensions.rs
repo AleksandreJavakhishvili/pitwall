@@ -41,6 +41,7 @@ use crate::main_screen::workspace::ExtensionPrefs;
 use pitwall_core::accounts::Account;
 
 mod grants;
+pub use grants::{initial_picks, turn_on_with};
 mod service_ui;
 mod updates;
 
@@ -79,6 +80,9 @@ pub struct Section {
     /// A connection being named: (extension, the connection renamed or
     /// `None` for a new one, its field).
     naming: Option<(String, Option<String>, Entity<TextInput>)>,
+    /// Secret fields an agent asked the user to fill in (`pitwall extension
+    /// secret`), by (extension, key): marked until set.
+    asked: HashSet<(String, String)>,
     /// Why naming failed.
     naming_note: Option<String>,
     /// Removing a connection asked to confirm: (extension, connection,
@@ -240,6 +244,85 @@ pub fn plan_rows(plan: &[Planned]) -> Vec<(Option<String>, String, Option<String
         .collect()
 }
 
+/// What a press of `a`'s button (for connection `c`) runs, to confirm:
+/// for the tools' default folders and every account of them, or, when its
+/// run is recorded as done but not for some accounts (added since), for
+/// those only. Settings' card and an agent's request both ask with this.
+pub fn plan_action(m: &Manifest, a: &Action, c: Option<&Account>, cx: &gpui::App) -> Vec<Planned> {
+    let values = c.map(|c| c.values.clone()).unwrap_or_default();
+    let path = actions::steps_path(cx);
+    let missing = connections::not_yet_for(m, a, c, cx);
+    if missing.is_empty() {
+        actions::plan_for(m, a, &values, path.as_deref(), &crate::accounts::tool_accounts(cx), true)
+    } else {
+        actions::plan_for(m, a, &values, path.as_deref(), &missing, false)
+    }
+}
+
+/// Run `plan` of `m`'s action `a` (for connection `c`, kept under `key`),
+/// as confirmed, off the UI thread: its steps confirmed (an account added
+/// later gets them by itself), its run recorded when it ends, and its
+/// service looked at again after its install action; then `then`.
+pub fn start_action(m: &Manifest, a: &Action, c: Option<Account>, key: &str, plan: Vec<Planned>, cx: &mut gpui::App, then: impl FnOnce(&RunState, &mut gpui::App) + 'static) {
+    // These steps, confirmed: an account added later gets them by
+    // itself (`actions::auto_setup`).
+    connections::record_confirmed(m, a, c.as_ref().map(|c| c.id.as_str()), cx);
+    let ext = m.id.clone();
+    let home = pitwall_core::paths::home();
+    let runs = actions::runs(cx);
+    let record = {
+        let (m, action, conn) = (m.clone(), a.id.clone(), c.map(|c| c.id));
+        // Its service's install (or update) ended: looked at again,
+        // and started again with what is installed now.
+        let service = SettingsView::is_service_install(&m, &action);
+        move |st: &RunState, cx: &mut gpui::App| {
+            record_run(&m, &action, conn.as_deref(), st, cx);
+            if service {
+                let id = m.id.clone();
+                cx.defer(move |cx| crate::extensions::service::recheck(&id, cx));
+            }
+            then(st, cx);
+        }
+    };
+    runs.update(cx, |r, cx| r.start((&ext, key), plan, home, actions::STEP_TIMEOUT, record, cx));
+}
+
+/// The status pill of `m` (for connection `c`): Off, Needs setup,
+/// Connecting, Connected, Signed out, Stopped, Error (or On, without an
+/// adapter); its tone; the adapter's word on why; whether it is connected.
+pub fn card_status(m: &Manifest, c: Option<&Account>, cx: &mut gpui::App) -> (&'static str, Tone, String, bool) {
+    let h = hub::hub(cx);
+    let state = match c {
+        Some(c) => h.read(cx).connection(&m.id, &c.id),
+        None => h.read(cx).get(&m.id),
+    };
+    let (run, conn) = state.map(|s| (s.run.clone(), s.conn.clone())).unwrap_or_default();
+    let connected = run == Run::Running && matches!(conn, Some((ConnState::Ready, _)));
+    let prefs = connections::prefs_for(m, c, cx);
+    if !prefs.enabled {
+        return ("Off", Tone::Plain, String::new(), connected);
+    }
+    let list = checklist(m, &prefs, connected, ServiceFacts::of(m, cx));
+    let missing = list.iter().any(|(s, done)| !done && *s != Step::Connected);
+    let (word, tone, why) = run_text(&run, conn.as_ref());
+    if missing {
+        return ("Needs setup", Tone::Warn, why, connected);
+    }
+    if m.adapter.is_none() {
+        return ("On", Tone::Ok, String::new(), connected);
+    }
+    let word = match word {
+        "connected" => "Connected",
+        "connecting" => "Connecting",
+        "signed out" => "Signed out",
+        "stopped" => "Stopped",
+        "needs setup" => "Needs setup",
+        "error" => "Error",
+        _ => "Off",
+    };
+    (word, tone, why, connected)
+}
+
 /// Where the system keeps secrets, in the user's words.
 fn secure_store() -> &'static str {
     if cfg!(target_os = "macos") {
@@ -291,6 +374,27 @@ impl SettingsView {
     /// Extensions").
     pub(super) fn exts_open(&mut self, id: &str) {
         self.exts.open.insert(id.to_string(), true);
+    }
+
+    /// An agent asked the user to enter `ext`'s secret `key` (on
+    /// connection `conn`, a name or id): its card unfolded there, the field
+    /// marked. Nothing of its value goes anywhere but the secure store.
+    pub fn ask_secret(&mut self, ext: &str, key: &str, conn: Option<&str>, cx: &mut Context<Self>) {
+        self.exts_open(ext);
+        if let Some(k) = conn {
+            let list = connections::list(ext, cx);
+            if let Some(c) = list.iter().find(|c| c.id == k).or_else(|| list.iter().find(|c| c.name.eq_ignore_ascii_case(k))) {
+                self.exts.conn.insert(ext.to_string(), c.id.clone());
+            }
+        }
+        self.exts.asked.insert((ext.to_string(), key.to_string()));
+        cx.notify();
+    }
+
+    /// Whether `ext`'s secret `key` is marked as asked for (tests).
+    #[cfg(test)]
+    pub(crate) fn secret_asked(&self, ext: &str, key: &str) -> bool {
+        self.exts.asked.contains(&(ext.to_string(), key.to_string()))
     }
 
     /// Extension `ext`'s card unfolded on connection `conn` (from a
@@ -397,36 +501,7 @@ impl SettingsView {
     /// out, Stopped, Error (or On, without an adapter); its tone; the
     /// adapter's word on why.
     fn status_of(m: &Manifest, c: Option<&Account>, cx: &mut Context<Self>) -> (&'static str, Tone, String, bool) {
-        let h = hub::hub(cx);
-        let state = match c {
-            Some(c) => h.read(cx).connection(&m.id, &c.id),
-            None => h.read(cx).get(&m.id),
-        };
-        let (run, conn) = state.map(|s| (s.run.clone(), s.conn.clone())).unwrap_or_default();
-        let connected = run == Run::Running && matches!(conn, Some((ConnState::Ready, _)));
-        let prefs = connections::prefs_for(m, c, cx);
-        if !prefs.enabled {
-            return ("Off", Tone::Plain, String::new(), connected);
-        }
-        let list = checklist(m, &prefs, connected, ServiceFacts::of(m, cx));
-        let missing = list.iter().any(|(s, done)| !done && *s != Step::Connected);
-        let (word, tone, why) = run_text(&run, conn.as_ref());
-        if missing {
-            return ("Needs setup", Tone::Warn, why, connected);
-        }
-        if m.adapter.is_none() {
-            return ("On", Tone::Ok, String::new(), connected);
-        }
-        let word = match word {
-            "connected" => "Connected",
-            "connecting" => "Connecting",
-            "signed out" => "Signed out",
-            "stopped" => "Stopped",
-            "needs setup" => "Needs setup",
-            "error" => "Error",
-            _ => "Off",
-        };
-        (word, tone, why, connected)
+        card_status(m, c, cx)
     }
 
     /// Installed extension `folder`'s card.
@@ -1161,14 +1236,7 @@ impl SettingsView {
     /// not for some accounts (added since), for those only.
     fn ask_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
         let c = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
-        let values = c.as_ref().map(|c| c.values.clone()).unwrap_or_default();
-        let path = actions::steps_path(cx);
-        let missing = connections::not_yet_for(m, a, c.as_ref(), cx);
-        let plan = if missing.is_empty() {
-            actions::plan_for(m, a, &values, path.as_deref(), &crate::accounts::tool_accounts(cx), true)
-        } else {
-            actions::plan_for(m, a, &values, path.as_deref(), &missing, false)
-        };
+        let plan = plan_action(m, a, c.as_ref(), cx);
         self.exts.confirm = Some((m.id.clone(), run_key(a, c.as_ref()), plan));
         cx.notify();
     }
@@ -1355,26 +1423,7 @@ impl SettingsView {
     fn run_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
         let Some((_, key, plan)) = self.exts.confirm.take() else { return };
         let c = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
-        // These steps, confirmed: an account added later gets them by
-        // itself (`actions::auto_setup`).
-        connections::record_confirmed(m, a, c.as_ref().map(|c| c.id.as_str()), cx);
-        let ext = m.id.clone();
-        let home = pitwall_core::paths::home();
-        let runs = actions::runs(cx);
-        let record = {
-            let (m, action, conn) = (m.clone(), a.id.clone(), c.map(|c| c.id));
-            // Its service's install (or update) ended: looked at again,
-            // and started again with what is installed now.
-            let service = Self::is_service_install(&m, &action);
-            move |st: &RunState, cx: &mut gpui::App| {
-                record_run(&m, &action, conn.as_deref(), st, cx);
-                if service {
-                    let id = m.id.clone();
-                    cx.defer(move |cx| crate::extensions::service::recheck(&id, cx));
-                }
-            }
-        };
-        runs.update(cx, |r, cx| r.start((&ext, &key), plan, home, actions::STEP_TIMEOUT, record, cx));
+        start_action(m, a, c, &key, plan, cx, |_, _| {});
         cx.notify();
     }
 
@@ -1478,6 +1527,12 @@ impl SettingsView {
             line = line.child(crate::kit::text_button(SharedString::from(format!("extension-secret-remove-{}-{}", m.id, s.key)), "Remove", BtnKind::GhostSm, busy, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.secret_change(k.clone(), &ext, conn.clone(), None, cx))));
         }
         let mut col = div().flex().flex_col().gap(px(5.)).child(Self::setting_title(ui, s)).child(div().max_w(px(520.)).child(line));
+        let asked = (m.id.clone(), s.key.clone());
+        if set {
+            self.exts.asked.remove(&asked);
+        } else if self.exts.asked.contains(&asked) {
+            col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child("An agent asked you to set this. Enter it here: it goes to the system's secure store and never to the agent."));
+        }
         if let Some(n) = self.exts.notes.get(&k) {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
         } else if let Some(h) = &s.hint {
@@ -1509,6 +1564,8 @@ impl SettingsView {
 mod accounts_tests;
 #[cfg(all(test, unix))]
 mod service_tests;
+#[cfg(all(test, unix))]
+mod agent_tests;
 
 #[cfg(test)]
 mod tests {

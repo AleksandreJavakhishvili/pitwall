@@ -34,6 +34,8 @@ pub struct Host {
     pub settings: Arc<crate::settings::backend::AppSettings>,
     /// `pitwall space` (cli_spaces).
     pub workspace: Arc<crate::cli_spaces::AppWorkspace>,
+    /// `extension.*`: extensions' state and setup for agents.
+    pub ext_setup: Arc<crate::extensions::agent_setup::AppExtensions>,
     /// The user's other machines (`None`: the instance key couldn't be
     /// made). Nothing runs until `crate::peers::init` starts it, and
     /// nothing listens or dials while its switches are off.
@@ -109,6 +111,7 @@ impl Host {
         let identify = ProcessIdentity::with_extensions(engine.clone(), extensions.clone());
         let settings = crate::settings::backend::AppSettings::new(Some(engine.clone()));
         let workspace = crate::cli_spaces::AppWorkspace::new();
+        let ext_setup = crate::extensions::agent_setup::AppExtensions::new();
         let cfg = Config {
             socket: paths.cli_socket(),
             version: env!("CARGO_PKG_VERSION").into(),
@@ -117,7 +120,7 @@ impl Host {
             viewer: Some(workspace.clone()),
             events: Some(hub),
             extensions: Some(extensions),
-            ext_backend: None,
+            ext_backend: Some(ext_setup.clone()),
         };
         let api = pitwall_daemon::build(engine.clone(), approvals.clone(), identify, cfg);
         let server = match pitwall_daemon::listen(api.clone(), paths.cli_socket()) {
@@ -132,6 +135,7 @@ impl Host {
             approvals,
             settings,
             workspace,
+            ext_setup,
             peers,
             tailnet,
             api,

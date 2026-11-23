@@ -406,7 +406,11 @@ pub fn show_for_agent(req: &SettingsShow, cx: &mut App) -> Result<SettingsShown,
     let tile = view(cx);
     let settings = tile.read(cx).settings();
     if let Some(ext) = req.extension.as_deref().filter(|e| !e.trim().is_empty()) {
-        settings.update(cx, |v, cx| v.open_extension(ext.trim(), cx));
+        let ext = ext.trim();
+        match req.secret.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(key) => settings.update(cx, |v, cx| v.ask_secret(ext, key, req.connection.as_deref(), cx)),
+            None => settings.update(cx, |v, cx| v.open_extension(ext, cx)),
+        }
     }
     settings.update(cx, |_, cx| cx.notify());
     let page = crate::settings::data::page(cx);
