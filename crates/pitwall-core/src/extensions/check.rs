@@ -22,6 +22,12 @@
 //!   given those, lists that thread with one blocking ask, sends its
 //!   counts, opens it, and carries `answer` (`pick`, its `label`, `text`)
 //!   back.
+//! - `calls`: a fake Pitwall side (`grants`, `answers`, `events`) and what
+//!   the adapter must call, subscribe to and show (`expect`).
+//! - `views`: after `show` (a view id), a view of `kind` with at least
+//!   `items` items; after `select` (an item), a `detail` of that kind
+//!   beside the list; `action` (`item`, `action`) and `command` answered
+//!   ok; at least `badges` badges and notes sent.
 //!
 //! An adapter's program that isn't installed (Node, say) skips the runs,
 //! saying so; it doesn't fail them.
@@ -185,8 +191,15 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
                 r.add(Level::Warn, format!("it asks for “{}”, {why}: never granted here", p.name));
             }
         }
-        if m.adapter.is_some() && !m.contributes.inbox && m.permissions.is_empty() {
-            r.add(Level::Warn, "its adapter contributes nothing and asks for no permissions: add \"contributes\": {\"inbox\": true} or a permission");
+        if m.adapter.is_some() && m.contributes == super::Contributes::default() && m.permissions.is_empty() {
+            r.add(Level::Warn, "its adapter contributes nothing and asks for no permissions: add \"contributes\": {\"inbox\": true} (or views, commands, badges) or a permission");
+        }
+        let asks = |p: &str| m.permissions.iter().any(|x| x.name == p);
+        if asks(super::permissions::NOTIFY) && !m.contributes.notifications {
+            r.add(Level::Warn, "it asks for “notify” but doesn't contribute \"notifications\": add \"notifications\": true to \"contributes\"");
+        }
+        if m.contributes.badges && m.match_agents.is_none() && !asks(super::permissions::AGENTS_READ) && !asks(super::permissions::PROJECTS_READ) {
+            r.add(Level::Warn, "its badges can name no row: ask for agents.read (agents by id) or projects.read (projects), or add \"matchAgents\" (agents by name)");
         }
     }
     let named = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -292,8 +305,9 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
         } else {
             push("It asks for (the user grants or refuses each when turning it on):".to_string(), lines);
         }
-        if m.contributes.inbox {
-            push("It contributes:".to_string(), vec!["an inbox, from its adapter's threads".to_string()]);
+        let adds = m.contributes.lines();
+        if !adds.is_empty() {
+            push("It contributes:".to_string(), adds);
         }
     }
     match &m.adapter {
@@ -357,10 +371,116 @@ pub fn test(folder: &Path, path: Option<&str>) -> Report {
     if !fixture["calls"].is_null() {
         calls(folder, &m, &fixture["calls"], path, &mut r);
     }
+    if !fixture["views"].is_null() {
+        views(folder, &m, &fixture["views"], path, &mut r);
+    }
     if r.findings.len() == before {
-        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, run, agreement or calls)"));
+        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, run, agreement, calls or views)"));
     }
     r
+}
+
+/// `views`: what its view tiles, commands and badges send, against a fake
+/// Pitwall side (as `calls`): after `show`, a view of the `kind` expected
+/// with at least `items` items; after `select`, the view with a `detail`
+/// of that kind beside the list; `action` (`item`, `action`) and
+/// `command` answered ok; at least `badges` badges sent.
+fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Report) {
+    use super::view::{Pane, Root};
+    let Some(command) = command_of(m, folder, path, "views", r) else { return };
+    let Some(show) = v["show"].as_str().map(str::to_string) else {
+        r.add(Level::Fail, format!("{FIXTURE}'s “views” needs “show”: the id of the view to show"));
+        return;
+    };
+    if m.contributes.view(&show).is_none() {
+        r.add(Level::Fail, format!("views: its manifest declares no view “{show}” (contributes.views)"));
+        return;
+    }
+    let obj = |k: &str| v[k].as_object().cloned().unwrap_or_default();
+    let grants: Vec<String> = v["grants"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+    let mut d = match Driver::start(folder, &command, &hello_with(obj("settings"), obj("secrets"), grants), path) {
+        Ok(d) => d,
+        Err(why) => {
+            r.add(Level::Fail, format!("views: its adapter: {why}"));
+            return;
+        }
+    };
+    d.answers = obj("answers");
+    let kind_of = |root: &Root| match root {
+        Root::List { .. } => "list",
+        Root::Pane(Pane::Detail(_)) => "detail",
+        Root::Pane(Pane::Markdown(_)) => "markdown",
+        Root::Pane(Pane::Status(_)) => "status",
+    };
+    let pane_kind = |p: &Pane| match p {
+        Pane::Detail(_) => "detail",
+        Pane::Markdown(_) => "markdown",
+        Pane::Status(_) => "status",
+    };
+    let result = (|| -> Result<(), String> {
+        if said_hello(&mut d, r).is_none() {
+            return Ok(());
+        }
+        d.send(&ToAdapter::Show { view: show.clone() })?;
+        let want_kind = v["kind"].as_str().unwrap_or_default().to_string();
+        let at_least = v["items"].as_u64().unwrap_or(0) as usize;
+        let FromAdapter::View(view) = d.until(&format!("view “{show}”"), |m| matches!(m, FromAdapter::View(x) if x.id == show))? else { unreachable!() };
+        let root = view.root.map_err(|why| format!("view “{show}” is refused: {why}"))?;
+        let kind = kind_of(&root);
+        if !want_kind.is_empty() && kind != want_kind {
+            return Err(format!("view “{show}” is a {kind}, not a {want_kind}"));
+        }
+        let items = match &root {
+            Root::List { list, .. } => list.items().count(),
+            _ => 0,
+        };
+        if items < at_least {
+            return Err(format!("view “{show}” has {items} item(s), fewer than {at_least}"));
+        }
+        r.add(Level::Ok, format!("views: after show, view “{show}” is a {kind}{}", if kind == "list" { format!(" of {items} item(s)") } else { String::new() }));
+        if let Some(item) = v["select"].as_str().map(str::to_string) {
+            let want = v["detail"].as_str().unwrap_or("detail").to_string();
+            d.send(&ToAdapter::Select { view: show.clone(), item: item.clone() })?;
+            d.until(&format!("view “{show}” with a {want} for “{item}”"), |m| matches!(m, FromAdapter::View(x) if x.id == show && matches!(&x.root, Ok(Root::List { detail: Some(p), .. }) if pane_kind(p) == want)))?;
+            r.add(Level::Ok, format!("views: after selecting “{item}”, a {want} is beside the list"));
+        }
+        let mut req = 100;
+        if let Some(a) = v["action"].as_object() {
+            req += 1;
+            let action = a.get("action").and_then(Value::as_str).unwrap_or_default().to_string();
+            let item = a.get("item").and_then(Value::as_str).map(str::to_string);
+            d.send(&ToAdapter::Action { req, view: show.clone(), item: item.clone(), action: action.clone() })?;
+            match d.until(&format!("the result of action “{action}”"), |m| matches!(m, FromAdapter::Result { req: x, .. } if *x == req))? {
+                FromAdapter::Result { ok: true, .. } => r.add(Level::Ok, format!("views: action “{action}”{} is answered ok", item.map(|i| format!(" on “{i}”")).unwrap_or_default())),
+                FromAdapter::Result { message, .. } => r.add(Level::Fail, format!("views: action “{action}” is refused: {message}")),
+                _ => {}
+            }
+        }
+        if let Some(c) = v["command"].as_str().map(str::to_string) {
+            if m.contributes.command(&c).is_none() {
+                return Err(format!("its manifest declares no command “{c}” (contributes.commands)"));
+            }
+            req += 1;
+            d.send(&ToAdapter::Command { req, command: c.clone(), agent_id: None })?;
+            match d.until(&format!("the result of command “{c}”"), |m| matches!(m, FromAdapter::Result { req: x, .. } if *x == req))? {
+                FromAdapter::Result { ok: true, .. } => r.add(Level::Ok, format!("views: command “{c}” is answered ok")),
+                FromAdapter::Result { message, .. } => r.add(Level::Fail, format!("views: command “{c}” is refused: {message}")),
+                _ => {}
+            }
+        }
+        if let Some(n) = v["badges"].as_u64() {
+            let n = n as usize;
+            if !d.badges.is_some_and(|b| b >= n) {
+                d.until(&format!("at least {n} badge(s)"), |m| matches!(m, FromAdapter::Badges(b) if b.len() >= n))?;
+            }
+            r.add(Level::Ok, format!("views: it sends {} badge(s) or note(s)", d.badges.unwrap_or(n)));
+        }
+        Ok(())
+    })();
+    if let Err(why) = result {
+        r.add(Level::Fail, format!("views: {why}"));
+    }
+    finish(d, r);
 }
 
 /// `calls`: the adapter against a fake Pitwall side that answers its
@@ -563,6 +683,8 @@ struct Driver {
     called: Vec<String>,
     /// The topics it subscribed to.
     topics: Vec<String>,
+    /// How many badges and notes its last `badges` line had.
+    badges: Option<usize>,
 }
 
 /// What the fake Pitwall side answers call `c` with: the fixture's
@@ -630,7 +752,7 @@ impl Driver {
                 t.drain(..over);
             }
         });
-        let mut d = Driver { proc, stdin: Some(pipes.stdin), rx, stderr, bad: Vec::new(), protocol: 0, answers: Map::new(), called: Vec::new(), topics: Vec::new() };
+        let mut d = Driver { proc, stdin: Some(pipes.stdin), rx, stderr, bad: Vec::new(), protocol: 0, answers: Map::new(), called: Vec::new(), topics: Vec::new(), badges: None };
         d.send(hello)?;
         Ok(d)
     }
@@ -671,7 +793,11 @@ impl Driver {
         let end = Instant::now() + WAIT;
         loop {
             let left = end.saturating_duration_since(Instant::now());
-            match self.rx.recv_timeout(left) {
+            let got = self.rx.recv_timeout(left);
+            if let Ok(Ok(FromAdapter::Badges(b))) = &got {
+                self.badges = Some(b.len());
+            }
+            match got {
                 Ok(Ok(m)) if want(&m) => return Ok(m),
                 // Calls are answered as they come, whatever is awaited.
                 Ok(Ok(FromAdapter::Call(c))) => self.answer(c.id, c.method, c.params)?,

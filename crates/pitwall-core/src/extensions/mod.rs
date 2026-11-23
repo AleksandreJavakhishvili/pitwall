@@ -22,6 +22,11 @@
 //! reads only format 1 refuses `"v": 2`, which is what makes these keys
 //! safe: none is ignored silently. Settings know `text`, `choice`, `bool`
 //! and `number` besides `url` and `secret`, in either format.
+//!
+//! What format 2 contributes ([`Contributes`]): the inbox, view tiles drawn
+//! from Pitwall's own components ([`view`]), command palette commands,
+//! badges and short notes on sidebar rows, and notifications (with the
+//! `notify` permission).
 
 pub mod activity;
 pub mod check;
@@ -33,6 +38,7 @@ pub mod process;
 pub mod protocol;
 pub mod source;
 pub mod starter;
+pub mod view;
 
 use std::path::Path;
 
@@ -49,10 +55,16 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 1] = ["inbox"];
+pub const CONTRIBUTES: [&str; 5] = ["inbox", "views", "commands", "badges", "notifications"];
 
 /// Contributions a later Pitwall draws (a manifest naming one needs it).
-const LATER_CONTRIBUTIONS: [&str; 7] = ["views", "commands", "badges", "notifications", "panels", "cards", "webViews"];
+const LATER_CONTRIBUTIONS: [&str; 3] = ["panels", "cards", "webViews"];
+
+/// The most views and commands a manifest contributes.
+pub const MAX_VIEWS: usize = 10;
+pub const MAX_COMMANDS: usize = 20;
+/// The longest view or command title.
+pub const MAX_TITLE: usize = 40;
 
 /// The longest id, icon name and name.
 pub const MAX_ID: usize = 40;
@@ -118,6 +130,75 @@ pub struct PermissionAsk {
 pub struct Contributes {
     /// An inbox, from its adapter's threads.
     pub inbox: bool,
+    /// View tiles, drawn from what its adapter sends ([`view`]).
+    pub views: Vec<ViewDef>,
+    /// Command palette commands, sent to its adapter when picked.
+    pub commands: Vec<CommandDef>,
+    /// Badges and short notes on agents' and projects' sidebar rows.
+    pub badges: bool,
+    /// Notifications (with the `notify` permission).
+    pub notifications: bool,
+}
+
+/// A view a manifest declares: its id (what the adapter's `view` lines
+/// name), its title (the tile's bar, "Open <title>") and its icon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewDef {
+    pub id: String,
+    pub title: String,
+    pub icon: Option<String>,
+}
+
+/// Where a command applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CommandContext {
+    /// Anywhere.
+    #[default]
+    None,
+    /// Only while an agent is focused; its message names the agent (with
+    /// `agents.read`).
+    Agent,
+}
+
+/// A command palette command a manifest declares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandDef {
+    pub id: String,
+    pub title: String,
+    pub context: CommandContext,
+}
+
+impl Contributes {
+    /// What it adds, one line each, in plain words (`pitwall extension
+    /// check`, an install's and an update's "what changes").
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.inbox {
+            out.push("an inbox, from its adapter's threads".to_string());
+        }
+        out.extend(self.views.iter().map(|v| format!("a view tile “{}” ({})", v.title, v.id)));
+        out.extend(self.commands.iter().map(|c| match c.context {
+            CommandContext::None => format!("a command “{}” ({}) in the command palette", c.title, c.id),
+            CommandContext::Agent => format!("a command “{}” ({}) in the command palette while an agent is focused", c.title, c.id),
+        }));
+        if self.badges {
+            out.push("badges and short notes on agents' and projects' rows in the sidebar".to_string());
+        }
+        if self.notifications {
+            out.push("notifications (a few a minute at most)".to_string());
+        }
+        out
+    }
+
+    /// View `id`, when it declares one.
+    pub fn view(&self, id: &str) -> Option<&ViewDef> {
+        self.views.iter().find(|v| v.id == id)
+    }
+
+    /// Command `id`, when it declares one.
+    pub fn command(&self, id: &str) -> Option<&CommandDef> {
+        self.commands.iter().find(|c| c.id == id)
+    }
 }
 
 /// Where an extension's updates come from: the tags of a git repository.
@@ -655,6 +736,15 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     if contributes.inbox && adapter.is_none() {
         return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
     }
+    if adapter.is_none() {
+        let what = [("views", !contributes.views.is_empty()), ("commands", !contributes.commands.is_empty()), ("badges", contributes.badges), ("notifications", contributes.notifications)].into_iter().find(|(_, has)| *has);
+        if let Some((what, _)) = what {
+            return Err(format!("\"contributes.{what}\" needs an \"adapter\": Pitwall draws what it sends"));
+        }
+    }
+    if contributes.notifications && !permissions.iter().any(|p| p.name == permissions::NOTIFY) {
+        return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
+    }
     Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes })
 }
 
@@ -712,17 +802,80 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
         Some(_) => return Err("\"contributes\" must be an object".into()),
     };
     let mut c = Contributes::default();
+    let switch = |k: &str, val: &Value| match val {
+        Value::Bool(b) => Ok(*b),
+        _ => Err(format!("\"contributes.{k}\" must be true or false")),
+    };
     for (k, val) in o {
         match k.as_str() {
-            "inbox" => match val {
-                Value::Bool(b) => c.inbox = *b,
-                _ => return Err("\"contributes.inbox\" must be true or false".into()),
-            },
+            "inbox" => c.inbox = switch(k, val)?,
+            "badges" => c.badges = switch(k, val)?,
+            "notifications" => c.notifications = switch(k, val)?,
+            "views" => c.views = parse_views(val)?,
+            "commands" => c.commands = parse_commands(val)?,
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
             other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
         }
     }
     Ok(c)
+}
+
+/// `contributes.views`: at most [`MAX_VIEWS`], each with a unique id (like
+/// an extension's), a title and maybe an icon.
+fn parse_views(v: &Value) -> Result<Vec<ViewDef>, String> {
+    let Value::Array(list) = v else { return Err("\"contributes.views\" must be a list".into()) };
+    if list.len() > MAX_VIEWS {
+        return Err(format!("\"contributes.views\" has more than {MAX_VIEWS}"));
+    }
+    let mut out: Vec<ViewDef> = Vec::new();
+    for (i, item) in list.iter().enumerate() {
+        let Value::Object(o) = item else { return Err(format!("\"contributes.views\" {} must be an object", i + 1)) };
+        let id = opt_str(o, "id")?.ok_or(format!("\"contributes.views\" {} needs an \"id\"", i + 1))?;
+        check_word("view id", id)?;
+        if out.iter().any(|d| d.id == id) {
+            return Err(format!("view “{id}” is there twice"));
+        }
+        let title = line(&format!("contributes.views {id}: title"), opt_str(o, "title")?.ok_or(format!("view “{id}” needs a \"title\""))?, MAX_TITLE)?;
+        let icon = match opt_str(o, "icon")? {
+            Some(i) => {
+                check_word("icon", i)?;
+                Some(i.to_string())
+            }
+            None => None,
+        };
+        out.push(ViewDef { id: id.to_string(), title, icon });
+    }
+    Ok(out)
+}
+
+/// `contributes.commands`: at most [`MAX_COMMANDS`], each with a unique id,
+/// a title and a context (`none` or `agent`). No keybindings: a command is
+/// picked from the palette.
+fn parse_commands(v: &Value) -> Result<Vec<CommandDef>, String> {
+    let Value::Array(list) = v else { return Err("\"contributes.commands\" must be a list".into()) };
+    if list.len() > MAX_COMMANDS {
+        return Err(format!("\"contributes.commands\" has more than {MAX_COMMANDS}"));
+    }
+    let mut out: Vec<CommandDef> = Vec::new();
+    for (i, item) in list.iter().enumerate() {
+        let Value::Object(o) = item else { return Err(format!("\"contributes.commands\" {} must be an object", i + 1)) };
+        let id = opt_str(o, "id")?.ok_or(format!("\"contributes.commands\" {} needs an \"id\"", i + 1))?;
+        check_word("command id", id)?;
+        if out.iter().any(|d| d.id == id) {
+            return Err(format!("command “{id}” is there twice"));
+        }
+        let title = line(&format!("contributes.commands {id}: title"), opt_str(o, "title")?.ok_or(format!("command “{id}” needs a \"title\""))?, MAX_TITLE)?;
+        let context = match opt_str(o, "context")? {
+            None | Some("none") => CommandContext::None,
+            Some("agent") => CommandContext::Agent,
+            Some(other) => return Err(format!("command “{id}” has context “{other}”: it must be none or agent")),
+        };
+        if o.contains_key("keys") || o.contains_key("keybinding") {
+            return Err(format!("command “{id}” names keys: extensions' commands have no shortcuts (they are picked from the command palette)"));
+        }
+        out.push(CommandDef { id: id.to_string(), title, context });
+    }
+    Ok(out)
 }
 
 /// Why `url` can't be a source's repository: only `https://`, without a
@@ -1260,7 +1413,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"views": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “views”, which needs a newer Pitwall (this one draws: inbox)"));
+        assert!(parse(&v2(r#", "contributes": {"panels": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “panels”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));
@@ -1271,6 +1424,37 @@ mod tests {
         // adapter is an inbox.
         let m = parse(r#"{"id": "x", "name": "X", "adapter": {"command": ["node", "a.mjs"]}, "pitwall": ">=99.0.0", "permissions": {"agents.read": "r"}, "contributes": {"views": []}}"#).unwrap();
         assert_eq!((m.format, m.pitwall.clone(), m.permissions.len(), m.has_inbox()), (1, None, 0, true));
+    }
+
+    /// Views, commands, badges and notifications: within their limits, each
+    /// needing an adapter, notifications the `notify` permission, commands
+    /// without keys.
+    #[test]
+    fn contributions_are_read_and_checked() {
+        let v2 = |extra: &str| format!(r#"{{"v": 2, "id": "ci", "name": "CI", "adapter": {{"command": ["node", "a.mjs"]}}{extra}}}"#);
+        let m = parse(&v2(r#", "permissions": {"notify": "To say when a run fails"}, "contributes": {"views": [{"id": "runs", "title": "CI runs", "icon": "check"}, {"id": "jobs", "title": "Jobs"}],
+            "commands": [{"id": "rerun", "title": "Re-run failed jobs", "context": "agent"}, {"id": "refresh", "title": "Refresh"}], "badges": true, "notifications": true}"#))
+        .unwrap();
+        let c = &m.contributes;
+        assert_eq!(c.views[0], ViewDef { id: "runs".into(), title: "CI runs".into(), icon: Some("check".into()) });
+        assert_eq!((c.views[1].icon.clone(), c.commands[0].context, c.commands[1].context), (None, CommandContext::Agent, CommandContext::None));
+        assert!(c.badges && c.notifications && !c.inbox && !m.has_inbox());
+        assert_eq!(c.view("jobs").map(|v| v.title.as_str()), Some("Jobs"));
+        assert_eq!(c.lines().len(), 6);
+        assert!(c.lines()[2].contains("while an agent is focused"), "{:?}", c.lines());
+        let err = |extra: &str| parse(&v2(extra)).unwrap_err();
+        assert!(err(r#", "contributes": {"notifications": true}"#).contains("needs the \"notify\" permission"));
+        assert!(err(r#", "contributes": {"views": [{"id": "a", "title": "A"}, {"id": "a", "title": "B"}]}"#).contains("view “a” is there twice"));
+        assert!(err(r#", "contributes": {"views": [{"id": "Runs", "title": "A"}]}"#).contains("lower-case"));
+        assert!(err(r#", "contributes": {"views": [{"id": "runs"}]}"#).contains("needs a \"title\""));
+        assert!(err(&format!(r#", "contributes": {{"views": [{{"id": "runs", "title": "{}"}}]}}"#, "t".repeat(41))).contains("longer than 40"));
+        let many: Vec<String> = (0..11).map(|i| format!(r#"{{"id": "v{i}", "title": "V"}}"#)).collect();
+        assert!(err(&format!(r#", "contributes": {{"views": [{}]}}"#, many.join(","))).contains("more than 10"));
+        assert!(err(r#", "contributes": {"commands": [{"id": "go", "title": "Go", "keys": "cmd-g"}]}"#).contains("no shortcuts"));
+        assert!(err(r#", "contributes": {"commands": [{"id": "go", "title": "Go", "context": "project"}]}"#).contains("none or agent"));
+        assert!(err(r#", "contributes": {"badges": "yes"}"#).contains("true or false"));
+        assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"views": [{"id": "a", "title": "A"}]}}"#).unwrap_err().contains("\"contributes.views\" needs an \"adapter\""));
+        assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"badges": true}}"#).unwrap_err().contains("\"contributes.badges\" needs an \"adapter\""));
     }
 
     /// Text, choice, switch and number settings: each with its checks and

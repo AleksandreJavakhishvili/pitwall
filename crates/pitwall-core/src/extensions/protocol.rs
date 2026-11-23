@@ -31,9 +31,11 @@ pub const PROTOCOL: u64 = 1;
 pub const PROTOCOLS: [u64; 2] = [1, 2];
 /// The protocol with calls, replies and events.
 pub const PROTOCOL_2: u64 = 2;
-/// What this Pitwall draws and serves (`hello.offers`): the inbox, and in
-/// protocol 2 calls to its method table and events.
-pub const OFFERS: [&str; 3] = ["inbox", "call", "events"];
+/// What this Pitwall draws and serves (`hello.offers`): the inbox, view
+/// tiles, palette commands, sidebar badges and notifications (for a
+/// manifest that contributes them), and in protocol 2 calls to its method
+/// table and events.
+pub const OFFERS: [&str; 7] = ["inbox", "views", "commands", "badges", "notify", "call", "events"];
 /// The longest id an adapter gives a call (longer ones aren't answered).
 pub const MAX_CALL_ID: usize = 64;
 /// The longest method name in a call.
@@ -223,6 +225,12 @@ pub enum FromAdapter {
     BadCall { id: String, why: String },
     /// One of the inbox's messages.
     Inbox(FromInbox),
+    /// A whole view, replacing the last one ([`super::view`]).
+    View(super::view::View),
+    /// The whole set of its sidebar badges and notes.
+    Badges(Vec<super::view::RowBadge>),
+    /// A notification it asks for.
+    Notify(super::view::Notify),
     /// A `type` this Pitwall doesn't know.
     Unknown,
 }
@@ -292,6 +300,20 @@ pub enum ToAdapter {
     Grants(Vec<String>),
     /// One of the inbox's messages.
     Inbox(ToInbox),
+    /// View `view` is shown (send it, and keep it current).
+    Show { view: String },
+    /// View `view` isn't shown any more.
+    Hide { view: String },
+    /// The user selected `item` of view `view` (send the view with its
+    /// detail).
+    Select { view: String, item: String },
+    /// The user pressed action `action` (of `item`, when it is an item's
+    /// or the selected item's detail's); answered by a `result`.
+    Action { req: u64, view: String, item: Option<String>, action: String },
+    /// The user picked command `command` in the palette (with the focused
+    /// agent, for an agent command with `agents.read`); answered by a
+    /// `result`.
+    Command { req: u64, command: String, agent_id: Option<String> },
 }
 
 /// The inbox's messages from Pitwall.
@@ -327,6 +349,23 @@ impl ToAdapter {
             ToAdapter::Event { event, data } => json!({"type": "event", "event": event, "data": data}),
             ToAdapter::Grants(g) => json!({"type": "grants", "grants": g}),
             ToAdapter::Inbox(m) => m.value(),
+            ToAdapter::Show { view } => json!({"type": "show", "view": view}),
+            ToAdapter::Hide { view } => json!({"type": "hide", "view": view}),
+            ToAdapter::Select { view, item } => json!({"type": "select", "view": view, "item": item}),
+            ToAdapter::Action { req, view, item, action } => {
+                let mut v = json!({"type": "action", "req": req, "view": view, "action": action});
+                if let Some(i) = item {
+                    v["item"] = json!(i);
+                }
+                v
+            }
+            ToAdapter::Command { req, command, agent_id } => {
+                let mut v = json!({"type": "command", "req": req, "command": command});
+                if let Some(a) = agent_id {
+                    v["agentId"] = json!(a);
+                }
+                v
+            }
         };
         v.to_string()
     }
@@ -563,6 +602,9 @@ pub fn parse_line(line: &str) -> Result<FromAdapter, String> {
             message: text(&v, "message", 500),
         },
         "call" => call(&v)?,
+        "view" => FromAdapter::View(super::view::parse_view(&v)?),
+        "badges" => FromAdapter::Badges(super::view::parse_badges(&v)),
+        "notify" => FromAdapter::Notify(super::view::parse_notify(&v)?),
         _ => FromAdapter::Unknown,
     })
 }
@@ -744,6 +786,10 @@ mod tests {
         );
         assert_eq!(parse_line(r#"{"type":"result","req":4,"ok":true}"#).unwrap(), FromAdapter::Result { req: 4, ok: true, message: String::new() });
         assert_eq!(parse_line(r#"{"type":"badge","n":3}"#).unwrap(), FromAdapter::Unknown, "a later type is ignored");
+        assert!(matches!(parse_line(r#"{"type":"view","view":"runs","root":{"kind":"markdown","text":"x"}}"#).unwrap(), FromAdapter::View(v) if v.id == "runs" && v.root.is_ok()));
+        assert!(matches!(parse_line(r#"{"type":"badges","badges":[]}"#).unwrap(), FromAdapter::Badges(b) if b.is_empty()));
+        assert!(matches!(parse_line(r#"{"type":"notify","id":"n","title":"T"}"#).unwrap(), FromAdapter::Notify(n) if n.id == "n"));
+        assert!(parse_line(r#"{"type":"view","root":{}}"#).is_err(), "no view id");
         assert!(parse_line("not json").is_err());
         assert!(parse_line("[1]").is_err());
         assert!(parse_line(r#"{"no":"type"}"#).is_err());
@@ -802,7 +848,7 @@ mod tests {
         // `protocol` stays 1: a protocol 1 adapter reads only that.
         assert_eq!(
             hello,
-            json!({"type": "hello", "protocol": 1, "protocols": [1, 2], "pitwall": "0.7.0", "settings": {"server": "https://inbox.example.com"}, "secrets": {"apiKey": "k"}, "grants": [], "offers": ["inbox", "call", "events"]})
+            json!({"type": "hello", "protocol": 1, "protocols": [1, 2], "pitwall": "0.7.0", "settings": {"server": "https://inbox.example.com"}, "secrets": {"apiKey": "k"}, "grants": [], "offers": ["inbox", "views", "commands", "badges", "notify", "call", "events"]})
         );
         let h = Hello { connection: Some(Connection { id: "ext-x-work".into(), name: "Work".into() }), grants: vec!["agents.read".into()], ..h };
         let hello: Value = serde_json::from_str(&ToAdapter::Hello(h).line()).unwrap();
@@ -819,6 +865,14 @@ mod tests {
         let ev = ToAdapter::Event { event: "agents.changed".into(), data: json!([]) }.line();
         assert_eq!(serde_json::from_str::<Value>(&ev).unwrap(), json!({"type": "event", "event": "agents.changed", "data": []}));
         assert_eq!(serde_json::from_str::<Value>(&ToAdapter::Grants(vec![]).line()).unwrap(), json!({"type": "grants", "grants": []}));
+        let v = |m: ToAdapter| serde_json::from_str::<Value>(&m.line()).unwrap();
+        assert_eq!(v(ToAdapter::Show { view: "runs".into() }), json!({"type": "show", "view": "runs"}));
+        assert_eq!(v(ToAdapter::Hide { view: "runs".into() }), json!({"type": "hide", "view": "runs"}));
+        assert_eq!(v(ToAdapter::Select { view: "runs".into(), item: "r1".into() }), json!({"type": "select", "view": "runs", "item": "r1"}));
+        assert_eq!(v(ToAdapter::Action { req: 12, view: "runs".into(), item: Some("r1".into()), action: "rerun".into() }), json!({"type": "action", "req": 12, "view": "runs", "item": "r1", "action": "rerun"}));
+        assert_eq!(v(ToAdapter::Action { req: 13, view: "runs".into(), item: None, action: "signin".into() }), json!({"type": "action", "req": 13, "view": "runs", "action": "signin"}));
+        assert_eq!(v(ToAdapter::Command { req: 5, command: "rerun".into(), agent_id: Some("a1".into()) }), json!({"type": "command", "req": 5, "command": "rerun", "agentId": "a1"}));
+        assert_eq!(v(ToAdapter::Command { req: 6, command: "refresh".into(), agent_id: None }), json!({"type": "command", "req": 6, "command": "refresh"}));
     }
 
     #[test]
