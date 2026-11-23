@@ -32,6 +32,12 @@
 //!   `items` items; after `select` (an item), a `detail` of that kind
 //!   beside the list; `action` (`item`, `action`) and `command` answered
 //!   ok; at least `badges` badges and notes sent.
+//! - `service`: with plain settings `values`, its commands as they run
+//!   (`expect`: `run`, `version`, `firstRun`, `{data}` standing for its
+//!   data folder), and for each of `cases` (its program `installed` or
+//!   not, what its version command prints as `version`, its address
+//!   `portTaken`) what Pitwall does with it (`verdict`). Planned only:
+//!   nothing runs.
 //!
 //! An adapter's program that isn't installed (Node, say) skips the runs,
 //! saying so; it doesn't fail them.
@@ -214,7 +220,7 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
     r.add(Level::Ok, format!("{MANIFEST} is valid and within Pitwall's limits (format {})", m.format));
     if m.format < 2 {
         let raw: Value = std::fs::read_to_string(folder.join(MANIFEST)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        for k in ["pitwall", "permissions", "contributes"] {
+        for k in ["pitwall", "permissions", "contributes", "service"] {
             if !raw[k].is_null() {
                 r.add(Level::Warn, format!("it has \"{k}\", which format 1 ignores: add \"v\": 2 to use it"));
             }
@@ -296,6 +302,31 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
             }
         }
     }
+    if let Some(s) = &m.service {
+        r.add(Level::Ok, format!("it declares a service, {}: a program Pitwall keeps running continuously while it is on, once the user confirms its commands", s.label));
+        let program = &s.run[0];
+        match resolve(folder, program, path) {
+            Ok(p) => r.add(Level::Ok, format!("its service runs {program}, found at {}", p.display())),
+            Err(_) => match &s.install {
+                Some(a) => r.add(Level::Ok, format!("its service runs “{program}”, which isn't on the PATH here: its action “{a}” installs it")),
+                None => r.add(Level::Warn, format!("its service runs “{program}”, which isn't on the PATH here, and no \"install\" action names how to get it: users need it installed")),
+            },
+        }
+        for f in file_args(&s.run) {
+            if !folder.join(f).exists() {
+                r.add(Level::Fail, format!("its service's command names {f}, which isn't in its folder"));
+            }
+        }
+        if s.version.as_ref().is_some_and(|v| v.requires.is_none()) {
+            r.add(Level::Warn, "its service's \"version\" has no \"requires\": its version is shown but never asked to be newer");
+        }
+        if s.ready == super::service::Ready::Alive {
+            r.add(Level::Warn, "its service has no \"ready\": Pitwall counts it as running once it has run a moment; a \"listen\" address also keeps it from starting a second copy beside one already running");
+        }
+        if s.first_run.as_ref().is_some_and(|f| f.opens) {
+            r.add(Level::Ok, "its first run's link is opened in the browser and never logged or shown");
+        }
+    }
     if folder.join("README.md").is_file() {
         r.add(Level::Ok, "README.md is there");
     } else {
@@ -363,7 +394,14 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
     }
     match &m.adapter {
         Some(a) => push("While it is on, it runs this in its folder:".to_string(), vec![line(&a.command)]),
-        None => push("It runs no program of its own.".to_string(), vec![]),
+        None if m.service.is_none() => push("It runs no program of its own.".to_string(), vec![]),
+        None => {}
+    }
+    if let Some(s) = &m.service {
+        let data = format!("<Pitwall's data folder>/extension-data/{}", m.id);
+        for (what, lines) in super::service::lines(m, s, &BTreeMap::new(), &data) {
+            push(format!("{what}{}", if what.starts_with("While it is on") { " (once the user confirms these commands; asked again when an update changes them)" } else { "" }), lines);
+        }
     }
     if !m.agent_env.is_empty() {
         push("It sets these on agents started while it is on ({project}: the project folder's name; {agent_id}: the agent's id):".to_string(), env_preview(m, &BTreeMap::new()));
@@ -413,6 +451,7 @@ pub fn test(folder: &Path, path: Option<&str>) -> Report {
     let before = r.findings.len();
     actions(&m, &fixture["actions"], &mut r);
     env(&m, &fixture["env"], &mut r);
+    service(&m, &fixture["service"], &mut r);
     if !fixture["run"].is_null() {
         run(folder, &m, &fixture["run"], path, &mut r);
     }
@@ -426,7 +465,7 @@ pub fn test(folder: &Path, path: Option<&str>) -> Report {
         views(folder, &m, &fixture["views"], path, &mut r);
     }
     if r.findings.len() == before {
-        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, run, agreement, calls or views)"));
+        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, service, run, agreement, calls or views)"));
     }
     r
 }
@@ -740,6 +779,52 @@ fn actions(m: &Manifest, v: &Value, r: &mut Report) {
             r.add(Level::Ok, format!("action “{}” plans the {} step(s) expected", a.id, p.len()));
         } else {
             r.add(Level::Fail, format!("action “{}”: {}", a.id, wrong.join("; ")));
+        }
+    }
+}
+
+/// The service's commands with `values` put in (`{data}` left as it is),
+/// and what Pitwall does with it in each case (planned only).
+fn service(m: &Manifest, v: &Value, r: &mut Report) {
+    use super::service::{commands, verdict, Probe};
+    if v.is_null() {
+        return;
+    }
+    let Some(s) = &m.service else {
+        r.add(Level::Fail, format!("{FIXTURE} expects a service, but the manifest declares none (\"service\", format 2)"));
+        return;
+    };
+    let values: BTreeMap<String, String> = v["values"].as_object().into_iter().flatten().map(|(k, x)| (k.clone(), x.as_str().unwrap_or_default().to_string())).collect();
+    // A stand-in that reads unquoted, shown as `{data}`.
+    let c = commands(m, s, &values, "PITWALL_SERVICE_DATA");
+    let line = |argv: &[String]| line(argv).replace("PITWALL_SERVICE_DATA", super::service::DATA_PLACEHOLDER);
+    let mut wrong = Vec::new();
+    let mut check_line = |what: &str, got: Option<String>| {
+        if let Some(want) = v["expect"][what].as_str() {
+            if got.as_deref() != Some(want) {
+                wrong.push(format!("its {what} command is {}, not {want}", got.unwrap_or_else(|| "none".into())));
+            }
+        }
+    };
+    check_line("run", Some(line(&c.run)));
+    check_line("version", c.version.as_deref().map(line));
+    check_line("firstRun", c.first_run.as_deref().map(line));
+    if wrong.is_empty() {
+        r.add(Level::Ok, "service: its commands are the ones expected");
+    } else {
+        r.add(Level::Fail, format!("service: {}", wrong.join("; ")));
+    }
+    for (i, case) in v["cases"].as_array().into_iter().flatten().enumerate() {
+        let mut vals = values.clone();
+        for (k, x) in case["values"].as_object().into_iter().flatten() {
+            vals.insert(k.clone(), x.as_str().unwrap_or_default().to_string());
+        }
+        let probe = Probe { installed: case["installed"].as_bool().unwrap_or(true), version_output: case["version"].as_str().map(str::to_string), port_taken: case["portTaken"].as_bool().unwrap_or(false) };
+        let got = verdict(m, s, &vals, &probe).words(s);
+        match case["verdict"].as_str() {
+            Some(want) if want == got => r.add(Level::Ok, format!("service, case {}: it {got}", i + 1)),
+            Some(want) => r.add(Level::Fail, format!("service, case {}: it {got}, not “{want}”", i + 1)),
+            None => r.add(Level::Fail, format!("service, case {}: give its \"verdict\" (it {got})", i + 1)),
         }
     }
 }

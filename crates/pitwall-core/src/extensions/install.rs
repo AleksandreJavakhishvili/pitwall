@@ -277,6 +277,9 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
             Some(c) => push("While it is on, runs this in its folder:".into(), vec![c]),
             None => push("Runs no program of its own.".into(), vec![]),
         }
+        if let Some(s) = &new.service {
+            push(format!("Keeps a program running on this computer while it is on, once you confirm it ({}):", s.label), service_lines(s));
+        }
         if !new.agent_env.is_empty() {
             push("Sets these on agents you start while it is on:".into(), env(new));
         }
@@ -305,6 +308,16 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
     if cmd(old) != cmd(new) {
         let shown = |c: Option<String>| c.unwrap_or_else(|| "no program".into());
         push("The program it runs while it is on changes:".into(), vec![format!("now: {}", shown(cmd(new))), format!("was: {}", shown(cmd(old)))]);
+    }
+    match (&old.service, &new.service) {
+        (None, Some(s)) => push(format!("New: it keeps a program running on this computer while it is on ({}), once you confirm it. {SERVICE_RISK}", s.label), service_lines(s)),
+        (Some(o), Some(s)) if super::service::digest(o) != super::service::digest(s) => {
+            let mut lines: Vec<String> = service_lines(s).into_iter().map(|l| format!("now: {l}")).collect();
+            lines.extend(service_lines(o).into_iter().map(|l| format!("was: {l}")));
+            push(format!("The program it keeps running changes ({}): it is stopped and asks you to confirm it again. {SERVICE_RISK}", s.label), lines);
+        }
+        (Some(o), None) => push(format!("It no longer runs {}: it is stopped (its data stays).", o.label), vec![]),
+        _ => {}
     }
     let (was, now) = (env(old), env(new));
     let mut lines: Vec<String> = now.iter().filter(|e| !was.contains(e)).map(|e| format!("+ {e}")).collect();
@@ -349,6 +362,28 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
     }
     if old.source != new.source {
         push("Its updates will come from:".into(), vec![updates_from(new)]);
+    }
+    out
+}
+
+/// What a service is, said where it is added or changed.
+pub const SERVICE_RISK: &str = "It keeps running as you, with your files, for as long as the extension is on and Pitwall runs.";
+
+/// A service's commands as the manifest has them: what it runs, how its
+/// version is checked, its first run, its variables.
+fn service_lines(s: &super::service::Service) -> Vec<String> {
+    let mut out = vec![s.run.join(" ")];
+    if let Some(v) = &s.version {
+        out.push(format!("version: {}", v.run.join(" ")));
+    }
+    if let Some(f) = &s.first_run {
+        out.push(format!("{}: {}", f.label, f.run.join(" ")));
+    }
+    for e in &s.env {
+        out.push(match &e.from {
+            super::service::EnvFrom::Value(v) => format!("{}={v}", e.name),
+            super::service::EnvFrom::Secret(k) => format!("{} = its secret “{k}”", e.name),
+        });
     }
     out
 }
@@ -959,6 +994,28 @@ mod tests {
         assert_eq!(more.lines.len(), 2);
         assert!(more.title.contains("not granted until you allow them"));
         assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.start", "weather.read"]);
+    }
+
+    /// A service: what it runs for an install; for an update whose
+    /// commands change, both, that it stops and asks again, and the risk.
+    #[test]
+    fn a_service_is_part_of_what_changes() {
+        let m = |pin: &str| super::super::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "version": "1.0.0", "service": {{"label": "The server", "run": ["srv", "serve", "--data", "{{data}}"], "version": {{"run": ["srv", "version"], "match": "(\\d+\\.\\d+\\.\\d+)", "requires": ">={pin}"}}}}}}"#)).unwrap();
+        let old = m("0.5.0");
+        let offer = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
+        let fresh = changes(None, &offer);
+        let s = fresh.iter().find(|c| c.title.starts_with("Keeps a program running")).unwrap();
+        assert_eq!(s.lines, ["srv serve --data {data}", "version: srv version"]);
+        // Only the lowest version it needs moved: the commands are the same.
+        let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: m("0.6.0"), ..offer.clone() });
+        assert!(!up.iter().any(|c| c.title.contains("keeps running")), "{up:?}");
+        let mut new = m("0.6.0");
+        new.service.as_mut().unwrap().run.push("--quiet".into());
+        let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer.clone() });
+        let c = up.iter().find(|c| c.title.starts_with("The program it keeps running changes")).unwrap();
+        assert!(c.title.contains("asks you to confirm it again") && c.title.contains(SERVICE_RISK), "{}", c.title);
+        assert_eq!(c.lines[0], "now: srv serve --data {data} --quiet");
+        assert!(c.lines.contains(&"was: srv serve --data {data}".to_string()));
     }
 
     /// What it adds to Pitwall (views, commands, badges, notifications):
