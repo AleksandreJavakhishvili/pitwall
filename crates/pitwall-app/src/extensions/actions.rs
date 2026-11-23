@@ -5,6 +5,12 @@
 //! kept short, telling a [`Live`] state as it goes; [`Runs`] keeps the
 //! runs (so a run goes on, and shows, after Settings is closed and opened
 //! again) and lets one be cancelled. Nothing runs at any other time.
+//!
+//! A step for a tool runs once for the tool's default folder and once for
+//! each of Pitwall's accounts of it, with that account's environment
+//! ([`Planned::env`]); a failure for one account stops only that
+//! account's later steps, and [`settle`] says which accounts a run went
+//! through.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
@@ -23,7 +29,7 @@ const TAIL_LINES: usize = 6;
 
 // What a step runs, worked out without running it, is the core's: the
 // same plan `pitwall extension check` prints.
-pub use pitwall_core::extensions::plan::{kind_name, plan, Planned};
+pub use pitwall_core::extensions::plan::{kind_name, plan, plan_for, Planned, ToolAccount};
 
 /// How a step went.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +54,16 @@ pub enum StepState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunState {
     pub steps: Vec<(String, StepState)>,
+    /// Where each step runs, in plain words (`Planned::who`: "Claude
+    /// Code, account Work"), and the id of its account (`None`: the tool's
+    /// default folder, or a step for no tool).
+    pub places: Vec<(Option<String>, Option<String>)>,
+    /// Whether each step is `optional`: its failure doesn't stop its
+    /// place's later steps, nor keep the run from counting as done.
+    pub optional: Vec<bool>,
+    /// A line over the steps: why it ran without a press ("Set up for
+    /// account Work, as you confirmed on 2026-11-20").
+    pub note: Option<String>,
     pub output: VecDeque<u8>,
     pub over: bool,
     pub cancelled: bool,
@@ -57,7 +73,49 @@ pub struct RunState {
 
 impl RunState {
     pub fn new(plan: &[Planned]) -> RunState {
-        RunState { steps: plan.iter().map(|p| (p.line(), StepState::Waiting)).collect(), output: VecDeque::new(), over: false, cancelled: false, changes: 0 }
+        RunState {
+            steps: plan.iter().map(|p| (p.line(), StepState::Waiting)).collect(),
+            places: plan.iter().map(|p| (p.who(), p.account.as_ref().map(|a| a.id.clone()))).collect(),
+            optional: plan.iter().map(|p| p.optional).collect(),
+            note: None,
+            output: VecDeque::new(),
+            over: false,
+            cancelled: false,
+            changes: 0,
+        }
+    }
+
+    /// It runs for one of Pitwall's accounts of a tool: its steps are
+    /// shown by where they run.
+    pub fn by_account(&self) -> bool {
+        self.places.iter().any(|(_, a)| a.is_some())
+    }
+
+    /// The steps that run for the same place as step `i`, in order.
+    pub fn group(&self, i: usize) -> Vec<usize> {
+        let who = self.places.get(i).map(|p| &p.0);
+        (0..self.steps.len()).filter(|j| self.places.get(*j).map(|p| &p.0) == who).collect()
+    }
+
+    /// Step `i` failed and isn't optional.
+    pub fn hard_failed(&self, i: usize) -> bool {
+        matches!(self.steps.get(i), Some((_, StepState::Ended(Outcome::Failed(_))))) && !self.optional.get(i).copied().unwrap_or(false)
+    }
+
+    /// How the steps `ids` stand, in a word: running, failed (one that
+    /// isn't optional), done (one ran and none failed), skipped (none ran)
+    /// or waiting.
+    pub fn group_word(&self, ids: &[usize]) -> &'static str {
+        let states: Vec<&StepState> = ids.iter().filter_map(|i| self.steps.get(*i)).map(|(_, s)| s).collect();
+        if states.iter().any(|s| matches!(s, StepState::Running(_))) {
+            "running"
+        } else if ids.iter().any(|i| self.hard_failed(*i)) {
+            "failed"
+        } else if states.iter().all(|s| matches!(s, StepState::Ended(_))) {
+            if states.iter().any(|s| matches!(s, StepState::Ended(Outcome::Done))) { "done" } else { "skipped" }
+        } else {
+            "waiting"
+        }
     }
 
     /// The running step's last lines of output, as plain text.
@@ -102,7 +160,7 @@ fn change(live: &Live, f: impl FnOnce(&mut RunState)) {
 
 /// Run `plan` in `cwd`, in order (blocking: call it off the UI thread). A
 /// failed step that isn't optional skips the later steps for the same
-/// kind (all later steps when it is for none).
+/// kind and account (all later steps when it is for none).
 pub fn run(plan: &[Planned], cwd: &Path, timeout: Duration) -> Vec<Outcome> {
     let live: Live = Arc::new(Mutex::new(RunState::new(plan)));
     run_live(plan, cwd, timeout, &live);
@@ -117,17 +175,20 @@ pub fn run(plan: &[Planned], cwd: &Path, timeout: Duration) -> Vec<Outcome> {
 /// step's output as it comes; `live.cancelled` set stops the running
 /// step's program and skips the rest.
 pub fn run_live(plan: &[Planned], cwd: &Path, timeout: Duration, live: &Live) {
-    let mut failed_kinds: Vec<Option<String>> = Vec::new();
+    // (kind, account) of each failed step: a failure for one account
+    // leaves the others' steps to run.
+    let mut failed: Vec<(Option<String>, Option<String>)> = Vec::new();
     let cancelled = || live.lock().unwrap_or_else(|e| e.into_inner()).cancelled;
     for (i, p) in plan.iter().enumerate() {
         let skip = if cancelled() {
             Some("cancelled".to_string())
         } else if let Some(why) = &p.skip {
             Some(why.clone())
-        } else if failed_kinds.iter().any(|k| k.is_none() || *k == p.for_kind) {
-            Some(match &p.for_kind {
-                Some(k) => format!("an earlier step for {} failed", kind_name(k)),
-                None => "an earlier step failed".into(),
+        } else if failed.iter().any(|(k, a)| k.is_none() || (*k == p.for_kind && *a == p.account.as_ref().map(|a| a.id.clone()))) {
+            Some(match (&p.for_kind, &p.account) {
+                (Some(_), Some(_)) => format!("an earlier step for {} failed", p.who().unwrap_or_default()),
+                (Some(k), None) => format!("an earlier step for {} failed", kind_name(k)),
+                (None, _) => "an earlier step failed".into(),
             })
         } else {
             None
@@ -142,7 +203,7 @@ pub fn run_live(plan: &[Planned], cwd: &Path, timeout: Duration, live: &Live) {
         });
         let o = run_one(p, cwd, timeout, live);
         if matches!(o, Outcome::Failed(_)) && !p.optional {
-            failed_kinds.push(p.for_kind.clone());
+            failed.push((p.for_kind.clone(), p.account.as_ref().map(|a| a.id.clone())));
         }
         change(live, |st| st.steps[i].1 = StepState::Ended(o));
     }
@@ -156,6 +217,8 @@ fn run_one(p: &Planned, cwd: &Path, timeout: Duration, live: &Live) -> Outcome {
     if let Some(path) = pitwall_core::shell::spawn_path() {
         cmd.env("PATH", path);
     }
+    // For an account: what Pitwall gives its agents (its config folder).
+    cmd.envs(p.env().iter().map(|(k, v)| (k, v)));
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return Outcome::Failed(format!("it couldn't start: {e}")),
@@ -220,6 +283,31 @@ fn run_one(p: &Planned, cwd: &Path, timeout: Duration, live: &Live) -> Outcome {
         }
         None => Outcome::Failed(format!("it took longer than {} s and was stopped", timeout.as_secs())),
     }
+}
+
+/// How a run that ended went, place by place: whether the steps for no
+/// account (the tools' default folders, and steps for no tool) ran
+/// without a failure, with at least one step done in the run (`None`: it
+/// had none, a run for missing accounts only); and the accounts all of
+/// whose steps ended without a failure. An `optional` step's failure
+/// (removing what wasn't there) doesn't count. A cancelled run went
+/// through nothing.
+pub fn settle(st: &RunState) -> (Option<bool>, Vec<String>) {
+    let base: Vec<usize> = (0..st.steps.len()).filter(|i| st.places.get(*i).is_none_or(|p| p.1.is_none())).collect();
+    let any_done = st.steps.iter().any(|(_, s)| matches!(s, StepState::Ended(Outcome::Done)));
+    let base_ok = (!base.is_empty()).then(|| !st.cancelled && any_done && !base.iter().any(|i| st.hard_failed(*i)));
+    let mut ok: Vec<String> = Vec::new();
+    let mut bad: Vec<String> = Vec::new();
+    for (i, ((_, s), (_, a))) in st.steps.iter().zip(&st.places).enumerate() {
+        let Some(a) = a else { continue };
+        if st.cancelled || st.hard_failed(i) || !matches!(s, StepState::Ended(_)) {
+            bad.push(a.clone());
+        } else if !ok.contains(a) {
+            ok.push(a.clone());
+        }
+    }
+    ok.retain(|a| !bad.contains(a));
+    (base_ok, ok)
 }
 
 /// Each recorded run without a digest of its steps (from a Pitwall before
@@ -332,6 +420,155 @@ impl Runs {
         })
         .detach();
     }
+
+    /// Put `note` over the steps of `ext`'s `action`'s last run.
+    pub fn set_note(&self, ext: &str, action: &str, note: String) {
+        if let Some(l) = self.runs.get(&(ext.to_string(), action.to_string())) {
+            change(l, |st| st.note = Some(note));
+        }
+    }
+}
+
+/// Where a step's program is looked up: the login shell's PATH, or (tests)
+/// a folder of fake programs set as [`StepsPath`].
+pub fn steps_path(cx: &gpui::App) -> Option<String> {
+    match cx.try_global::<StepsPath>() {
+        Some(p) => Some(p.0.clone()),
+        None => pitwall_core::shell::spawn_path(),
+    }
+}
+
+/// Tests: the PATH steps' programs are looked up on, in place of the login
+/// shell's (never a real tool there).
+pub struct StepsPath(pub String);
+
+impl gpui::Global for StepsPath {}
+
+/// What was asked of [`auto_setup`] last, and the accounts it already ran
+/// for in this session (extension, run key, account, steps digest): each
+/// at most once, so a failure shows and isn't tried again until the user
+/// runs it.
+#[derive(Default)]
+struct AutoSetup {
+    seen: u64,
+    tried: std::collections::HashSet<(String, String, String, String)>,
+}
+
+impl gpui::Global for AutoSetup {}
+
+/// [`auto_setup`] when something it depends on changed since it last
+/// looked: the extensions that are on, their setup actions' steps, or the
+/// tools' accounts. Called whenever `ui.json`, the extensions found or the
+/// accounts change, and once at start.
+pub fn auto_setup_if_changed(cx: &mut gpui::App) {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let ui = crate::ui_state::get(cx);
+    for m in super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).filter(|m| ui.extension_on(&m.id)) {
+        m.id.hash(&mut h);
+        for a in m.actions.iter().filter(|a| a.setup) {
+            pitwall_core::extensions::steps_digest(a).hash(&mut h);
+        }
+    }
+    if let Some(l) = crate::accounts::list(cx) {
+        for a in l.accounts.iter().filter(|a| crate::accounts::is_tool_kind(&a.kind)) {
+            a.id.hash(&mut h);
+        }
+    }
+    let now = h.finish();
+    let st = cx.default_global::<AutoSetup>();
+    if st.seen == now {
+        return;
+    }
+    st.seen = now;
+    // Out of the change being handled (not blocking it).
+    cx.defer(auto_setup);
+}
+
+/// Setup actions the user confirmed run by themselves for the tools'
+/// accounts they haven't gone through (added since, or from before
+/// accounts were kept): only for an extension that is on, only a `setup`
+/// action recorded as done whose steps are exactly the ones confirmed
+/// (`connections::confirmed`), only for those accounts, each with its
+/// environment, and each account once per session. The run shows on the
+/// card like a pressed one, with a line saying why, and goes in the
+/// extension's activity log.
+pub fn auto_setup(cx: &mut gpui::App) {
+    use super::connections;
+    let accounts = crate::accounts::tool_accounts(cx);
+    if accounts.is_empty() {
+        return;
+    }
+    let ui = crate::ui_state::get(cx);
+    let found: Vec<pitwall_core::extensions::Manifest> = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).filter(|m| ui.extension_on(&m.id)).cloned().collect();
+    let path = steps_path(cx);
+    for m in found {
+        for a in m.actions.iter().filter(|a| a.setup && !pitwall_core::extensions::plan::kinds_of(a).is_empty()) {
+            let conns: Vec<Option<pitwall_core::accounts::Account>> = if connections::uses_setting(a) { connections::list(&m.id, cx).into_iter().map(Some).collect() } else { vec![None] };
+            for c in conns {
+                let conn = c.as_ref().map(|c| c.id.clone());
+                let key = connections::key_of(a, conn.as_deref());
+                let Some(at) = connections::confirmed(&m, a, conn.as_deref(), cx) else { continue };
+                let digest = pitwall_core::extensions::steps_digest(a);
+                let tried = cx.default_global::<AutoSetup>().tried.clone();
+                let missing: Vec<ToolAccount> = connections::not_yet_for(&m, a, c.as_ref(), cx)
+                    .into_iter()
+                    .filter(|t| !tried.contains(&(m.id.clone(), key.clone(), t.id.clone(), digest.clone())))
+                    .collect();
+                if missing.is_empty() || runs(cx).read(cx).running(&m.id, &key) {
+                    continue;
+                }
+                let st = cx.default_global::<AutoSetup>();
+                for t in &missing {
+                    st.tried.insert((m.id.clone(), key.clone(), t.id.clone(), digest.clone()));
+                }
+                let values = c.as_ref().map(|c| c.values.clone()).unwrap_or_default();
+                let plan = plan_for(&m, a, &values, path.as_deref(), &missing, false);
+                let names = missing.iter().map(ToolAccount::words).collect::<Vec<_>>().join("; ");
+                let when = match at {
+                    Some(secs) => format!("as you confirmed on {}", chrono::DateTime::from_timestamp(secs as i64, 0).map(|d| d.with_timezone(&chrono::Local).format("%-d %b %Y").to_string()).unwrap_or_default()),
+                    None => "as you set it up before".into(),
+                };
+                let note = format!("Set up for {names}, {when}");
+                log_auto(&m.id, &a.id, &note, None, cx);
+                let record = {
+                    let (m, action, conn, note) = (m.clone(), a.id.clone(), conn.clone(), note.clone());
+                    move |st: &RunState, cx: &mut gpui::App| {
+                        // Only an account a step was done for counts: one
+                        // whose tool wasn't found (a PATH not yet known)
+                        // stays to be set up.
+                        let (_, ok) = settle(st);
+                        let ok: Vec<String> = ok.into_iter().filter(|id| st.steps.iter().zip(&st.places).any(|((_, s), (_, a))| a.as_ref() == Some(id) && matches!(s, StepState::Ended(Outcome::Done)))).collect();
+                        connections::record_accounts(&m, &action, conn.as_deref(), true, &ok, cx);
+                        let why = match st.summary() {
+                            Some(s) if (0..st.steps.len()).any(|i| st.hard_failed(i)) || st.cancelled => Some(s),
+                            _ if ok.is_empty() => Some("Nothing ran: its tool wasn't found".into()),
+                            _ => None,
+                        };
+                        log_auto(&m.id, &action, &note, Some(why), cx);
+                    }
+                };
+                let r = runs(cx);
+                r.update(cx, |r, cx| {
+                    r.start((&m.id, &key), plan, pitwall_core::paths::home(), STEP_TIMEOUT, record, cx);
+                    r.set_note(&m.id, &key, note.clone());
+                });
+            }
+        }
+    }
+}
+
+/// A line in extension `ext`'s activity log about running its `action`
+/// by itself: started (`ended` None), or ended (with why it failed).
+fn log_auto(ext: &str, action: &str, note: &str, ended: Option<Option<String>>, cx: &mut gpui::App) {
+    use pitwall_core::extensions::activity::{Entry, Outcome, Via};
+    let (method, outcome) = match ended {
+        None => (format!("setup {action}: started by Pitwall"), Outcome::Ok),
+        Some(None) => (format!("setup {action}: done"), Outcome::Ok),
+        Some(Some(why)) => (format!("setup {action}: failed"), Outcome::Failed { code: "failed".into(), message: why }),
+    };
+    let log = super::calls::activity(ext, cx);
+    log.lock().unwrap_or_else(|e| e.into_inner()).push(Entry::now(Via::Pitwall, method, outcome).with_detail(Some(note.to_string())));
 }
 
 #[cfg(all(test, unix))]
@@ -471,6 +708,36 @@ mod tests {
         }
         assert!(as_text.contains(&"rww".to_string()) && as_text.last().map(String::as_str) == Some("dfs"), "{as_text:?}");
         assert_eq!(st.summary().as_deref(), Some("1 of 3 steps failed"));
+    }
+
+    /// Per account: a failure stops only that account's later steps, each
+    /// account's steps run with its environment, an optional failure
+    /// doesn't count against it, and the run says which accounts it went
+    /// through.
+    #[test]
+    fn each_account_runs_on_its_own() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = pitwall_core::testing::TempDir::new("actions-accounts");
+        fakes(t.path());
+        let env = t.path().join("fake-env");
+        std::fs::write(&env, format!("#!/bin/sh\necho \"$FAKE_DIR\" >> '{}'\n", t.path().join("log").display())).unwrap();
+        std::fs::set_permissions(&env, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let acc = |id: &str| ToolAccount { kind: "fake".into(), id: id.into(), name: id.into(), env: vec![("FAKE_DIR".into(), format!("/accounts/{id}"))] };
+        let step = |p: &str, account: Option<ToolAccount>, optional: bool| Planned { argv: vec![p.into()], program: Some(t.path().join(p)), skip: None, for_kind: Some("fake".into()), optional, account };
+        let plan = vec![
+            step("fake-env", None, false),
+            step("fake-fail", Some(acc("a")), true),
+            step("fake-env", Some(acc("a")), false),
+            step("fake-fail", Some(acc("b")), false),
+            step("fake-env", Some(acc("b")), false),
+        ];
+        let (_, st) = watch(plan, t.path(), None);
+        assert_eq!(st.steps[4].1, StepState::Ended(Outcome::Skipped("an earlier step for fake, account b failed".into())));
+        assert_eq!(st.steps[2].1, StepState::Ended(Outcome::Done), "b's failure, and a's optional one, didn't stop a");
+        let log = std::fs::read_to_string(t.path().join("log")).unwrap();
+        assert_eq!(log.lines().skip(1).collect::<Vec<_>>(), ["/accounts/a"], "a's environment");
+        assert_eq!(settle(&st), (Some(true), vec!["a".to_string()]));
+        assert_eq!((st.group_word(&st.group(1)), st.group_word(&st.group(3))), ("done", "failed"));
     }
 
     /// Cancel stops the running step's program at once and skips the rest.

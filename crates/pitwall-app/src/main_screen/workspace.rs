@@ -433,6 +433,19 @@ pub struct ExtensionPrefs {
     /// changed since (an update moved a pin) no longer counts as done.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub action_steps: BTreeMap<String, String>,
+    /// The accounts of the tools each recorded run went through without
+    /// a failure (their ids), by the same keys as `action_steps`: a run
+    /// counts as done only once it covers every current account of the
+    /// tools its steps are for. A record without an entry (from before
+    /// accounts were kept) covers none.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub action_accounts: BTreeMap<String, Vec<String>>,
+    /// The steps of each setup action the user confirmed (a digest, as in
+    /// `action_steps`) and when, by the same keys: Pitwall runs exactly
+    /// those for an account added later, and nothing once the steps
+    /// changed.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub action_confirmed: BTreeMap<String, Confirmed>,
     /// Its inbox is in a window of its own (not in a layout): it opens in
     /// one again at the next start.
     #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
@@ -464,9 +477,27 @@ pub struct ExtensionPrefs {
     pub rest: serde_json::Map<String, Value>,
 }
 
+/// Steps the user confirmed: their digest
+/// (`pitwall_core::extensions::steps_digest`) and when (Unix seconds).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Confirmed {
+    pub steps: String,
+    #[serde(default)]
+    pub at: u64,
+}
+
+impl Confirmed {
+    /// Steps with digest `steps`, confirmed now.
+    pub fn now(steps: String) -> Confirmed {
+        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        Confirmed { steps, at }
+    }
+}
+
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.rest.is_empty()
     }
 }
 

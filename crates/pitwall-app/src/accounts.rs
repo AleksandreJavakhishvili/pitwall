@@ -174,6 +174,25 @@ pub fn list(cx: &App) -> Option<&Accounts> {
     cx.try_global::<Handle>().map(|h| &h.0.read(cx).list)
 }
 
+/// Pitwall's accounts of the agent tools on this computer, each with the
+/// environment its agents are launched with: the places a setup step for
+/// a tool runs besides the tool's default folder
+/// (`pitwall_core::extensions::plan::plan_for`). Before an engine runs,
+/// the built-in tools' definitions.
+pub fn tool_accounts(cx: &App) -> Vec<pitwall_core::extensions::plan::ToolAccount> {
+    let Some(h) = cx.try_global::<Handle>() else { return vec![] };
+    let m = h.0.read(cx);
+    // Most people have none: no definitions read then.
+    if !m.list.accounts.iter().any(|a| is_tool_kind(&a.kind)) {
+        return vec![];
+    }
+    let kinds = match &m.engine {
+        Some(e) => e.kinds().kinds(),
+        None => pitwall_core::kind::load_kinds(std::path::Path::new("")),
+    };
+    pitwall_core::extensions::plan::tool_accounts(&m.list, |k| kinds.iter().find(|d| d.id == k).cloned())
+}
+
 /// The accounts' ids in their order (empty before the model is made).
 pub fn ids(cx: &App) -> Vec<String> {
     cx.try_global::<Handle>().map(|h| h.0.read(cx).list.accounts.iter().map(|a| a.id.clone()).collect()).unwrap_or_default()
