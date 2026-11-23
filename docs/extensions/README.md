@@ -1,0 +1,49 @@
+# Writing a Pitwall extension
+
+An extension brings something that isn't Pitwall's own, such as a tool or
+a service you run, into Pitwall's UI. Today that means an **inbox**:
+threads, messages and questions your agents ask, which the user answers
+in Pitwall. Pitwall loads no code from an extension. It draws everything
+itself from the data your extension's **adapter** sends: a separate
+program that Pitwall starts, which talks to Pitwall over JSON lines on
+stdin and stdout.
+
+An extension is a folder:
+
+```
+my-inbox/
+  extension.json     the manifest: what it is, its settings, what it runs
+  adapter.mjs        the adapter (any language; the starter uses Node)
+  README.md          what it does and how to set it up
+  test/pitwall.json  what `pitwall extension test` checks
+```
+
+## Start here
+
+```sh
+pitwall extension new ~/code/my-inbox --name "My inbox"
+pitwall extension check ~/code/my-inbox --human
+pitwall extension test ~/code/my-inbox --human
+```
+
+Then, in Pitwall: Settings → Extensions → **Load from folder…**, pick the
+folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
+**Reload**, and look at **Log** to see what was said both ways.
+
+## Pages
+
+- [The starter](starter.md): what `pitwall extension new` writes and
+  where to go from it.
+- [The manifest](manifest.md): `extension.json`, format 1.
+- [Protocol 1](protocol.md): what the adapter and Pitwall say to each
+  other.
+- [Dev mode](dev-mode.md): loading your folder in place, Reload, the log.
+- [Checks](checks.md): `pitwall extension check` and `test`, and
+  `test/pitwall.json`.
+
+The full specification, with every limit, is
+[`docs/spec/extensions.md`](../spec/extensions.md). Two extensions in
+this repository are worth reading: [`extensions/demo-inbox`](../../extensions/demo-inbox/)
+(a fake adapter with made-up threads) and
+[`extensions/agention`](../../extensions/agention/) (a real service, with
+settings, a secret, setup actions and a fake server for its tests).
