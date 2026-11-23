@@ -1286,7 +1286,7 @@ pitwall extension test . --human        # in CI: exit status 1 when a check fail
 
 ### extension new
 
-Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name.
+Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread.
 
 ```bash
 pitwall extension new [OPTIONS] <FOLDER>
@@ -1299,6 +1299,7 @@ pitwall extension new [OPTIONS] <FOLDER>
 | Option | |
 |---|---|
 | `--name <NAME>` | What Pitwall calls it (default: from the folder's name). |
+| `--protocol <PROTOCOL>` | The adapter protocol it speaks: 1 (an inbox of its own) or 2 (also reads Pitwall, with permissions). |
 
 ```bash
 pitwall extension new ~/code/my-inbox --name "My inbox"
