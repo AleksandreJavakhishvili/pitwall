@@ -276,6 +276,12 @@ impl Engine {
         }
     }
 
+    /// The running agents that started with extension `ext` on (their
+    /// ids): the ones an update of it leaves on the setup they have.
+    pub fn extension_users(&self, ext: &str) -> Vec<String> {
+        self.agents().iter().filter(|a| a.running() && a.rec.ext_setup.contains_key(ext)).map(|a| a.rec.id.clone()).collect()
+    }
+
     /// The setup agent `id` (named `name`, in `cwd` of `project`) starts
     /// under, by extension: what [`AgentRecord::ext_setup`] keeps.
     pub(crate) fn extension_generations(&self, cwd: &str, project: &str, name: &str, id: &str) -> std::collections::BTreeMap<String, String> {

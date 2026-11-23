@@ -1528,4 +1528,50 @@ mod tests {
         let text = test(&d, None).text();
         assert!(text.contains("fewer than 1") && text.contains("didn't exit within 2 seconds"), "{text}");
     }
+
+    /// A service's backup and an `update` block are described; the
+    /// fixture's `update` asserts the steps an update takes, in order.
+    #[test]
+    fn check_and_test_describe_how_an_update_goes() {
+        let t = crate::testing::TempDir::new("check-update");
+        let manifest = |version: &str, backup: &str, update: &str| {
+            format!(
+                r#"{{"v": 2, "pitwall": ">=0.8.0", "id": "kit", "name": "Kit", "version": "{version}",
+                  "actions": [{{"id": "setup", "setup": true, "label": "Set up Kit", "description": "d", "steps": [{{"run": ["kit-tool", "add", "kit#{version}"]}}]}}],
+                  "service": {{"label": "Kit's server", "run": ["kit-srv", "--data", "{{data}}"], "ready": {{"line": "up"}}{backup}}}{update}}}"#
+            )
+        };
+        let backup = r#", "backup": {"run": ["kit-srv", "backup", "{data}", "{backup}/kit.db"], "replaces": ["kit.db"]}"#;
+        let policy = r#", "update": {"order": "agentsFirst", "agents": "restart"}"#;
+        let d = folder(&t, "kit", &manifest("1.1.0", backup, policy));
+        std::fs::write(d.join("README.md"), "").unwrap();
+        std::fs::write(d.join("test/previous.json"), manifest("1.0.0", "", "")).unwrap();
+        let text = check(&d, Some("")).text();
+        assert!(text.contains("before an update it is stopped and its data backed up with kit-srv backup '{data}' '{backup}/kit.db'; going back replaces kit.db"), "{text}");
+        assert!(text.contains("update: An update updates its agents' setup first") && text.contains("stop working with it until they are restarted"), "{text}");
+        assert!(text.contains("How an update goes"), "{text}");
+        // Without a backup: said, with what Pitwall does instead.
+        std::fs::write(d.join(MANIFEST), manifest("1.1.0", "", "")).unwrap();
+        let text = check(&d, Some("")).text();
+        assert!(text.contains("its service has no \"backup\": before an update Pitwall stops it and copies its data folder itself (up to 2.0 GiB)"), "{text}");
+        // An unknown order fails the manifest.
+        std::fs::write(d.join(MANIFEST), manifest("1.1.0", "", r#", "update": {"order": "whenever"}"#)).unwrap();
+        assert!(!check(&d, Some("")).passed());
+        // The fixture: the steps from the earlier manifest, agents first.
+        std::fs::write(d.join(MANIFEST), manifest("1.1.0", backup, policy)).unwrap();
+        let mut fixture = serde_json::json!({"update": {"from": "test/previous.json", "setUp": ["setup"], "agents": 1, "expect": [
+            ["Stops Kit's server and backs up its data first:", "kit-srv backup {data} {backup}/kit.db"],
+            ["Installs Kit 1.1.0 (the installed 1.0.0 is kept for Go back)."],
+            ["Runs “Set up Kit” again for every account (its commands changed); a failure there doesn't undo the update, and shows Retry:", "kit-tool add kit#1.1.0 (skipped: “kit-tool” isn't installed)"],
+            ["Starts Kit's server and waits until it is up (at most 60 s)."],
+            ["Checks that Kit's server is up (within 30 s). If not, it puts back Kit 1.0.0, its data and its service, and says what failed."]
+        ], "agentsSay": ["Risk: 1 running agent will stop working with Kit until restarted.", "After the update: Pitwall restarts nothing by itself: their rows and this card say so, with Restart."]}});
+        std::fs::write(d.join(FIXTURE), fixture.to_string()).unwrap();
+        let r = test(&d, Some(""));
+        assert!(r.passed(), "{}", r.text());
+        fixture["update"]["expect"][0][1] = "kit-srv backup {data}".into();
+        std::fs::write(d.join(FIXTURE), fixture.to_string()).unwrap();
+        let r = test(&d, Some(""));
+        assert!(!r.passed() && r.text().contains("update: its steps are"), "{}", r.text());
+    }
 }
