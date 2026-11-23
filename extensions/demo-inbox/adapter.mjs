@@ -18,6 +18,11 @@
 // secrets arrive only there), answer `hello`, send `status`, `threads` and
 // `counts`, then serve `open`, `answer`, `message`, `markRead`, `archive`,
 // `refresh` and `close`, each request with a `result` carrying its `req`.
+//
+// It also draws a view tile, "Demo runs" (made-up CI runs), answers the
+// palette command "Start a made-up run" and puts a note on the first
+// thread's agent's row: `show`, `hide`, `select`, `action` and `command`
+// in, `view` and `badges` out (docs/extensions/views.md).
 
 import { createInterface } from "node:readline";
 
@@ -149,7 +154,135 @@ function result(req, ok, message) {
   send(ok ? { type: "result", req, ok } : { type: "result", req, ok, message });
 }
 
+// The view tile "Demo runs" (docs/extensions/views.md): made-up CI runs as
+// a list, the selected one's detail beside it, a Retry button on a failed
+// one; the palette command "Start a made-up run"; a note on the first
+// thread's agent's row naming its failing run. Pitwall draws them from
+// these lines; the whole view is sent each time.
+const runs = [];
+let nextRun = 41;
+let shown = false;
+let selectedRun = null;
+let runsFrom = null;
+
+function addRun(state, minutes) {
+  const n = nextRun++;
+  runs.unshift({ id: `run-${n}`, n, branch: n % 2 ? "main" : "session-cache", state, time: ago(minutes) });
+}
+
+function seedRuns(from) {
+  runsFrom = from;
+  addRun("passed", 95);
+  addRun("passed", 50);
+  addRun("failed", 12);
+  addRun("running", 2);
+}
+
+const tone = { passed: "good", failed: "bad", running: "busy" };
+const icon = { passed: "check", failed: "alert", running: "refresh" };
+
+function runItem(r) {
+  return {
+    id: r.id,
+    title: `Build #${r.n}`,
+    subtitle: `${r.branch} · ${r.state}`,
+    tone: tone[r.state],
+    icon: icon[r.state],
+    time: r.time,
+    badges: r.state === "failed" ? [{ text: "failed", tone: "bad" }] : [],
+    actions: r.state === "failed" ? [{ id: "retry", label: "Retry", primary: true }] : [],
+  };
+}
+
+function runDetail() {
+  const r = runs.find((x) => x.id === selectedRun);
+  if (!r) return { kind: "status", state: "empty", icon: "list", title: "Pick a run", text: "Its steps and log show here." };
+  return {
+    kind: "detail",
+    title: `Build #${r.n}`,
+    fields: [
+      { label: "Branch", value: r.branch },
+      { label: "State", value: r.state },
+      { label: "Started", value: new Date(r.time).toLocaleString() },
+      { label: "Docs", value: "How views work", link: "https://github.com/AleksandreJavakhishvili/pitwall/blob/main/docs/extensions/views.md" },
+    ],
+    body:
+      r.state === "failed"
+        ? "**`npm test` failed** in `session-cache.test.ts`:\n\n```\nexpected 30m, got 0\n```\n\nRetry it, or ask the agent to look."
+        : r.state === "running"
+          ? "Running `npm test`…"
+          : "All 214 tests passed.",
+    actions: r.state === "failed" ? [{ id: "retry", label: "Retry" }] : [],
+  };
+}
+
+function sendView() {
+  if (!shown) return;
+  const today = runs.filter((r) => Date.now() - Date.parse(r.time) < 60 * 60_000);
+  const older = runs.filter((r) => !today.includes(r));
+  const sections = [{ title: "Last hour", items: today.map(runItem) }];
+  if (older.length) sections.push({ title: "Earlier", items: older.map(runItem) });
+  send({ type: "view", view: "runs", root: { kind: "list", empty: "No runs yet", sections, detail: runDetail() } });
+}
+
+// A failed run on the agent's row, else that CI is fine.
+function sendBadges() {
+  if (!runsFrom) return send({ type: "badges", badges: [] });
+  const failed = runs.find((r) => r.state === "failed");
+  const badge = failed
+    ? { note: `#${failed.n} failed`, tone: "bad", tooltip: "A made-up CI run failed", open: { view: "runs", item: failed.id } }
+    : { note: "CI ok", tone: "good", tooltip: "The made-up CI runs pass", open: { view: "runs" } };
+  send({ type: "badges", badges: [{ agent: { from: runsFrom }, ...badge }] });
+}
+
+// The view's lines; `true` when the message was one of them.
+function handleView(msg) {
+  switch (msg.type) {
+    case "show":
+      shown = msg.view === "runs" || shown;
+      sendView();
+      return true;
+    case "hide":
+      if (msg.view === "runs") shown = false;
+      return true;
+    case "select":
+      selectedRun = msg.item;
+      sendView();
+      return true;
+    case "action": {
+      const r = runs.find((x) => x.id === msg.item);
+      if (msg.action !== "retry" || !r || r.state !== "failed") {
+        result(msg.req, false, "Only a failed run can be retried.");
+        return true;
+      }
+      r.state = "running";
+      result(msg.req, true);
+      sendView();
+      sendBadges();
+      setTimeout(() => {
+        r.state = "passed";
+        sendView();
+        sendBadges();
+      }, 3000);
+      return true;
+    }
+    case "command":
+      if (msg.command !== "new-run") {
+        result(msg.req, false, `This adapter has no command “${msg.command}”.`);
+        return true;
+      }
+      addRun("running", 0);
+      selectedRun = runs[0].id;
+      send({ type: "result", req: msg.req, ok: true, message: `Build #${runs[0].n} started (made up).` });
+      sendView();
+      return true;
+    default:
+      return false;
+  }
+}
+
 function handle(msg) {
+  if (handleView(msg)) return;
   const t = msg.thread !== undefined ? threads.get(msg.thread) : undefined;
   const needThread = ["open", "answer", "message", "markRead", "archive"].includes(msg.type);
   if (needThread && !t) {
@@ -233,9 +366,13 @@ lines.on("line", (line) => {
       send({ type: "status", state: "error", message: "Can't reach https://inbox.example.com: the connection timed out. Retrying in 30 s." });
       return send({ type: "threads", threads: [] });
     }
-    if (!process.argv.includes("--empty")) seed(msg.settings && msg.settings.greeting);
+    if (!process.argv.includes("--empty")) {
+      seed(msg.settings && msg.settings.greeting);
+      seedRuns(threads.get("demo/1").from);
+    }
     send({ type: "status", state: "ready" });
     sendThreads();
+    sendBadges();
     return;
   }
   handle(msg);
