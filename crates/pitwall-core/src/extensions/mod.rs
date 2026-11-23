@@ -8,8 +8,8 @@
 //! which extensions are on is the app's (`ui.json` `extensions`).
 //!
 //! Version 1 of the manifest knows `id`, `name`, `version`, `demo`, `docs`,
-//! `icon`, `description`, `settings`, `adapter`, `agentEnv`, `matchAgents` and
-//! `actions`. Keys it doesn't
+//! `icon`, `description`, `settings`, `adapter`, `agentEnv`, `matchAgents`,
+//! `actions` and `source`. Keys it doesn't
 //! know are ignored, so a later version can add its own without breaking
 //! this one; a manifest asking for a newer format (`v`) is refused with a
 //! word on why.
@@ -20,6 +20,7 @@ pub mod log;
 pub mod plan;
 pub mod process;
 pub mod protocol;
+pub mod source;
 pub mod starter;
 
 use std::path::Path;
@@ -72,12 +73,30 @@ pub struct Manifest {
     pub match_agents: Option<MatchAgents>,
     /// Setup actions the user may run from Settings (never by themselves).
     pub actions: Vec<Action>,
+    /// Where its updates come from ([`source`]).
+    pub source: Option<Source>,
 }
+
+/// Where an extension's updates come from: the tags of a git repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Source {
+    /// The repository: an `https://` address without credentials.
+    pub git: String,
+    /// The folder in it that holds `extension.json`, `/`-separated (empty:
+    /// its root).
+    pub dir: String,
+    /// The tags that are its releases: a pattern with `{version}`, such as
+    /// `my-ext-v{version}`.
+    pub tags: String,
+}
+
+/// The placeholder of a [`Source`]'s tag pattern.
+pub const VERSION_PLACEHOLDER: &str = "{version}";
 
 impl Manifest {
     /// A manifest with only these (tests and fixtures).
     pub fn named(id: &str, name: &str) -> Manifest {
-        Manifest { id: id.into(), name: name.into(), version: None, demo: false, docs: None, icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None, actions: vec![] }
+        Manifest { id: id.into(), name: name.into(), version: None, demo: false, docs: None, icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None, actions: vec![], source: None }
     }
 }
 
@@ -94,6 +113,29 @@ pub struct Action {
     /// Settings, ticked once it has run without a failure.
     pub setup: bool,
     pub steps: Vec<Step>,
+}
+
+/// A digest of action `a`'s steps (programs, arguments, kinds and
+/// whether each is optional): a recorded run counts only while its steps
+/// are the ones that ran (FNV-1a, enough to notice a change).
+pub fn steps_digest(a: &Action) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for b in bytes {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    for s in &a.steps {
+        eat(s.for_kind.as_deref().unwrap_or("").as_bytes());
+        eat(&[0, s.optional as u8]);
+        for arg in &s.run {
+            eat(&(arg.len() as u64).to_le_bytes());
+            eat(arg.as_bytes());
+        }
+        eat(&[0xff]);
+    }
+    format!("{h:016x}")
 }
 
 /// One program run: no shell, its arguments as they are (after
@@ -408,7 +450,61 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
         Some(_) => return Err("\"matchAgents\" must be an object".into()),
     };
     let actions = parse_actions(obj.get("actions"), &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions })
+    let source = parse_source(obj.get("source"))?;
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source })
+}
+
+/// Why `url` can't be a source's repository: only `https://`, without a
+/// user or password, spaces, a query or a fragment, at most 300
+/// characters.
+pub fn check_git_url(url: &str) -> Result<(), String> {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return Err("it must be an https:// address".into());
+    };
+    if url.len() > 300 || url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.contains(['?', '#', '\\']) {
+        return Err("it must be an https address of at most 300 characters, without spaces".into());
+    }
+    let host = rest.split('/').next().unwrap_or_default();
+    if host.is_empty() || host.contains('@') {
+        return Err("it can't carry a user or password: your git credential helper gives those".into());
+    }
+    if rest.trim_end_matches('/').len() <= host.len() {
+        return Err("it must name a repository, not only a host".into());
+    }
+    Ok(())
+}
+
+/// Why `dir` can't be a folder in a repository: relative, `/`-separated,
+/// no `.` or `..` parts; letters, digits and `._-`.
+pub fn check_source_dir(dir: &str) -> Result<(), String> {
+    if dir.is_empty() {
+        return Ok(());
+    }
+    let ok = dir.len() <= 200
+        && dir.split('/').all(|p| !p.is_empty() && p != "." && p != ".." && p.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)));
+    if !ok {
+        return Err(format!("the folder “{dir}” must be a folder in the repository, like extensions/my-ext"));
+    }
+    Ok(())
+}
+
+fn parse_source(v: Option<&Value>) -> Result<Option<Source>, String> {
+    let o = match v {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Object(o)) => o,
+        Some(_) => return Err("\"source\" must be an object".into()),
+    };
+    let git = opt_str(o, "git")?.ok_or("\"source\" needs \"git\": the repository's https address")?;
+    check_git_url(git).map_err(|e| format!("\"source.git\": {e}"))?;
+    let dir = opt_str(o, "dir")?.unwrap_or("").trim_matches('/');
+    check_source_dir(dir).map_err(|e| format!("\"source.dir\": {e}"))?;
+    let tags = opt_str(o, "tags")?.ok_or("\"source\" needs \"tags\", like my-ext-v{version}")?;
+    let rest = tags.replacen(VERSION_PLACEHOLDER, "", 1);
+    let ok = tags.matches(VERSION_PLACEHOLDER).count() == 1 && tags.len() <= 100 && rest.chars().all(|c| c.is_ascii_alphanumeric() || "._/-".contains(c));
+    if !ok {
+        return Err(format!("\"source.tags\" “{tags}” must hold {VERSION_PLACEHOLDER} once, with letters, digits and ._/- around it"));
+    }
+    Ok(Some(Source { git: git.to_string(), dir: dir.to_string(), tags: tags.to_string() }))
 }
 
 /// An array field (absent: empty) of at most `max` items.
@@ -717,6 +813,51 @@ mod tests {
         refused(&many, "more than 12");
         assert!(parse(r#"{"id": "x", "name": "X", "actions": [{"id": "a", "label": "A", "description": "d", "steps": []}]}"#).unwrap_err().contains("no steps"));
         assert!(parse(r#"{"id": "x", "name": "X", "actions": [{"id": "a", "label": "A", "steps": [{"run": ["x"]}]}]}"#).unwrap_err().contains("needs \"description\""));
+    }
+
+    /// A source: an https repository, a folder in it and a tag pattern
+    /// with `{version}`; nothing else.
+    #[test]
+    fn a_source_is_read_and_checked() {
+        let with = |src: &str| parse(&format!(r#"{{"id": "x", "name": "X", "source": {src}}}"#));
+        let s = with(r#"{"git": "https://example.com/me/repo", "dir": "/extensions/x/", "tags": "x-v{version}"}"#).unwrap().source.unwrap();
+        assert_eq!(s, Source { git: "https://example.com/me/repo".into(), dir: "extensions/x".into(), tags: "x-v{version}".into() });
+        assert_eq!(with(r#"{"git": "https://example.com/me/repo.git", "tags": "{version}"}"#).unwrap().source.unwrap().dir, "");
+        assert_eq!(parse(r#"{"id": "x", "name": "X"}"#).unwrap().source, None);
+        let refused = |src: &str, why: &str| {
+            let e = with(src).unwrap_err();
+            assert!(e.contains(why), "{src}: {e}");
+        };
+        refused(r#"{"git": "http://example.com/a", "tags": "{version}"}"#, "https://");
+        refused(r#"{"git": "git@example.com:me/a", "tags": "{version}"}"#, "https://");
+        refused(r#"{"git": "file:///tmp/a", "tags": "{version}"}"#, "https://");
+        refused(r#"{"git": "https://me:token@example.com/a", "tags": "{version}"}"#, "user or password");
+        refused(r#"{"git": "https://example.com/", "tags": "{version}"}"#, "not only a host");
+        refused(r#"{"git": "https://example.com/a b", "tags": "{version}"}"#, "without spaces");
+        refused(r#"{"git": "https://example.com/a", "dir": "../up", "tags": "{version}"}"#, "a folder in the repository");
+        refused(r#"{"git": "https://example.com/a", "tags": "v1"}"#, "{version} once");
+        refused(r#"{"git": "https://example.com/a", "tags": "{version}-{version}"}"#, "{version} once");
+        refused(r#"{"git": "https://example.com/a", "tags": "a b{version}"}"#, "{version} once");
+        refused(r#"{"git": "https://example.com/a"}"#, "needs \"tags\"");
+        refused(r#""https://example.com/a""#, "must be an object");
+    }
+
+    /// A setup action's digest changes with its steps, and only with them.
+    #[test]
+    fn an_actions_digest_follows_its_steps() {
+        let m = |pin: &str, label: &str| parse(&format!(r#"{{"id": "x", "name": "X", "actions": [{{"id": "setup", "label": "{label}", "description": "d", "steps": [{{"run": ["tool", "add", "x#{pin}"]}}]}}]}}"#)).unwrap();
+        let d = |m: &Manifest| steps_digest(&m.actions[0]);
+        assert_eq!(d(&m("v1", "A")), d(&m("v1", "B")), "the label isn't a step");
+        assert_ne!(d(&m("v1", "A")), d(&m("v2", "A")), "a moved pin is");
+        let mut opt = m("v1", "A");
+        opt.actions[0].steps[0].optional = true;
+        assert_ne!(d(&opt), d(&m("v1", "A")));
+        // Arguments don't run together: ["ab", "c"] isn't ["a", "bc"].
+        let mut a = m("v1", "A");
+        a.actions[0].steps[0].run = vec!["ab".into(), "c".into()];
+        let mut b = a.clone();
+        b.actions[0].steps[0].run = vec!["a".into(), "bc".into()];
+        assert_ne!(d(&a), d(&b));
     }
 
     #[test]

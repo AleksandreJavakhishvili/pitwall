@@ -114,6 +114,47 @@ impl Drop for TempDir {
     }
 }
 
+/// Git in folder `dir`, as a test author (fails the test when it fails):
+/// for making local repositories to fetch from.
+pub fn git_in(dir: &Path, args: &[&str]) -> String {
+    let d = dir.to_string_lossy().into_owned();
+    let mut argv = vec!["git", "-C", d.as_str(), "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "init.defaultBranch=main"];
+    argv.extend_from_slice(args);
+    let out = LocalExec.run(&Cmd::new(&argv).env(&[("GIT_TERMINAL_PROMPT", "0")])).expect("git runs");
+    assert!(out.ok(), "git {args:?}: {}", out.stderr_text());
+    out.stdout_text().trim().to_string()
+}
+
+/// A release of extension `id` in a local repository at `dir` (made when
+/// it isn't one): `ext/` with its manifest at `version` (an adapter, a
+/// `source` with tags `ext-v{version}`, and `actions`, a JSON array) and
+/// `adapter/main.mjs` holding `main`, committed and tagged `ext-v<version>`
+/// (annotated when `annotated`). Returns the commit.
+pub fn extension_release(dir: &Path, id: &str, version: &str, main: &str, actions: &str, annotated: bool) -> String {
+    if !dir.join(".git").exists() {
+        std::fs::create_dir_all(dir).expect("repo dir");
+        git_in(dir, &["init", "--quiet"]);
+    }
+    let ext = dir.join("ext");
+    std::fs::create_dir_all(ext.join("adapter")).expect("ext dir");
+    let manifest = format!(
+        r#"{{"id": "{id}", "name": "{}", "version": "{version}", "adapter": {{"command": ["node", "adapter/main.mjs"]}}, "actions": {actions}, "source": {{"git": "https://example.com/r", "dir": "ext", "tags": "ext-v{{version}}"}}}}"#,
+        id.to_uppercase()
+    );
+    std::fs::write(ext.join("extension.json"), manifest).expect("manifest");
+    std::fs::write(ext.join("adapter/main.mjs"), main).expect("adapter");
+    std::fs::write(dir.join("README.md"), "not the extension").expect("readme");
+    git_in(dir, &["add", "-A"]);
+    git_in(dir, &["commit", "--quiet", "--allow-empty", "-m", version]);
+    let tag = format!("ext-v{version}");
+    if annotated {
+        git_in(dir, &["tag", "-a", &tag, "-m", version]);
+    } else {
+        git_in(dir, &["tag", &tag]);
+    }
+    git_in(dir, &["rev-parse", "HEAD"])
+}
+
 /// A minimal stored agent record.
 pub fn record(id: &str, cwd: &str) -> AgentRecord {
     serde_json::from_value(serde_json::json!({
