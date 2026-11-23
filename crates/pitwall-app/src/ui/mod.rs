@@ -545,6 +545,17 @@ impl MainView {
             }
             return;
         }
+        // `settings-scroll <dy>`: the open Settings page scrolled by `dy`
+        // points (negative: up).
+        if let Some(dy) = cmd.strip_prefix("settings-scroll ").and_then(|d| d.trim().parse::<f32>().ok()) {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| {
+                    v.scroll_by(gpui::px(dy));
+                    cx.notify();
+                });
+            }
+            return;
+        }
         // `settings-end`: the open Settings page scrolled to its end.
         if cmd == "settings-end" {
             if let Some(v) = self.layer.read(cx).settings_view() {
