@@ -392,7 +392,7 @@ mod tests {
             .map(|(p, args)| {
                 let mut argv = vec![p.to_string()];
                 argv.extend(args.iter().map(|a| a.to_string()));
-                Planned { argv, program: Some(dir.join(p)), skip: None, for_kind: None, optional: false }
+                Planned { argv, program: Some(dir.join(p)), skip: None, for_kind: None, optional: false, account: None }
             })
             .collect()
     }

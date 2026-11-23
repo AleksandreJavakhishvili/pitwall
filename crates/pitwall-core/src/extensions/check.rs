@@ -9,7 +9,11 @@
 //! - `actions`: `installed`, programs taken as installed (fakes on an
 //!   empty PATH), and `expect`, per action id, its `label` and each step's
 //!   exact `lines`, `skips` (why a step won't run, or null) and
-//!   `optional`. Planned only: nothing runs.
+//!   `optional`, and optionally `for`, where each runs in plain words
+//!   ("Claude Code, account Work", "Claude Code, default", or null for a
+//!   step for no tool). `accounts` (optional), per tool, the names of
+//!   Pitwall accounts of it taken as there: a step for that tool is
+//!   planned once more for each. Planned only: nothing runs.
 //! - `env`: the variables shown `unset` (no settings), then `set` with
 //!   `values` (plain settings) filled in.
 //! - `run`: the adapter started with `settings` and `secrets` (literal
@@ -41,7 +45,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::plan::{env_preview, line, plan, resolve};
+use super::plan::{env_preview, line, plan, plan_for, resolve, ToolAccount};
 use super::process::Process;
 use super::protocol::{clean, negotiate, parse_line, read_line, CallError, ConnState, FromAdapter, FromInbox, Hello, LineGuard, ToAdapter, ToInbox, PROTOCOL_2};
 use super::{read_in_place, Manifest, SettingKind, MANIFEST};
@@ -688,6 +692,21 @@ fn actions(m: &Manifest, v: &Value, r: &mut Report) {
         }
     }
     let path = t.0.to_string_lossy().into_owned();
+    // The accounts the fixture names, as Pitwall would make them (each in
+    // a folder of its own, given to its agents as its tool's does).
+    let kinds = crate::kind::load_kinds(&t.0.join("no-agents"));
+    let mut accounts: Vec<ToolAccount> = Vec::new();
+    for (kind, names) in v["accounts"].as_object().into_iter().flatten() {
+        let Some(def) = kinds.iter().find(|k| k.id == *kind && k.account_env.is_some()) else {
+            r.add(Level::Fail, format!("accounts: “{kind}” isn't a tool that can have accounts"));
+            continue;
+        };
+        for name in names.as_array().into_iter().flatten().filter_map(Value::as_str) {
+            let id = format!("{kind}-{}", name.to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "-"));
+            let a = crate::accounts::Account { id: id.clone(), kind: kind.clone(), name: name.to_string(), dir: t.0.join("accounts").join(&id).to_string_lossy().into_owned(), ..Default::default() };
+            accounts.push(ToolAccount { kind: kind.clone(), id, name: name.to_string(), env: crate::accounts::env(def, Some(&a)) });
+        }
+    }
     let expect = v["expect"].as_object().cloned().unwrap_or_default();
     for id in expect.keys() {
         if !m.actions.iter().any(|a| &a.id == id) {
@@ -695,7 +714,7 @@ fn actions(m: &Manifest, v: &Value, r: &mut Report) {
         }
     }
     for a in &m.actions {
-        let p = plan(m, a, &BTreeMap::new(), Some(&path));
+        let p = plan_for(m, a, &BTreeMap::new(), Some(&path), &accounts, true);
         let Some(want) = expect.get(&a.id) else { continue };
         let mut wrong = Vec::new();
         if want["label"].as_str().is_some_and(|l| l != a.label) {
@@ -712,6 +731,10 @@ fn actions(m: &Manifest, v: &Value, r: &mut Report) {
         let optional: Vec<bool> = p.iter().map(|s| s.optional).collect();
         if let Some(w) = want["optional"].as_array().map(|a| a.iter().map(|b| b.as_bool().unwrap_or(false)).collect::<Vec<_>>()).filter(|w| *w != optional) {
             wrong.push(format!("its optional steps are {optional:?}, not {w:?}"));
+        }
+        let who: Vec<Option<String>> = p.iter().map(|s| s.who()).collect();
+        if let Some(w) = strings(&want["for"]).filter(|w| *w != who) {
+            wrong.push(format!("its steps run for {who:?}, not {w:?}"));
         }
         if wrong.is_empty() {
             r.add(Level::Ok, format!("action “{}” plans the {} step(s) expected", a.id, p.len()));
@@ -1294,6 +1317,22 @@ mod tests {
         let r = test(&d, None);
         assert!(r.passed(), "{}", r.text());
         assert_eq!(r.findings.len(), 3);
+        // Accounts named per tool: the plan as it would be with them.
+        let mut with = fixture.clone();
+        with["actions"]["accounts"] = serde_json::json!({"claude": ["Work"]});
+        with["actions"]["expect"]["setup"] = serde_json::json!({
+            "lines": ["claude add '{setting:server}'", "claude add '{setting:server}'", "codex add"],
+            "skips": ["set Server first", "set Server first", "Codex isn't installed"],
+            "for": ["Claude Code, default", "Claude Code, account Work", "Codex, default"]
+        });
+        std::fs::write(d.join(FIXTURE), with.to_string()).unwrap();
+        let r = test(&d, None);
+        assert!(r.passed(), "{}", r.text());
+        with["actions"]["expect"]["setup"]["for"][1] = "Claude Code, account Home".into();
+        with["actions"]["accounts"]["web"] = serde_json::json!(["Mine"]);
+        std::fs::write(d.join(FIXTURE), with.to_string()).unwrap();
+        let text = test(&d, None).text();
+        assert!(text.contains("its steps run for") && text.contains("“web” isn't a tool that can have accounts"), "{text}");
         let mut wrong = fixture.clone();
         wrong["actions"]["expect"]["setup"]["lines"][1] = "codex remove".into();
         wrong["env"]["set"][0] = "X_URL=https://other".into();
