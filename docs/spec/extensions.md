@@ -3,7 +3,9 @@
 Status: built, unreleased. Finding extensions, the manifest (settings,
 adapter, agent variables, agent matching, setup actions, source),
 updates from a git source, the adapter
-protocol (version 1), the adapter's lifecycle, settings and secrets, the
+protocol (version 1), manifest format 2 and protocol 2 (permissions,
+calls and events, the activity log; "Format 2 and protocol 2" below),
+the adapter's lifecycle, settings and secrets, the
 inbox tile, agents' ask badges and notifications, and questions in the
 floating control; for authors, dev mode (a folder loaded in place), the
 adapter's log, process groups and `pitwall extension check|test|new`
@@ -345,6 +347,112 @@ gets one `result`)
   stops, crashes or floods shows why in its inbox tile and in
   Settings, where "Restart" starts it again. Pitwall doesn't restart a
   crashed adapter by itself.
+
+## Format 2 and protocol 2
+The first part of the extension API (docs/spec/extension-api.md, phase
+3): an extension may **read** Pitwall's data with the user's grant.
+Author docs: [`manifest-2.md`](../extensions/manifest-2.md),
+[`protocol-2.md`](../extensions/protocol-2.md),
+[`permissions.md`](../extensions/permissions.md),
+[`methods.md`](../extensions/methods.md).
+
+**Manifest format 2** (`v: 2`; `pitwall_core::extensions::parse_for`).
+Format 1 reads as before.
+- `pitwall`: `>=X.Y.Z`, checked first: an older Pitwall says "it needs
+  Pitwall X.Y.Z or later (this is …)".
+- `permissions`: `{name: reason}`, at most 16; names are lower-case words
+  with dots, reasons one line of at most 200 characters. Names are kept
+  even when this Pitwall doesn't serve them (`permissions::ALL`, with
+  `available`).
+- `contributes`: `{"inbox": true}` is the only kind drawn; `views`,
+  `commands`, `badges`, `notifications`, `panels`, `cards`, `webViews` are
+  refused as needing a newer Pitwall, others as unknown. In format 2 the
+  inbox needs `contributes.inbox` (`Manifest::has_inbox`); in format 1,
+  an adapter is an inbox.
+- Setting types `text` (≤ 500 characters), `choice` (2–20 options,
+  strings or `{value, label}`), `bool`, `number` (`min`, `max`), each
+  with an optional `default` (not for secrets). Values are kept as
+  strings in accounts.json and sent typed in `hello`
+  (`SettingDef::json`); a `required` one with a default, and any bool,
+  counts as set. Settings checks a value before keeping it
+  (`SettingDef::check_value`).
+
+**Negotiation** (`protocol.rs`). Pitwall's `hello` keeps `protocol: 1`
+and adds `protocols: [1, 2]`, `grants` (what the user granted, of what
+the manifest asks), `offers` (`inbox`, `call`, `events`) and
+`connection` (`{id, name}`). The adapter answers with any offered
+protocol (`negotiate`) and optionally `uses`; another stops it ("It
+speaks protocol 3; this Pitwall speaks 1 and 2. Update the extension or
+Pitwall."). A protocol 1 adapter is unchanged and its calls are refused
+with `unsupported`. The inbox lines (`FromInbox`, `ToInbox`) are kept
+apart from the general ones (`hello`, `call`, `reply`, `event`,
+`grants`).
+
+**Calls** (`extensions/calls.rs`, `hub.rs`). `{"type":"call","id","method","params"}`
+(id ≤ 64 characters, params an object ≤ 64 KiB) goes, off the UI
+thread, to the in-process daemon (`Server::call_as`) with a caller whose
+`extension` is the extension (`RequesterKind::Extension`, key
+`ext:<id>`), and comes back as `reply` with `result` or `error {code,
+message}` (an answer over 512 KiB is `too_large`). `METHODS` has a third
+column (`methods::Ext`): `Grant(permission)` for the reads,
+`Later(permission)` for actions a later Pitwall will serve (refused
+`unsupported`, naming it), `Never` for the rest. `dispatch` checks it
+(`ext_allowed`) for every extension caller; `accounts.list` and
+`project.accounts` keep only the extension's own `ext:<id>` connections
+and drop git identities. `docs/extensions/methods.md` is generated from
+the table (`PITWALL_WRITE_DOCS=1 cargo test -p pitwall-daemon
+methods_doc`).
+
+**Events.** `events.subscribe` through a call subscribes the adapter
+(`Server::subscribe_as`): only the topics its grants allow
+(`agents`, `attention`, `blocked` behind `agents.read`), sent as
+`{"type":"event","event","data"}` lines by a thread of its own, at most
+10 a second (the daemon's queue merges what comes between), each checked
+against the grants as it goes (`may_get`) and against the size limit.
+Subscribing again replaces the topics; stopping the adapter closes the
+queue.
+
+**Grants** live in `ui.json` `extensions.<id>.grants`:
+`{name: {granted, at}}`, `at` in seconds. What may be used now is what
+the manifest asks for, is available, and is granted
+(`permissions::effective`); one without an answer (added by an update)
+is not granted (`undecided`). The daemon's `Registry` holds each
+extension that is on with its effective grants; it follows `ui.json`
+(`calls::sync`) so a revoke applies to the next call and event. A
+protocol 2 adapter is sent `{"type":"grants","grants":[…]}` when they
+change; it isn't restarted. An update's "what changes" lists permissions
+asked for and no longer asked for; those no longer asked for are
+forgotten when it is next turned on.
+
+**The socket** (decision 5; `pitwall_daemon::extensions`). The hub
+registers each adapter's pid. A connection whose process's parent chain
+(`identity::attribute`, the same process table that tells agents)
+reaches an adapter is that extension: the nearest of an agent's holder
+and an adapter wins, so a program an adapter started inside an agent is
+the extension's. The user's own terminal is unchanged. It doesn't stop a
+process that leaves the chain (detached, re-parented to init/launchd):
+that one is an ordinary local program of the user's again. The parent
+chain comes from `ps` on macOS, `/proc` on Linux and Toolhelp on
+Windows.
+
+**Limits.** 20 calls a second per extension, socket and stdio together
+(`Registry::admit`, `busy`); 8 calls in flight per adapter; 100 refusals
+in a row for limits stop the adapter ("It was stopped: it kept calling
+past its limits …"). A refusal for a missing grant doesn't count.
+
+**The activity log** (`pitwall_core::extensions::activity`): each call
+from the adapter or the socket, with when, from where, and ok / refused
+/ failed, in `<data>/extensions/.log/<id>.jsonl` (500 entries, 30 days;
+`discover` skips dot folders). Settings shows it under **Activity** in
+the card, next to Log.
+
+**Settings.** Turning on an extension that asks for permissions shows
+the permission screen in its card: each permission's title, name, the
+extension's reason and what it gives, with a switch (reads start on);
+unavailable ones are listed as not available. Nothing is on until
+**Turn on**; Cancel leaves it off. A card that is on lists Permissions
+with "Granted 14 Nov 2026" / "Refused …" and a switch, and one an update
+added as "new" with Allow / Don't allow.
 
 ## Settings → Extensions
 A tab of its own (after Accounts). Code: `settings/extensions.rs`.
@@ -708,6 +816,10 @@ plan, process, starter}`, `pitwall_core::platform::group`.
   `adapter.mjs` (Node, no dependencies, protocol 1, one inbox thread that
   answers a reply), `README.md` and `test/pitwall.json`. It passes
   `check` and `test` as written (Pitwall's tests make sure).
+  `--protocol 2` writes a format 2 manifest asking for `agents.read` and
+  an adapter that lists the agents through calls and events, with a
+  `calls` fixture (a fake Pitwall side: `grants`, `answers`, `events`,
+  `expect`).
 
 ## Later (not built)
 - Pitwall registering an extension's MCP server in agents itself, rather

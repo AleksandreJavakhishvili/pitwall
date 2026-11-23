@@ -1,5 +1,8 @@
 # Protocol 1
 
+An adapter that also reads Pitwall's data speaks [protocol 2](protocol-2.md):
+everything here, plus calls and events.
+
 Your adapter and Pitwall talk in JSON lines: one JSON object per line,
 UTF-8, each object with a `type`. Pitwall writes to the adapter's stdin.
 The adapter writes to its stdout. Its stderr is for you: it shows in the

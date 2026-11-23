@@ -12,7 +12,10 @@ a look, not a failure), `FAIL`, or `skip` (not run here, with why).
 
 Reads the folder and runs nothing:
 
-- `extension.json` parses and stays within Pitwall's limits (format 1);
+- `extension.json` parses and stays within Pitwall's limits (format 1 or
+  [2](manifest-2.md)), with warnings for format-2 keys in format 1, a
+  missing `pitwall`, permissions this Pitwall doesn't serve, and an adapter
+  that contributes nothing;
 - its version;
 - the adapter's program is found, the way Pitwall would start it;
 - the files its command names exist inside the folder;
@@ -20,9 +23,10 @@ Reads the folder and runs nothing:
 - the folder's name matches the id (a note when it doesn't).
 
 Then it says, in plain words, what the extension would do: the settings
-the user fills in, the command it runs while on, the variables it sets on
-agents, how its threads match agents, and each setup action's exact
-commands.
+the user fills in (with their types, options, ranges and defaults), the
+permissions it asks for with its reasons, what it contributes, the
+command it runs while on, the variables it sets on agents, how its
+threads match agents, and each setup action's exact commands.
 
 ```
 $ pitwall extension check extensions/demo-inbox --human
@@ -158,3 +162,39 @@ The adapter, given those settings and secrets, must:
 
 [`extensions/agention/adapter/test/serve-fake.mjs`](../../extensions/agention/adapter/test/serve-fake.mjs)
 is an example.
+
+### `calls`
+
+For a [protocol 2](protocol-2.md) adapter: `test` plays Pitwall's side,
+answering its calls from the fixture, and checks what it does with them.
+
+```json
+"calls": {
+  "grants": ["agents.read"],
+  "settings": {}, "secrets": {},
+  "answers": {
+    "agent.list": [{ "id": "a1", "name": "fix-login", "status": "working" }],
+    "project.list": { "error": { "code": "denied", "message": "Not allowed" } }
+  },
+  "events": [{ "event": "agents.changed", "data": [{ "id": "a2", "name": "docs-pass" }] }],
+  "expect": {
+    "called": ["agent.list", "events.subscribe"],
+    "subscribes": ["agents"],
+    "threads": 1,
+    "open": "agents",
+    "text": "fix-login",
+    "afterEvents": "docs-pass"
+  }
+}
+```
+
+- `grants` go in its hello. Each must be one its manifest asks for:
+  Pitwall never grants anything else.
+- `answers`: what each method returns, or `{"error": {code, message}}` to
+  refuse it. `events.subscribe` is answered with the topics asked for. A
+  method that isn't listed gets `unknown_method`.
+- `expect`: the methods it calls and the topics it subscribes to; at
+  least `threads` threads listed; thread `open`, once opened, shows
+  `text`. After the `events` are sent, the thread shows `afterEvents`.
+
+An adapter that answers hello with protocol 1 fails this part.

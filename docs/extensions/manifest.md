@@ -1,5 +1,8 @@
 # The manifest (`extension.json`, format 1)
 
+This page is format 1. [Format 2](manifest-2.md) adds the Pitwall it
+needs, permissions, what it contributes and more setting types.
+
 Every extension has an `extension.json` at the top of its folder. Pitwall
 reads it and nothing else to know what the extension is, what the user
 fills in and what it runs. Run [`pitwall extension check`](checks.md) to
@@ -31,8 +34,8 @@ goes unnoticed too: `check` shows what Pitwall read).
 
 ## Who it is
 
-- `v`: the format, 1. A higher one is refused with "it needs a newer
-  Pitwall".
+- `v`: the format, 1 (or [2](manifest-2.md)). A higher one is refused
+  with "it needs a newer Pitwall".
 - `id`: 1–40 characters of lower-case letters, digits and `-`. It starts
   with a letter and doesn't end with `-`. An installed extension's folder
   is named after it.
