@@ -10,6 +10,7 @@ use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
 use pitwall_core::onboarding::{self, places};
 use pitwall_core::provider::{Locator, MachineId, ProviderId};
 use pitwall_proto::{code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
+use pitwall_core::extensions::permissions::AGENTS_FOCUS;
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
@@ -29,6 +30,9 @@ pub enum Access {
     AskWhen(&'static str, Risk),
     /// Pitwall's own (verified) UI only.
     Ui,
+    /// Pitwall's own UI, or an extension granted the method's permission;
+    /// never an agent or another program.
+    UiOrExtension,
 }
 
 /// What an extension may call (docs/spec/extension-api.md, "Permissions"):
@@ -37,7 +41,7 @@ pub enum Access {
 /// terminal keeps [`Access`] alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ext {
-    /// With this permission granted (only reads in this Pitwall).
+    /// With this permission granted.
     Grant(&'static str),
     /// A later Pitwall, with this permission: refused as not available yet.
     Later(&'static str),
@@ -58,8 +62,11 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
         // Low; High (asked every time) when it also makes a workspace or an
         // agent user there.
         Access::AskWhen("`machine` is a platform's (agw): creates and starts a session on that machine", Risk::Low),
-        Ext::Later(AGENTS_START),
+        // An extension's request is asked every time (actions.rs).
+        Ext::Grant(AGENTS_START),
     ),
+    // Moves the focus to an agent's tile while Pitwall is in front.
+    (method::AGENT_FOCUS, Access::UiOrExtension, Ext::Grant(AGENTS_FOCUS)),
     (method::MACHINE_LIST, Access::Open, Ext::Never),
     (method::MACHINE_FORM, Access::Open, Ext::Never),
     (method::SESSION_LIST, Access::Open, Ext::Never),
@@ -82,10 +89,12 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     (method::AGENT_TRACK, Access::Open, Ext::Never),
     (method::AGENT_WAIT, Access::Open, Ext::Never),
     // Queued prompts go to agents already in Pitwall, as the UI's queue.
-    (method::QUEUE_ADD, Access::Open, Ext::Later(AGENTS_QUEUE)),
+    // An extension's item is marked as its own and paced (actions.rs).
+    (method::QUEUE_ADD, Access::Open, Ext::Grant(AGENTS_QUEUE)),
     (method::QUEUE_LIST, Access::Open, Ext::Never),
     (method::QUEUE_REMOVE, Access::Open, Ext::Never),
-    (method::QUEUE_SEND, Access::Open, Ext::Later(AGENTS_QUEUE)),
+    // Sending is the user's (or Auto-send's, as the user set it).
+    (method::QUEUE_SEND, Access::Open, Ext::Never),
     // Pitwall's project list; never touches the folders.
     (method::PROJECT_LIST, Access::Open, Ext::Grant(PROJECTS_READ)),
     // Every project's git worktrees (read-only git calls).
@@ -131,13 +140,13 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     (method::SPACE_MOVE, Access::Open, Ext::Never),
     (method::AGENT_MOVE, Access::Open, Ext::Never),
     // Only shows files in Pitwall's viewer, read-only (viewer.rs).
-    (method::VIEWER_OPEN, Access::Open, Ext::Later(SHOW)),
+    (method::VIEWER_OPEN, Access::Open, Ext::Grant(SHOW)),
     // The agents' MCP tools: the same, as tools (viewer.rs).
     (method::MCP_TOOLS, Access::Open, Ext::Never),
     (method::MCP_CALL, Access::Open, Ext::Never),
     // Only shows the user a web page (http/https) in Pitwall; nothing of it
     // comes back (viewer.rs).
-    (method::WEB_OPEN, Access::Open, Ext::Later(SHOW)),
+    (method::WEB_OPEN, Access::Open, Ext::Grant(SHOW)),
     // What agent.list shows, as it changes; `approvals` only for the UI
     // (events.rs). Answered per connection (server.rs).
     (method::EVENTS_SUBSCRIBE, Access::Open, Ext::Grant(AGENTS_READ)),
@@ -233,8 +242,9 @@ fn other(e: impl Into<String>) -> ErrorBody {
 /// (`via`: how it came): its budget first, then [`dispatch`].
 pub fn call(s: &Server, caller: &Caller, name: &str, p: Value, via: Via) -> Res {
     let Some((id, _)) = &caller.extension else { return dispatch(s, caller, name, p) };
+    let detail = crate::actions::detail(s, name, &p);
     let res = s.extensions.admit(id).and_then(|_| dispatch(s, caller, name, p));
-    s.extensions.record_call(id, via, name, &res);
+    s.extensions.record_call_with(id, via, name, detail, &res);
     res
 }
 
@@ -243,6 +253,9 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         None => return Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
         Some(Access::Ui) if !caller.ui => {
             return Err(ErrorBody::new(code::DENIED, "only Pitwall's own window can do this"));
+        }
+        Some(Access::UiOrExtension) if !caller.ui && caller.extension.is_none() => {
+            return Err(ErrorBody::new(code::DENIED, "only Pitwall's own window (or an extension you allowed) can do this"));
         }
         _ => {}
     }
@@ -294,7 +307,11 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::AGENT_STATUS => manage::status(s, required(p)?),
         method::AGENT_TRACK => manage::track(s, required(p)?),
         method::AGENT_WAIT => manage::wait(s, required(p)?),
-        method::QUEUE_ADD => manage::queue_add(s, required(p)?),
+        method::QUEUE_ADD => match &caller.extension {
+            Some(ext) => crate::actions::queue_add(s, ext, required(p)?),
+            None => manage::queue_add(s, required(p)?),
+        },
+        method::AGENT_FOCUS => crate::viewer::focus(s, required(p)?),
         method::QUEUE_LIST => manage::queue_list(s, params(p)?),
         method::QUEUE_REMOVE => manage::queue_remove(s, required(p)?),
         method::QUEUE_SEND => manage::queue_send(s, required(p)?),
@@ -333,10 +350,18 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::SPACE_RENAME => workspace::rename(s, required(p)?),
         method::SPACE_MOVE => workspace::move_to_window(s, required(p)?),
         method::AGENT_MOVE => workspace::move_agent(s, required(p)?),
-        method::VIEWER_OPEN => crate::viewer::open(s, caller, crate::viewer::params(p)?),
+        method::VIEWER_OPEN => {
+            let r = crate::viewer::params(p)?;
+            beside_only(caller, r.place)?;
+            crate::viewer::open(s, caller, r)
+        }
         method::MCP_TOOLS | method::MCP_CALL if s.viewer.is_none() => Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to show files in")),
         method::MCP_TOOLS => crate::viewer::mcp_tools(s),
-        method::WEB_OPEN => crate::viewer::web_open(s, caller, crate::viewer::web_params(p)?),
+        method::WEB_OPEN => {
+            let r = crate::viewer::web_params(p)?;
+            beside_only(caller, r.place)?;
+            crate::viewer::web_open(s, caller, r)
+        }
         method::MCP_CALL => crate::viewer::mcp_call(s, caller, required(p)?),
         // Needs the connection: server.rs answers it before dispatching.
         method::EVENTS_SUBSCRIBE => Err(ErrorBody::new(code::UNSUPPORTED, "events.subscribe needs a connection of its own")),
@@ -344,7 +369,23 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     }
 }
 
+/// An extension shows things next to an agent's terminal: never in a
+/// window of its own nor in the terminal's place.
+fn beside_only(caller: &Caller, place: Option<pitwall_proto::ViewerPlace>) -> Result<(), ErrorBody> {
+    use pitwall_proto::ViewerPlace;
+    match (&caller.extension, place) {
+        (Some(_), Some(ViewerPlace::Window | ViewerPlace::Replace)) => Err(ErrorBody::new(code::BAD_PARAMS, "An extension shows things next to an agent's terminal (right, left, above or below): not in a window of its own or in the terminal's place.")),
+        _ => Ok(()),
+    }
+}
+
 fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
+    if caller.extension.is_some() {
+        return crate::actions::start(s, caller, req);
+    }
+    if req.prompt.is_some() {
+        return Err(ErrorBody::new(code::BAD_PARAMS, "`prompt` is for extensions' requests: put a first prompt in its Next up with `pitwall queue add` once it runs"));
+    }
     if req.provider.is_some() || req.machine.is_some() {
         let form = s.engine.create_form(req.provider.as_deref(), req.machine.as_deref()).map_err(other)?;
         if !form.folder {
@@ -499,6 +540,11 @@ mod tests {
             method::ACCOUNTS_LIST => "The profiles, only the extension's own connections (`ext:<id>`); git identities are left out.",
             method::PROJECT_ACCOUNTS => "Which of the extension's own connections a project uses.",
             method::EVENTS_SUBSCRIBE => "Events as they happen (`topics`: `agents`, `attention`, `blocked`), each as an `event` line. Calling it again replaces the topics.",
+            method::VIEWER_OPEN => "Shows files (`files`, `line`) or a folder in an agent's file viewer (`agentId` required), next to its terminal; never a window of its own, never brings Pitwall forward. Off while the user turned off \"Agents can show you files\".",
+            method::WEB_OPEN => "Shows a web page (`url`, http or https) in an agent's page tile (`agentId` required), next to its terminal; never brings Pitwall forward. Off while the user turned off agents' web pages.",
+            method::AGENT_FOCUS => "Moves the focus to an agent's tile (`agentId`) while Pitwall is in front; otherwise does nothing and says so (`focused: false`, `note`).",
+            method::QUEUE_ADD => "Puts `text` in an agent's Next up (`agentId`), marked with the extension's name. It waits for the user's Send unless the user lets the extension send without asking. At most 4000 characters, one item per agent every 10 seconds, three of its items waiting per agent: see [actions](actions.md).",
+            method::AGENT_CREATE => "Asks the user to start an agent (`kind`, `project`: one of Pitwall's projects; maybe `name` and a first `prompt`, put in its Next up). Asked every time, showing all of it; no answer in time is a no. One request at a time, three in ten minutes: see [actions](actions.md).",
             _ => "",
         }
     }
@@ -521,11 +567,10 @@ mod tests {
                 md.push_str(&format!("| `{m}` | `{p}` | {} |\n", what(m)));
             }
         }
-        md.push_str("\n## Not yet\n\nThese act, and are refused with `unsupported` in this Pitwall. A later one\nwill offer them with the permission named.\n\n| Method | Will need |\n|---|---|\n");
-        for (m, _, e) in METHODS {
-            if let Ext::Later(p) = e {
-                md.push_str(&format!("| `{m}` | `{p}` |\n"));
-            }
+        let later: Vec<String> = METHODS.iter().filter_map(|(m, _, e)| if let Ext::Later(p) = e { Some(format!("| `{m}` | `{p}` |\n")) } else { None }).collect();
+        if !later.is_empty() {
+            md.push_str("\n## Not yet\n\nThese are refused with `unsupported` in this Pitwall. A later one will\noffer them with the permission named.\n\n| Method | Will need |\n|---|---|\n");
+            md.push_str(&later.concat());
         }
         let never: Vec<String> = METHODS.iter().filter(|(_, _, e)| *e == Ext::Never).map(|(m, _, _)| format!("`{m}`")).collect();
         md.push_str(&format!(
@@ -533,7 +578,8 @@ mod tests {
              ## Errors\n\n\
              - `denied`: the permission isn't granted (or was revoked: it applies to the\n  next call). The message names it and where the user grants it.\n\
              - `unsupported`: not an extension's method, or not in this Pitwall yet.\n\
-             - `busy`: past {} calls a second, socket and adapter together. Wait and\n  call again.\n\
+             - `busy`: past {} calls a second, socket and adapter together, or past\n  an action's own limit ([actions](actions.md)). Wait and call again.\n\
+             - `approval_timeout`: nobody answered a request to start an agent in\n  time; nothing was started.\n\
              - `unknown_method`: no such method.\n",
             never.join(", "),
             crate::extensions::MAX_CALLS
@@ -584,29 +630,38 @@ mod tests {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
         assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
+        assert_eq!(access(method::AGENT_FOCUS), Some(Access::UiOrExtension));
         assert_eq!(access("agent.prompt"), None);
     }
 
-    /// The permission column: extensions read with a grant, never act in
-    /// this Pitwall; what they will act on later says so.
+    /// The permission column: extensions read with a grant, and act only
+    /// through the four action permissions (each a method of its own);
+    /// sending, approving, settings and the rest are never theirs.
     #[test]
-    fn extensions_read_with_a_grant_and_never_act() {
+    fn extensions_read_with_a_grant_and_act_only_with_one() {
         assert_eq!(ext_access(method::AGENT_LIST), Some(Ext::Grant(AGENTS_READ)));
         assert_eq!(ext_access(method::WORKTREE_LIST), Some(Ext::Grant(WORKTREES_READ)));
-        assert_eq!(ext_access(method::QUEUE_ADD), Some(Ext::Later(AGENTS_QUEUE)));
-        assert_eq!(ext_access(method::AGENT_CREATE), Some(Ext::Later(AGENTS_START)));
+        assert_eq!(ext_access(method::QUEUE_ADD), Some(Ext::Grant(AGENTS_QUEUE)));
+        assert_eq!(ext_access(method::AGENT_CREATE), Some(Ext::Grant(AGENTS_START)));
+        assert_eq!(ext_access(method::AGENT_FOCUS), Some(Ext::Grant(AGENTS_FOCUS)));
+        assert_eq!(ext_access(method::VIEWER_OPEN), Some(Ext::Grant(SHOW)));
+        assert_eq!(ext_access(method::WEB_OPEN), Some(Ext::Grant(SHOW)));
+        let acting = [method::QUEUE_ADD, method::AGENT_CREATE, method::AGENT_FOCUS, method::VIEWER_OPEN, method::WEB_OPEN];
+        // Core's list (the author's checks use it) says the same.
+        for (m, p) in pitwall_core::extensions::permissions::ACTION_METHODS {
+            assert!(acting.contains(&m), "{m}");
+            assert_eq!(ext_access(m), Some(Ext::Grant(p)), "{m}");
+        }
+        assert_eq!(pitwall_core::extensions::permissions::ACTION_METHODS.len(), acting.len());
         for (m, a, e) in METHODS {
             if let Ext::Grant(p) = e {
-                // A granted method only reads: open to anyone, and its
-                // permission one this Pitwall serves.
-                assert_eq!(*a, Access::Open, "{m}");
                 assert!(pitwall_core::extensions::permissions::available(p), "{m}: {p}");
+                // Reads are open to anyone; the actions are these five.
+                assert!(*a == Access::Open || acting.contains(m), "{m}");
             }
-            if let Ext::Later(p) = e {
-                assert!(!pitwall_core::extensions::permissions::available(p), "{m}: {p} isn't served yet");
-            }
+            assert!(!matches!(e, Ext::Later(_)), "{m}: nothing is left for later");
         }
-        for m in [method::AGENT_STOP, method::SETTINGS_SET, method::APPROVAL_ANSWER, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD] {
+        for m in [method::AGENT_STOP, method::SETTINGS_SET, method::SETTINGS_RESET, method::APPROVAL_ANSWER, method::APPROVAL_LIST, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD, method::QUEUE_SEND, method::QUEUE_REMOVE, method::SESSION_ADD, method::AGENT_RESTART, method::AGENT_REMOVE] {
             assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
         }
         let ext = ("ci".to_string(), "CI".to_string());
@@ -615,9 +670,11 @@ mod tests {
         let no = ext_allowed(method::PROJECT_LIST, &ext, granted).unwrap_err();
         assert_eq!(no.code, code::DENIED);
         assert!(no.message.contains("isn't granted projects.read"), "{}", no.message);
-        let later = ext_allowed(method::QUEUE_ADD, &ext, |_| true).unwrap_err();
-        assert_eq!(later.code, code::UNSUPPORTED);
-        assert!(later.message.contains("isn't available to extensions yet") && later.message.contains("agents.queue"), "{}", later.message);
+        for m in acting {
+            assert_eq!(ext_allowed(m, &ext, granted).unwrap_err().code, code::DENIED, "{m} without its grant");
+        }
+        assert!(ext_allowed(method::QUEUE_ADD, &ext, |p| p == AGENTS_QUEUE).is_ok());
+        assert_eq!(ext_allowed(method::QUEUE_SEND, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED, "sending stays the user's");
         assert_eq!(ext_allowed(method::AGENT_STOP, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED);
         assert_eq!(ext_allowed("agent.prompt", &ext, |_| true).unwrap_err().code, code::UNKNOWN_METHOD);
     }
