@@ -51,15 +51,22 @@ available and never granted.
 
 ## `contributes`
 
-What it adds to Pitwall's UI. In this Pitwall there is one:
+What it adds to Pitwall's UI. Each needs an `adapter`:
 
-- `inbox`: `true` when its threads show in the inbox. It needs an
-  `adapter`.
+- `inbox`: `true` when its threads show in the inbox.
+- `views`: view tiles, `[{"id", "title", "icon"}]`, at most 10.
+- `commands`: command palette entries, `[{"id", "title", "context"}]`
+  (`context`: `none`, or `agent` for one shown only while an agent is
+  focused), at most 20, no keys.
+- `badges`: `true` when it puts badges and notes on sidebar rows.
+- `notifications`: `true` when it shows notifications; it needs the
+  `notify` permission.
 
-A kind a later Pitwall will draw (`views`, `commands`, `badges`,
-`notifications`, `panels`, `cards`, `webViews`) is refused with "it
-contributes “views”, which needs a newer Pitwall". A key no Pitwall knows
-is refused too. In format 1, an extension with an adapter is an inbox.
+[Views, commands, badges and notifications](views.md) says what each
+draws and what the adapter sends. A kind a later Pitwall will draw
+(`panels`, `cards`, `webViews`) is refused with "it contributes
+“panels”, which needs a newer Pitwall". A key no Pitwall knows is
+refused too. In format 1, an extension with an adapter is an inbox.
 
 An adapter that contributes nothing is allowed: it can read what it is
 granted and work outside Pitwall's UI. `check` mentions it.

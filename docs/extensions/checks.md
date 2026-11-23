@@ -198,3 +198,35 @@ answering its calls from the fixture, and checks what it does with them.
   `text`. After the `events` are sent, the thread shows `afterEvents`.
 
 An adapter that answers hello with protocol 1 fails this part.
+
+### `views`
+
+For an extension that [contributes](views.md) views, commands or badges:
+`test` plays Pitwall's side (answering calls as `calls` does) and checks
+what the adapter draws.
+
+```json
+"views": {
+  "grants": ["agents.read"],
+  "answers": { "agent.list": [{ "id": "a1", "name": "fix-login" }] },
+  "show": "runs",
+  "kind": "list",
+  "items": 2,
+  "select": "r812",
+  "detail": "detail",
+  "action": { "item": "r812", "action": "rerun" },
+  "command": "refresh",
+  "badges": 1
+}
+```
+
+- After `show`, view `show` arrives as a `kind` root (`list`, `detail`,
+  `markdown` or `status`) with at least `items` items; one Pitwall would
+  refuse (too big, a form) fails with its reason.
+- After `select`, the view comes again with a `detail` of that kind
+  beside the list.
+- `action` (on `item`, of view `show`) and `command` are answered ok.
+- At least `badges` badges or notes are sent.
+- `grants`, `answers`, `settings` and `secrets` are as in `calls`.
+
+Each key is optional; give the ones your extension does.

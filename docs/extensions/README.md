@@ -21,7 +21,7 @@ my-inbox/
 ## Start here
 
 ```sh
-pitwall extension new ~/code/my-inbox --name "My inbox"   # add --protocol 2 to read Pitwall's data
+pitwall extension new ~/code/my-inbox --name "My inbox"   # --protocol 2 reads Pitwall's data, --view draws a view tile
 pitwall extension check ~/code/my-inbox --human
 pitwall extension test ~/code/my-inbox --human
 ```
@@ -41,6 +41,9 @@ folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
   other.
 - [Protocol 2](protocol-2.md): calls, replies and events, for an adapter
   that reads Pitwall's data.
+- [Views, commands, badges and notifications](views.md): view tiles and
+  their components (list, detail, Markdown, status) with JSON examples,
+  palette commands, sidebar badges and notes, notifications.
 - [Permissions](permissions.md): what an extension may read, what the
   user sees, and the limits.
 - [Methods](methods.md): what an extension may call, with the permission

@@ -23,8 +23,10 @@ user granted, what it offers, and which connection this adapter serves:
 - `grants`: the permissions the user granted, out of those your manifest
   asks for. Calls that need another are refused.
 - `offers`: what this Pitwall can do for an adapter. Check it rather than
-  the version: `call` (calls and replies), `events` (`events.subscribe`).
-  A later Pitwall adds to it.
+  the version: `inbox`, `views`, `commands`, `badges`, `notify` (what it
+  draws: [views, commands, badges and notifications](views.md)), `call`
+  (calls and replies), `events` (`events.subscribe`). A later Pitwall
+  adds to it.
 - `settings` are typed: a `bool` setting is `true` or `false`, a `number`
   a number, the others strings ([settings](manifest-2.md#setting-types)).
 - `connection`: present when the extension has connections.
