@@ -55,6 +55,8 @@ folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
   the user sees, and the limits.
 - [Methods](methods.md): what an extension may call, with the permission
   each needs (generated from Pitwall's method table).
+- [Setup by an agent](agent-setup.md): how an agent sets your
+  extension up for the user, and what to write so it can.
 - [Dev mode](dev-mode.md): loading your folder in place, Reload, the log.
 - [Checks](checks.md): `pitwall extension check` and `test`, and
   `test/pitwall.json`.

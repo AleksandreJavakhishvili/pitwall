@@ -3,7 +3,7 @@
 // (`engineer.greeting`), as pitwall-proto's settings registry has them.
 
 export const ENGINEER_GREETING =
-  "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, tune settings.";
+  "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, set up an extension, tune settings.";
 
 /** `engineer.agent`: "auto" (Claude Code if installed, else the first installed agent), a kind id, or "custom". */
 export const ENGINEER_AUTO = "auto";
