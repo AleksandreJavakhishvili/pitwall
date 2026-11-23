@@ -50,6 +50,13 @@
       "additionalProperties": {
         "additionalProperties": true,
         "properties": {
+          "actionSteps": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "A digest of the steps each recorded setup action ran, by action (`<action>@<connection>` for one kept per connection): when an update changes an action's steps, its step is unticked and asks to be run again.",
+            "type": "object"
+          },
           "actionsDone": {
             "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked); one that uses a setting is kept per connection, this list copying the carried-over connection's.",
             "items": {
