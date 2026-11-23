@@ -29,6 +29,9 @@ pub enum Via {
     Socket,
     /// Pitwall itself (a limit it applied).
     Pitwall,
+    /// A button of its view the user pressed that Pitwall ran itself
+    /// (open a file or a page, focus an agent), checked as its own call.
+    View,
 }
 
 /// How a call went.
@@ -54,13 +57,32 @@ pub struct Entry {
     /// The method called (or what Pitwall did, for [`Via::Pitwall`]).
     pub method: String,
     pub outcome: Outcome,
+    /// What a call that acts asked for, in a few words (which agent, the
+    /// text it queued, the agent it asked to start).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
+
+/// The longest [`Entry::detail`] kept.
+pub const MAX_DETAIL: usize = 600;
 
 impl Entry {
     /// An entry for now.
     pub fn now(via: Via, method: impl Into<String>, outcome: Outcome) -> Entry {
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        Entry { at, via, method: method.into(), outcome }
+        Entry { at, via, method: method.into(), outcome, detail: None }
+    }
+
+    /// With `detail` (cut to [`MAX_DETAIL`] characters).
+    pub fn with_detail(mut self, detail: Option<String>) -> Entry {
+        self.detail = detail.map(|d| {
+            if d.chars().count() > MAX_DETAIL {
+                format!("{}…", d.chars().take(MAX_DETAIL).collect::<String>())
+            } else {
+                d
+            }
+        });
+        self
     }
 
     /// Refused or failed.
@@ -166,7 +188,7 @@ mod tests {
     use super::*;
 
     fn entry(at: u64, method: &str) -> Entry {
-        Entry { at, via: Via::Adapter, method: method.into(), outcome: Outcome::Ok }
+        Entry { at, via: Via::Adapter, method: method.into(), outcome: Outcome::Ok, detail: None }
     }
 
     /// Kept in its file across a restart, bounded, old entries gone.
@@ -179,7 +201,7 @@ mod tests {
         let mut a = Activity::open(Some(f.clone()), now);
         assert!(a.entries().is_empty());
         a.push(entry(now - 40 * day, "agent.list"));
-        a.push(Entry { at: now, via: Via::Socket, method: "queue.add".into(), outcome: Outcome::Refused { code: "unsupported".into(), message: "not yet".into() } });
+        a.push(Entry { at: now, via: Via::Socket, method: "queue.add".into(), outcome: Outcome::Refused { code: "unsupported".into(), message: "not yet".into() }, detail: None });
         let back = Activity::open(Some(f.clone()), now);
         assert_eq!(back.entries().len(), 1, "older than 30 days: gone");
         assert!(back.entries()[0].refused());
@@ -196,7 +218,10 @@ mod tests {
         let mut a = back;
         a.clear();
         assert!(!f.exists());
-        let wire = serde_json::to_value(Entry { at: 1, via: Via::Adapter, method: "m".into(), outcome: Outcome::Failed { code: "bad_params".into(), message: "x".into() } }).unwrap();
+        let wire = serde_json::to_value(Entry { at: 1, via: Via::Adapter, method: "m".into(), outcome: Outcome::Failed { code: "bad_params".into(), message: "x".into() }, detail: None }).unwrap();
         assert_eq!(wire, serde_json::json!({"at": 1, "via": "adapter", "method": "m", "outcome": {"kind": "failed", "code": "bad_params", "message": "x"}}));
+        let e = Entry::now(Via::View, "queue.add", Outcome::Ok).with_detail(Some("y".repeat(MAX_DETAIL + 5)));
+        assert_eq!(e.detail.as_ref().unwrap().chars().count(), MAX_DETAIL + 1, "cut, with …");
+        assert_eq!(serde_json::to_value(&e).unwrap()["via"], "view");
     }
 }

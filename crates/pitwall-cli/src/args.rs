@@ -122,7 +122,9 @@ pub enum ExtensionCmd {
     /// test/pitwall.json. Its id is the folder's name. With --protocol 2 it
     /// asks for agents.read and shows your agents in its thread. With
     /// --view it draws a list view tile instead, with a palette command and
-    /// a note on your agents' rows.
+    /// a note on your agents' rows. With --panel it draws a section in the
+    /// right panel for the focused agent, with buttons Pitwall runs (open a
+    /// file, focus an agent) behind the show and agents.focus permissions.
     New {
         /// The folder to make (absent or empty), named like my-extension.
         folder: PathBuf,
@@ -137,6 +139,10 @@ pub enum ExtensionCmd {
         /// protocol 2) instead of an inbox.
         #[arg(long, conflicts_with = "protocol")]
         view: bool,
+        /// A right-panel section for the focused agent, with buttons
+        /// Pitwall runs itself (format 2, protocol 2).
+        #[arg(long, conflicts_with_all = ["protocol", "view"])]
+        panel: bool,
     },
 }
 

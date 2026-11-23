@@ -25,13 +25,15 @@ pub const PROJECTS_READ: &str = "projects.read";
 pub const WORKTREES_READ: &str = "worktrees.read";
 /// Read profile and connection names (never settings, secrets or logins).
 pub const PROFILES_READ: &str = "profiles.read";
-/// Show the user a file or a page (a later Pitwall).
+/// Show the user a file or a page in Pitwall (`viewer.open`, `web.open`).
 pub const SHOW: &str = "show";
-/// Focus an agent's tile (a later Pitwall).
+/// Focus an agent's tile while Pitwall is in front (`agent.focus`).
 pub const AGENTS_FOCUS: &str = "agents.focus";
-/// Put text into an agent's Next up (a later Pitwall).
+/// Put text into an agent's Next up, marked as the extension's
+/// (`queue.add`); never sent without the user unless they allow it.
 pub const AGENTS_QUEUE: &str = "agents.queue";
-/// Start an agent (a later Pitwall).
+/// Ask to start an agent, approved by the user every time
+/// (`agent.create`).
 pub const AGENTS_START: &str = "agents.start";
 /// Notifications (with `contributes.notifications`).
 pub const NOTIFY: &str = "notify";
@@ -54,22 +56,36 @@ pub struct Permission {
     /// What it gives, and what that can leak, in one or two sentences.
     pub detail: &'static str,
     pub risk: Risk,
+    /// What can go wrong, in plain words, for the ones that act on agents:
+    /// shown beside it on the permission screen.
+    pub risk_note: Option<&'static str>,
     /// This Pitwall serves it. A known one that isn't is shown as "not
     /// available in this Pitwall yet" and never granted.
     pub available: bool,
 }
 
+/// The methods that act, each with the permission an extension needs for
+/// it (the daemon's method table says the same; its tests hold them
+/// together). `pitwall extension test`'s fake Pitwall side refuses them
+/// without the grant, as Pitwall does.
+pub const ACTION_METHODS: [(&str, &str); 5] = [("queue.add", AGENTS_QUEUE), ("agent.create", AGENTS_START), ("agent.focus", AGENTS_FOCUS), ("viewer.open", SHOW), ("web.open", SHOW)];
+
+/// The permission method `m` needs when it acts.
+pub fn action_needs(m: &str) -> Option<&'static str> {
+    ACTION_METHODS.iter().find(|(name, _)| *name == m).map(|(_, p)| *p)
+}
+
 /// Every permission this Pitwall knows, the ones it serves first.
 pub const ALL: [Permission; 9] = [
-    Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, available: true },
-    Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, available: true },
-    Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, available: true },
-    Permission { name: PROFILES_READ, title: "Read profile names", detail: "The names of your profiles and of its own connections, and which of its connections each project uses. Never another extension's settings, never secrets or logins.", risk: Risk::Low, available: true },
-    Permission { name: SHOW, title: "Show you files and pages", detail: "Open a file or a web page in Pitwall's viewer.", risk: Risk::Low, available: false },
-    Permission { name: AGENTS_FOCUS, title: "Focus an agent", detail: "Bring an agent's tile forward when you click its item.", risk: Risk::Low, available: false },
-    Permission { name: AGENTS_QUEUE, title: "Send text to your agents", detail: "Put text in an agent's Next up. Text an agent gets becomes what it does, with its own permissions in your repositories.", risk: Risk::High, available: false },
-    Permission { name: AGENTS_START, title: "Start agents", detail: "Start an agent in a project, as you.", risk: Risk::High, available: false },
-    Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name.", risk: Risk::Low, available: true },
+    Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, risk_note: None, available: true },
+    Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: PROFILES_READ, title: "Read profile names", detail: "The names of your profiles and of its own connections, and which of its connections each project uses. Never another extension's settings, never secrets or logins.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: SHOW, title: "Show you files and pages", detail: "Open a file (at a line) or a web page in Pitwall, next to an agent, as agents' own show tools do. It never brings Pitwall forward or takes the keyboard.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: AGENTS_FOCUS, title: "Focus an agent", detail: "Move the focus to an agent's tile while Pitwall is in front, as a click on its row does. Never brings Pitwall forward from another app.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: AGENTS_QUEUE, title: "Send text to your agents", detail: "Put text in an agent's Next up, marked with its name. Nothing it puts there is sent until you press Send, unless you let it send without asking.", risk: Risk::High, risk_note: Some("Text an agent gets becomes what it does: it acts on it with its own permissions in your repositories (edit files, run commands, push). A service that is wrong or compromised could slip instructions in."), available: true },
+    Permission { name: AGENTS_START, title: "Start agents", detail: "Ask to start an agent in one of your projects, maybe with a first prompt. Every request asks you first, showing the project, the tool and the prompt in full.", risk: Risk::High, risk_note: Some("An agent it starts runs as you, with the project's accounts, in your repository. Allowed without looking, it can set work going that you didn't ask for."), available: true },
+    Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name.", risk: Risk::Low, risk_note: None, available: true },
 ];
 
 /// Permission `name`, when this Pitwall knows it.
@@ -83,9 +99,10 @@ pub fn available(name: &str) -> bool {
 }
 
 /// Whether the permission screen offers `name` switched on: the ones that
-/// only read, yes; sending text to agents and starting them, never.
+/// only read (and notifications), yes; any that acts (showing, focusing,
+/// queueing, starting), never.
 pub fn on_by_default(name: &str) -> bool {
-    find(name).is_some_and(|p| p.available && p.risk != Risk::High)
+    find(name).is_some_and(|p| p.available && p.risk != Risk::High) && !ACTION_METHODS.iter().any(|(_, p)| *p == name)
 }
 
 /// Why `name` can't be granted here, in a few words; `None` when it can.
@@ -159,13 +176,16 @@ mod tests {
         let mut d = Decisions::new();
         assert!(effective(&m, &d).is_empty(), "nothing until the user answers");
         let names = |v: Vec<&PermissionAsk>| v.into_iter().map(|p| p.name.clone()).collect::<Vec<_>>();
-        assert_eq!(names(undecided(&m, &d)), [AGENTS_READ, PROJECTS_READ], "only ones this Pitwall can grant are asked");
+        assert_eq!(names(undecided(&m, &d)), [AGENTS_READ, PROJECTS_READ, AGENTS_QUEUE], "only ones this Pitwall can grant are asked");
         d.insert(AGENTS_READ.into(), Decision { granted: true, at: 1 });
         d.insert(PROJECTS_READ.into(), Decision { granted: false, at: 1 });
-        // A later permission, even marked granted by hand, isn't served.
-        d.insert(AGENTS_QUEUE.into(), Decision { granted: true, at: 1 });
+        // One this Pitwall doesn't know, even marked granted by hand, isn't
+        // served; sending text to agents is, once granted.
         d.insert("weather.read".into(), Decision { granted: true, at: 1 });
+        assert_eq!(names(undecided(&m, &d)), [AGENTS_QUEUE]);
         assert_eq!(effective(&m, &d), [AGENTS_READ]);
+        d.insert(AGENTS_QUEUE.into(), Decision { granted: true, at: 1 });
+        assert_eq!(effective(&m, &d), [AGENTS_READ, AGENTS_QUEUE]);
         assert!(undecided(&m, &d).is_empty(), "refused is answered");
         // An update adds one: it isn't granted until answered.
         let newer = asking(&[AGENTS_READ, PROJECTS_READ, WORKTREES_READ]);
@@ -179,9 +199,17 @@ mod tests {
     #[test]
     fn defaults_and_words() {
         assert!(on_by_default(AGENTS_READ) && on_by_default(PROFILES_READ) && on_by_default(NOTIFY));
-        assert!(!on_by_default(AGENTS_QUEUE) && !on_by_default(AGENTS_START), "never on by default");
+        for p in [SHOW, AGENTS_FOCUS, AGENTS_QUEUE, AGENTS_START] {
+            assert!(!on_by_default(p), "{p} acts: never on by default");
+        }
         assert_eq!(unavailable_why(AGENTS_READ), None);
-        assert_eq!(unavailable_why(SHOW), Some("not available in this Pitwall yet"));
+        assert_eq!(unavailable_why(SHOW), None);
+        for p in [SHOW, AGENTS_FOCUS, AGENTS_QUEUE, AGENTS_START] {
+            assert!(available(p), "{p} is served");
+        }
+        // The two that act on agents say what can go wrong.
+        assert!(find(AGENTS_QUEUE).unwrap().risk_note.is_some() && find(AGENTS_START).unwrap().risk_note.is_some());
+        assert!(ALL.iter().filter(|p| p.risk == Risk::High).all(|p| p.risk_note.is_some()));
         assert_eq!(unavailable_why("weather.read"), Some("not available in this Pitwall"));
         assert_eq!((of_topic("attention"), of_topic("blocked"), of_topic("approvals")), (Some(AGENTS_READ), Some(AGENTS_READ), None));
         let d = serde_json::to_value(Decision { granted: true, at: 7 }).unwrap();
