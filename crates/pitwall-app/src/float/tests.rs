@@ -558,7 +558,10 @@ fn the_size_is_kept_with_the_place(cx: &mut TestAppContext) {
 fn every_edge_and_corner_resizes_it(cx: &mut TestAppContext) {
     let long = long_prompt();
     let (_store, _) = setup(vec![agent("api", "blocked", Some((&long, true, true)))], None, cx);
-    cx.update(|cx| cx.global_mut::<Float>().anchor = Some(point(px(1500.), px(900.))));
+    // Anchored where the window fits: its bottom right on macOS, its top
+    // right elsewhere (the window hangs down from there).
+    let y0 = if GROWS_UP { 900. } else { 100. };
+    cx.update(|cx| cx.global_mut::<Float>().anchor = Some(point(px(1500.), px(y0))));
     click(&mut window(cx), "float-puck");
     let mut v = window(cx);
     for e in Edge::ALL {
@@ -574,7 +577,7 @@ fn every_edge_and_corner_resizes_it(cx: &mut TestAppContext) {
     drag(&mut v, "float-resize-right", 100., 0.);
     assert_eq!(user_size(cx), (Some(model::WIDTH + 100.), None));
     assert_eq!(dims(cx), (w0 + 100., h0));
-    assert_eq!(anchor(cx), point(px(1600.), px(900.)));
+    assert_eq!(anchor(cx), point(px(1600.), px(y0)));
     // On macOS the window is told to move its corner as the drag goes;
     // elsewhere it opens again at the new place on release.
     assert_eq!(moved(), if GROWS_UP { (100., 0.) } else { (0., 0.) });
@@ -587,14 +590,14 @@ fn every_edge_and_corner_resizes_it(cx: &mut TestAppContext) {
     drag(&mut v, anchored, 0., out * 3. * LINE_H);
     assert_eq!(user_size(cx).1, Some(model::LINES_ALONE + 3));
     assert_eq!(dims(cx), (w0 + 100., h0 + 3. * LINE_H));
-    assert_eq!(anchor(cx), point(px(1600.), px(900. + out * 3. * LINE_H)));
+    assert_eq!(anchor(cx), point(px(1600.), px(y0 + out * 3. * LINE_H)));
 
     // The corner where both meet: both at once.
     let corner = if GROWS_UP { "float-resize-bottom-right" } else { "float-resize-top-right" };
     let mut v = window(cx);
     drag(&mut v, corner, 50., out * LINE_H);
     assert_eq!(user_size(cx), (Some(model::WIDTH + 150.), Some(model::LINES_ALONE + 4)));
-    assert_eq!(anchor(cx), point(px(1650.), px(900. + out * 4. * LINE_H)));
+    assert_eq!(anchor(cx), point(px(1650.), px(y0 + out * 4. * LINE_H)));
 
     // The other two corners: the width with the edge they are on, the rows
     // with the end they are at.
@@ -611,6 +614,34 @@ fn every_edge_and_corner_resizes_it(cx: &mut TestAppContext) {
     double_click(&mut window(cx), "float-resize-right");
     assert_eq!(user_size(cx), (None, None));
     assert_eq!(dims(cx).0, w0);
+}
+
+#[gpui::test]
+fn without_room_a_drag_outward_keeps_the_size(cx: &mut TestAppContext) {
+    let long = long_prompt();
+    let (_store, _) = setup(vec![agent("api", "blocked", Some((&long, true, true)))], None, cx);
+    // Placed so that it already reaches past the screen's left edge and
+    // past the end it grows to (the top on macOS, the bottom elsewhere).
+    let y = if GROWS_UP { 100. } else { 1000. };
+    cx.update(|cx| cx.global_mut::<Float>().anchor = Some(point(px(300.), px(y))));
+    click(&mut window(cx), "float-puck");
+    let start = dims(cx);
+    // Outward: no room, nothing smaller.
+    let out = if GROWS_UP { -1. } else { 1. };
+    let mut v = window(cx);
+    drag(&mut v, END, 0., out * 2. * LINE_H);
+    assert_eq!(user_size(cx).1, Some(model::LINES_ALONE));
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-left", -100., 0.);
+    assert_eq!(user_size(cx).0, None, "the width it had");
+    assert_eq!(dims(cx), start);
+    // Inward: smaller, as ever.
+    let mut v = window(cx);
+    drag(&mut v, END, 0., -out * 2. * LINE_H);
+    assert_eq!(user_size(cx).1, Some(model::LINES_ALONE - 2));
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-left", 50., 0.);
+    assert_eq!(user_size(cx).0, Some(model::WIDTH - 50.));
 }
 
 #[gpui::test]
