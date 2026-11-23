@@ -29,6 +29,11 @@
 //! `notify` permission), sections in the right panel for the focused agent
 //! (with `agents.read`) and web views: an https (or this computer's own
 //! http) page in a web tile, with no way to reach Pitwall from the page.
+//!
+//! Format 2 may also declare a `service` ([`service`]): one long-running
+//! program on this computer (a server its agents need) that Pitwall keeps
+//! running while the extension is on, once the user confirmed its exact
+//! commands.
 
 pub mod activity;
 pub mod check;
@@ -39,6 +44,7 @@ pub mod permissions;
 pub mod plan;
 pub mod process;
 pub mod protocol;
+pub mod service;
 pub mod source;
 pub mod starter;
 pub mod view;
@@ -123,6 +129,9 @@ pub struct Manifest {
     pub permissions: Vec<PermissionAsk>,
     /// Format 2: what it adds to Pitwall.
     pub contributes: Contributes,
+    /// Format 2: the long-running program Pitwall keeps running for it
+    /// while it is on, once the user confirmed its commands ([`service`]).
+    pub service: Option<service::Service>,
 }
 
 /// A permission a manifest asks for, and why, in the extension's words.
@@ -303,6 +312,7 @@ impl Manifest {
             pitwall: None,
             permissions: vec![],
             contributes: Contributes::default(),
+            service: None,
         }
     }
 
@@ -798,6 +808,10 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     // Format 1 ignores these keys, as it always has (a Pitwall reading
     // only format 1 never saw them); `check` says so.
     let (permissions, contributes) = if format >= 2 { (parse_permissions(obj.get("permissions"))?, parse_contributes(obj.get("contributes"))?) } else { (vec![], Contributes::default()) };
+    let service = match obj.get("service") {
+        Some(v) if format >= 2 && !v.is_null() => Some(service::parse(v, &settings, &actions)?),
+        _ => None,
+    };
     if contributes.inbox && adapter.is_none() {
         return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
     }
@@ -814,7 +828,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.panels\" needs the \"agents.read\" permission, with your reason for it: a section is about one agent".into());
     }
     check_web_views(&contributes, &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes })
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service })
 }
 
 /// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
