@@ -1,15 +1,16 @@
 # __NAME__
 
-A Pitwall extension. It shows one thread in its inbox and takes replies;
-make it show your service's data by changing `adapter.mjs`.
+A Pitwall extension. It shows a thread in its inbox; make it show your
+service's data by changing `adapter.mjs`.
 
 ## What is here
 
 - `extension.json`: the manifest. Pitwall reads it; nothing in it runs by
-  itself.
+  itself. The permissions it asks for (if any) are granted or refused by
+  the user when they turn it on.
 - `adapter.mjs`: the adapter, a program Pitwall starts while the extension
-  is on. It speaks the adapter protocol (version 1) as JSON lines over its
-  stdin and stdout. Node 18 or later, no dependencies.
+  is on. It speaks the adapter protocol (version __PROTOCOL__) as JSON
+  lines over its stdin and stdout. Node 18 or later, no dependencies.
 - `test/pitwall.json`: what `pitwall extension test` checks.
 
 ## Develop it

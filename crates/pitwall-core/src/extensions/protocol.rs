@@ -10,12 +10,39 @@
 //! bidirectional-override characters removed, lists cut to their lengths;
 //! an item without a usable id is dropped. Unknown `type`s and keys are
 //! ignored, so a newer adapter still works with this Pitwall.
+//!
+//! **Versions** (docs/spec/extension-api.md, "Versioning and
+//! compatibility"): Pitwall's `hello` says `"protocol": 1` (all a v1
+//! adapter reads) and the versions it speaks in `protocols`; the adapter
+//! answers with the one it speaks ([`negotiate`]). What a Pitwall draws and
+//! serves is in `offers`, what an adapter uses in its `uses`: capabilities,
+//! not version numbers. The messages are of two kinds: the general ones
+//! every adapter speaks ([`FromAdapter`], [`ToAdapter`]: hello, status,
+//! results, and in protocol 2 calls, replies, events and grants) and the
+//! inbox's own ([`FromInbox`], [`ToInbox`]).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-/// The protocol version both sides say in `hello`.
+/// The protocol a `hello` names in `protocol`: 1, so that an adapter
+/// written for protocol 1, which reads only that, answers 1 and works.
 pub const PROTOCOL: u64 = 1;
+/// The protocols this Pitwall speaks; an adapter answers with one of them.
+pub const PROTOCOLS: [u64; 2] = [1, 2];
+/// The protocol with calls, replies and events.
+pub const PROTOCOL_2: u64 = 2;
+/// What this Pitwall draws and serves (`hello.offers`): the inbox, and in
+/// protocol 2 calls to its method table and events.
+pub const OFFERS: [&str; 3] = ["inbox", "call", "events"];
+/// The longest id an adapter gives a call (longer ones aren't answered).
+pub const MAX_CALL_ID: usize = 64;
+/// The longest method name in a call.
+pub const MAX_METHOD: usize = 64;
+/// A call's `params` (as JSON) at most this many bytes.
+pub const MAX_PARAMS: usize = 64 * 1024;
+/// A reply or an event line at most this many bytes: a bigger result is
+/// answered with an error, a bigger event left out (and noted).
+pub const MAX_OUT: usize = 512 * 1024;
 /// The longest line an adapter may send (bytes, without the newline).
 pub const MAX_LINE: usize = 1 << 20;
 /// More lines than this in one second stop the adapter.
@@ -179,28 +206,97 @@ pub struct Counts {
     pub blocking: u32,
 }
 
-/// What an adapter sends.
+/// What an adapter sends: the general messages, and the inbox's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FromAdapter {
-    Hello { protocol: u64 },
+    /// Its answer to `hello`: the protocol it speaks, and what of
+    /// Pitwall's `offers` it uses (protocol 2; empty otherwise).
+    Hello { protocol: u64, uses: Vec<String> },
     Status { state: ConnState, message: String },
-    /// The whole list, replacing the last one.
-    Threads(Vec<Thread>),
-    Thread(ThreadDetail),
-    Counts(Counts),
     /// How request `req` went (`message`: why not, in plain words).
     Result { req: u64, ok: bool, message: String },
+    /// Protocol 2: a call to one of Pitwall's methods, answered by a
+    /// `reply` with the same id.
+    Call(Call),
+    /// A call that can't be made (its method or params unusable), and why:
+    /// answered with an error.
+    BadCall { id: String, why: String },
+    /// One of the inbox's messages.
+    Inbox(FromInbox),
     /// A `type` this Pitwall doesn't know.
     Unknown,
 }
 
-/// What Pitwall sends.
+/// The inbox's messages from an adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FromInbox {
+    /// The whole list, replacing the last one.
+    Threads(Vec<Thread>),
+    Thread(ThreadDetail),
+    Counts(Counts),
+}
+
+/// A call an adapter makes: its own id for it (at most [`MAX_CALL_ID`]
+/// characters), the method and its params (`null` when none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Call {
+    pub id: String,
+    pub method: String,
+    pub params: Value,
+}
+
+/// Why a call wasn't answered with a result: a code (`denied`, `busy`,
+/// `unknown_method`, …) and plain words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallError {
+    pub code: String,
+    pub message: String,
+}
+
+impl CallError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> CallError {
+        CallError { code: code.into(), message: message.into() }
+    }
+}
+
+/// The connection an adapter runs for (an extension with settings runs one
+/// per connection).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Connection {
+    pub id: String,
+    pub name: String,
+}
+
+/// Pitwall's `hello`: its version, the extension's settings and its
+/// secrets (only ever here, never in argv or the environment), the
+/// connection it runs for, and the permissions the user granted it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Hello {
+    pub pitwall: String,
+    pub settings: Map<String, Value>,
+    pub secrets: Map<String, Value>,
+    pub connection: Option<Connection>,
+    pub grants: Vec<String>,
+}
+
+/// What Pitwall sends: the general messages, and the inbox's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToAdapter {
-    /// The first line: the protocol, Pitwall's version, the extension's
-    /// settings and its secrets (only ever here, never in argv or the
-    /// environment).
-    Hello { pitwall: String, settings: Map<String, Value>, secrets: Map<String, Value> },
+    /// The first line.
+    Hello(Hello),
+    /// Protocol 2: the answer to call `id`.
+    Reply { id: String, result: Result<Value, CallError> },
+    /// Protocol 2: an event of a topic it subscribed to.
+    Event { event: String, data: Value },
+    /// Protocol 2: the permissions granted now (the user changed them).
+    Grants(Vec<String>),
+    /// One of the inbox's messages.
+    Inbox(ToInbox),
+}
+
+/// The inbox's messages from Pitwall.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToInbox {
     /// Send this thread (`thread`), and keep it current while it is open.
     Open { thread: String },
     /// Its view closed.
@@ -219,25 +315,56 @@ impl ToAdapter {
     /// The line to send (no newline).
     pub fn line(&self) -> String {
         let v = match self {
-            ToAdapter::Hello { pitwall, settings, secrets } => {
-                json!({"type": "hello", "protocol": PROTOCOL, "pitwall": pitwall, "settings": settings, "secrets": secrets})
+            ToAdapter::Hello(h) => {
+                let mut v = json!({"type": "hello", "protocol": PROTOCOL, "protocols": PROTOCOLS, "pitwall": h.pitwall, "settings": h.settings, "secrets": h.secrets, "grants": h.grants, "offers": OFFERS});
+                if let Some(c) = &h.connection {
+                    v["connection"] = json!({"id": c.id, "name": c.name});
+                }
+                v
             }
-            ToAdapter::Open { thread } => json!({"type": "open", "thread": thread}),
-            ToAdapter::Close { thread } => json!({"type": "close", "thread": thread}),
-            ToAdapter::Answer { req, thread, ask, picks, text, declined } => {
+            ToAdapter::Reply { id, result: Ok(r) } => json!({"type": "reply", "id": id, "result": r}),
+            ToAdapter::Reply { id, result: Err(e) } => json!({"type": "reply", "id": id, "error": {"code": e.code, "message": e.message}}),
+            ToAdapter::Event { event, data } => json!({"type": "event", "event": event, "data": data}),
+            ToAdapter::Grants(g) => json!({"type": "grants", "grants": g}),
+            ToAdapter::Inbox(m) => m.value(),
+        };
+        v.to_string()
+    }
+}
+
+impl ToInbox {
+    fn value(&self) -> Value {
+        match self {
+            ToInbox::Open { thread } => json!({"type": "open", "thread": thread}),
+            ToInbox::Close { thread } => json!({"type": "close", "thread": thread}),
+            ToInbox::Answer { req, thread, ask, picks, text, declined } => {
                 let mut v = json!({"type": "answer", "req": req, "thread": thread, "ask": ask, "picks": picks, "declined": declined});
                 if let Some(t) = text {
                     v["text"] = json!(t);
                 }
                 v
             }
-            ToAdapter::Message { req, thread, text } => json!({"type": "message", "req": req, "thread": thread, "text": text}),
-            ToAdapter::MarkRead { req, thread } => json!({"type": "markRead", "req": req, "thread": thread}),
-            ToAdapter::Archive { req, thread } => json!({"type": "archive", "req": req, "thread": thread}),
-            ToAdapter::Refresh => json!({"type": "refresh"}),
-        };
-        v.to_string()
+            ToInbox::Message { req, thread, text } => json!({"type": "message", "req": req, "thread": thread, "text": text}),
+            ToInbox::MarkRead { req, thread } => json!({"type": "markRead", "req": req, "thread": thread}),
+            ToInbox::Archive { req, thread } => json!({"type": "archive", "req": req, "thread": thread}),
+            ToInbox::Refresh => json!({"type": "refresh"}),
+        }
     }
+}
+
+impl std::convert::From<ToInbox> for ToAdapter {
+    fn from(m: ToInbox) -> ToAdapter {
+        ToAdapter::Inbox(m)
+    }
+}
+
+/// The protocol an adapter answered `hello` with, when this Pitwall speaks
+/// it; else what to do, in plain words.
+pub fn negotiate(answered: u64) -> Result<u64, String> {
+    if PROTOCOLS.contains(&answered) {
+        return Ok(answered);
+    }
+    Err(format!("It speaks protocol {answered}; this Pitwall speaks {}. Update the extension or Pitwall.", PROTOCOLS.map(|p| p.to_string()).join(" and ")))
 }
 
 /// `s` safe to show: control characters (but newlines and tabs when
@@ -419,21 +546,46 @@ pub fn parse_line(line: &str) -> Result<FromAdapter, String> {
         return Err("a message without a \"type\"".into());
     };
     Ok(match kind {
-        "hello" => FromAdapter::Hello { protocol: v.get("protocol").and_then(Value::as_u64).unwrap_or(0) },
+        "hello" => FromAdapter::Hello {
+            protocol: v.get("protocol").and_then(Value::as_u64).unwrap_or(0),
+            uses: list(&v, "uses").iter().filter_map(Value::as_str).filter(|u| !u.is_empty() && u.len() <= 40).take(20).map(|u| clean(u, 40, false)).collect(),
+        },
         "status" => {
             let state = v.get("state").and_then(|s| serde_json::from_value::<ConnState>(s.clone()).ok()).ok_or("a status with an unknown \"state\"")?;
             FromAdapter::Status { state, message: text(&v, "message", 500) }
         }
-        "threads" => FromAdapter::Threads(list(&v, "threads").iter().filter_map(thread).take(MAX_THREADS).collect()),
-        "thread" => FromAdapter::Thread(v.get("thread").and_then(detail).ok_or("a thread without a usable \"id\"")?),
-        "counts" => FromAdapter::Counts(Counts { unread: count(&v, "unread"), open_asks: count(&v, "openAsks"), blocking: count(&v, "blocking") }),
+        "threads" => FromAdapter::Inbox(FromInbox::Threads(list(&v, "threads").iter().filter_map(thread).take(MAX_THREADS).collect())),
+        "thread" => FromAdapter::Inbox(FromInbox::Thread(v.get("thread").and_then(detail).ok_or("a thread without a usable \"id\"")?)),
+        "counts" => FromAdapter::Inbox(FromInbox::Counts(Counts { unread: count(&v, "unread"), open_asks: count(&v, "openAsks"), blocking: count(&v, "blocking") })),
         "result" => FromAdapter::Result {
             req: v.get("req").and_then(Value::as_u64).ok_or("a result without \"req\"")?,
             ok: flag(&v, "ok"),
             message: text(&v, "message", 500),
         },
+        "call" => call(&v)?,
         _ => FromAdapter::Unknown,
     })
+}
+
+/// A `call`: one without a usable id can't be answered (an error); one
+/// with a usable id but no usable method or params is answered with why.
+fn call(v: &Value) -> Result<FromAdapter, String> {
+    let id = v.get("id").and_then(Value::as_str).filter(|s| !s.is_empty() && s.chars().count() <= MAX_CALL_ID && !s.chars().any(char::is_control));
+    let Some(id) = id.map(str::to_string) else {
+        return Err(format!("a call without a usable \"id\" (1–{MAX_CALL_ID} characters)"));
+    };
+    let method = v.get("method").and_then(Value::as_str).filter(|m| !m.is_empty() && m.len() <= MAX_METHOD && m.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)));
+    let Some(method) = method.map(str::to_string) else {
+        return Ok(FromAdapter::BadCall { id, why: "it names no method (like agent.list)".into() });
+    };
+    let params = v.get("params").cloned().unwrap_or(Value::Null);
+    if !(params.is_null() || params.is_object()) {
+        return Ok(FromAdapter::BadCall { id, why: "its params must be an object".into() });
+    }
+    if params.to_string().len() > MAX_PARAMS {
+        return Ok(FromAdapter::BadCall { id, why: format!("its params are over {} KiB", MAX_PARAMS / 1024) });
+    }
+    Ok(FromAdapter::Call(Call { id, method, params }))
 }
 
 /// Counts an adapter's lines: more than [`MAX_LINES_PER_SEC`] in a second
@@ -510,7 +662,7 @@ mod tests {
             {"id": "c", "title": "evil\u{202E}txt\nnext", "from": {"agent": "a"}}
         ]})
         .to_string();
-        let FromAdapter::Threads(t) = parse_line(&line).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Threads(t)) = parse_line(&line).unwrap() else { panic!() };
         assert_eq!(t.len(), 2, "items without a usable id are dropped");
         assert_eq!(t[0].title.chars().count(), 300);
         assert!(t[0].title.ends_with('…'));
@@ -519,7 +671,7 @@ mod tests {
         assert_eq!(t[1].title, "eviltxt next", "no override, no newline");
         assert_eq!(t[1].from, None, "half a from is none");
         let many: Vec<Value> = (0..600).map(|i| json!({"id": i.to_string()})).collect();
-        let FromAdapter::Threads(t) = parse_line(&json!({"type": "threads", "threads": many}).to_string()).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Threads(t)) = parse_line(&json!({"type": "threads", "threads": many}).to_string()).unwrap() else { panic!() };
         assert_eq!(t.len(), MAX_THREADS);
     }
 
@@ -534,7 +686,7 @@ mod tests {
             {"id": "2", "author": {"kind": "robot"}, "text": "?"}
         ]}})
         .to_string();
-        let FromAdapter::Thread(d) = parse_line(&line).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Thread(d)) = parse_line(&line).unwrap() else { panic!() };
         assert!(!d.can_reply);
         assert_eq!(d.messages.len(), 2);
         let m = &d.messages[0];
@@ -546,14 +698,14 @@ mod tests {
         assert_eq!(a.answer.as_ref().unwrap().picks, [1], "a pick past the suggestions is dropped");
         assert_eq!(d.messages[1].author.kind, AuthorKind::Person, "an unknown kind");
         let many: Vec<Value> = (0..250).map(|i| json!({"id": i.to_string()})).collect();
-        let FromAdapter::Thread(d) = parse_line(&json!({"type": "thread", "thread": {"id": "t", "messages": many}}).to_string()).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Thread(d)) = parse_line(&json!({"type": "thread", "thread": {"id": "t", "messages": many}}).to_string()).unwrap() else { panic!() };
         assert_eq!((d.messages.len(), d.messages[0].id.as_str()), (MAX_MESSAGES, "50"), "the latest are kept");
         assert!(d.can_reply, "replies by default");
         assert!(d.earlier, "older ones were dropped");
         // An old message with an open ask is kept over a newer one.
         let mut many: Vec<Value> = (0..250).map(|i| json!({"id": i.to_string()})).collect();
         many[3] = json!({"id": "3", "asks": [{"number": 1, "open": true}]});
-        let FromAdapter::Thread(d) = parse_line(&json!({"type": "thread", "thread": {"id": "t", "messages": many}}).to_string()).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Thread(d)) = parse_line(&json!({"type": "thread", "thread": {"id": "t", "messages": many}}).to_string()).unwrap() else { panic!() };
         let ids: Vec<&str> = d.messages.iter().take(2).map(|m| m.id.as_str()).collect();
         assert_eq!((d.messages.len(), ids), (MAX_MESSAGES, vec!["3", "51"]));
     }
@@ -564,10 +716,10 @@ mod tests {
     fn counts_blocking_and_carried_answers() {
         assert_eq!(
             parse_line(r#"{"type":"counts","unread":3,"openAsks":2,"blocking":1}"#).unwrap(),
-            FromAdapter::Counts(Counts { unread: 3, open_asks: 2, blocking: 1 })
+            FromAdapter::Inbox(FromInbox::Counts(Counts { unread: 3, open_asks: 2, blocking: 1 }))
         );
         let line = json!({"type": "threads", "threads": [{"id": "a", "unread": 4, "blocking": true}, {"id": "b", "unread": false}]}).to_string();
-        let FromAdapter::Threads(t) = parse_line(&line).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Threads(t)) = parse_line(&line).unwrap() else { panic!() };
         assert_eq!((t[0].unread, t[0].blocking, t[1].unread), (4, true, 0));
         let line = json!({"type": "thread", "thread": {"id": "t", "unread": true, "earlier": true, "messages": [
             {"id": "1", "asks": [{"number": 1, "question": "Which?", "open": true, "blocking": true}]},
@@ -575,7 +727,7 @@ mod tests {
              "withdrawals": [{"ask": 2, "reason": "moot"}]}
         ]}})
         .to_string();
-        let FromAdapter::Thread(d) = parse_line(&line).unwrap() else { panic!() };
+        let FromAdapter::Inbox(FromInbox::Thread(d)) = parse_line(&line).unwrap() else { panic!() };
         assert_eq!((d.unread, d.earlier), (1, true));
         assert!(d.messages[0].asks[0].blocking);
         let m = &d.messages[1];
@@ -585,7 +737,7 @@ mod tests {
 
     #[test]
     fn other_messages_and_bad_lines() {
-        assert_eq!(parse_line(r#"{"type":"hello","protocol":1}"#).unwrap(), FromAdapter::Hello { protocol: 1 });
+        assert_eq!(parse_line(r#"{"type":"hello","protocol":1}"#).unwrap(), FromAdapter::Hello { protocol: 1, uses: vec![] });
         assert_eq!(
             parse_line(r#"{"type":"status","state":"signedOut","message":"The key expired"}"#).unwrap(),
             FromAdapter::Status { state: ConnState::SignedOut, message: "The key expired".into() }
@@ -601,19 +753,72 @@ mod tests {
         assert!(parse_line(&format!(r#"{{"type":"x","pad":"{}"}}"#, "p".repeat(MAX_LINE))).is_err());
     }
 
+    /// Protocol 2's hello names what it uses; a call has an id of the
+    /// adapter's, a method and params (an object), within their limits.
+    #[test]
+    fn calls_and_a_protocol_2_hello_are_read() {
+        let h = parse_line(r#"{"type":"hello","protocol":2,"uses":["call","events","",7,"x\u0007y"]}"#).unwrap();
+        assert_eq!(h, FromAdapter::Hello { protocol: 2, uses: vec!["call".into(), "events".into(), "x y".into()] });
+        assert_eq!(
+            parse_line(r#"{"type":"call","id":"c1","method":"agent.list"}"#).unwrap(),
+            FromAdapter::Call(Call { id: "c1".into(), method: "agent.list".into(), params: Value::Null })
+        );
+        let with = parse_line(r#"{"type":"call","id":"c2","method":"events.subscribe","params":{"topics":["agents"]}}"#).unwrap();
+        assert_eq!(with, FromAdapter::Call(Call { id: "c2".into(), method: "events.subscribe".into(), params: json!({"topics": ["agents"]}) }));
+        // No usable id: it can't be answered at all.
+        assert!(parse_line(r#"{"type":"call","method":"agent.list"}"#).is_err());
+        assert!(parse_line(&json!({"type": "call", "id": "i".repeat(MAX_CALL_ID + 1), "method": "a"}).to_string()).is_err());
+        // An id but no usable method or params: answered with why.
+        let bad = |line: Value| match parse_line(&line.to_string()).unwrap() {
+            FromAdapter::BadCall { id, why } => (id, why),
+            other => panic!("{other:?}"),
+        };
+        assert!(bad(json!({"type": "call", "id": "c3"})).1.contains("no method"));
+        assert!(bad(json!({"type": "call", "id": "c3", "method": "rm -rf"})).1.contains("no method"));
+        assert!(bad(json!({"type": "call", "id": "c3", "method": "agent.list", "params": [1]})).1.contains("an object"));
+        assert!(bad(json!({"type": "call", "id": "c4", "method": "a", "params": {"x": "p".repeat(MAX_PARAMS)}})).1.contains("64 KiB"));
+    }
+
+    /// Pitwall offers protocols 1 and 2 and takes either answer; another
+    /// is refused, saying what to do.
+    #[test]
+    fn negotiation_takes_any_offered_version() {
+        assert_eq!(negotiate(1), Ok(1));
+        assert_eq!(negotiate(2), Ok(2));
+        for n in [0, 3, 99] {
+            let why = negotiate(n).unwrap_err();
+            assert!(why.contains(&format!("protocol {n}")) && why.contains("1 and 2") && why.contains("Update the extension or Pitwall"), "{why}");
+        }
+    }
+
     #[test]
     fn what_pitwall_sends() {
         let mut settings = Map::new();
         settings.insert("server".into(), json!("https://inbox.example.com"));
         let mut secrets = Map::new();
         secrets.insert("apiKey".into(), json!("k"));
-        let hello: Value = serde_json::from_str(&ToAdapter::Hello { pitwall: "0.7.0".into(), settings, secrets }.line()).unwrap();
-        assert_eq!(hello, json!({"type": "hello", "protocol": 1, "pitwall": "0.7.0", "settings": {"server": "https://inbox.example.com"}, "secrets": {"apiKey": "k"}}));
-        let a = ToAdapter::Answer { req: 3, thread: "t".into(), ask: 2, picks: vec![0, 1], text: None, declined: false }.line();
+        let h = Hello { pitwall: "0.7.0".into(), settings, secrets, connection: None, grants: vec![] };
+        let hello: Value = serde_json::from_str(&ToAdapter::Hello(h.clone()).line()).unwrap();
+        // `protocol` stays 1: a protocol 1 adapter reads only that.
+        assert_eq!(
+            hello,
+            json!({"type": "hello", "protocol": 1, "protocols": [1, 2], "pitwall": "0.7.0", "settings": {"server": "https://inbox.example.com"}, "secrets": {"apiKey": "k"}, "grants": [], "offers": ["inbox", "call", "events"]})
+        );
+        let h = Hello { connection: Some(Connection { id: "ext-x-work".into(), name: "Work".into() }), grants: vec!["agents.read".into()], ..h };
+        let hello: Value = serde_json::from_str(&ToAdapter::Hello(h).line()).unwrap();
+        assert_eq!((&hello["connection"], &hello["grants"]), (&json!({"id": "ext-x-work", "name": "Work"}), &json!(["agents.read"])));
+        let a = ToAdapter::from(ToInbox::Answer { req: 3, thread: "t".into(), ask: 2, picks: vec![0, 1], text: None, declined: false }).line();
         assert_eq!(serde_json::from_str::<Value>(&a).unwrap(), json!({"type": "answer", "req": 3, "thread": "t", "ask": 2, "picks": [0, 1], "declined": false}));
-        assert!(!ToAdapter::Refresh.line().contains('\n'));
-        let m = ToAdapter::Message { req: 1, thread: "t".into(), text: "two\nlines".into() }.line();
+        assert!(!ToAdapter::Inbox(ToInbox::Refresh).line().contains('\n'));
+        let m = ToAdapter::Inbox(ToInbox::Message { req: 1, thread: "t".into(), text: "two\nlines".into() }).line();
         assert!(!m.contains('\n'), "one line on the wire");
+        let ok = ToAdapter::Reply { id: "c1".into(), result: Ok(json!([1])) }.line();
+        assert_eq!(serde_json::from_str::<Value>(&ok).unwrap(), json!({"type": "reply", "id": "c1", "result": [1]}));
+        let no = ToAdapter::Reply { id: "c2".into(), result: Err(CallError::new("denied", "Not allowed")) }.line();
+        assert_eq!(serde_json::from_str::<Value>(&no).unwrap(), json!({"type": "reply", "id": "c2", "error": {"code": "denied", "message": "Not allowed"}}));
+        let ev = ToAdapter::Event { event: "agents.changed".into(), data: json!([]) }.line();
+        assert_eq!(serde_json::from_str::<Value>(&ev).unwrap(), json!({"type": "event", "event": "agents.changed", "data": []}));
+        assert_eq!(serde_json::from_str::<Value>(&ToAdapter::Grants(vec![]).line()).unwrap(), json!({"type": "grants", "grants": []}));
     }
 
     #[test]
