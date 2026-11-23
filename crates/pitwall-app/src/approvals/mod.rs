@@ -231,8 +231,14 @@ impl Render for ApprovalDialog {
             .gap(px(10.))
             .child(div().text_size(px(14.)).line_height(px(21.)).child(ask))
             .when(!a.details.is_empty(), |d| {
+                // All of it (an extension's first prompt in full), in a
+                // bounded box that scrolls.
                 d.child(
                     div()
+                        .id("approval-details")
+                        .debug_selector(|| "approval-details".into())
+                        .max_h(px(320.))
+                        .overflow_y_scroll()
                         .pl(px(6.))
                         .flex()
                         .flex_col()

@@ -94,6 +94,8 @@ pub struct WebPage {
     /// A page (not a Preview): its browser account (`None`: Default;
     /// [`super::profiles`]). Its view is made in that profile's store.
     profile: Option<String>,
+    /// An extension's web view: its id (its own store, no profile).
+    ext: Option<String>,
     /// The bar's profile menu, open at this point.
     profile_menu: Option<Point<Pixels>>,
     /// Said once under the bar: it opened in Default, its own profile gone.
@@ -149,6 +151,13 @@ pub fn data_root(cx: &mut App) -> std::path::PathBuf {
         .unwrap_or_else(pitwall_core::paths::Paths::default_root)
 }
 
+/// Extension `ext`'s web views' cookies and storage: a store of its own,
+/// `<data>/webview/profile-ext-<id>` (never a profile's or the system
+/// browser's).
+pub fn ext_store(root: &std::path::Path, ext: &str) -> std::path::PathBuf {
+    preview::profile_dir(root, &format!("ext-{ext}"))
+}
+
 impl WebPage {
     /// Page `id` showing `kept` (its address; an agent's Preview follows
     /// `agent`'s terminal). No view yet: the first frame that draws it
@@ -166,9 +175,9 @@ impl WebPage {
             f
         });
         // Its profile, if it is still one here; else Default, said once.
-        let (profile, fell_back) = match kept.agent {
-            Some(_) => (None, false),
-            None => super::profiles::resolve_now(kept.profile.as_deref(), cx),
+        let (profile, fell_back) = match (&kept.agent, &kept.ext) {
+            (Some(_), _) | (_, Some(_)) => (None, false),
+            _ => super::profiles::resolve_now(kept.profile.as_deref(), cx),
         };
         let profile_note = fell_back.then(|| {
             keep_profile(id, None, cx);
@@ -246,6 +255,7 @@ impl WebPage {
             id: id.to_string(),
             project: agent.map(|a| a.project.clone()).unwrap_or_default(),
             profile,
+            ext: kept.ext.clone(),
             profile_menu: None,
             profile_note,
             agent: kept.agent.clone(),
@@ -426,9 +436,10 @@ impl WebPage {
 
     /// Where its cookies and storage are.
     fn data_dir(&self, cx: &mut App) -> std::path::PathBuf {
-        match self.policy() {
-            Policy::Local => preview::data_dir(&data_root(cx), &self.project),
-            Policy::Web => super::profiles::dir(self.profile.as_deref(), cx),
+        match (self.policy(), &self.ext) {
+            (Policy::Local, _) => preview::data_dir(&data_root(cx), &self.project),
+            (Policy::Web, Some(ext)) => ext_store(&data_root(cx), ext),
+            (Policy::Web, None) => super::profiles::dir(self.profile.as_deref(), cx),
         }
     }
 
@@ -440,6 +451,10 @@ impl WebPage {
         if self.policy() == Policy::Web && !super::profiles::usable(self.profile.as_deref(), super::profiles::separate(cx)) {
             return Err(super::profiles::NEEDS_STORES.into());
         }
+        // An extension's page: never in a store shared with the user's.
+        if self.ext.is_some() && !super::profiles::separate(cx) {
+            return Err(format!("An extension's web page needs a browser store of its own. {}", super::profiles::NEEDS_STORES));
+        }
         let dir = self.data_dir(cx);
         let v = preview::create(
             window,
@@ -447,8 +462,9 @@ impl WebPage {
                 url: self.page_url.clone(),
                 policy: self.policy(),
                 data_dir: dir,
-                // A profile besides Default: a store of its own.
-                own_store: self.policy() == Policy::Web && self.profile.is_some(),
+                // A profile besides Default, or an extension: a store of
+                // its own.
+                own_store: self.policy() == Policy::Web && (self.profile.is_some() || self.ext.is_some()),
                 events: Box::new(move |e| {
                     let _ = tx.unbounded_send(Msg::Event(e));
                 }),
@@ -920,7 +936,9 @@ impl WebPage {
         let has_page = !self.page_url.is_empty();
         // Its browser account: shown once there is more than Default (or
         // it is in another); Default subdued.
-        let profile_chip = self.agent.is_none().then(|| super::profiles::all(cx)).and_then(|all| {
+        // An extension's page: whose it is, instead of a profile.
+        let ext_chip = self.ext.as_deref().map(|e| crate::extensions::manifest_of(e, cx).map_or_else(|| e.to_string(), |m| m.name));
+        let profile_chip = (self.agent.is_none() && self.ext.is_none()).then(|| super::profiles::all(cx)).and_then(|all| {
             (!all.is_empty() || self.profile.is_some()).then(|| {
                 let name = super::profiles::name(self.profile.as_deref(), cx);
                 (name, self.profile.is_none())
@@ -1018,6 +1036,27 @@ impl WebPage {
                     .when(self.loading, |d| d.child(div().flex_none().mr(px(6.)).size(px(6.)).rounded_full().bg(t.text_4)))
                     .child(div().flex_1().min_w_0().child(self.url_field.clone())),
             )
+            .when_some(ext_chip, |d, name| {
+                let sel = format!("web-ext-{id}");
+                d.child(
+                    div()
+                        .id(SharedString::from(sel.clone()))
+                        .debug_selector(move || sel.clone())
+                        .flex_none()
+                        .h(px(20.))
+                        .max_w(px(160.))
+                        .px(px(7.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(5.))
+                        .border_1()
+                        .border_color(t.line)
+                        .text_size(px(11.))
+                        .text_color(t.text_3)
+                        .tooltip(crate::kit::tooltip(format!("A page of the extension {name}, with a browser store of its own; it can't reach Pitwall")))
+                        .child(crate::kit::one_line(format!("from {name}"))),
+                )
+            })
             .when_some(profile_chip, |d, (pname, subdued)| {
                 let sel = format!("web-profile-{id}");
                 d.child(

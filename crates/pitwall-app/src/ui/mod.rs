@@ -476,6 +476,48 @@ impl MainView {
             }
             return;
         }
+        // Debug builds, `ext-call <ext> <method> <json params>`: a call as
+        // extension `ext` (granted what it is granted), through the same
+        // method table as its adapter's, off the UI thread; the answer is
+        // printed. `ext-call-view …`: the same as a view's button.
+        if let Some((rest, via)) = cmd.strip_prefix("ext-call ").map(|r| (r, pitwall_core::extensions::activity::Via::Adapter)).or_else(|| cmd.strip_prefix("ext-call-view ").map(|r| (r, pitwall_core::extensions::activity::Via::View))).filter(|_| cfg!(debug_assertions)) {
+            let mut w = rest.splitn(3, ' ');
+            if let (Some(ext), Some(method)) = (w.next(), w.next()) {
+                let params: serde_json::Value = w.next().and_then(|p| serde_json::from_str(p).ok()).unwrap_or(serde_json::Value::Null);
+                let api = crate::extensions::calls::api(cx);
+                if let Some((server, caller)) = api.server.clone().and_then(|s| s.extension_caller(ext).map(|c| (s, c))) {
+                    let method = method.to_string();
+                    cx.background_executor()
+                        .spawn(async move {
+                            let res = server.call_as(&caller, &method, params, via);
+                            eprintln!("pitwall: ext-call {method}: {res:?}");
+                        })
+                        .detach();
+                } else {
+                    eprintln!("pitwall: ext-call: {ext} isn't on");
+                }
+            }
+            return;
+        }
+        // `panel-fold <ext> <section> on|off`: that right-panel section
+        // folded or not, as its header does.
+        if let Some(rest) = cmd.strip_prefix("panel-fold ") {
+            let w: Vec<&str> = rest.split_whitespace().collect();
+            if let [ext, panel, on] = w[..] {
+                crate::extensions::panels::set_folded(ext, panel, on == "on", cx);
+                cx.notify();
+            }
+            return;
+        }
+        // `ext-web <ext> <view>`: its web view opened, as the palette does.
+        if let Some(rest) = cmd.strip_prefix("ext-web ") {
+            let w: Vec<&str> = rest.split_whitespace().collect();
+            if let ([ext, view], Some(s)) = (&w[..], &self.screen) {
+                let (ext, view) = (ext.to_string(), view.to_string());
+                s.update(cx, |s, cx| s.open_ext_web(&ext, &view, cx));
+            }
+            return;
+        }
         // `ext-permissions-on`: Turn on, on the permission screen shown.
         if cmd == "ext-permissions-on" {
             if let Some(v) = self.layer.read(cx).settings_view() {

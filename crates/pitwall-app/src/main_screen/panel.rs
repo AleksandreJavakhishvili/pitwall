@@ -145,6 +145,7 @@ impl MainScreen {
         let top = section(super::PanelSlot::Top, a, window, cx);
         let changes = self.changes_section(a, t, window, cx).into_any_element();
         let bottom = section(super::PanelSlot::Bottom, a, window, cx);
+        let extensions = section(super::PanelSlot::Extensions, a, window, cx);
         let head = div()
                     .h(px(32.))
                     .flex_none()
@@ -183,6 +184,7 @@ impl MainScreen {
                 .children(top)
                 .child(changes)
                 .children(bottom)
+                .children(extensions)
                 .into_any_element()
         })
         .fill()

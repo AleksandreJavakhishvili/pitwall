@@ -449,6 +449,11 @@ pub struct ExtensionPrefs {
     /// its manifest still asks for counts.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub grants: BTreeMap<String, pitwall_core::extensions::permissions::Decision>,
+    /// The user lets it send what it puts in Next up without asking
+    /// (Auto-send sends it like the user's own), and since when; absent:
+    /// its items wait for Send. Only with `agents.queue` granted.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub send_without_asking: Option<pitwall_core::extensions::permissions::Decision>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -456,7 +461,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.rest.is_empty()
     }
 }
 

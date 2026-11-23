@@ -19,6 +19,7 @@ pub mod calls;
 pub mod catalog;
 pub mod connections;
 pub mod hub;
+pub mod panels;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -152,6 +153,7 @@ pub fn follow(cx: &mut App) {
         h.update(cx, |h, cx| h.reconcile(cx));
         if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
             e.set_extension_env(env_sources(cx));
+            calls::sync_queue(&e, cx);
         }
     };
     // A new ask: the notification an agent needing the user gets.
@@ -432,6 +434,28 @@ pub fn dir(cx: &App) -> Option<PathBuf> {
 /// The usable extensions that are on in `ui`, in folder order.
 pub fn enabled(found: &[Found], ui: &crate::ui_state::UiState) -> Vec<Manifest> {
     found.iter().filter_map(|f| f.manifest.as_ref().ok()).filter(|m| ui.extension_on(&m.id)).cloned().collect()
+}
+
+/// Where web view `view` of extension `m` opens: its manifest's address
+/// (a `{setting:KEY}` in it filled from the extension's settings), else
+/// the one its adapter last gave; checked again here (https, or http on
+/// this computer). Why not, in plain words.
+pub fn web_view_address(m: &Manifest, view: &str, cx: &App) -> Result<String, String> {
+    let w = m.contributes.web_view(view).ok_or_else(|| format!("{} has no web view “{view}”.", m.name))?;
+    let url = match &w.url {
+        Some(u) => match u.strip_prefix("{setting:").and_then(|r| r.split_once('}')) {
+            Some((key, rest)) => {
+                let base = connections::chosen(&m.id, None, cx).and_then(|c| c.values.get(key).cloned()).filter(|v| !v.trim().is_empty()).ok_or_else(|| format!("Set {}'s “{key}” first (Settings → Extensions).", m.name))?;
+                format!("{}{rest}", base.trim_end_matches('/'))
+            }
+            None => u.clone(),
+        },
+        None => match hub::try_hub(cx).and_then(|h| h.read(cx).get(&m.id).and_then(|st| st.web_urls.get(view).cloned())) {
+            Some(r) => r?,
+            None => return Err(format!("{} hasn't said where “{}” is yet (is it running?).", m.name, w.title)),
+        },
+    };
+    pitwall_core::extensions::view::web_view_url(&url)
 }
 
 /// The icon to draw for `m`.

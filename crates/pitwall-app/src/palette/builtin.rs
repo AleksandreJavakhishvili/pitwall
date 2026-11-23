@@ -232,6 +232,15 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
                     .rank(rank::TERMINALS),
             );
         }
+        for w in &m.contributes.web_views {
+            let (ext, view) = (m.id.clone(), w.id.clone());
+            let icon = w.icon.as_deref().and_then(crate::kit::icons::known).unwrap_or("browser");
+            out.push(
+                Command::new(format!("web-view-{}/{}", m.id, w.id), format!("Open {} ({})", w.title, m.name), format!("open web page {} {} extension", w.title.to_lowercase(), m.name.to_lowercase()), on_screen(pc, move |s, _, cx| s.open_ext_web(&ext, &view, cx)))
+                    .icon(icon)
+                    .rank(rank::TERMINALS),
+            );
+        }
         let reads_agents = crate::extensions::calls::effective(&m, &crate::ui_state::get(cx).extension(&m.id).grants).iter().any(|g| g == pitwall_core::extensions::permissions::AGENTS_READ);
         for c in &m.contributes.commands {
             let for_agent = c.context == pitwall_core::extensions::CommandContext::Agent;

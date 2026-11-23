@@ -176,6 +176,12 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
         let id = id.to_string();
         self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()
     }
+
+    /// `agent.focus` (`crate::windows::focus_in_front`).
+    fn focus_agent(&self, id: &str) -> Result<pitwall_proto::AgentFocused, ErrorBody> {
+        let id = id.to_string();
+        self.on_main(move |cx| Ok(crate::windows::focus_in_front(&id, cx)))
+    }
 }
 
 impl WorkspaceBackend for AppWorkspace {

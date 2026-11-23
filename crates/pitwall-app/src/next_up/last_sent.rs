@@ -74,7 +74,7 @@ impl LastSent {
 
     pub(super) fn set_agent(&mut self, a: &AgentView, cx: &mut Context<Self>) {
         let same = self.agent.as_ref().is_some_and(|x| {
-            x.id == a.id && x.last_sent == a.last_sent && x.last_sent_at == a.last_sent_at
+            x.id == a.id && x.last_sent == a.last_sent && x.last_sent_at == a.last_sent_at && x.last_sent_by == a.last_sent_by
         });
         if !same {
             self.agent = Some(a.clone());
@@ -98,6 +98,15 @@ impl Render for LastSent {
             .pb(px(6.))
             .line_height(px(17.))
             .child(label("Last sent", t.text_3, 12.))
+            // Text an extension queued says so.
+            .children(a.last_sent_by.as_ref().map(|o| {
+                div()
+                    .id("last-sent-by")
+                    .text_size(px(11.5))
+                    .text_color(t.focus)
+                    .tooltip(tooltip(format!("Queued by the extension {}", o.name)))
+                    .child(format!("from {}", o.name))
+            }))
             .child(div().flex_1())
             .children(a.last_sent_at.map(|at| {
                 div()

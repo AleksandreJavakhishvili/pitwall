@@ -100,7 +100,9 @@ fn turning_on_asks_for_its_permissions_first(cx: &mut TestAppContext) {
     assert!(drawn(cx, "extension-permissions-ask-ci"), "the permission screen");
     assert!(!cx.update(|_, cx| crate::ui_state::get(cx).extension_on("ci")), "not on yet");
     assert!(drawn(cx, "extension-permission-pick-ci-agents.read"));
-    assert!(!drawn(cx, "extension-permission-pick-ci-agents.queue"), "never offered: not available in this Pitwall yet");
+    assert!(drawn(cx, "extension-permission-pick-ci-agents.queue"), "offered, off: it acts");
+    assert!(drawn(cx, "extension-permission-risk-agents.queue"), "with what can go wrong");
+    assert!(view.read_with(cx, |v, _| v.exts.asking.as_ref().is_some_and(|(_, p)| p["agents.read"] && !p["agents.queue"])), "a read starts on, an action off");
     click(&view, cx, "extension-permissions-cancel-ci");
     assert!(view.read_with(cx, |v, _| v.exts.asking.is_none()), "cancelled");
     assert!(!drawn(cx, "extension-permissions-ask-ci"));
@@ -114,7 +116,8 @@ fn turning_on_asks_for_its_permissions_first(cx: &mut TestAppContext) {
     assert!(cx.update(|_, cx| crate::ui_state::get(cx).extension_on("ci")));
     let g = grants(cx);
     assert!(g["agents.read"].granted && !g["projects.read"].granted && g["agents.read"].at > 0);
-    assert!(!g.contains_key("agents.queue"), "a later one is never granted");
+    assert!(!g["agents.queue"].granted, "an action is granted only when picked");
+    assert!(!drawn(cx, "extension-send-without-asking-ci"), "no switch without the grant");
     assert!(allowed(cx, "agents.read") && !allowed(cx, "projects.read"), "the registry follows at once");
 
     // Revoked in its Permissions: the next call is refused.
@@ -123,6 +126,21 @@ fn turning_on_asks_for_its_permissions_first(cx: &mut TestAppContext) {
     assert!(!allowed(cx, "agents.read"));
     click(&view, cx, "extension-permission-ci-agents.read");
     assert!(allowed(cx, "agents.read"), "and granted again");
+
+    // agents.queue granted: its "send without asking" switch shows, off;
+    // turned on, Auto-send may send its text, and that is in its
+    // activity; the grant revoked, it may not.
+    click(&view, cx, "extension-permission-ci-agents.queue");
+    assert!(allowed(cx, "agents.queue"));
+    assert!(drawn(cx, "extension-send-without-asking-ci"));
+    assert!(cx.update(|_, cx| calls::auto_senders(cx)).is_empty(), "off by default");
+    click(&view, cx, "extension-send-without-asking-ci");
+    assert_eq!(cx.update(|_, cx| calls::auto_senders(cx)), ["ci"]);
+    let said = cx.update(|_, cx| calls::entries("ci", cx)).into_iter().any(|e| e.via == Via::Pitwall && e.method.contains("send without asking: turned on by you"));
+    assert!(said, "logged");
+    click(&view, cx, "extension-permission-ci-agents.queue");
+    assert!(cx.update(|_, cx| calls::auto_senders(cx)).is_empty(), "no grant, no sending");
+    assert!(cx.update(|_, cx| calls::queuers(cx)).is_empty());
 }
 
 /// A permission an update added waits, not granted, until the user
