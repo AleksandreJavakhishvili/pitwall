@@ -326,11 +326,14 @@ impl NextUp {
                         .items_center()
                         .gap(px(5.))
                         .mb(px(3.))
+                        // Clear of the item's send and remove buttons.
+                        .pr(px(36.))
+                        .min_w_0()
                         .text_size(px(11.))
                         .line_height(px(14.))
                         .child(crate::kit::icon(&icon, 11., t.focus))
                         .child(div().text_color(t.focus).font_weight(FontWeight::MEDIUM).child(format!("From {}", o.name)))
-                        .child(div().text_color(if waits { t.text_3 } else { t.amber }).child(if waits { "· waits for you: press Send" } else { "· sends without asking" }))
+                        .child(crate::kit::Ellipsis::ellipsis(div().min_w_0()).text_color(if waits { t.text_3 } else { t.amber }).child(crate::kit::one_line(if waits { "· waits for you: press Send" } else { "· sends without asking" })))
                 });
                 let ext = q.origin.is_some();
                 div()
