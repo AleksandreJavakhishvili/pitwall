@@ -7,7 +7,9 @@
 //! tile with a detail, answers a palette command and puts a note on the
 //! agents' rows. The panel starter (`--panel`) draws a section in the right
 //! panel for the focused agent, with buttons Pitwall runs itself behind the
-//! `show` and `agents.focus` permissions. Each passes
+//! `show` and `agents.focus` permissions. The service starter
+//! (`--service`) adds a tiny local server (`server.mjs`) that Pitwall
+//! keeps running while the extension is on. Each passes
 //! [`super::check::check`] and [`super::check::test`] as written.
 
 use std::path::{Path, PathBuf};
@@ -29,7 +31,65 @@ pub enum Shape {
     /// A right-panel section for the focused agent, with buttons Pitwall
     /// runs (open a file, focus an agent).
     Panel,
+    /// An inbox (protocol 1) and a small local server Pitwall keeps
+    /// running while it is on (a service).
+    Service,
 }
+
+const SERVER: &str = include_str!("starter/server.mjs");
+
+const MANIFEST_SERVICE: &str = r#"{
+  "v": 2,
+  "id": "__ID__",
+  "name": __NAME_JSON__,
+  "version": "0.1.0",
+  "pitwall": ">=__PITWALL__",
+  "icon": "inbox",
+  "description": "An inbox, and a small server on this computer that Pitwall keeps running: a starting point",
+  "settings": [
+    {
+      "key": "listen",
+      "type": "text",
+      "label": "Its server listens on",
+      "default": "127.0.0.1:8790",
+      "hint": "An address and port on this computer only."
+    }
+  ],
+  "contributes": { "inbox": true },
+  "adapter": { "command": ["node", "adapter.mjs"] },
+  "service": {
+    "label": "Its server",
+    "run": ["node", "server.mjs", "--listen", "{setting:listen}", "--data", "{data}"],
+    "version": { "run": ["node", "server.mjs", "--version"], "match": "server (\\d+\\.\\d+\\.\\d+)", "requires": ">=0.1.0" },
+    "ready": { "listen": "{setting:listen}" }
+  }
+}
+"#;
+
+const FIXTURE_SERVICE: &str = r#"{
+  "about": "What `pitwall extension test` checks: the adapter answers hello, says it is ready, lists its thread, opens it and takes a reply; the service's commands are the ones expected, and what Pitwall does with it when Node is installed or not, when its address is already taken, and with its version. Nothing here starts the server.",
+  "run": {
+    "settings": {},
+    "secrets": {},
+    "threads": 1,
+    "open": "welcome",
+    "reply": "Hello back"
+  },
+  "service": {
+    "values": {},
+    "expect": {
+      "run": "node server.mjs --listen 127.0.0.1:8790 --data {data}",
+      "version": "node server.mjs --version"
+    },
+    "cases": [
+      { "installed": true, "version": "My server server 0.1.0", "verdict": "starts (Its server 0.1.0)" },
+      { "installed": true, "portTaken": true, "verdict": "something else is already listening on 127.0.0.1:8790: that one is used, nothing is started" },
+      { "installed": false, "verdict": "“node” isn't installed" },
+      { "installed": true, "values": { "listen": "0.0.0.0:8790" }, "verdict": "isn't started: “0.0.0.0:8790” isn't on this computer only: use 127.0.0.1 and a port" }
+    ]
+  }
+}
+"#;
 
 const MANIFEST_PANEL: &str = r#"{
   "v": 2,
@@ -186,7 +246,11 @@ pub fn write(folder: &Path, name: Option<&str>, protocol: u64, shape: Shape) -> 
     if !super::protocol::PROTOCOLS.contains(&protocol) {
         return Err(format!("there is a starter for protocol 1 and 2, not {protocol}"));
     }
-    let protocol = if shape == Shape::Inbox { protocol } else { super::protocol::PROTOCOL_2 };
+    let protocol = match shape {
+        Shape::Inbox => protocol,
+        Shape::Service => 1,
+        Shape::View | Shape::Panel => super::protocol::PROTOCOL_2,
+    };
     let id = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     check_id(&id).map_err(|e| format!("the folder's name is the extension's id, and {e}: name the folder like my-extension"))?;
     let name = match name {
@@ -208,10 +272,14 @@ pub fn write(folder: &Path, name: Option<&str>, protocol: u64, shape: Shape) -> 
     let (manifest, adapter, fixture) = match (shape, two) {
         (Shape::Panel, _) => (MANIFEST_PANEL, ADAPTER_PANEL, FIXTURE_PANEL),
         (Shape::View, _) => (MANIFEST_VIEW, ADAPTER_VIEW, FIXTURE_VIEW),
+        (Shape::Service, _) => (MANIFEST_SERVICE, ADAPTER, FIXTURE_SERVICE),
         (Shape::Inbox, true) => (MANIFEST_2, ADAPTER_2, FIXTURE_2),
         (Shape::Inbox, false) => (MANIFEST_TEXT, ADAPTER, FIXTURE_TEXT),
     };
-    let files: [(&str, String); 4] = [(MANIFEST, fill(manifest)), ("adapter.mjs", fill(adapter)), ("README.md", fill(README)), (super::check::FIXTURE, fixture.to_string())];
+    let mut files: Vec<(&str, String)> = vec![(MANIFEST, fill(manifest)), ("adapter.mjs", fill(adapter)), ("README.md", fill(README)), (super::check::FIXTURE, fixture.to_string())];
+    if shape == Shape::Service {
+        files.push(("server.mjs", fill(SERVER)));
+    }
     let mut written = Vec::new();
     for (rel, text) in files {
         let p = folder.join(rel);
@@ -322,6 +390,29 @@ mod tests {
             for want in ["the section “about” for a1 is a list of 2 item(s)", "“Open” on “readme”: Pitwall shows README.md (needs show", "“Focus” on “agent”: Pitwall focuses agent a1 (needs agents.focus"] {
                 assert!(text.contains(want), "{want}: {text}");
             }
+        }
+    }
+
+    /// The service starter: an inbox and a small server declared as its
+    /// service, whose commands and verdicts its fixture checks (nothing
+    /// is started).
+    #[test]
+    fn the_service_starter_passes_its_checks() {
+        let t = crate::testing::TempDir::new("starter-service");
+        let dir = t.path().join("my-server");
+        let files = write(&dir, Some("My server"), 2, Shape::Service).unwrap();
+        assert!(files.iter().any(|f| f.ends_with("server.mjs")));
+        let m = crate::extensions::read(&dir, "my-server").unwrap();
+        let s = m.service.as_ref().expect("a service");
+        assert_eq!((m.format, s.run[1].as_str(), m.has_inbox()), (2, "server.mjs", true));
+        let r = check(&dir, None);
+        assert!(r.passed(), "{}", r.text());
+        let text = r.text();
+        assert!(text.contains("it declares a service, Its server") && text.contains("keeps Its server running (it runs continuously, as you)"), "{text}");
+        let r = test(&dir, None);
+        assert!(r.passed(), "{}", r.text());
+        for want in ["service: its commands are the ones expected", "service, case 2: it something else is already listening on 127.0.0.1:8790"] {
+            assert!(r.text().contains(want), "{want}: {}", r.text());
         }
     }
 
