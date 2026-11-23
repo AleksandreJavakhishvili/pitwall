@@ -575,7 +575,9 @@ fn every_edge_and_corner_resizes_it(cx: &mut TestAppContext) {
     assert_eq!(user_size(cx), (Some(model::WIDTH + 100.), None));
     assert_eq!(dims(cx), (w0 + 100., h0));
     assert_eq!(anchor(cx), point(px(1600.), px(900.)));
-    assert_eq!(moved(), (100., 0.), "the window is told to move its corner");
+    // On macOS the window is told to move its corner as the drag goes;
+    // elsewhere it opens again at the new place on release.
+    assert_eq!(moved(), if GROWS_UP { (100., 0.) } else { (0., 0.) });
 
     // The end it is anchored at (its bottom on macOS), 3 rows out: taller,
     // and that end goes with it.
