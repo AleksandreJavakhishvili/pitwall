@@ -2,7 +2,7 @@
 
 Status: built, unreleased. Finding extensions, the manifest (settings,
 adapter, agent variables, agent matching, setup actions, source),
-updates from a git source, the adapter
+updates from a git source or an npm package, the adapter
 protocol (version 1), manifest format 2 and protocol 2 (permissions,
 calls and events, the activity log; "Format 2 and protocol 2" below),
 the adapter's lifecycle, settings and secrets, the
@@ -143,8 +143,8 @@ changes), `crate::extensions::catalog` (checks, offers, Add from Git),
   (stopped and started again when on; a folder changed locally asks
   first); there is then nothing more to go back to, and the newer one is
   offered again.
-- **Add from Git…** under Available: a repository's https address and,
-  optionally, the folder in it. Pitwall lists its tags and takes the
+- **Add from Git or npm…** under Available, on "Git repository": a
+  repository's https address and, optionally, the folder in it. Pitwall lists its tags and takes the
   newest release by the usual patterns (`<folder>-v1.0.0`,
   `<folder>-1.0.0`, `v1.0.0`, `1.0.0`; `<folder>` is the folder's last
   part), fetches it as above, and shows the extension (icon, name,
@@ -163,6 +163,72 @@ changes), `crate::extensions::catalog` (checks, offers, Add from Git),
 - Not yet: a per-extension switch to install by itself when nothing in
   "what changes" changed, permissions, signed release feeds, the command
   line.
+
+## Updates from an npm package
+Status: built, unreleased. The same updates as from a git source, from
+an npm package's versions. Code: `pitwall_core::extensions::npm`
+(metadata, versions, download, integrity, unpacking),
+`pitwall_core::extensions::install` (the npm origin and its marker),
+`crate::extensions::catalog` (checks, offers, Add from npm),
+`settings/extensions/updates.rs`.
+- **A source** naming a package: `"source": {"npm": "@me/x"}`, optionally
+  with `"registry"` (`https://` only, no user or password; default
+  `https://registry.npmjs.org`). Exactly one of `git` and `npm`; `dir` and
+  `tags` are refused beside `npm`. The name follows npm's rules for a new
+  package, strictly (`pitwall_core::extensions::check_npm_package`): at
+  most 214 characters; lower-case ASCII letters, digits and `-._`, each
+  part starting with a letter or digit; optionally `@scope/name`; not
+  `node_modules` or `favicon.ico`. So no paths, addresses or version
+  ranges.
+- **Nothing runs.** Pitwall never runs npm, node or a package script
+  (`preinstall`, `install`, `postinstall`, `prepare`), and never installs
+  dependencies: a package holds what it runs, its `extension.json` at the
+  package's root. `node_modules`, `.git` and `.DS_Store` in a tarball are
+  left out, as from a git release.
+- **Checking** reads the registry's metadata of the package
+  (`<registry>/<package>`, a scoped name's `/` as `%2f`, asking for npm's
+  abbreviated install format), Pitwall's own request over https (ureq,
+  rustls with Mozilla's roots): no credentials (no `.npmrc`, token or
+  cookie), no proxy, no prompt; 15 s to connect, 30 s for the metadata, at
+  most 5 MiB of it. At start, once a day and with "Check for updates",
+  off the UI thread. Offline or refused, the card says so in a line
+  ("Couldn't check npm: @me/x: …").
+- **Versions:** each key of the metadata's `versions` that reads as a
+  version and has a tarball. Offered: the newest above the installed one,
+  never a downgrade; a pre-release only to an installed pre-release; a
+  deprecated version only when no candidate isn't deprecated. A version
+  without a sha512 `dist.integrity` (only a sha1 `shasum`) is refused.
+- **Integrity:** the tarball is downloaded (https; at most 50 MiB, 180 s;
+  a redirect only to https) and its sha512 checked against
+  `dist.integrity` before anything is unpacked. The metadata is read
+  again at fetch time: a version whose integrity isn't the one offered
+  is refused ("Version 1.1.0 of @me/x changed on the registry: its
+  integrity was sha512 1a2b… and is now sha512 9f8e…. Not installed."),
+  as is one whose integrity differs from the installed copy's or from
+  what a check saw since Pitwall started: the npm form of a moved tag.
+- **Unpacking** is Pitwall's own (gzip, then tar read by hand), into a
+  hidden folder of `<data>/extensions/`: only regular files and folders
+  under `package/`, which becomes the extension's folder. Refused,
+  leaving nothing: a symbolic or hard link, a device, a pipe or any other
+  kind of entry; an absolute path, a `..` part, a name outside
+  `package/` or with `\` or `:`; the same file twice; a damaged header;
+  more than 5 000 files or 50 MiB unpacked. Files are created new, under
+  plain path parts of the hidden folder, and no link is ever made, so
+  nothing is written outside it. Modes aren't kept, except that a file
+  packed with an executable bit is made executable (as git checks one
+  out). Then the manifest: at the package's root, the same id on an
+  update, and the same `version` as the package's.
+- **The marker** records `"source": {"npm": …, "registry": …}`,
+  `"version"` and `"integrity"`. The card shows "From npm: @me/x, version
+  1.1.0, sha512 1a2b3c4d5e6f…" (the registry in brackets when it isn't
+  npm's own); an update offered is "available from npm: @me/x".
+- **Review, Update, Go back, development folders** and leftovers work as
+  for a git source (above).
+- **Add from Git or npm…** under Available: "npm package" picks a
+  package's name and, optionally, its registry. Pitwall takes its newest
+  version (stable, not deprecated; a pre-release when there is nothing
+  else), fetches and checks it as above and shows what it changes, then
+  Install.
 
 ## The manifest (`extension.json`, format 1)
 ```json
@@ -240,9 +306,13 @@ changes), `crate::extensions::catalog` (checks, offers, Add from Git),
   characters without a user or password; `dir` (optional), the folder in
   the repository holding `extension.json` (relative, no `.` or `..`
   parts); `tags`, a pattern holding `{version}` once, with letters,
-  digits and `._/-` around it. An older Pitwall ignores it.
+  digits and `._/-` around it. An older Pitwall ignores it. Or an npm
+  package ("Updates from an npm package" above): `npm`, its name, and
+  optionally `registry`, an `https://` address (a Pitwall from before
+  npm sources refuses such a manifest).
   ```json
   "source": { "git": "https://github.com/AleksandreJavakhishvili/pitwall", "dir": "extensions/agention", "tags": "agention-v{version}" }
+  "source": { "npm": "@me/my-ext" }
   ```
 - **Templates** use `{project}` (the last part of the agent's project
   folder), `{agent}` (its name when it starts; it can change) and
@@ -495,7 +565,9 @@ A tab of its own (after Accounts). Code: `settings/extensions.rs`.
   of a changed folder confirm in a card there. The footer has "Go back
   to 1.0.0" after an update.
 - **Available:** compact cards (icon, name, version, description,
-  Install), wrapping to the width; "Add from Git…" beside the heading.
+  Install), wrapping to the width; "Add from Git or npm…" beside the
+  heading (a choice of "Git repository" or "npm package", then its
+  fields).
 
 ## Connections
 Status: built below the screens (docs/spec/profiles.md has the design).

@@ -175,9 +175,62 @@ links pointing outside it. Its `extension.json` must have the tag's version.
 
 Pitwall checks at start, once a day and when the user presses "Check for
 updates", and shows what a newer release changes on the computer before
-the user presses Update. Users can also install it with "Add from Git…"
-in Settings → Extensions. `pitwall extension check` says which tag the
+the user presses Update. Users can also install it with "Add from Git
+or npm…" in Settings → Extensions. `pitwall extension check` says which tag the
 current version's release is. A folder loaded with "Load from folder…"
 is never updated.
+
+## Publishing on npm
+
+Instead of a git repository, `source` can name an npm package. Its
+versions are its releases:
+
+```json
+"source": { "npm": "@me/my-inbox" }
+```
+
+- `npm`: the package's name, by npm's rules: lower-case letters, digits
+  and `-._`, at most 214 characters, optionally under a scope
+  (`@me/my-inbox`). No path, address or version (`@me/x@1.2.0` is
+  refused).
+- `registry`: optional, an `https://` address without a user or
+  password. Left out: npm's own, `https://registry.npmjs.org`.
+- A source is git or npm, never both; `dir` and `tags` are git's only.
+
+What the package must hold: `extension.json` at the package's root
+(`package/extension.json` in the tarball), next to its `package.json`,
+and everything the adapter needs to run. Pitwall **runs nothing at
+install**: not npm, not node, not your `preinstall`, `install`,
+`postinstall` or `prepare` scripts. It **installs no dependencies**
+either: `dependencies` are ignored and `node_modules` is never copied
+(bundled ones included), so bundle or vendor what the adapter uses into
+the package, as the starter's single-file adapter does. A Pitwall from
+before npm sources can't read a manifest that names one: give it `v: 2`
+and a `pitwall` it needs, so an older Pitwall says so.
+
+How versions map: each version of the package is a release, and its
+`extension.json` must say the same `version` as the package (Pitwall
+refuses one that doesn't). Pitwall offers the newest version above the
+installed one, never a downgrade; a pre-release (`1.2.0-beta.1`) only to
+an installed pre-release. Deprecated versions are passed over while
+there is one that isn't (so deprecating a broken release stops it being
+offered).
+
+To release: raise `version` in both `extension.json` and `package.json`,
+then `npm publish` (check what it packs with `npm pack --dry-run`).
+`pitwall extension check` checks the source and that `package.json`
+names the package at the same version, and warns about dependencies and
+install scripts.
+
+What Pitwall does with it: it reads the registry's metadata of the
+package and downloads the version's tarball itself, over https, without
+your npm sign-in (a private package can't be installed this way), at
+most 5 MiB of metadata and 50 MiB of tarball. It refuses a version
+without a sha512 `integrity` in the registry, a download that doesn't
+match it, and a version whose integrity changed since Pitwall saw or
+installed it. It unpacks only plain files and folders under `package/`,
+at most 50 MiB and 5 000 files: a link, a device, an absolute path or a
+`..` refuses the whole version. File modes are not kept, except that a
+file packed as executable stays executable.
 
 Every limit is in [the specification](../spec/extensions.md#the-manifest-extensionjson-format-1).
