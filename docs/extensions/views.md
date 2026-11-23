@@ -1,6 +1,6 @@
-# Views, commands, badges and notifications
+# Views, panels, commands, badges and notifications
 
-Beyond an inbox, an extension can add four things to Pitwall's UI. Each is
+Beyond an inbox, an extension can add these to Pitwall's UI. Each is
 declared in a [format 2 manifest](manifest-2.md) under `contributes`, and
 sent by the adapter as JSON lines. Pitwall draws all of it itself: it
 loads no code, and none of it changes what an agent may do.
@@ -11,10 +11,16 @@ loads no code, and none of it changes what an agent may do.
 | [Commands](#commands) | `"commands": [{"id","title","context"}]` (≤ 20) | Entries in the command palette |
 | [Badges and notes](#badges-and-notes) | `"badges": true` | A count or a few words on agents' and projects' rows |
 | [Notifications](#notifications) | `"notifications": true` and the `notify` permission | A notification, at most 3 a minute |
+| [Right-panel sections](#right-panel-sections) | `"panels": [{"id","title","icon","more"}]` (≤ 3) and `agents.read` | A section about the focused agent in its right panel |
+| [Web views](#web-views) | `"webViews": [{"id","title","icon","url"}]` (≤ 5) | A web page in a web tile, in a browser store of its own |
+
+There are no floating-control cards: the floating control shows only what
+blocks an agent, and an extension's blocking asks reach it through its
+inbox. A manifest with `cards` is refused as needing a newer Pitwall.
 
 Each needs an `adapter`. The protocol version doesn't matter: a protocol 1
 adapter may send them too. Pitwall's `hello` lists what it draws in
-`offers` (`views`, `commands`, `badges`, `notify`); check it there rather
+`offers` (`views`, `commands`, `badges`, `notify`, `panels`, `webViews`); check it there rather
 than by version. `pitwall extension new --view` writes a starter with a
 list view, a command and badges ([the starter](starter.md)).
 
@@ -107,6 +113,15 @@ in its own style, in both themes.
   `tone`), ≤ 5 `actions`.
 - An action: `id`, `label` (≤ 40) and `primary` (the first primary one
   is the row's main button). A row's buttons show when it is selected.
+  An action can instead be one Pitwall runs itself, behind a permission:
+  `"open": {"file", "line"}`, `"open": {"url"}` (`show`) or
+  `"focus": "<agent id>"` (`agents.focus`). One the adapter acts on can
+  say the permission it needs with `"needs"`. A button whose permission
+  isn't granted is drawn disabled, saying which
+  ([actions in a view](actions.md#in-a-view)).
+- `agent`: `{"agentId": "a1"}` links the item to one of Pitwall's agents.
+  The row shows its name; with `agents.focus`, a click on it focuses the
+  agent.
 - `empty`: what an empty list says.
 - `detail`: what is beside the list, a `detail`, `markdown` or `status`
   pane. Send it for the row last selected.
@@ -166,6 +181,67 @@ adapter is shown the view. A list's sections are shown one after
 another, each named after its connection; the ids your adapter gets back
 in `select` and `action` are its own. Any other root is the first
 connection's.
+
+## Right-panel sections
+
+A section in the right panel (⌘.) of the focused agent, under Pitwall's
+own. It needs `agents.read` (a section is about one agent): a manifest
+with panels that doesn't ask for it is refused, and a section isn't
+shown while it isn't granted.
+
+```json
+"contributes": { "panels": [{ "id": "ci", "title": "CI", "icon": "list", "more": "runs" }] }
+```
+
+| Pitwall → adapter | When |
+| --- | --- |
+| `{"type":"show","view":"ci","agentId":"a1"}` | Agent `a1`'s panel shows the section, unfolded. Send it for that agent. |
+| `{"type":"hide","view":"ci","agentId":"a1"}` | It is folded, or the panel shows another agent. |
+| `{"type":"action","req":3,"view":"ci","agentId":"a1","item":"r812","action":"rerun"}` | A button in it was pressed. |
+
+The adapter answers with a view line naming the agent:
+
+```json
+{"type":"view","view":"ci","agentId":"a1","root":{"kind":"list","sections":[{"items":[{"id":"r812","title":"tests failed","tone":"bad"}]}]}}
+```
+
+- The same components as a view tile. A list shows its first 8 items and
+  "and N more"; no pane beside it.
+- At most 280 points high, then it scrolls. Its header folds it; folded,
+  the adapter is told `hide`. Pitwall remembers it while it runs.
+- `more` names one of its views: a "More…" link under the section opens
+  it in a tile.
+- Its ids share one list with `views` and `webViews`.
+- Not shown for an agent on another computer's Pitwall (a peer).
+
+## Web views
+
+A web page in a [web tile](../spec/web.md), opened with **Open <title>
+(<name>)** in the command palette. The address is the manifest's `url`,
+or what the adapter sends:
+
+```json
+"contributes": { "webViews": [{ "id": "board", "title": "Board", "url": "{setting:server}/board" }] }
+```
+
+```json
+{"type":"webView","view":"board","url":"http://localhost:5173/board"}
+```
+
+- `https://` anywhere, or `http://` on this computer only (`localhost`,
+  `127.0.0.1`, `[::1]`). Anything else is refused (the line is logged in
+  Activity; opening it says why).
+- `url` may start with `{setting:KEY}`, a `url` setting of its own.
+  Without `url`, the adapter must send one (`webView`).
+- **No script bridge.** The page can't call Pitwall, can't read its data
+  and can't reach the adapter. `bridge`, `scripts` and `preload` in the
+  manifest are refused.
+- **Its own browser store**: cookies and storage apart from the user's
+  profiles and from other extensions'. Where stores can't be kept apart
+  (an older system web view), it isn't opened.
+- The bar says "from <name>" in place of a profile.
+- Web views are listed with what it contributes on the permission screen
+  and in an update's "what changes".
 
 ## Commands
 
@@ -241,6 +317,7 @@ the extension's card at any time):
 ## In `pitwall extension check` and `test`
 
 `check` lists what an extension contributes and warns about a `notify`
-permission without `notifications`, or badges that can name no row.
+permission without `notifications`, or badges that can name no row. A
+panel without `agents.read` is refused when the manifest is read.
 `test` runs the `views` part of `test/pitwall.json` against a fake
 Pitwall ([checks](checks.md#views)).

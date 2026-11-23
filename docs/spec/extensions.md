@@ -668,8 +668,9 @@ a peer of the files and web tiles, or a window of its own. Code:
 
 What an extension's adapter draws beyond its inbox (author's guide:
 `docs/extensions/views.md`; proposal and differences:
-`docs/spec/extension-api.md`, phase 4). Pitwall draws all of it; none of
-it acts on agents.
+`docs/spec/extension-api.md`, phase 4). Pitwall draws all of it; what
+acts (a button Pitwall runs, phase 5) is in "Actions, right-panel
+sections and web views".
 
 - **Model** (`pitwall_core::extensions::view`): a view's `root` is a
   `list` (sections of items: id, title, subtitle, tone, icon, ≤ 3
@@ -717,6 +718,95 @@ it acts on agents.
 - **Settings**: the permission screen and an extension's card list what
   it adds ("Adds to Pitwall"); the install and update review lists it,
   and what an update adds and drops.
+
+## Actions, right-panel sections and web views
+What an extension may do in Pitwall beyond drawing (author's guides:
+`docs/extensions/actions.md`, `docs/extensions/views.md`; proposal and
+differences: `docs/spec/extension-api.md`, phase 5). Nothing here
+changes what an agent itself may do: its permissions, tools and rules
+(project and agent scoped) are as before.
+
+- **Permissions** (`pitwall_core::extensions::permissions`): `show`,
+  `agents.focus`, `agents.queue`, `agents.start` are served, each off on
+  the permission screen until the user turns it on (`on_by_default`).
+  `agents.queue` and `agents.start` carry a risk note, drawn in an amber
+  box under the reason (`settings/extensions/grants.rs`) and added to
+  their line in an update's "what changes" (`install.rs`).
+- **One check** (`pitwall-daemon/src/methods.rs`): the method table
+  names each action's permission (`queue.add` agents.queue,
+  `agent.create` agents.start, `agent.focus` agents.focus,
+  `viewer.open`/`web.open` show; `ACTION_METHODS` in core says the same
+  and a test keeps them equal). `dispatch` checks it for the adapter's
+  stdio, a program it started on the socket and a view's button alike
+  (`Via::Adapter`, `Via::Socket`, `Via::View`); every call is in the
+  activity log with a short `detail` (which agent, the text, the
+  project). `queue.send`, `queue.remove`, approvals, settings, stop,
+  restart, remove and `session.add` are never an extension's.
+  `agent.focus` (new, `Access::UiOrExtension`) is the UI's and
+  extensions' only.
+- **`show`**: `viewer.open` / `web.open` as an agent's show tools, with
+  `agentId` required and `place` `window`/`replace` refused; the user's
+  `agents.showFiles` / `showWeb` settings apply. Never takes the
+  keyboard or activates Pitwall.
+- **`agents.focus`** (`windows::focus_in_front`): selects the agent's
+  tile in the window showing it only while Pitwall is the app in front;
+  otherwise `{"focused": false, "note": …}`. Never activates.
+- **`agents.queue`** (`pitwall-daemon/src/actions.rs`): text trimmed,
+  1–4000 characters; only Pitwall's own agents; one item per agent per
+  extension every 10 s (`Registry::may_queue`), at most 3 of its items
+  waiting per agent (`busy`). The item carries `origin` (`QueueOrigin`:
+  extension id and name, `pitwall-core` `engine`); Next up draws it in
+  the focus colour with "From <name> · waits for you: press Send" (or,
+  amber, "· sends without asking"); Last sent says "from <name>". Auto-
+  send (`engine/ticker.rs`) skips it unless the extension is in the
+  engine's `auto_senders`, set from `extensions.<id>.sendWithoutAsking`
+  (a dated decision, off by default, shown under the grant with a
+  warning and logged when changed). Items of an extension that is off
+  or no longer granted are removed (`calls::sync_queue`). The user
+  removes one like any other.
+- **`agents.start`**: on this computer only (no provider, machine,
+  options, account or resume), in one of Pitwall's projects, a kind
+  Pitwall knows, a prompt ≤ 4000 characters. Each request is an
+  approval (`Risk::High`, never remembered) with the project, the tool,
+  the name and the prompt in full (the details box scrolls); denied →
+  `denied`, unanswered → `approval_timeout`. One waiting at a time,
+  three in ten minutes per extension (`Registry::start_asking`). The
+  prompt is put in the new agent's Next up as the extension's item,
+  never typed in.
+- **In views** (`view.rs`): an item's `agent` (`{"agentId"}`) shows the
+  agent's name (a click focuses it with `agents.focus`); an action's
+  `open` (`{file, line, agentId}` / `{url, agentId}`) or `focus` is run
+  by Pitwall (`Hub::press`) as the extension through the method table,
+  off the UI thread; `needs` names a permission for one the adapter acts
+  on. A button whose permission isn't granted is drawn disabled with a
+  tooltip naming it; pressed anyway it is refused and logged.
+- **Right-panel sections** (`extensions/panels.rs`,
+  `PanelSlot::Extensions`): `contributes.panels` (≤ 3, needing
+  `agents.read`), shown for the focused agent while the extension runs
+  with `agents.read` granted, never for a peer's agent. The hub keys one
+  as `<panel>@<agentId>`; `show`/`hide`/`action` carry `agentId`, and
+  the adapter's `view` names it. Open by default, folded by its header
+  (remembered while Pitwall runs; a folded one is hidden from the
+  adapter); ≤ 280 pt then it scrolls; a list draws 8 items and "and N
+  more"; `more` opens a view in a tile. Bench: `panel-fold <ext>
+  <panel> on|off`.
+- **Web views** (`contributes.webViews`, ≤ 5): opened by "Open <title>
+  (<extension>)" in the palette (`MainScreen::open_ext_web`) as a web
+  tile with `ext` set. The address is the manifest's (`{setting:KEY}`
+  filled from its settings) or the adapter's `webView` line, https or
+  http on localhost / 127.0.0.1 / [::1] only, checked again when opened.
+  No script bridge. Its cookies and storage are its own,
+  `<data>/webview/profile-ext-<id>` (`own_store`); where stores can't be
+  separate it isn't opened. The bar says "from <name>" instead of a
+  profile. Bench: `ext-web <ext> <view>`.
+- **Floating-control cards**: none. The control shows an extension's
+  blocking inbox asks (below); `contributes.cards` stays refused.
+- **Authors**: `pitwall extension new --panel`; `check` warns about
+  `agents.queue` and `agents.start`; the `calls`/`views` fixtures'
+  fake Pitwall refuses action methods without their grant, lists a
+  view's buttons Pitwall runs and takes `agentId` for a panel.
+- **Debug bench**: `ext-call <ext> <method> <json>` / `ext-call-view …`
+  call as the extension (debug builds).
 
 ## In the floating control
 The floating "needs you" control (Settings → General,
@@ -888,4 +978,5 @@ plan, process, starter}`, `pitwall_core::platform::group`.
 - `pitwall extension list|install|remove` on the command line (it needs
   the app's socket protocol to reach the running app's state).
 - Watching a development folder for changes (Reload is by hand).
-- View components beyond list, detail, Markdown and status (forms, tables), and actions Pitwall runs itself from a view (open a file, focus an agent).
+- View components beyond list, detail, Markdown and status (forms, tables).
+- Floating-control cards from an extension's view items.

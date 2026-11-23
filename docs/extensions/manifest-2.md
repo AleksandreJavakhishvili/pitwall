@@ -61,12 +61,22 @@ What it adds to Pitwall's UI. Each needs an `adapter`:
 - `badges`: `true` when it puts badges and notes on sidebar rows.
 - `notifications`: `true` when it shows notifications; it needs the
   `notify` permission.
+- `panels`: sections in the focused agent's right panel,
+  `[{"id", "title", "icon", "more"}]`, at most 3; they need the
+  `agents.read` permission. `more` names one of its views.
+- `webViews`: web pages in a web tile, `[{"id", "title", "icon", "url"}]`,
+  at most 5. `url` is `https://…`, `http://localhost…` (or
+  `127.0.0.1`, `[::1]`), or starts with `{setting:KEY}` (a `url` setting);
+  without it the adapter sends the address. No script bridge: `bridge`,
+  `scripts` and `preload` are refused.
 
-[Views, commands, badges and notifications](views.md) says what each
-draws and what the adapter sends. A kind a later Pitwall will draw
-(`panels`, `cards`, `webViews`) is refused with "it contributes
-“panels”, which needs a newer Pitwall". A key no Pitwall knows is
-refused too. In format 1, an extension with an adapter is an inbox.
+Ids are unique across `views`, `panels` and `webViews`.
+
+[Views, panels, commands, badges and notifications](views.md) says what
+each draws and what the adapter sends. `cards` (floating-control cards)
+is refused with "it contributes “cards”, which needs a newer Pitwall":
+the floating control shows only what blocks an agent. A key no Pitwall
+knows is refused too. In format 1, an extension with an adapter is an inbox.
 
 An adapter that contributes nothing is allowed: it can read what it is
 granted and work outside Pitwall's UI. `check` mentions it.

@@ -26,10 +26,10 @@ user reads your reason next to Pitwall's own words for it.
 | `projects.read` | The user's projects: names and folders (`project.list`) | yes |
 | `worktrees.read` | Each repository's worktrees, branches and the agents in them (`worktree.list`) | yes |
 | `profiles.read` | The extension's own connections among the profiles (`accounts.list`, `project.accounts`); never anything else's | yes |
-| `show` | Open a file, a folder or a page in Pitwall | not yet |
-| `agents.focus` | Bring an agent's terminal to the front | not yet |
-| `agents.queue` | Queue a message for an agent | not yet |
-| `agents.start` | Start an agent | not yet |
+| `show` | Open a file (at a line) or a web page next to an agent, as agents' own show tools do; never brings Pitwall forward or takes the keyboard (`viewer.open`, `web.open`; [actions](actions.md#show)) | yes |
+| `agents.focus` | Focus an agent's tile, only while Pitwall is in front (`agent.focus`; [actions](actions.md#agentsfocus)) | yes |
+| `agents.queue` | Put text in an agent's Next up, marked with its name; sent only when the user presses Send, unless they let it send without asking (`queue.add`; [actions](actions.md#agentsqueue)) | yes |
+| `agents.start` | Ask to start an agent in one of the user's projects, with a first prompt; every request is an approval (`agent.create`; [actions](actions.md#agentsstart)) | yes |
 | `notify` | Show notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name ([notifications](views.md#notifications); it needs `contributes.notifications`) | yes |
 
 A permission this Pitwall doesn't serve yet is listed on the permission
@@ -37,8 +37,26 @@ screen as "not available in this Pitwall yet" and is never granted. A
 name it doesn't know at all shows as "not available in this Pitwall". The
 manifest still loads, so a later Pitwall can grant either.
 
-The read permissions start on in the permission screen; the user turns
-off what they don't want. Any permission that acts will start off.
+The read permissions (and `notify`) start on in the permission screen;
+the user turns off what they don't want. The four that act (`show`,
+`agents.focus`, `agents.queue`, `agents.start`) start off.
+
+The two that reach an agent carry a risk note on the permission screen,
+in an amber box under the reason, and in an update's "what changes":
+
+- `agents.queue`: "Text an agent gets becomes what it does: it acts on it
+  with its own permissions in your repositories (edit files, run
+  commands, push). A service that is wrong or compromised could slip
+  instructions in."
+- `agents.start`: "An agent it starts runs as you, with the project's
+  accounts, in your repository. Allowed without looking, it can set work
+  going that you didn't ask for."
+
+None of them changes what an agent itself may do: its own permissions,
+tools and rules are as before. An extension never sends what it queued
+(unless the user turned on "Send what <name> queues without asking"),
+answers an approval, removes the user's items or grants itself
+anything.
 
 ## What the user sees
 
@@ -55,7 +73,9 @@ off what they don't want. Any permission that acts will start off.
   "new"). The others keep their answers. One the update no longer asks
   for is forgotten.
 - **Activity**, next to Log in its card: each call it made (from its
-  adapter or a program it started), when, and whether it was refused.
+  adapter, a program it started or a button in its view), when, and
+  whether it was refused; for a call that acts, what it asked for (which
+  agent, the text it queued, the project).
   It keeps the last 500 for 30 days, in
   `~/.pitwall/extensions/.log/<id>.jsonl`.
 
@@ -86,6 +106,9 @@ along, not a wall against one that doesn't.
 - 10 events a second to an adapter. Pitwall merges the changes in
   between, so nothing is lost but the steps.
 - A call's params at most 64 KiB, an answer or event at most 512 KiB.
+- `queue.add`: at most 4000 characters, one item per agent every 10
+  seconds, three waiting per agent. `agent.create`: one request waiting
+  at a time, three in ten minutes ([actions](actions.md)).
 
 An adapter refused 100 times in a row for its limits is stopped, and its
 card says why. A refusal for a missing permission doesn't count: the

@@ -23,10 +23,10 @@ user granted, what it offers, and which connection this adapter serves:
 - `grants`: the permissions the user granted, out of those your manifest
   asks for. Calls that need another are refused.
 - `offers`: what this Pitwall can do for an adapter. Check it rather than
-  the version: `inbox`, `views`, `commands`, `badges`, `notify` (what it
-  draws: [views, commands, badges and notifications](views.md)), `call`
-  (calls and replies), `events` (`events.subscribe`). A later Pitwall
-  adds to it.
+  the version: `inbox`, `views`, `commands`, `badges`, `notify`,
+  `panels`, `webViews` (what it draws: [views, panels, commands, badges
+  and notifications](views.md)), `call` (calls and replies), `events`
+  (`events.subscribe`). A later Pitwall adds to it.
 - `settings` are typed: a `bool` setting is `true` or `false`, a `number`
   a number, the others strings ([settings](manifest-2.md#setting-types)).
 - `connection`: present when the extension has connections.
@@ -61,14 +61,20 @@ Each call gets exactly one reply, in any order:
 {"type":"reply","id":"c2","error":{"code":"denied","message":"Not allowed: My inbox isn't granted agents.read (Settings → Extensions → My inbox → Permissions)."}}
 ```
 
-An error's `code` is one of `denied` (not granted, or revoked),
-`unsupported` (an action, or not in this Pitwall), `busy` (past a limit:
-wait), `bad_params`, `not_found`, `too_large` or `unknown_method`. Its
+An error's `code` is one of `denied` (not granted, revoked, or the user
+said no), `unsupported` (never an extension's, or not in this Pitwall),
+`busy` (past a limit: wait), `approval_timeout` (nobody answered an
+approval in time), `bad_params`, `not_found`, `too_large` or
+`unknown_method`. Its
 `message` is plain words you can show. A refusal never stops the adapter.
 Persistent abuse of the limits does (see [permissions](permissions.md#limits)).
 
-Calls only read in this Pitwall. Every method that acts is refused with
-`unsupported`.
+Four permissions let calls act: `show` (`viewer.open`, `web.open`),
+`agents.focus` (`agent.focus`), `agents.queue` (`queue.add`) and
+`agents.start` (`agent.create`, which asks the user every time). Their
+rules are in [actions](actions.md). Every other method that acts (send
+what is queued, stop or remove an agent, answer an approval, change a
+setting) is never an extension's: `unsupported` or `denied`.
 
 ## Events
 

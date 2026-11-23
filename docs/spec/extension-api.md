@@ -1,4 +1,4 @@
-Status: proposal. Phases 1, 2 and 3 are built (see "Phased plan"); phases 4–6 are not.
+Status: proposal. Phases 1 to 5 are built (see "Phased plan"); phase 6 is not.
 
 # Extension API
 
@@ -317,7 +317,7 @@ minute per extension (more are dropped and counted in its log); a
 "Notifications" switch per extension in Settings; the same `id` again
 replaces rather than repeats.
 
-### 6. Right-panel sections [proposed, phase 5]
+### 6. Right-panel sections [built, phase 5]
 Manifest: `"panels": [{"id","title","view"}]`. A folded section in the
 right panel (with Next up, Changes, Last sent [today]) for the focused
 agent. Needs `agents.read`. Pitwall sends `{"type":"show","view":"runs-for-agent","agentId":"a1"}`
@@ -326,7 +326,7 @@ when it is unfolded and the focus moves; the adapter answers with a
 that opens the full view tile. Folded by default so the panel doesn't
 fill with extensions.
 
-### 7. Floating-control cards [proposed, phase 5]
+### 7. Floating-control cards [phase 5: nothing added]
 The floating control [today] shows what agents ask while Pitwall isn't in
 front. Extensions get it only for what is the same thing: an ask that
 holds an agent up. First from the inbox's own `blocking` asks (no
@@ -334,7 +334,7 @@ protocol change), later from a view item with `"blocking": true` and
 suggestions. Its card: the question, up to 4 suggestions, Open. Not a
 general notification surface.
 
-### 8. Web view [proposed, phase 5]
+### 8. Web view [built, phase 5]
 `"webViews": [{"id":"dash","title":"Dashboard","url":"{setting:server}/dash"}]`,
 or the adapter's `{"type":"webView","view":"dash","url":"http://127.0.0.1:43123/"}`
 for a page it serves itself. A web tile [today: web.md] with its rules:
@@ -872,7 +872,55 @@ The plan as proposed:
   inbox's asks being one.
 - Notifications through `platform::notify_attention`.
 
-### Phase 5 — Acting on agents, panel sections, floating cards, web view
+### Phase 5 — Acting on agents, panel sections, floating cards, web view [built]
+
+Built as below (docs/spec/extensions.md, "Actions, right-panel sections
+and web views"; docs/extensions/actions.md), with these differences from
+the proposal:
+- All four acting permissions start off on the permission screen,
+  `show` and `agents.focus` included.
+- `show`: an extension's `viewer.open`/`web.open` needs `agentId` (it
+  has no agent of its own) and may not open a window of its own or
+  replace the layout.
+- `agents.focus`: a new method, `agent.focus` (UI and extensions only).
+  It may be called at any time, not only after a click on the
+  extension's item, but it acts only while Pitwall is the app in front
+  and never brings it forward; otherwise it answers `focused: false`
+  with why.
+- `agents.queue`: besides one item per agent every 10 s and ≤ 4000
+  characters, at most 3 of an extension's items wait per agent, and
+  only Pitwall's own agents (not a peer's). The switch is "Send what
+  <name> queues without asking", kept as
+  `extensions.<id>.sendWithoutAsking` (a dated decision), shown only
+  while `agents.queue` is granted; revoking the grant or turning the
+  extension off removes its waiting items. Next up draws its items in
+  the focus colour with "From <name>" and whether they wait for Send;
+  the icon is the extension's, not per item.
+- `agents.start`: never remembered (`Risk::High`); this computer only,
+  in one of Pitwall's projects, without account or resume; one request
+  waiting and 3 in 10 minutes per extension. Its `prompt` is shown in
+  full and goes into the new agent's Next up as the extension's item
+  (so it waits for Send), rather than being typed in.
+- Panels: `"panels": [{"id","title","icon","more"}]` (`more` names a
+  view; not `view`), at most 3. Sections are **open** by default and
+  fold from their header (the fold is kept while Pitwall runs). A
+  section is a view keyed `<panel>@<agentId>` in the hub. A list draws
+  8 items with "and N more"; no pane beside it.
+- Floating-control cards: nothing new. The control already shows an
+  extension's blocking inbox asks; view items with `blocking` were not
+  added and `cards` stays refused.
+- Web views: their own browser store per extension (not the project's
+  browser account), never opened where stores can't be separate; `http`
+  only on this computer (localhost, 127.0.0.1, [::1]); opened from the
+  palette only; not reloaded when the adapter sends a new address (the
+  next open uses it).
+- Activity entries gain `detail` and the `view` route (a button in a
+  view); a view's `result`-less actions run by Pitwall are not sent to
+  the adapter.
+- The demo extension is unchanged: a `show` button needs an agent id,
+  which it can't know without `agents.read`.
+
+The plan as proposed:
 - `queue.add` from an extension: Next up items gain an `origin`
   (extension id); auto-send skips them unless granted; Last sent shows
   the origin.
