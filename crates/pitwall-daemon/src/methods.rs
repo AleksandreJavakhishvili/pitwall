@@ -151,6 +151,17 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     // back and nothing in it changes (viewer.rs). Not an extension's: its
     // `show` permission is for files and pages.
     (method::SETTINGS_OPEN, Access::Open, Ext::Never),
+    // Extensions' state and setup for agents (extension_setup.rs): reads
+    // are open; every act asks the user (one at a time per extension), and
+    // none is ever an extension's own.
+    (method::EXTENSION_LIST, Access::Open, Ext::Never),
+    (method::EXTENSION_STATUS, Access::Open, Ext::Never),
+    (method::EXTENSION_LOG, Access::Open, Ext::Never),
+    // Looks at a source as "Check for updates" does; installs nothing.
+    (method::EXTENSION_CHECK_UPDATES, Access::Open, Ext::Never),
+    // Only shows the user a secret's field in Settings; no value passes.
+    (method::EXTENSION_SECRET, Access::Open, Ext::Never),
+    (method::EXTENSION_ACT, Access::AskWhen("always: shows exactly what will run (commands, variables, folders), then does what Settings' button does", Risk::High), Ext::Never),
     // What agent.list shows, as it changes; `approvals` only for the UI
     // (events.rs). Answered per connection (server.rs).
     (method::EVENTS_SUBSCRIBE, Access::Open, Ext::Grant(AGENTS_READ)),
@@ -371,6 +382,12 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
             crate::viewer::settings_open(s, caller, r)
         }
         method::MCP_CALL => crate::viewer::mcp_call(s, caller, required(p)?),
+        method::EXTENSION_LIST => crate::extension_setup::list(s),
+        method::EXTENSION_STATUS => crate::extension_setup::status(s, required(p)?),
+        method::EXTENSION_LOG => crate::extension_setup::log(s, required(p)?),
+        method::EXTENSION_CHECK_UPDATES => crate::extension_setup::check_updates(s, required(p)?),
+        method::EXTENSION_SECRET => crate::extension_setup::secret(s, caller, required(p)?),
+        method::EXTENSION_ACT => crate::extension_setup::act(s, caller, required(p)?),
         // Needs the connection: server.rs answers it before dispatching.
         method::EVENTS_SUBSCRIBE => Err(ErrorBody::new(code::UNSUPPORTED, "events.subscribe needs a connection of its own")),
         _ => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
@@ -687,6 +704,16 @@ mod tests {
         assert!(ext_allowed(method::QUEUE_ADD, &ext, |p| p == AGENTS_QUEUE).is_ok());
         assert_eq!(ext_allowed(method::QUEUE_SEND, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED, "sending stays the user's");
         assert_eq!(ext_allowed(method::AGENT_STOP, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED);
+        // Setting up extensions is the user's (and their agents'), never
+        // an extension's: not even reading another's state.
+        for m in [method::EXTENSION_LIST, method::EXTENSION_STATUS, method::EXTENSION_LOG, method::EXTENSION_CHECK_UPDATES, method::EXTENSION_SECRET, method::EXTENSION_ACT] {
+            assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
+            assert_eq!(ext_allowed(m, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED, "{m}");
+        }
+        assert!(matches!(access(method::EXTENSION_ACT), Some(Access::AskWhen(_, Risk::High))));
+        for m in [method::EXTENSION_LIST, method::EXTENSION_STATUS, method::EXTENSION_LOG, method::EXTENSION_SECRET] {
+            assert_eq!(access(m), Some(Access::Open), "{m}: read-only");
+        }
         assert_eq!(ext_allowed("agent.prompt", &ext, |_| true).unwrap_err().code, code::UNKNOWN_METHOD);
     }
 

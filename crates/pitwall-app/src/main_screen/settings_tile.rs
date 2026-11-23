@@ -554,7 +554,7 @@ impl MainScreen {
                 let page = w.next().map(String::from);
                 let extension = w.next().map(String::from);
                 cx.defer(move |cx| {
-                    let r = show_for_agent(&SettingsShow { agent_id: agent, page, extension }, cx);
+                    let r = show_for_agent(&SettingsShow { agent_id: agent, page, extension, secret: None, connection: None }, cx);
                     eprintln!("pitwall: show_settings: {r:?}");
                 });
             }

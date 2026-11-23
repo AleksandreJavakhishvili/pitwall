@@ -183,6 +183,31 @@ pub mod method {
     /// --settings` and the `show_settings` tool).
     pub const SETTINGS_OPEN: &str = "settings.open";
 
+    // Setting up extensions (`caps::EXTENSIONS`): read freely; acting
+    // waits for the user's approval in Pitwall. Never an extension's own.
+    /// [`ExtRef`](crate::extensions::ExtRef) (id unused) →
+    /// [`ExtList`](crate::extensions::ExtList).
+    pub const EXTENSION_LIST: &str = "extension.list";
+    /// [`ExtRef`](crate::extensions::ExtRef) →
+    /// [`ExtStatus`](crate::extensions::ExtStatus): its checklist as data,
+    /// and the next step.
+    pub const EXTENSION_STATUS: &str = "extension.status";
+    /// [`ExtLogRequest`](crate::extensions::ExtLogRequest) →
+    /// [`ExtLog`](crate::extensions::ExtLog): its card's Log.
+    pub const EXTENSION_LOG: &str = "extension.log";
+    /// [`ExtRef`](crate::extensions::ExtRef) →
+    /// [`ExtActed`](crate::extensions::ExtActed): its source checked for a
+    /// newer release, as "Check for updates" does (nothing installed).
+    pub const EXTENSION_CHECK_UPDATES: &str = "extension.checkUpdates";
+    /// [`ExtSecret`](crate::extensions::ExtSecret) →
+    /// [`ExtActed`](crate::extensions::ExtActed): Settings shown to the
+    /// user at the secret's field; the value never comes or goes here.
+    pub const EXTENSION_SECRET: &str = "extension.secret";
+    /// [`ExtAct`](crate::extensions::ExtAct) →
+    /// [`ExtActed`](crate::extensions::ExtActed): asks the user, then does
+    /// what Settings' button does.
+    pub const EXTENSION_ACT: &str = "extension.act";
+
     // Events (`caps::EVENTS`).
     /// [`EventsSubscribe`](crate::EventsSubscribe) →
     /// [`EventsSubscribed`](crate::EventsSubscribed); then the connection
@@ -212,6 +237,8 @@ pub mod caps {
     pub const WEB: &str = "web";
     /// `settings.open` (with `viewer`).
     pub const SHOW_SETTINGS: &str = "showSettings";
+    /// `extension.*`: extensions' state and setup for agents.
+    pub const EXTENSIONS: &str = "extensions";
 }
 
 /// Server-pushed events: `{"event":"…","data":…}`.

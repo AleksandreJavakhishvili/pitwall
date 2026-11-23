@@ -256,7 +256,7 @@ pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Reques
                 format!("`page` is one of {}, not {p}", pages.join(", "))
             })?),
         };
-        return Ok(Request::Settings(SettingsOpen { agent_id: agent, page, extension: text("extension")?, proto: Some(crate::settings_open::SETTINGS_PROTO) }));
+        return Ok(Request::Settings(SettingsOpen { agent_id: agent, page, extension: text("extension")?, secret: None, connection: None, proto: Some(crate::settings_open::SETTINGS_PROTO) }));
     }
     let place = match text("where")? {
         None => None,
@@ -484,7 +484,7 @@ mod tests {
     fn a_show_settings_call_is_checked_before_it_goes_anywhere() {
         let set = |args: Value| request(TOOL_SHOW_SETTINGS, &args, Some("a1".into()));
         let Ok(Request::Settings(r)) = set(json!({"page": "extensions", "extension": "inbox"})) else { panic!() };
-        assert_eq!(r, SettingsOpen { agent_id: Some("a1".into()), page: Some("extensions".into()), extension: Some("inbox".into()), proto: Some(crate::settings_open::SETTINGS_PROTO) });
+        assert_eq!(r, SettingsOpen { agent_id: Some("a1".into()), page: Some("extensions".into()), extension: Some("inbox".into()), secret: None, connection: None, proto: Some(crate::settings_open::SETTINGS_PROTO) });
         let Ok(Request::Settings(r)) = set(json!({})) else { panic!() };
         assert_eq!((r.page, r.extension), (None, None));
         assert!(set(json!({"page": "secrets"})).unwrap_err().contains("`page` is one of general, agents"));
