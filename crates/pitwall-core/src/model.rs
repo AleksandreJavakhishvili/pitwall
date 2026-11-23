@@ -287,6 +287,12 @@ pub struct AgentRecord {
     /// its project's, looked up at each launch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_identity: Option<String>,
+    /// The setup of each extension that was on when it last started, by
+    /// extension id (`extensions::update::generation`: its setup's steps,
+    /// the variables it got, its connection). One that differs from now
+    /// makes it use the previous setup until restarted.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ext_setup: std::collections::BTreeMap<String, String>,
 }
 
 /// An agent started by hand in a terminal, as remembered on its record.

@@ -91,6 +91,10 @@ pub struct Engine {
     /// The extensions that are on and set variables on launched agents,
     /// with their plain settings (the app sets them; docs/spec/extensions.md).
     extension_env: std::sync::RwLock<Vec<crate::extensions::Manifest>>,
+    /// The extensions that are on with the setup each ran last (the app
+    /// sets them): what an agent starts under
+    /// (`extensions::update::generation`).
+    extension_setup: std::sync::RwLock<Vec<crate::extensions::update::Setup>>,
     /// Agents showing files to the user (crate::show).
     pub(crate) show: crate::show::State,
     /// The extensions the user lets send their Next up items without
@@ -127,6 +131,7 @@ impl Engine {
             shown: Default::default(),
             tool_updates: Default::default(),
             extension_env: Default::default(),
+            extension_setup: Default::default(),
             auto_senders: Default::default(),
             show: Default::default(),
             trees: Default::default(),
@@ -242,6 +247,56 @@ impl Engine {
     /// connection's settings (docs/spec/extensions.md, profiles.md).
     pub fn set_extension_env(&self, list: Vec<crate::extensions::Manifest>) {
         *self.extension_env.write().unwrap_or_else(|e| e.into_inner()) = list;
+    }
+
+    /// The extensions that are on and the steps their setup actions last
+    /// ran with: each agent's setup now is worked out again, and one that
+    /// started under another shows it (`AgentView::stale_for`).
+    pub fn set_extension_setup(&self, list: Vec<crate::extensions::update::Setup>) {
+        // Worked out again even when the list is the same: a connection's
+        // settings (in accounts.json) feed the variables too.
+        *self.extension_setup.write().unwrap_or_else(|e| e.into_inner()) = list;
+        let facts: Vec<(String, String, String, String)> = self.agents().iter().map(|a| (a.rec.id.clone(), a.rec.cwd.clone(), a.rec.project.clone(), a.rec.name.clone())).collect();
+        let accounts = crate::accounts::Accounts::load(self.paths());
+        let now: Vec<(String, std::collections::BTreeMap<String, String>)> = facts.into_iter().map(|(id, cwd, project, name)| {
+            let g = self.generations_with(&accounts, &cwd, &project, &name, &id);
+            (id, g)
+        }).collect();
+        let mut changed = false;
+        for a in self.agents().iter_mut() {
+            if let Some((_, g)) = now.iter().find(|(id, _)| *id == a.rec.id) {
+                if a.ext_now != *g {
+                    a.ext_now = g.clone();
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.changed(false);
+        }
+    }
+
+    /// The setup agent `id` (named `name`, in `cwd` of `project`) starts
+    /// under, by extension: what [`AgentRecord::ext_setup`] keeps.
+    pub(crate) fn extension_generations(&self, cwd: &str, project: &str, name: &str, id: &str) -> std::collections::BTreeMap<String, String> {
+        if self.extension_setup.read().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            return Default::default();
+        }
+        let accounts = crate::accounts::Accounts::load(self.paths());
+        self.generations_with(&accounts, cwd, project, name, id)
+    }
+
+    fn generations_with(&self, accounts: &crate::accounts::Accounts, cwd: &str, project: &str, name: &str, id: &str) -> std::collections::BTreeMap<String, String> {
+        let list = self.extension_setup.read().unwrap_or_else(|e| e.into_inner());
+        let mut out = std::collections::BTreeMap::new();
+        for s in list.iter() {
+            let m = &s.manifest;
+            let settings = extension_settings(accounts, m, cwd, project);
+            let conn = if m.settings.is_empty() { None } else { accounts.resolve_launch(cwd, project, &crate::accounts::ext_kind(&m.id)).id };
+            let facts = crate::extensions::Facts { project, agent: name, agent_id: id, settings: settings.as_ref() };
+            out.insert(m.id.clone(), crate::extensions::update::generation(s, conn.as_deref(), &facts));
+        }
+        out
     }
 
     /// The variables the extensions that are on set on agent `id` (named

@@ -209,6 +209,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     env.extend(core.tool_update_env());
     let new_id = uuid::Uuid::new_v4().to_string();
     env.extend(core.extension_env(&cwd, &project, &name, &new_id));
+    let ext_setup = core.extension_generations(&cwd, &project, &name, &new_id);
 
     // A name typed in New agent is kept; a suggested one (or none) follows
     // the conversation's title once there is one.
@@ -246,6 +247,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         engineer: req.engineer,
         account,
         git_identity: req.git_identity.clone(),
+        ext_setup,
     };
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
@@ -297,6 +299,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     };
     let loc = started.locator.clone();
     let mut agent = Agent::new(rec, Some(host), core.now());
+    agent.ext_now = agent.rec.ext_setup.clone();
     agent.facts = core.facts(&loc, &agent.rec);
     agent.watch = wt.map(|(_, w)| w);
     let view = agent.view();
@@ -413,6 +416,7 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
         engineer: false,
         account: None,
         git_identity: None,
+        ext_setup: Default::default(),
     }
 }
 
@@ -531,6 +535,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     env.extend(git_identity_env(core, &*provider, &rec.cwd, &rec.project, rec.git_identity.as_deref()));
     env.extend(core.tool_update_env());
     env.extend(core.extension_env(&rec.cwd, &rec.project, &rec.name, &rec.id));
+    let ext_setup = core.extension_generations(&rec.cwd, &rec.project, &rec.name, &rec.id);
     // On an account, its conversation from wherever it is newest.
     if let (Some(sid), true, true) = (&rec.session_id, rec.has_conversation, provider.caps().local_process) {
         if let Some(def) = core.kinds().find(&rec.kind).filter(|k| k.account_env.is_some()) {
@@ -598,6 +603,9 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         a.attach_host(host.clone(), now);
         a.facts = facts;
         a.watch = wt.map(|(_, w)| w);
+        // It starts under the setup there is now.
+        a.ext_now = ext_setup.clone();
+        a.rec.ext_setup = ext_setup;
         a.rec.term_size()
     });
     // A resize that landed between starting and attaching went to the record only.
@@ -912,6 +920,59 @@ mod tests {
         create(&h.engine, req("claude", &project, false)).unwrap();
         let last = h.provider.launched().len() - 1;
         assert_eq!(env_of(last, "INBOX_AGENT"), None);
+    }
+
+    /// An agent keeps the extension setup it started under: once that
+    /// setup changes (its setup ran with other steps after an update, a
+    /// setting its variables use), the running agents started before say
+    /// so (`staleFor`); one started or restarted after doesn't, and a
+    /// stopped one never does.
+    #[test]
+    fn agents_started_before_a_setup_change_are_stale() {
+        use crate::extensions::update::Setup;
+        let h = Harness::new(vec![]);
+        let dir = TempDir::new("ext-stale-proj");
+        let project = dir.path().to_string_lossy().into_owned();
+        let m = crate::extensions::parse(
+            r#"{"id": "inbox", "name": "Inbox", "settings": [{"key": "server", "type": "url", "label": "S"}],
+                "agentEnv": [{"name": "INBOX_URL", "value": "{setting:server}"}],
+                "actions": [{"id": "setup", "setup": true, "label": "Set up", "description": "d", "steps": [{"for": "claude", "run": ["claude", "plugin", "add", "inbox#v1"]}]}]}"#,
+        )
+        .unwrap();
+        let setup = |digest: &str| vec![Setup { manifest: m.clone(), steps: [("setup".to_string(), digest.to_string())].into() }];
+        h.engine.set_extension_setup(setup("v1"));
+        let a = create(&h.engine, req("claude", &project, false)).unwrap();
+        let b = create(&h.engine, req("claude", &project, false)).unwrap();
+        let stale = |id: &str| h.engine.views().into_iter().find(|v| v.id == id).unwrap().stale_for;
+        assert!(stale(&a.id).is_empty(), "started under the setup there is");
+        assert_eq!(h.engine.records()[0].ext_setup.len(), 1, "kept on its record");
+
+        // The setup ran again with an update's steps: both use the previous one.
+        h.engine.set_extension_setup(setup("v2"));
+        assert_eq!(stale(&a.id), ["inbox"]);
+        assert_eq!(stale(&b.id), ["inbox"]);
+        // Restarted: it starts under the new one. A new agent too.
+        restart(&h.engine, &a.id, None).unwrap();
+        assert!(stale(&a.id).is_empty());
+        let c = create(&h.engine, req("claude", &project, false)).unwrap();
+        assert!(stale(&c.id).is_empty());
+        // A setting its variables use changes (a connection's server).
+        let mut acc = crate::accounts::Accounts::load(h.engine.paths());
+        let work = acc.add_connection("inbox", "Work").unwrap();
+        acc.set_connection_value(&work.id, "server", Some("https://inbox.example.com")).unwrap();
+        acc.save(h.engine.paths()).unwrap();
+        h.engine.set_extension_setup(setup("v2"));
+        assert_eq!(stale(&c.id), ["inbox"]);
+        // Stopped: nothing to restart.
+        stop(&h.engine, &b.id).unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while h.engine.views().iter().any(|v| v.id == b.id && v.running) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(stale(&b.id).is_empty());
+        // Turned off: nothing to pick up.
+        h.engine.set_extension_setup(vec![]);
+        assert!(stale(&c.id).is_empty());
     }
 
     /// Each project's agents get their own connection's settings; a

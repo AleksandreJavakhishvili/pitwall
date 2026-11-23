@@ -43,6 +43,11 @@ fn human_snapshots() {
          reviewer  Claude Code  stopped  vm-1     ~/api   a-22\n"
     );
     assert_eq!(render::agents(&[]), "No agents in Pitwall.\n");
+    // One that started before an extension's update says so (staleFor).
+    let mut stale = agent("a-1", "work", true);
+    stale.stale_for = vec!["inbox".into()];
+    assert!(serde_json::to_value(&stale).unwrap()["staleFor"] == json!(["inbox"]));
+    assert!(render::agents(&[stale]).ends_with("work started before inbox changed: it keeps the previous setup until restarted.\n"));
     assert_eq!(render::agent_new(&list[0]), "Started work (Claude Code) in ~/api — id a-1\n");
 
     let machines: Vec<ProviderMachines> = serde_json::from_value(json!([
