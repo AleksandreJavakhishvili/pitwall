@@ -193,6 +193,7 @@ impl MainScreen {
             Content::Web(_) => ("Web page", "s"),
             Content::Inbox(_) => ("Inbox", "es"),
             Content::View(_) => ("The view", "s"),
+            Content::Settings => ("Settings", "s"),
         };
         // In a tile's place: what leaves it, said plainly.
         if let FilesSpot::Replace(pane) = spot {
@@ -201,6 +202,7 @@ impl MainScreen {
                 Some(p) if p.web.is_some() => return format!("{noun} swap{verb} places with the web page"),
                 Some(p) if p.inbox.is_some() => return format!("{noun} swap{verb} places with the inbox"),
                 Some(p) if p.view.is_some() => return format!("{noun} swap{verb} places with the view"),
+                Some(p) if p.settings => return format!("{noun} swap{verb} places with Settings"),
                 Some(p) if p.agent_id.is_some() => return format!("{noun} replace{verb} {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
                 _ => {}
             }
@@ -368,6 +370,7 @@ impl MainScreen {
                         (_, _, Some(w), ..) => format!("web {w}"),
                         (_, _, _, Some(e), _) => format!("inbox {e}"),
                         (_, _, _, _, Some(v)) => format!("view {v}"),
+                        _ if p.settings => "settings".into(),
                         _ => "empty".into(),
                     })
                 };

@@ -98,6 +98,12 @@ impl MainView {
                     let view = (**view).clone();
                     screen.update(cx, |s, cx| s.created(view, window, cx));
                 }
+                // The dialog's "Open as a tile": its view, in a tile here.
+                crate::settings::LayerEvent::ToTile(view) => {
+                    let Some(screen) = this.screen.clone() else { return };
+                    let view = view.clone();
+                    screen.update(cx, |s, cx| s.open_settings_tile(Some(view), window, cx));
+                }
             },
         ));
         let focus = cx.focus_handle();
@@ -183,8 +189,54 @@ impl MainView {
         }
     }
 
+    /// Settings' shortcut: the dialog, unless Settings is in a tile (or
+    /// its own window): then that is focused instead (one Settings at a
+    /// time, `main_screen::settings_tile`).
     pub fn open_settings(&mut self, cx: &mut Context<Self>) {
+        if self.screen.is_some() && crate::main_screen::settings_tile::placed(cx) {
+            cx.defer(|cx| {
+                crate::main_screen::settings_tile::reveal(cx);
+            });
+            return;
+        }
         self.layer.update(cx, |l, cx| l.open_settings(cx));
+    }
+
+    /// Settings as it is open (bench commands): the dialog here, else the
+    /// Settings tile's.
+    fn settings_view(&self, cx: &gpui::App) -> Option<Entity<crate::settings::view::SettingsView>> {
+        self.layer.read(cx).settings_view().or_else(|| crate::main_screen::settings_tile::get(cx).map(|t| t.read(cx).settings()))
+    }
+
+    /// Whether the Settings dialog (or another of the layer's) is open.
+    #[cfg(test)]
+    pub fn layer_open(&self, cx: &gpui::App) -> bool {
+        self.layer.read(cx).is_open()
+    }
+
+    /// The Settings dialog's view, while it is open.
+    #[cfg(test)]
+    pub fn layer_settings(&self, cx: &gpui::App) -> Option<Entity<crate::settings::view::SettingsView>> {
+        self.layer.read(cx).settings_view()
+    }
+
+    /// The Settings dialog's view, if it is open here, the dialog closed
+    /// (it goes into the Settings tile).
+    pub fn take_settings_dialog(&mut self, cx: &mut Context<Self>) -> Option<Entity<crate::settings::view::SettingsView>> {
+        self.layer.update(cx, |l, cx| l.take_settings(cx))
+    }
+
+    /// "Scan again" from the Settings tile: the rescan screen here.
+    pub fn open_rescan(&mut self, cx: &mut Context<Self>) {
+        self.layer.update(cx, |l, cx| l.open_rescan(cx));
+    }
+
+    /// An agent started from the Settings tile (an account's login): shown
+    /// and focused, as from the dialog.
+    pub fn show_started(&mut self, view: pitwall_proto::AgentView, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(screen) = self.screen.clone() {
+            screen.update(cx, |s, cx| s.created(view, window, cx));
+        }
     }
 
     /// A bench command (`crate::bench`, `src/lib/bench.ts`).
@@ -355,11 +407,19 @@ impl MainView {
             }
             return;
         }
+        // `settings-tile …`: the Settings tile
+        // (`MainScreen::debug_settings_tile`).
+        if let Some(what) = cmd.strip_prefix("settings-tile ") {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.debug_settings_tile(what.trim(), window, cx));
+            }
+            return;
+        }
         // `ext-action <ext> <action>`: in the open Settings, that setup
         // action's confirmation (nothing runs).
         if let Some(what) = cmd.strip_prefix("ext-action ") {
             let mut w = what.split_whitespace();
-            if let (Some(ext), Some(action), Some(v)) = (w.next(), w.next(), self.layer.read(cx).settings_view()) {
+            if let (Some(ext), Some(action), Some(v)) = (w.next(), w.next(), self.settings_view(cx)) {
                 v.update(cx, |v, cx| v.debug_action(ext, action, cx));
             }
             return;
@@ -369,7 +429,7 @@ impl MainView {
         // (`prog arg … | prog arg …`), to show a run.
         if let Some(what) = cmd.strip_prefix("ext-run ") {
             let mut w = what.splitn(3, ' ');
-            if let (Some(ext), Some(action), Some(steps), Some(v)) = (w.next(), w.next(), w.next(), self.layer.read(cx).settings_view()) {
+            if let (Some(ext), Some(action), Some(steps), Some(v)) = (w.next(), w.next(), w.next(), self.settings_view(cx)) {
                 v.update(cx, |v, cx| v.debug_run(ext, action, steps, cx));
             }
             return;
@@ -378,13 +438,13 @@ impl MainView {
         // extension's source checked, or its update fetched and what it
         // changes listed, as their buttons do (nothing is installed).
         if let Some(ext) = cmd.strip_prefix("ext-check ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_check(ext.trim(), cx));
             }
             return;
         }
         if let Some(ext) = cmd.strip_prefix("ext-review ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_review(ext.trim(), cx));
             }
             return;
@@ -393,13 +453,13 @@ impl MainView {
         // or the release Add from Git looked at, installed, as their
         // buttons do (installing runs nothing).
         if let Some(ext) = cmd.strip_prefix("ext-update ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_update(ext.trim(), cx));
             }
             return;
         }
         if cmd == "ext-add-git-install" {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_add_git_install(cx));
             }
             return;
@@ -410,7 +470,7 @@ impl MainView {
         if let Some(what) = cmd.strip_prefix("ext-add-git ").map(|w| (w, true)).or_else(|| cmd.strip_prefix("ext-add-git-form ").map(|w| (w, false))) {
             let (what, look) = what;
             let mut w = what.split_whitespace();
-            if let (Some(url), Some(v)) = (w.next(), self.layer.read(cx).settings_view()) {
+            if let (Some(url), Some(v)) = (w.next(), self.settings_view(cx)) {
                 let sub = w.next().unwrap_or_default().to_string();
                 v.update(cx, |v, cx| v.debug_add_git(url, &sub, look, window, cx));
             }
@@ -446,7 +506,7 @@ impl MainView {
         }
         // `profile-open <id>`: in the open Settings, that profile unfolded.
         if let Some(id) = cmd.strip_prefix("profile-open ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_profile_open(id.trim(), cx));
             }
             return;
@@ -454,7 +514,7 @@ impl MainView {
         // `ext-disclose <ext>`: in the open Settings, what that extension
         // does on this computer, unfolded.
         if let Some(ext) = cmd.strip_prefix("ext-disclose ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_disclose(ext.trim(), cx));
             }
             return;
@@ -463,7 +523,7 @@ impl MainView {
         // development extension (as "Load from folder…", without the
         // picker).
         if let Some(folder) = cmd.strip_prefix("ext-dev ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_load_dev(folder.trim(), cx));
             }
             return;
@@ -474,7 +534,7 @@ impl MainView {
             let mut words = rest.split_whitespace();
             let ext = words.next().unwrap_or_default().to_string();
             let on = words.next() != Some("off");
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_log(&ext, on, cx));
             }
             return;
@@ -482,7 +542,7 @@ impl MainView {
         // `ext-permissions <ext>`: in the open Settings, that extension's
         // permission screen, as its switch shows it.
         if let Some(ext) = cmd.strip_prefix("ext-permissions ") {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_permissions(ext.trim(), cx));
             }
             return;
@@ -531,7 +591,7 @@ impl MainView {
         }
         // `ext-permissions-on`: Turn on, on the permission screen shown.
         if cmd == "ext-permissions-on" {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_permissions_on(cx));
             }
             return;
@@ -551,7 +611,7 @@ impl MainView {
             let mut words = rest.split_whitespace();
             let ext = words.next().unwrap_or_default().to_string();
             let on = words.next() != Some("off");
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| v.debug_activity(&ext, on, cx));
             }
             return;
@@ -559,7 +619,7 @@ impl MainView {
         // `settings-scroll <dy>`: the open Settings page scrolled by `dy`
         // points (negative: up).
         if let Some(dy) = cmd.strip_prefix("settings-scroll ").and_then(|d| d.trim().parse::<f32>().ok()) {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| {
                     v.scroll_by(gpui::px(dy));
                     cx.notify();
@@ -569,7 +629,7 @@ impl MainView {
         }
         // `settings-end`: the open Settings page scrolled to its end.
         if cmd == "settings-end" {
-            if let Some(v) = self.layer.read(cx).settings_view() {
+            if let Some(v) = self.settings_view(cx) {
                 v.update(cx, |v, cx| {
                     v.scroll_to_end();
                     cx.notify();

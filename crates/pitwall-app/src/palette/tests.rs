@@ -115,6 +115,22 @@ fn empty_query_lists_the_react_rows_in_order(cx: &mut TestAppContext) {
     });
 }
 
+/// "Open Settings as a tile" when asked for (settings, tile), not on the
+/// empty palette's short list.
+#[gpui::test]
+fn settings_as_a_tile_is_a_typed_row(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        init(cx);
+        let st = state();
+        assert!(!ids(&rows(cx, "", &st)).contains(&"settings-tile".to_string()));
+        for q in ["settings tile", "open settings as", "preferences pane"] {
+            let r = rows(cx, q, &st);
+            let row = r.iter().find(|c| c.id == "settings-tile").unwrap_or_else(|| panic!("{q}"));
+            assert_eq!(row.plain(), "Open Settings as a tile");
+        }
+    });
+}
+
 #[gpui::test]
 fn typing_filters_and_reveals_the_query_only_rows(cx: &mut TestAppContext) {
     cx.update(|cx| {

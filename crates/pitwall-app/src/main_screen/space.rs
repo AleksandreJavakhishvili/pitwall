@@ -127,7 +127,7 @@ impl MainScreen {
         if !cx.has_active_drag() {
             self.drop_hint = None;
             // A web or inbox tile's drag let go outside the area.
-            if self.files_hint.as_ref().is_some_and(|h| matches!(h.what, tree::Content::Web(_) | tree::Content::Inbox(_) | tree::Content::View(_))) {
+            if self.files_hint.as_ref().is_some_and(|h| matches!(h.what, tree::Content::Web(_) | tree::Content::Inbox(_) | tree::Content::View(_) | tree::Content::Settings)) {
                 self.files_hint = None;
             }
         }
@@ -465,6 +465,7 @@ impl MainScreen {
             Node::Pane { id, web: Some(web), .. } => self.render_web_pane(id, web, t, window, cx),
             Node::Pane { id, inbox: Some(ext), .. } => self.render_inbox_pane(id, ext, t, cx),
             Node::Pane { id, view: Some(key), .. } => self.render_view_pane(id, key, t, cx),
+            Node::Pane { id, settings: true, .. } => self.render_settings_pane(id, t, cx),
             Node::Pane { id, agent_id, .. } => {
                 let agent = agent_id
                     .as_ref()

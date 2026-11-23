@@ -54,6 +54,7 @@ mod tests {
             web: None,
             inbox: None,
             view: None,
+            settings: false,
         }
     }
 
@@ -85,6 +86,7 @@ mod tests {
             web: None,
             inbox: None,
             view: None,
+            settings: false,
         };
         assert!(auto_fonts(&empty, (800., 600.), Density::Dense, 13.).is_empty());
     }

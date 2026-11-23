@@ -175,6 +175,9 @@ pub enum LayerEvent {
     /// An agent started from Settings (an account's login): show it and
     /// focus its terminal.
     Show(Box<AgentView>),
+    /// The dialog's "Open as a tile": its view, for a tile of the layout
+    /// (the dialog closed).
+    ToTile(Entity<SettingsView>),
 }
 
 /// The overlays of one window: Settings, About and the full-window
@@ -261,6 +264,11 @@ impl Layer {
                     this.close(cx);
                     cx.emit(LayerEvent::Show(view.clone()));
                 }
+                SettingsEvent::ToTile => {
+                    if let Some(view) = this.take_settings(cx) {
+                        cx.emit(LayerEvent::ToTile(view));
+                    }
+                }
             });
             self._subs.push(sub);
             self.settings_focus = Some(view.read(cx).focus.clone());
@@ -269,6 +277,24 @@ impl Layer {
         self.focus_next_render = true;
         cx.emit(LayerEvent::Opened);
         cx.notify();
+    }
+
+    /// The Settings dialog's view, the dialog closed (it goes into a tile:
+    /// one Settings at a time, with its unsaved fields).
+    pub fn take_settings(&mut self, cx: &mut Context<Self>) -> Option<Entity<SettingsView>> {
+        let view = self.settings.take()?;
+        self.close(cx);
+        Some(view)
+    }
+
+    /// "Scan again" from a Settings tile: the rescan screen over this
+    /// window.
+    pub fn open_rescan(&mut self, cx: &mut Context<Self>) {
+        if self.onboarding.is_none() {
+            self.settings = None;
+            self.about = false;
+            self.open_onboarding(OnbMode::Rescan, cx);
+        }
     }
 
     pub fn open_about(&mut self, cx: &mut Context<Self>) {
