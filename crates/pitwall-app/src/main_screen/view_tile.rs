@@ -39,6 +39,11 @@ const LIST_W: f32 = 340.;
 
 type PlaceMenu = (Point<Pixels>, Vec<(String, String)>);
 
+/// What the hub has for a view: how its extension runs, the view (none
+/// before it is sent), why its last action failed, and the actions in
+/// flight (view, item).
+type Data = (Run, Option<hub::views::ViewData>, Option<String>, Vec<(String, String)>);
+
 pub struct ViewTile {
     /// `<extension>/<view>`.
     key: String,
@@ -130,7 +135,7 @@ impl ViewTile {
     }
 
     /// What the adapters sent, copied out (drawing calls back into this).
-    fn data(&self, cx: &App) -> (Run, Option<hub::views::ViewData>, Option<String>, Vec<(String, String)>) {
+    fn data(&self, cx: &App) -> Data {
         let Some(h) = hub::try_hub(cx) else { return (Run::Off, None, None, vec![]) };
         let Some(st) = h.read(cx).get(&self.ext) else { return (Run::Off, None, None, vec![]) };
         let busy = st.view_busy.iter().filter(|(v, _)| *v == self.view).cloned().collect();

@@ -161,7 +161,7 @@ fn layouts_keep_inboxes_and_views() {
     let ui = UiState::default().surface_to_window(&Surface::parse(KEY));
     assert_eq!(ui.extension("demo").view_windows, ["runs"]);
     assert!(!ui.extension("demo").window, "not the inbox");
-    assert!(ui.clone().close_surface(&Surface::parse(KEY)).extensions.get("demo").is_none());
+    assert!(!ui.clone().close_surface(&Surface::parse(KEY)).extensions.contains_key("demo"));
 }
 
 fn main_screen(cx: &mut gpui::App) -> Entity<MainScreen> {
