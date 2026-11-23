@@ -416,6 +416,17 @@ impl MainView {
             }
             return;
         }
+        // `ext-add-npm <package> [registry]` (`ext-add-npm-form …`: only
+        // typed in): the same form on an npm package.
+        if let Some(what) = cmd.strip_prefix("ext-add-npm ").map(|w| (w, true)).or_else(|| cmd.strip_prefix("ext-add-npm-form ").map(|w| (w, false))) {
+            let (what, look) = what;
+            let mut w = what.split_whitespace();
+            if let (Some(package), Some(v)) = (w.next(), self.layer.read(cx).settings_view()) {
+                let registry = w.next().unwrap_or_default().to_string();
+                v.update(cx, |v, cx| v.debug_add_npm(package, &registry, look, window, cx));
+            }
+            return;
+        }
         // `ext-secret <ext> <key> <value>`: that secret set (a bench
         // instance keeps secrets in memory).
         if let Some(what) = cmd.strip_prefix("ext-secret ") {

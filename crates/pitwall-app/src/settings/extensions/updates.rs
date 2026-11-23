@@ -1,12 +1,13 @@
 //! Settings → Extensions, updates (docs/spec/extensions.md, "Updates from
-//! a git source"): on a card, where the extension came from (Pitwall's
-//! copy, or a source's tag and commit) and when its source was last
-//! checked, with Check for updates; an update offered (from Pitwall or its
-//! source), looked at first: "Review…" fetches it and lists what changes
-//! on this computer, and only Update installs it; Go back to the copy
-//! before the last update. Under Available, "Add from Git…": an https
-//! address and the folder in it, then what its newest release changes,
-//! and Install.
+//! a git source", "Updates from an npm package"): on a card, where the
+//! extension came from (Pitwall's copy, a source's tag and commit, or a
+//! package's version) and when its source was last checked, with Check
+//! for updates; an update offered (from Pitwall or its source), looked at
+//! first: "Review…" fetches it and lists what changes on this computer,
+//! and only Update installs it; Go back to the copy before the last
+//! update. Under Available, "Add from Git or npm…": an https address and
+//! the folder in it, or an npm package and its registry, then what its
+//! newest release changes, and Install.
 
 use gpui::{div, prelude::*, px, AnyElement, Context, Div, SharedString};
 use pitwall_core::extensions::install::{self, Change, Origin};
@@ -294,18 +295,18 @@ impl SettingsView {
         });
     }
 
-    /// The "Available" heading with "Add from Git…", and its form or what
-    /// the release it found changes.
+    /// The "Available" heading with "Add from Git or npm…", and its form
+    /// or what the release it found changes.
     pub(super) fn add_git_view(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let open = self.exts.add_git.is_some();
         let head = div().flex().items_center().pt(px(8.)).child(crate::kit::label("Available", ui.t.text_3, 11.)).child(div().flex_1()).child(
-            btn("extension-add-git".to_string(), "Add from Git…", BtnKind::GhostSm, open, ui)
-                .tooltip(crate::kit::tooltip("Install an extension from a git repository's release tags"))
+            btn("extension-add-git".to_string(), "Add from Git or npm…", BtnKind::GhostSm, open, ui)
+                .tooltip(crate::kit::tooltip("Install an extension from a git repository's release tags or an npm package's versions"))
                 .on_click(cx.listener(|v, _, w, cx| v.open_add_git(w, cx))),
         );
         let mut col = div().flex().flex_col().gap(px(8.)).child(head);
         let Some(add) = self.exts.add_git.as_ref() else { return col };
-        let (url, sub, busy, note, prepared) = (add.url.clone(), add.dir.clone(), add.busy, add.note.clone(), add.prepared.clone());
+        let (npm, url, sub, package, registry, busy, note, prepared) = (add.npm, add.url.clone(), add.dir.clone(), add.package.clone(), add.registry.clone(), add.busy, add.note.clone(), add.prepared.clone());
         let mut card = div().id("extension-add-git-card").flex().flex_col().gap(px(10.)).p(px(14.)).rounded(px(10.)).border_1().border_color(ui.t.line_strong).bg(ui.t.surface_2);
         if let Some(p) = prepared {
             let m = &p.offer.manifest;
@@ -324,10 +325,26 @@ impl SettingsView {
             card = card.child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(yes));
         } else {
             let field = |title: &str, hint: &str, input: gpui::Entity<TextInput>| div().flex().flex_col().gap(px(4.)).child(Self::step_title(ui, title.to_string())).child(div().max_w(px(520.)).child(input)).child(crate::kit::hint(hint.to_string(), &ui.t));
-            card = card
-                .child(field("Repository", "Its https address. A private one works through your git sign-in; Pitwall never asks for a password.", url))
-                .child(field("Folder in it (optional)", "Where its extension.json is, like extensions/my-ext. Empty: the repository's root.", sub))
-                .child(crate::kit::hint("Pitwall takes its newest release tag (like v1.0.0) and shows what it changes before anything is installed. Not reviewed by Pitwall.", &ui.t));
+            // Where from: a git repository or an npm package.
+            let mut kinds = div().flex().flex_wrap().gap(px(6.));
+            for (is_npm, label) in [(false, "Git repository"), (true, "npm package")] {
+                let on = npm == is_npm;
+                let id = format!("extension-add-kind-{}", if is_npm { "npm" } else { "git" });
+                let sel = id.clone();
+                let b = div().id(SharedString::from(id)).debug_selector(move || sel).h(px(26.)).px(px(10.)).flex().items_center().rounded(px(6.)).border_1().cursor_pointer().text_size(px(12.)).child(label);
+                let b = if on { b.bg(ui.t.surface_3).border_color(ui.t.line_strong).text_color(ui.t.text).font_weight(crate::kit::WEIGHT_550) } else { b.border_color(ui.t.line).text_color(ui.t.text_2).hover(|d| d.bg(ui.t.surface_2)) };
+                kinds = kinds.child(b.on_click(cx.listener(move |v, _, w, cx| v.pick_add_kind(is_npm, w, cx))));
+            }
+            card = card.child(div().flex().flex_col().gap(px(5.)).child(Self::step_title(ui, "From")).child(kinds));
+            card = if npm {
+                card.child(field("Package", "Its name on npm, like my-ext or @me/my-ext.", package))
+                    .child(field("Registry (optional)", "An https address. Empty: npm's own (registry.npmjs.org). Pitwall sends no sign-in.", registry))
+                    .child(crate::kit::hint("Pitwall takes its newest version, checks the download against the registry's sha512 integrity and shows what it changes before anything is installed. Nothing in the package runs, and its dependencies aren't installed. Not reviewed by Pitwall.", &ui.t))
+            } else {
+                card.child(field("Repository", "Its https address. A private one works through your git sign-in; Pitwall never asks for a password.", url))
+                    .child(field("Folder in it (optional)", "Where its extension.json is, like extensions/my-ext. Empty: the repository's root.", sub))
+                    .child(crate::kit::hint("Pitwall takes its newest release tag (like v1.0.0) and shows what it changes before anything is installed. Not reviewed by Pitwall.", &ui.t))
+            };
             let cancel = btn("extension-add-git-cancel".to_string(), "Cancel", BtnKind::GhostSm, false, ui).on_click(cx.listener(|v, _, _, cx| v.close_add_git(cx)));
             let look = btn("extension-add-git-look".to_string(), if busy { "Fetching…" } else { "Look" }, BtnKind::Small, busy, ui).on_click(cx.listener(|v, _, _, cx| v.look_add_git(cx)));
             card = card.child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(look));
@@ -342,8 +359,10 @@ impl SettingsView {
     fn open_add_git(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         let url = cx.new(|cx| TextInput::new(cx, "", "https://github.com/you/your-extension").mono());
         let sub = cx.new(|cx| TextInput::new(cx, "", "extensions/my-ext").mono());
+        let package = cx.new(|cx| TextInput::new(cx, "", "@you/your-extension").mono());
+        let registry = cx.new(|cx| TextInput::new(cx, "", pitwall_core::extensions::NPM_REGISTRY).mono());
         url.update(cx, |i, cx| i.focus(window, cx));
-        for input in [&url, &sub] {
+        for input in [&url, &sub, &package, &registry] {
             let s = cx.subscribe(input, |v, _, e: &InputEvent, cx| match e {
                 InputEvent::Submit => v.look_add_git(cx),
                 InputEvent::Cancel => v.close_add_git(cx),
@@ -351,7 +370,21 @@ impl SettingsView {
             });
             self.exts._subs.push(s);
         }
-        self.exts.add_git = Some(AddGit { url, dir: sub, busy: false, note: None, prepared: None });
+        self.exts.add_git = Some(AddGit { npm: false, url, dir: sub, package, registry, busy: false, note: None, prepared: None });
+        cx.notify();
+    }
+
+    /// The form asks for a git repository, or an npm package (`npm`); the
+    /// first field of that kind is focused.
+    fn pick_add_kind(&mut self, npm: bool, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        let Some(add) = self.exts.add_git.as_mut() else { return };
+        if add.busy || add.npm == npm {
+            return;
+        }
+        add.npm = npm;
+        add.note = None;
+        let first = if npm { add.package.clone() } else { add.url.clone() };
+        first.update(cx, |i, cx| i.focus(window, cx));
         cx.notify();
     }
 
@@ -362,18 +395,20 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// The address typed: its newest release fetched and looked at.
+    /// The address or package typed: its newest release fetched and looked
+    /// at.
     fn look_add_git(&mut self, cx: &mut Context<Self>) {
         let Some(add) = self.exts.add_git.as_mut() else { return };
         if add.busy || add.prepared.is_some() {
             return;
         }
-        let (url, sub) = (add.url.read(cx).text().to_string(), add.dir.read(cx).text().to_string());
+        let npm = add.npm;
+        let (a, b) = if npm { (add.package.read(cx).text().to_string(), add.registry.read(cx).text().to_string()) } else { (add.url.read(cx).text().to_string(), add.dir.read(cx).text().to_string()) };
         add.busy = true;
         add.note = None;
         cx.notify();
         let me = cx.entity().downgrade();
-        catalog::prepare_from_git(&url, &sub, cx, move |res, cx| {
+        let done = move |res: Result<Prepared, String>, cx: &mut gpui::App| {
             let mut res = Some(res);
             let _ = me.update(cx, |v, cx| {
                 let Some(add) = v.exts.add_git.as_mut() else { return };
@@ -389,7 +424,12 @@ impl SettingsView {
             if let Some(Ok(p)) = res {
                 catalog::discard(&p, cx);
             }
-        });
+        };
+        if npm {
+            catalog::prepare_from_npm(&a, &b, cx, done);
+        } else {
+            catalog::prepare_from_git(&a, &b, cx, done);
+        }
     }
 
     /// Install (or replace with) the release looked at.
@@ -462,6 +502,22 @@ impl SettingsView {
             let (u, d) = (add.url.clone(), add.dir.clone());
             u.update(cx, |i, cx| i.set_text(url, cx));
             d.update(cx, |i, cx| i.set_text(sub, cx));
+        }
+        if look {
+            self.look_add_git(cx);
+        }
+    }
+
+    /// Bench and debug builds: "Add from Git or npm…" open on an npm
+    /// package, with `package` and `registry` typed, and looked at when
+    /// `look` (fetched; nothing installed).
+    pub fn debug_add_npm(&mut self, package: &str, registry: &str, look: bool, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.open_add_git(window, cx);
+        self.pick_add_kind(true, window, cx);
+        if let Some(add) = self.exts.add_git.as_ref() {
+            let (p, r) = (add.package.clone(), add.registry.clone());
+            p.update(cx, |i, cx| i.set_text(package, cx));
+            r.update(cx, |i, cx| i.set_text(registry, cx));
         }
         if look {
             self.look_add_git(cx);
@@ -650,6 +706,87 @@ mod tests {
         frame(cx);
         let note = view.read_with(cx, |v, _| v.exts.add_git.as_ref().and_then(|a| a.note.clone()));
         assert!(note.is_some_and(|n| n.contains("https://")), "{:?}", view.read_with(cx, |v, _| v.exts.add_git.as_ref().map(|a| a.note.clone())));
+    }
+
+    /// Types `text` into the add form's field `which` (`package`,
+    /// `registry`, `url`, `dir`).
+    fn type_in(view: &Entity<SettingsView>, cx: &mut VisualTestContext, which: &str, text: &str) {
+        view.update(cx, |v, cx| {
+            let add = v.exts.add_git.as_ref().expect("the form is open");
+            let input = match which {
+                "package" => add.package.clone(),
+                "registry" => add.registry.clone(),
+                "url" => add.url.clone(),
+                _ => add.dir.clone(),
+            };
+            input.update(cx, |i, cx| i.set_text(text, cx));
+        });
+        frame(cx);
+    }
+
+    fn add_note(view: &Entity<SettingsView>, cx: &mut VisualTestContext) -> Option<String> {
+        view.read_with(cx, |v, _| v.exts.add_git.as_ref().and_then(|a| a.note.clone()))
+    }
+
+    /// Add from npm, by clicks: the form on "npm package", a name and a
+    /// registry, Look, what the newest version changes, and Install;
+    /// nothing before the click, and nothing of the package runs.
+    #[gpui::test]
+    fn add_from_npm_shows_what_changes_before_installing(cx: &mut TestAppContext) {
+        use pitwall_core::testing::{npm_extension, NpmRegistry};
+        const REG: &str = "https://registry.example.com";
+        let reg = NpmRegistry::start(REG);
+        reg.publish("@me/notes", "0.3.0", &npm_extension("@me/notes", REG, "notes", "0.3.0", "// n", "[]"));
+        let t = TempDir::new("settings-ext-add-npm");
+        let (view, cx) = open(cx, &t);
+        cx.update(|_, cx| cx.set_global(catalog::NpmRedirect(HashMap::from([(REG.to_string(), reg.url.clone())]))));
+        click(cx, "extension-add-git");
+        assert!(cx.debug_bounds("extension-add-kind-npm").is_some(), "the choice of where from");
+        click(cx, "extension-add-kind-npm");
+        assert!(view.read_with(cx, |v, _| v.exts.add_git.as_ref().is_some_and(|a| a.npm)));
+        type_in(&view, cx, "package", "@me/notes");
+        type_in(&view, cx, "registry", REG);
+        to_end(&view, cx);
+        click(cx, "extension-add-git-look");
+        let p = view.read_with(cx, |v, _| v.exts.add_git.as_ref().and_then(|a| a.prepared.clone())).unwrap_or_else(|| panic!("looked at: {:?}", add_note(&view, cx)));
+        assert!(p.changes[0].lines[0].starts_with("npm: @me/notes (registry.example.com), version 0.3.0, sha512 "), "{:?}", p.changes[0]);
+        assert!(cx.debug_bounds("extension-add-git-install").is_some(), "Install, under what changes");
+        let data = t.path().join("data/extensions");
+        assert!(!data.join("notes").exists(), "looking installs nothing");
+        to_end(&view, cx);
+        click(cx, "extension-add-git-install");
+        assert!(data.join("notes/adapter/main.mjs").is_file());
+        assert!(view.read_with(cx, |v, _| v.exts.add_git.is_none()), "closed once installed");
+        assert!(matches!(install::origin(&data.join("notes")), Some(Origin::Npm { package, version, .. }) if package == "@me/notes" && version == "0.3.0"));
+        assert!(cx.debug_bounds("extension-check-notes").is_some(), "listed under Installed, with Check for updates");
+        cx.update(|_, cx| assert!(!crate::ui_state::get(cx).extension_on("notes"), "off"));
+    }
+
+    /// Every refusal the catalog makes before fetching anything reaches
+    /// the form under the click that asked (the answer comes after the
+    /// click is handled, never inside it): a bad package name, a registry
+    /// that isn't https, an address that isn't https.
+    #[gpui::test]
+    fn add_form_refusals_reach_the_form(cx: &mut TestAppContext) {
+        let t = TempDir::new("settings-ext-add-refused");
+        let (view, cx) = open(cx, &t);
+        click(cx, "extension-add-git");
+        click(cx, "extension-add-kind-npm");
+        for (package, registry, why) in [("My Ext", "", "isn't an npm package name"), ("@me/x@1.0.0", "", "isn't an npm package name"), ("../x", "", "isn't an npm package name"), ("@me/x", "http://registry.example.com", "https://")] {
+            type_in(&view, cx, "package", package);
+            type_in(&view, cx, "registry", registry);
+            to_end(&view, cx);
+            click(cx, "extension-add-git-look");
+            let note = add_note(&view, cx);
+            assert!(note.as_deref().is_some_and(|n| n.contains(why)), "{package} {registry}: {note:?}");
+            assert!(view.read_with(cx, |v, _| v.exts.add_git.as_ref().is_some_and(|a| !a.busy)), "ready again");
+        }
+        click(cx, "extension-add-kind-git");
+        type_in(&view, cx, "url", "git@example.com:me/x");
+        to_end(&view, cx);
+        click(cx, "extension-add-git-look");
+        assert!(add_note(&view, cx).is_some_and(|n| n.contains("https://")));
+        assert_eq!(std::fs::read_dir(t.path().join("data/extensions")).unwrap().count(), 1, "nothing fetched or written");
     }
 
     /// A development folder (here the repository's own, with a source and
