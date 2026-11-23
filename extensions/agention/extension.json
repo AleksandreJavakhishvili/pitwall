@@ -1,8 +1,9 @@
 {
-  "v": 1,
+  "v": 2,
   "id": "agention",
   "name": "Agention",
-  "version": "1.1.0",
+  "version": "1.2.0",
+  "pitwall": ">=0.8.0",
   "docs": "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/extensions/agention",
   "source": {
     "git": "https://github.com/AleksandreJavakhishvili/pitwall",
@@ -21,6 +22,13 @@
       "required": true
     },
     {
+      "key": "listen",
+      "type": "text",
+      "label": "Local server listens on",
+      "default": "127.0.0.1:8787",
+      "hint": "Where the server Pitwall keeps running listens: an address on this computer and a port (point tailscale serve at it). If a server you started yourself already listens here, Pitwall uses it and starts nothing."
+    },
+    {
       "key": "apiKey",
       "type": "secret",
       "label": "API key",
@@ -28,6 +36,7 @@
       "required": true
     }
   ],
+  "contributes": { "inbox": true },
   "adapter": { "command": ["node", "adapter/main.mjs"] },
   "agentEnv": [
     { "name": "AGENTION_URL", "value": "{setting:server}" },
@@ -53,7 +62,7 @@
     {
       "id": "server",
       "label": "Install Agention's server here",
-      "description": "Installs Agention's server, v0.6.0, on this computer with npm. Only if you don't have a server yet; starting it is in the docs.",
+      "description": "Installs (or updates) Agention's server, v0.6.0, on this computer with npm. Pitwall then keeps it running while the extension is on.",
       "steps": [
         { "run": ["npm", "install", "-g", "@wayfarerlabs/agention@0.6.0"] }
       ]
@@ -67,5 +76,18 @@
         { "for": "codex", "run": ["codex", "plugin", "marketplace", "remove", "agention"] }
       ]
     }
-  ]
+  ],
+  "service": {
+    "label": "Agention's server",
+    "run": ["agention", "serve", "--data", "{data}", "--origin", "{setting:server}", "--listen", "{setting:listen}"],
+    "install": "server",
+    "version": { "run": ["agention", "version"], "match": "(\\d+\\.\\d+\\.\\d+)", "requires": ">=0.6.0" },
+    "ready": { "listen": "{setting:listen}" },
+    "firstRun": {
+      "label": "Sign in for the first time",
+      "run": ["agention", "passkey-link", "--data", "{data}", "--origin", "{setting:server}"],
+      "opens": true,
+      "again": "A new link replaces your passkeys and signs your browsers out once it is used; a link not used yet stops working."
+    }
+  }
 }

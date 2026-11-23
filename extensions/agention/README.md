@@ -15,37 +15,59 @@ agents.
 
 ## What you need
 
-- An Agention server, **v0.5.0 or later** (the first release with the operator API; these steps use v0.6.0), served at an
-  `https` origin.
+- An Agention server, **v0.6.0 or later**, served at an `https` origin.
+  Pitwall can install it and keep it running on this computer
+  (section 1), or you run your own.
 - Node.js 24 or later on the machine running Pitwall (the adapter runs with
   `node` from your login shell's PATH).
 - Agention's plugin in Claude Code and/or Codex (step 2), installed once by
   you.
 
-## 1. Run (or upgrade) an Agention server
+## 1. The server: Pitwall runs it for you
 
 Agention's own [operator guide](https://github.com/WayfarerLabs/agention/blob/main/docs/operator-guide.md)
-is the reference. In short:
-
-- It is served at an `https` origin with a domain name, not an IP address.
-  With Tailscale, `tailscale serve` gives you one, such as
-  `https://agention.example.ts.net`.
+is the reference. Its server is served at an `https` origin with a domain
+name, not an IP address. With Tailscale, `tailscale serve` gives you one,
+such as `https://agention.example.ts.net`, in front of the address the
+server listens on:
 
 ```bash
-npm install -g @wayfarerlabs/agention@0.6.0
-tailscale serve --bg http://127.0.0.1:8080
-agention serve --data ~/.local/share/agention --origin https://agention.example.ts.net
+tailscale serve --bg http://127.0.0.1:8787
 ```
 
-The first line is also a button: **Install Agention's server here** in
-Settings → Extensions, under the extension's other actions, runs it after
-you confirm. Pitwall doesn't start the server or keep it running: it is its
-own program, which your agents and your other devices reach while Pitwall
-is closed, so start it yourself (and at login, if you like) with the last
-line. The extension's checklist turns to Connected once it answers.
+Pitwall does the rest from the extension's checklist (section 4):
 
-To upgrade an older server, install `@wayfarerlabs/agention@0.6.0` the same
-way and start it again with the same `--data` and `--origin`.
+1. **Install Agention's server**: while `agention` isn't on your login
+   shell's PATH, the step's button runs
+   `npm install -g @wayfarerlabs/agention@0.6.0` after you confirm.
+2. **Confirm and start**: the card shows the exact command once,
+   `agention serve --data <its data folder> --origin <Server address> --listen <Local server listens on>`,
+   and Pitwall keeps it running while the extension is on. It is started
+   again if it stops (after 1, 5 and 30 seconds; then Pitwall gives up and
+   shows its last lines, with Start). It is stopped when you turn the
+   extension off, update or remove it, or quit Pitwall. Its output is in
+   the card's Log.
+3. **Sign in for the first time**: on a fresh server, the button runs
+   `agention passkey-link` and opens the one-time link it prints in your
+   browser, where you create your passkey. Pitwall never shows or keeps
+   the link. The button stays under More afterwards (a new link replaces
+   your passkeys).
+
+Its data is in a folder of its own, `extension-data/agention` in Pitwall's
+data folder. It is private to you, and updates never touch it. Remove asks
+before deleting it and keeps it unless you say otherwise.
+
+**Already running a server yourself?** If something already listens on
+**Local server listens on** (127.0.0.1:8787 by default), Pitwall says
+"running elsewhere" and uses it. It never starts, stops or signals that
+server. Keep starting yours as you do, with your own `--data`. Pitwall's
+server runs only while Pitwall does. For agents and devices that need the
+server while Pitwall is closed, run your own (at login, if you like).
+
+**Too old?** Pitwall checks `agention version` before it starts the
+server. Below 0.6.0, the card says so ("Agention's server 0.5.0; this
+extension needs 0.6.0 or later") with one button. It installs 0.6.0 after
+you confirm, then starts the server again.
 
 ## 2. Install Agention's plugin in your agents (once)
 
@@ -122,12 +144,16 @@ Then turn Agention on; its card becomes a checklist:
 
 1. Server address: your server's origin, such as
    `https://agention.example.ts.net`.
-2. API key: copy the key, then "Paste from clipboard". It goes to your
+2. Local server listens on: `127.0.0.1:8787` unless you change it.
+3. Install Agention's server, confirm and start it, then sign in for the
+   first time (section 1).
+4. API key: create it in Agention's web UI (section 3), copy it, then
+   "Paste from clipboard". It goes to your
    system's secure store (Keychain, Credential Manager or Secret
    Service); Pitwall's files only record that it is set. It is given to
-   the adapter when it starts, never to agents.
-3. Set up Agention in my agents (section 2), if you haven't.
-4. Connected: ticked once the adapter reaches your server; otherwise
+   the adapter when it starts, never to agents or the server.
+5. Set up Agention in my agents (section 2), if you haven't.
+6. Connected: ticked once the adapter reaches your server; otherwise
    its words on why (signed out, unreachable, or why it stopped, with
    Try again).
 
@@ -146,6 +172,8 @@ the inbox there.
   which the server checks requests and is the most fragile part; a future
   Agention version may change it.
 - **Stopped: “node” isn't installed**: install Node.js 24+, then Restart.
+- **Its server stopped**: the card shows its last lines; the Log has the
+  rest. Fix what they say, then press Start.
 - Threads don't show a badge on an agent: the agent was started before the
   extension was turned on, or it registered with names of its own.
 
@@ -159,10 +187,10 @@ Pitwall updates this extension from this repository (`source` in
 
 1. Change what it needs (an adapter fix, the pinned Agention version in
    the setup action and the server action), and raise `version` in
-   `extension.json` (say to `1.2.0`). Commit it to `main`.
+   `extension.json` (say to `1.3.0`). Commit it to `main`.
 2. Tag that commit `agention-v<version>`, the same version as in
    `extension.json`, and push the tag:
-   `git tag agention-v1.2.0 && git push origin agention-v1.2.0`.
+   `git tag agention-v1.3.0 && git push origin agention-v1.3.0`.
 
 A tag is never moved once pushed: Pitwall records the commit a tag
 pointed at and refuses a tag that moved. Pitwall finds the new tag when it
