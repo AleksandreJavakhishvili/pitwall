@@ -145,6 +145,40 @@
             "description": "The thread its inbox tile shows (`<connection id>:<thread>` for an extension with connections).",
             "type": "string"
           },
+          "service": {
+            "additionalProperties": true,
+            "description": "Its service, the program Pitwall keeps running while it is on (docs/extensions/service.md).",
+            "properties": {
+              "confirmed": {
+                "description": "The commands the user confirmed. Pitwall starts it only while its commands are these: an update that changes them stops it and asks again.",
+                "properties": {
+                  "at": {
+                    "description": "When, in Unix seconds.",
+                    "type": "integer"
+                  },
+                  "digest": {
+                    "description": "A digest of its commands as the user confirmed them.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "digest"
+                ],
+                "type": "object"
+              },
+              "fresh": {
+                "default": false,
+                "description": "Its data folder was empty when Pitwall started it and its first run (a first sign-in) hasn't succeeded since: the first run is offered.",
+                "type": "boolean"
+              },
+              "stopped": {
+                "default": false,
+                "description": "The user stopped it: it isn't started until they press Start.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "values": {
             "additionalProperties": {
               "type": "string"

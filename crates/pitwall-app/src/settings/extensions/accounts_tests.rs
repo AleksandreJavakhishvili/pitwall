@@ -26,14 +26,14 @@ const KIT: &str = r#"{"id": "kit", "name": "Kit", "actions": [
     {"id": "remove", "label": "Remove", "description": "d", "steps": [{"for": "claude", "run": ["fake-rm", "x"]}]}
 ]}"#;
 
-fn frame(cx: &mut VisualTestContext) {
+pub(super) fn frame(cx: &mut VisualTestContext) {
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
 }
 
 /// Click control `id`, the page scrolled first so it is in view (the
 /// dialog's page area is shorter than the window).
-fn click(view: &Entity<SettingsView>, cx: &mut VisualTestContext, id: &str) {
+pub(super) fn click(view: &Entity<SettingsView>, cx: &mut VisualTestContext, id: &str) {
     frame(cx);
     let sel: &'static str = Box::leak(id.to_string().into_boxed_str());
     let b = cx.debug_bounds(sel).unwrap_or_else(|| panic!("{id} isn't drawn"));
@@ -55,7 +55,7 @@ fn click(view: &Entity<SettingsView>, cx: &mut VisualTestContext, id: &str) {
     frame(cx);
 }
 
-fn drawn(cx: &mut VisualTestContext, id: &str) -> bool {
+pub(super) fn drawn(cx: &mut VisualTestContext, id: &str) -> bool {
     frame(cx);
     cx.debug_bounds(Box::leak(id.to_string().into_boxed_str())).is_some()
 }
