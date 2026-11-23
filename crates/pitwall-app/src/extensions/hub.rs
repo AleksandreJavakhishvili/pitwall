@@ -26,21 +26,24 @@
 //! lines both ways and its stderr, secrets taken out, across its restarts
 //! until its extension is turned off.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, Global};
 use pitwall_core::extensions::log::{self, Line};
 use pitwall_core::extensions::protocol::{negotiate, Call, CallError, ConnState, Connection, Counts, FromAdapter, FromInbox, Hello, Thread, ThreadDetail, ToAdapter, ToInbox, MAX_REPLY, PROTOCOL_2};
+use pitwall_core::extensions::view::{Notify, Root, RowBadge};
 use pitwall_core::extensions::{Manifest, SettingKind};
 use serde_json::{Map, Value};
 
 use super::adapter::{Event, Link};
 use super::calls;
+
+pub mod views;
 
 /// How long an adapter has to answer `hello`.
 pub const HELLO_WITHIN: Duration = Duration::from_secs(10);
@@ -129,6 +132,25 @@ pub struct ExtState {
     /// Its process, as the socket's callers are told by.
     pid: Option<u32>,
     reg: Option<Arc<pitwall_daemon::Registry>>,
+    /// Merged: each view the extension's adapters sent ([`views`]).
+    pub views: HashMap<String, views::ViewData>,
+    /// Merged: its sidebar badges and notes, each with its connection.
+    pub badges: Vec<(String, RowBadge)>,
+    /// Why the last action in a view failed, by view.
+    pub view_notes: HashMap<String, String>,
+    /// Actions in flight: (view, item as views know it, or "").
+    pub view_busy: HashSet<(String, String)>,
+    /// An adapter's own views, as last sent.
+    raw_views: HashMap<String, Result<Root, String>>,
+    /// Actions in flight: their view and item.
+    view_pending: HashMap<u64, (String, String)>,
+    /// Commands in flight: their title.
+    commands: HashMap<u64, String>,
+    /// When its badges were last applied, and a newer set waiting.
+    badges_at: Option<Instant>,
+    badges_wait: Option<Vec<RowBadge>>,
+    /// What its activity last said about badges it may not draw.
+    badges_note: String,
 }
 
 impl ExtState {
@@ -159,6 +181,10 @@ impl ExtState {
             labels: self.labels.clone(),
             listed: self.listed,
             done: self.done.clone(),
+            views: self.views.clone(),
+            badges: self.badges.clone(),
+            view_notes: self.view_notes.clone(),
+            view_busy: self.view_busy.clone(),
             ..Default::default()
         }
     }
@@ -214,6 +240,12 @@ pub enum HubEvent {
     /// A thread has an ask it didn't have (not on the first list); its id
     /// as views know it.
     NewAsk { ext: String, thread: Thread },
+    /// An adapter asks for a notification, within its limits and granted
+    /// (`open`'s ids as views know them).
+    Notify { ext: String, notify: Notify },
+    /// A command picked in the palette was answered (`message`: the
+    /// adapter's words).
+    CommandDone { ext: String, title: String, ok: bool, message: String },
 }
 
 impl gpui::EventEmitter<HubEvent> for Hub {}
@@ -273,6 +305,13 @@ pub struct Hub {
     secrets_gen: HashMap<Key, u64>,
     /// Each adapter's log, kept while its extension is on.
     logs: HashMap<Key, log::Shared>,
+    /// Per extension: when its last notifications were shown (the last
+    /// minute's), and each id's last one (when, and what it said).
+    notified: HashMap<String, VecDeque<Instant>>,
+    notified_ids: HashMap<(String, String), (Instant, String)>,
+    /// Per extension: its views shown in tiles, and in how many (each
+    /// adapter is sent `show` after its hello).
+    shown: HashMap<String, HashMap<String, usize>>,
     /// Tests: the other ends of the adapters' links, by extension id
     /// (`<ext>/<connection>` for a connection).
     #[cfg(test)]
@@ -298,6 +337,9 @@ pub fn hub(cx: &mut App) -> Entity<Hub> {
         next_gen: 1,
         secrets_gen: HashMap::new(),
         logs: HashMap::new(),
+        notified: HashMap::new(),
+        notified_ids: HashMap::new(),
+        shown: HashMap::new(),
         #[cfg(test)]
         ends: HashMap::new(),
     });
@@ -488,7 +530,14 @@ impl Hub {
             out.busy.extend(st.busy.iter().map(|t| thread_id(c, t)));
             out.done.extend(st.done.iter().copied());
             out.listed |= st.listed;
+            out.badges.extend(st.badges.iter().cloned());
+            for (v, n) in &st.view_notes {
+                out.view_notes.entry(v.clone()).or_insert_with(|| n.clone());
+            }
+            out.view_busy.extend(st.view_busy.iter().map(|(v, i)| (v.clone(), if i.is_empty() { String::new() } else { thread_id(c, i) })));
         }
+        let parts: Vec<(&str, &str, &HashMap<String, views::ViewData>)> = order.iter().filter_map(|(c, name)| self.runs.get(&(ext.to_string(), c.clone())).filter(|st| st.run == Run::Running).map(|st| (c.as_str(), name.as_str(), &st.raw_views))).collect();
+        out.views = views::merge(&parts);
         let views = &out.connections;
         out.totals = any_totals.then_some(sum);
         out.listed |= !views.iter().any(|v| matches!(v.run, Run::Running | Run::Starting));
@@ -576,6 +625,15 @@ impl Hub {
         st.conn = None;
         st.busy.clear();
         st.pending.clear();
+        // What it drew goes with it: its views, badges and notes.
+        st.raw_views.clear();
+        st.badges.clear();
+        st.badges_wait = None;
+        st.badges_at = None;
+        st.view_pending.clear();
+        st.view_busy.clear();
+        st.view_notes.clear();
+        st.commands.clear();
         if matches!(st.run, Run::Running | Run::Starting) {
             st.run = Run::Off;
         }
@@ -708,6 +766,8 @@ impl Hub {
             return;
         }
         let mut news = Vec::new();
+        let mut notify = None;
+        let mut done_command = None;
         match ev {
             Event::Stopped(why) => {
                 Self::stop(st);
@@ -722,10 +782,15 @@ impl Hub {
                     st.hello = true;
                     st.protocol = p;
                     st.run = Run::Running;
-                    // Threads open in tiles from before (a restart).
+                    // Threads and views open in tiles from before (a restart).
                     for thread in st.open.keys() {
                         if let Some(l) = &st.link {
                             l.send(&ToAdapter::Inbox(ToInbox::Open { thread: thread.clone() }));
+                        }
+                    }
+                    for view in self.shown.get(&key.0).into_iter().flat_map(|s| s.keys()) {
+                        if let Some(l) = &st.link {
+                            l.send(&ToAdapter::Show { view: view.clone() });
                         }
                     }
                 }
@@ -764,6 +829,17 @@ impl Hub {
                 }
             }
             Event::Msg(FromAdapter::Result { req, ok, message }) => {
+                if let Some((view, item)) = st.view_pending.remove(&req) {
+                    st.view_busy.remove(&(view.clone(), item));
+                    if ok {
+                        st.view_notes.remove(&view);
+                    } else {
+                        st.view_notes.insert(view, if message.is_empty() { "That didn't work.".into() } else { message.clone() });
+                    }
+                }
+                if let Some(title) = st.commands.remove(&req) {
+                    done_command = Some((title, ok, message.clone()));
+                }
                 if let Some(thread) = st.pending.remove(&req) {
                     st.busy.remove(&thread);
                     if ok {
@@ -777,13 +853,233 @@ impl Hub {
                     st.done.remove(0);
                 }
             }
-            Event::Msg(FromAdapter::Unknown | FromAdapter::View(_) | FromAdapter::Badges(_) | FromAdapter::Notify(_)) => {}
+            Event::Msg(FromAdapter::View(v)) => {
+                let m = super::manifest_of(&key.0, cx);
+                let declared = m.as_ref().is_some_and(|m| m.contributes.view(&v.id).is_some());
+                let shown = self.shown.get(&key.0).is_some_and(|s| s.contains_key(&v.id));
+                let st = self.runs.get_mut(key).expect("it is there");
+                if !declared {
+                    let e = CallError::new("unknown", format!("It sent view “{}”, which its manifest doesn't contribute.", v.id));
+                    if let Some(reg) = &st.reg {
+                        calls::refused(reg, &key.0, "view", &e);
+                    }
+                } else if shown {
+                    // Only views in a tile are kept (a hidden one is sent
+                    // again when shown).
+                    st.raw_views.insert(v.id, v.root);
+                }
+            }
+            Event::Msg(FromAdapter::Badges(list)) => self.badges(key, list, cx),
+            Event::Msg(FromAdapter::Notify(n)) => notify = Some(n),
+            Event::Msg(FromAdapter::Unknown) => {}
+        }
+        if let Some(n) = notify {
+            self.notify(key, n, cx);
         }
         self.merge(&key.0);
         for t in news {
             cx.emit(HubEvent::NewAsk { ext: key.0.clone(), thread: Thread { id: thread_id(&key.1, &t.id), ..t } });
         }
+        if let Some((title, ok, message)) = done_command {
+            cx.emit(HubEvent::CommandDone { ext: key.0.clone(), title, ok, message });
+        }
         cx.notify();
+    }
+
+    /// Adapter `key` sent its badges: those it may draw are kept, at most
+    /// one set every [`views::BADGES_EVERY`] (a newer one waits).
+    fn badges(&mut self, key: &Key, list: Vec<RowBadge>, cx: &mut Context<Self>) {
+        let Some(st) = self.runs.get_mut(key) else { return };
+        let now = Instant::now();
+        if let Some(at) = st.badges_at.filter(|at| now.duration_since(*at) < views::BADGES_EVERY) {
+            let waiting = st.badges_wait.replace(list).is_some();
+            if !waiting {
+                let (key, gen, wait) = (key.clone(), st.gen, views::BADGES_EVERY - now.duration_since(at));
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |h, cx| {
+                        let Some(st) = h.runs.get_mut(&key).filter(|st| st.gen == gen) else { return };
+                        let Some(list) = st.badges_wait.take() else { return };
+                        st.badges_at = Some(Instant::now());
+                        h.apply_badges(&key, list, cx);
+                        h.merge(&key.0);
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+            return;
+        }
+        st.badges_at = Some(now);
+        self.apply_badges(key, list, cx);
+    }
+
+    /// Adapter `key`'s badges kept: those its extension may draw.
+    fn apply_badges(&mut self, key: &Key, list: Vec<RowBadge>, cx: &mut Context<Self>) {
+        let m = super::manifest_of(&key.0, cx);
+        let grants = m.as_ref().map(|m| calls::effective(m, &crate::ui_state::get(cx).extension(&m.id).grants)).unwrap_or_default();
+        let st = self.runs.get_mut(key).expect("it is there");
+        let Some(m) = m.filter(|m| m.contributes.badges) else {
+            if !list.is_empty() && st.badges_note.is_empty() {
+                st.badges_note = "badges".into();
+                if let Some(reg) = &st.reg {
+                    calls::refused(reg, &key.0, "badges", &CallError::new("unknown", "It sent badges, but its manifest doesn't contribute \"badges\"."));
+                }
+            }
+            st.badges.clear();
+            return;
+        };
+        let mut kept = Vec::new();
+        let mut why = None;
+        for mut b in list {
+            match views::allowed(&m, &grants, &b) {
+                Ok(()) => {
+                    b.open = b.open.map(|o| views::open_as_seen(&key.1, o));
+                    kept.push((key.1.clone(), b));
+                }
+                Err(e) => why = Some(e),
+            }
+        }
+        // Each refusal once, until it changes.
+        let note = why.clone().unwrap_or_default();
+        if st.badges_note != note {
+            if let (Some(why), Some(reg)) = (why, &st.reg) {
+                calls::refused(reg, &key.0, "badges", &CallError::new("denied", format!("Some of its badges weren't shown: {why}.")));
+            }
+            st.badges_note = note;
+        }
+        st.badges = kept;
+    }
+
+    /// Adapter `key` asks for notification `n`: shown when its extension
+    /// contributes notifications and is granted `notify`, at most
+    /// [`views::NOTIFY_PER_MINUTE`] a minute, the same one not again.
+    fn notify(&mut self, key: &Key, n: Notify, cx: &mut Context<Self>) {
+        use pitwall_core::extensions::activity::{Entry, Outcome, Via};
+        let Some(reg) = self.runs.get(key).and_then(|st| st.reg.clone()) else { return };
+        let ext = key.0.clone();
+        let refuse = |code: &str, why: String| calls::refused(&reg, &ext, "notify", &CallError::new(code, why));
+        let Some(m) = super::manifest_of(&ext, cx) else { return };
+        if !m.contributes.notifications {
+            return refuse("unknown", "Its manifest doesn't contribute \"notifications\".".into());
+        }
+        let grants = calls::effective(&m, &crate::ui_state::get(cx).extension(&m.id).grants);
+        if !grants.iter().any(|g| g == pitwall_core::extensions::permissions::NOTIFY) {
+            return refuse("denied", "It isn't granted \"notify\".".into());
+        }
+        let now = Instant::now();
+        let said = format!("{}\n{}", n.title, n.body);
+        let id = (ext.clone(), thread_id(&key.1, &n.id));
+        if self.notified_ids.get(&id).is_some_and(|(at, s)| *s == said && now.duration_since(*at) < views::SAME_WITHIN) {
+            return;
+        }
+        if !views::may_notify(self.notified.entry(ext.clone()).or_default(), now) {
+            return refuse("busy", format!("More than {} notifications a minute: this one wasn't shown.", views::NOTIFY_PER_MINUTE));
+        }
+        self.notified_ids.retain(|_, (at, _)| now.duration_since(*at) < views::SAME_WITHIN);
+        self.notified_ids.insert(id, (now, said));
+        reg.record(&ext, Entry::now(Via::Adapter, "notify", Outcome::Ok));
+        let open = n.open.clone().map(|o| views::open_as_seen(&key.1, o));
+        cx.emit(HubEvent::Notify { ext, notify: Notify { open, ..n } });
+    }
+
+    /// A tile shows view `view` of extension `ext`: its adapters send it
+    /// and keep it current.
+    pub fn show_view(&mut self, ext: &str, view: &str, cx: &mut Context<Self>) {
+        let n = self.shown.entry(ext.to_string()).or_default().entry(view.to_string()).or_default();
+        *n += 1;
+        if *n == 1 {
+            for (_, st) in self.runs.iter().filter(|(k, st)| k.0 == ext && st.hello) {
+                if let Some(l) = &st.link {
+                    l.send(&ToAdapter::Show { view: view.to_string() });
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// A tile of view `view` closed.
+    pub fn hide_view(&mut self, ext: &str, view: &str) {
+        let Some(shown) = self.shown.get_mut(ext) else { return };
+        let Some(n) = shown.get_mut(view) else { return };
+        *n -= 1;
+        if *n > 0 {
+            return;
+        }
+        shown.remove(view);
+        for (_, st) in self.runs.iter_mut().filter(|(k, _)| k.0 == ext) {
+            st.raw_views.remove(view);
+            st.view_notes.remove(view);
+            if let (true, Some(l)) = (st.hello, &st.link) {
+                l.send(&ToAdapter::Hide { view: view.to_string() });
+            }
+        }
+        self.merge(ext);
+    }
+
+    /// The adapter an item of a view is of (its id as views know it), and
+    /// the item's own id; no item: the first running adapter.
+    fn route_item(&self, ext: &str, item: Option<&str>) -> Option<(Key, Option<String>)> {
+        if let Some(item) = item {
+            let (key, inner) = self.route(ext, item);
+            return Some((key, Some(inner)));
+        }
+        let order = self.targets.get(ext)?;
+        order.iter().map(|(c, _)| (ext.to_string(), c.clone())).find(|k| self.runs.get(k).is_some_and(|st| st.hello)).map(|k| (k, None))
+    }
+
+    /// Item `item` of view `view` was selected (its detail is drawn
+    /// beside the list).
+    pub fn select(&mut self, ext: &str, view: &str, item: &str) {
+        let Some((key, Some(inner))) = self.route_item(ext, Some(item)) else { return };
+        if let Some(l) = self.runs.get(&key).filter(|st| st.hello).and_then(|st| st.link.as_ref()) {
+            l.send(&ToAdapter::Select { view: view.to_string(), item: inner });
+        }
+    }
+
+    /// Button `action` was pressed in view `view` (on `item`, or the
+    /// view's own): its request number, or why not.
+    pub fn view_action(&mut self, ext: &str, view: &str, item: Option<&str>, action: &str, cx: &mut Context<Self>) -> Result<u64, String> {
+        use pitwall_core::extensions::activity::{Entry, Outcome, Via};
+        let (key, inner) = self.route_item(ext, item).ok_or("The extension isn't running.")?;
+        let req = self.next_req;
+        let st = self.runs.get_mut(&key).ok_or("The extension isn't running.")?;
+        let link = st.link.as_ref().filter(|_| st.hello).ok_or("The extension isn't running.")?;
+        if !link.send(&ToAdapter::Action { req, view: view.to_string(), item: inner.clone(), action: action.to_string() }) {
+            return Err("The extension isn't running.".into());
+        }
+        self.next_req += 1;
+        let inner = inner.unwrap_or_default();
+        st.view_pending.insert(req, (view.to_string(), inner.clone()));
+        st.view_busy.insert((view.to_string(), inner));
+        st.view_notes.remove(view);
+        if let Some(reg) = &st.reg {
+            reg.record(ext, Entry::now(Via::Pitwall, format!("view action: {view} {action}"), Outcome::Ok));
+        }
+        self.merge(ext);
+        cx.notify();
+        Ok(req)
+    }
+
+    /// Command `command` (titled `title`) was picked in the palette, with
+    /// agent `agent` focused when it asks for one and may read agents:
+    /// sent to the first running adapter.
+    pub fn command(&mut self, ext: &str, command: &str, title: &str, agent: Option<String>, cx: &mut Context<Self>) -> Result<u64, String> {
+        use pitwall_core::extensions::activity::{Entry, Outcome, Via};
+        let (key, _) = self.route_item(ext, None).ok_or("The extension isn't running.")?;
+        let req = self.next_req;
+        let st = self.runs.get_mut(&key).ok_or("The extension isn't running.")?;
+        let link = st.link.as_ref().ok_or("The extension isn't running.")?;
+        if !link.send(&ToAdapter::Command { req, command: command.to_string(), agent_id: agent }) {
+            return Err("The extension isn't running.".into());
+        }
+        self.next_req += 1;
+        st.commands.insert(req, title.to_string());
+        if let Some(reg) = &st.reg {
+            reg.record(ext, Entry::now(Via::Pitwall, format!("command: {command}"), Outcome::Ok));
+        }
+        cx.notify();
+        Ok(req)
     }
 
     /// Adapter `key` calls `c`: answered off the UI thread by the daemon's

@@ -192,6 +192,7 @@ impl MainScreen {
             Content::Files(_) => ("Files", ""),
             Content::Web(_) => ("Web page", "s"),
             Content::Inbox(_) => ("Inbox", "es"),
+            Content::View(_) => ("The view", "s"),
         };
         // In a tile's place: what leaves it, said plainly.
         if let FilesSpot::Replace(pane) = spot {
@@ -199,6 +200,7 @@ impl MainScreen {
                 Some(p) if p.files.is_some() => return format!("{noun} swap{verb} places with {}'s files", name(p.files.as_deref().unwrap_or_default())),
                 Some(p) if p.web.is_some() => return format!("{noun} swap{verb} places with the web page"),
                 Some(p) if p.inbox.is_some() => return format!("{noun} swap{verb} places with the inbox"),
+                Some(p) if p.view.is_some() => return format!("{noun} swap{verb} places with the view"),
                 Some(p) if p.agent_id.is_some() => return format!("{noun} replace{verb} {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
                 _ => {}
             }
@@ -360,11 +362,12 @@ impl MainScreen {
                 let leaves = space.layout.leaves();
                 let name = |id: Option<&String>| {
                     let p = id.and_then(|id| leaves.iter().find(|p| &p.id == id));
-                    p.map(|p| match (&p.agent_id, &p.files, &p.web, &p.inbox) {
+                    p.map(|p| match (&p.agent_id, &p.files, &p.web, &p.inbox, &p.view) {
                         (Some(a), ..) => format!("terminal {a}"),
                         (_, Some(f), ..) => format!("files {f}"),
-                        (_, _, Some(w), _) => format!("web {w}"),
-                        (_, _, _, Some(e)) => format!("inbox {e}"),
+                        (_, _, Some(w), ..) => format!("web {w}"),
+                        (_, _, _, Some(e), _) => format!("inbox {e}"),
+                        (_, _, _, _, Some(v)) => format!("view {v}"),
                         _ => "empty".into(),
                     })
                 };

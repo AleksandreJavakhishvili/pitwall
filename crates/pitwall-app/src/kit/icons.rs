@@ -81,7 +81,14 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("inbox", "M3 10.5 5 4.5h10l2 6v5H3zM3 10.5h4l1 2h4l1-2h4"),
     ("bell", "M5.5 13.5V9a4.5 4.5 0 0 1 9 0v4.5l1.5 1.5H4zM8.5 17h3"),
     ("chat", "M3.5 4.5h13v9h-7l-3.5 3v-3H3.5z"),
+    ("list", "M7.5 5.5h9M7.5 10h9M7.5 14.5h9M3.5 5.5h.01M3.5 10h.01M3.5 14.5h.01"),
 ];
+
+/// This app's own name for icon `name`, if it has it (kept for the life
+/// of the app).
+pub fn known(name: &str) -> Option<&'static str> {
+    ICONS.iter().chain(EXTRA_ICONS).find(|(n, _)| *n == name).map(|(n, _)| *n)
+}
 
 /// This app has an icon called `name`.
 pub fn has_icon(name: &str) -> bool {

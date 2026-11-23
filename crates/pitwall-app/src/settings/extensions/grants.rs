@@ -179,6 +179,9 @@ impl SettingsView {
             }
             col = col.child(row);
         }
+        if let Some(adds) = Self::contributions(ui, m) {
+            col = col.child(adds);
+        }
         let m2 = m.clone();
         let buttons = div()
             .flex()
@@ -196,6 +199,26 @@ impl SettingsView {
                 cx.notify();
             })));
         Some(col.child(buttons).into_any_element())
+    }
+
+    /// What it adds to Pitwall while it is on (its views, commands,
+    /// badges and notifications), one line each; nothing for an inbox
+    /// alone.
+    pub(super) fn contributions(ui: &Ui, m: &Manifest) -> Option<Div> {
+        let c = &m.contributes;
+        if c.views.is_empty() && c.commands.is_empty() && !c.badges && !c.notifications {
+            return None;
+        }
+        let sel = format!("extension-adds-{}", m.id);
+        Some(
+            div()
+                .debug_selector(move || sel)
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(crate::kit::label("Adds to Pitwall", ui.t.text_3, 11.))
+                .children(c.lines().into_iter().map(|l| div().text_size(px(12.)).text_color(ui.t.text_2).child(l))),
+        )
     }
 
     /// Permissions, in a card that is on: each with its reason, its state

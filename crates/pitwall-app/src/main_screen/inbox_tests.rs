@@ -488,11 +488,11 @@ fn an_inbox_in_a_window_is_kept_in_ui_json() {
 
 // ── moved between windows ────────────────────────────────────────────────
 
-struct Main(Option<gpui::WindowHandle<crate::ui::MainView>>, Entity<AgentStore>);
+pub(super) struct Main(pub(super) Option<gpui::WindowHandle<crate::ui::MainView>>, pub(super) Entity<AgentStore>);
 
 impl gpui::Global for Main {}
 
-fn show_main(cx: &mut gpui::App) -> gpui::WindowHandle<crate::ui::MainView> {
+pub(super) fn show_main(cx: &mut gpui::App) -> gpui::WindowHandle<crate::ui::MainView> {
     if let Some(h) = cx.global::<Main>().0 {
         if cx.windows().iter().any(|w| w.window_id() == h.window_id()) {
             return h;

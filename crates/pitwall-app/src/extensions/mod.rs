@@ -157,10 +157,29 @@ pub fn follow(cx: &mut App) {
     // A new ask: the notification an agent needing the user gets.
     let watched = hub::hub(cx);
     cx.subscribe(&watched, |_, e: &hub::HubEvent, cx| {
-        let hub::HubEvent::NewAsk { ext, thread } = e;
-        let name = found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == *ext).map(|m| m.name.clone()).unwrap_or_default();
-        let who = thread.from.as_ref().map_or(name.clone(), |f| f.agent.clone());
-        crate::platform::notify_attention(who, format!("Asks you — {}", thread.title), cx);
+        let name_of = |ext: &str, cx: &App| manifest_of(ext, cx).map(|m| m.name).unwrap_or_else(|| ext.to_string());
+        match e {
+            hub::HubEvent::NewAsk { ext, thread } => {
+                let name = name_of(ext, cx);
+                let who = thread.from.as_ref().map_or(name.clone(), |f| f.agent.clone());
+                crate::platform::notify_attention(who, format!("Asks you — {}", thread.title), cx);
+            }
+            // An extension's own notification, labelled with its name: the
+            // system's while Pitwall isn't in front (never from a bench
+            // instance), and a toast in Pitwall, which opens what it names.
+            hub::HubEvent::Notify { ext, notify } => {
+                let title = format!("{}: {}", name_of(ext, cx), notify.title);
+                crate::platform::notify_attention(title.clone(), notify.body.clone(), cx);
+                crate::windows::extension_toast(ext, title, notify.body.clone(), notify.open.clone(), cx);
+            }
+            hub::HubEvent::CommandDone { ext, title, ok, message } => {
+                if *ok && message.is_empty() {
+                    return;
+                }
+                let head = if *ok { format!("{}: {title}", name_of(ext, cx)) } else { format!("{}: “{title}” didn't work", name_of(ext, cx)) };
+                crate::windows::extension_toast(ext, head, message.clone(), None, cx);
+            }
+        }
     })
     .detach();
     let c = std::rc::Rc::new(changed);
@@ -238,6 +257,62 @@ pub fn asks_for(a: &pitwall_proto::AgentView, cx: &App) -> Option<AgentAsks> {
         let oldest = mine.iter().min_by(|x, y| x.last_activity.cmp(&y.last_activity))?;
         Some(AgentAsks { ext: m.id.clone(), name: m.name.clone(), thread: oldest.id.clone(), asks: mine.iter().map(|t| t.open_asks).sum(), blocking: mine.iter().any(|t| t.blocking) })
     })
+}
+
+/// Extension `id`'s manifest, if it is found and readable.
+pub fn manifest_of(id: &str, cx: &App) -> Option<Manifest> {
+    found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == id).cloned()
+}
+
+/// The extensions that are on and whose adapters run now: what their
+/// views, commands and badges come from.
+pub fn running(cx: &App) -> Vec<Manifest> {
+    let Some(hub) = hub::try_hub(cx) else { return vec![] };
+    let hub = hub.read(cx);
+    enabled(&found(cx), &crate::ui_state::get(cx)).into_iter().filter(|m| hub.get(&m.id).is_some_and(|s| s.run == hub::Run::Running)).collect()
+}
+
+/// A badge or note an extension put on a sidebar row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowMark {
+    pub ext: String,
+    pub name: String,
+    pub badge: pitwall_core::extensions::view::RowBadge,
+}
+
+/// The badges and notes on agent `a`'s row: each running extension's
+/// that names it (by Pitwall's id, or by its `matchAgents`).
+pub fn marks_for_agent(a: &pitwall_proto::AgentView, cx: &App) -> Vec<RowMark> {
+    use pitwall_core::extensions::view::Target;
+    let Some(hub) = hub::try_hub(cx) else { return vec![] };
+    let list = crate::accounts::list(cx);
+    let mut out = Vec::new();
+    for m in running(cx) {
+        let Some(st) = hub.read(cx).get(&m.id) else { continue };
+        for (conn, b) in &st.badges {
+            let mine = match &b.target {
+                Target::Agent(id) => *id == a.id,
+                Target::From(f) => is_agents(&m, a, &hub::thread_id(conn, "badge"), f, list),
+                Target::Project(_) => false,
+            };
+            if mine {
+                out.push(RowMark { ext: m.id.clone(), name: m.name.clone(), badge: b.clone() });
+            }
+        }
+    }
+    out
+}
+
+/// The badges and notes on project `path`'s row.
+pub fn marks_for_project(path: &str, cx: &App) -> Vec<RowMark> {
+    use pitwall_core::extensions::view::Target;
+    let Some(hub) = hub::try_hub(cx) else { return vec![] };
+    let mut out = Vec::new();
+    for m in running(cx) {
+        let Some(st) = hub.read(cx).get(&m.id) else { continue };
+        out.extend(st.badges.iter().filter(|(_, b)| matches!(&b.target, Target::Project(p) if p == path)).map(|(_, b)| RowMark { ext: m.id.clone(), name: m.name.clone(), badge: b.clone() }));
+    }
+    out
 }
 
 /// The extensions that are on and have an adapter: those with an inbox.

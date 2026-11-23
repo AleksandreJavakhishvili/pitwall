@@ -357,6 +357,8 @@ impl MainScreen {
                             .flex_none(),
                         )
                     })
+                    // Extensions' badges and notes (view_tile.rs).
+                    .children(self.project_marks(&g.project, t, cx))
                     .child(
                         div()
                             .flex_none()
@@ -1008,6 +1010,8 @@ impl MainScreen {
                             })
                             // Open asks in an extension (inbox_tile.rs).
                             .children(self.agent_ask_badge(a, t, cx))
+                            // Extensions' badges and notes (view_tile.rs).
+                            .children(self.agent_marks(a, t, cx))
                             .when(a.engineer, |d| d.child(chip("engineer", t)))
                             .when_some(account, |d, n| d.child(chip(n, t)))
                             // Another machine's Pitwall: watched, not driven.

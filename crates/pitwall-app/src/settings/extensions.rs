@@ -477,6 +477,7 @@ impl SettingsView {
                     card = card.child(other);
                 }
                 card = card.children(self.permissions_view(ui, &m, cx));
+                card = card.children(Self::contributions(ui, &m).map(|d| d.pt(px(10.)).border_t_1().border_color(ui.t.line)));
             } else if self.exts.asking.as_ref().is_some_and(|(e, _)| *e == m.id) {
                 // The permission screen above says it all.
             } else {

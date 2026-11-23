@@ -20,6 +20,7 @@
 pub(crate) mod files_tile;
 pub mod inbox_tile;
 pub mod inbox_window;
+pub mod view_tile;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -36,7 +37,7 @@ mod side_edge;
 mod side_list;
 mod sidebar;
 mod space;
-mod strip;
+pub mod strip;
 mod tile_font;
 pub(crate) mod topbar;
 pub mod web_tile;
@@ -2268,6 +2269,8 @@ mod tests;
 mod web_tests;
 #[cfg(test)]
 mod inbox_tests;
+#[cfg(test)]
+mod view_tests;
 #[cfg(test)]
 mod files_tile_tests;
 #[cfg(test)]

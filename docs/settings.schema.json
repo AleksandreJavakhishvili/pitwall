@@ -117,6 +117,13 @@
             "description": "A copy of the plain settings of the connection carried over from before connections, for an older Pitwall (the settings live in accounts.json).",
             "type": "object"
           },
+          "viewWindows": {
+            "description": "Its views (by id) in windows of their own, each opened again at the next start; a view tile in a layout is a pane's `view` (`<extension>/<view>`).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "window": {
             "default": false,
             "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows).",

@@ -412,12 +412,18 @@ fn a_silent_adapter_is_stopped(cx: &mut TestAppContext) {
 /// `projects.read`; the hub with a daemon server answering its calls.
 fn setup_2(cx: &mut TestAppContext, t: &TempDir) -> Entity<Hub> {
     use pitwall_core::extensions::PermissionAsk;
-    use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink};
     let m = Manifest {
         format: 2,
         permissions: vec![PermissionAsk { name: "agents.read".into(), reason: "To match".into() }, PermissionAsk { name: "projects.read".into(), reason: "To list".into() }],
         ..manifest()
     };
+    setup_m(cx, t, m)
+}
+
+/// Extension `m` (its id "inbox"); the hub with a daemon server answering
+/// its calls.
+fn setup_m(cx: &mut TestAppContext, t: &TempDir, m: Manifest) -> Entity<Hub> {
+    use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink};
     let events = pitwall_daemon::Hub::new(RecordingSink::new());
     let engine = pitwall_core::Engine::open(pitwall_core::Deps {
         paths: Paths::new(t.path().join("engine")),
@@ -575,4 +581,158 @@ fn an_adapter_s_log_is_kept_while_it_is_on(cx: &mut TestAppContext) {
     cx.update(|cx| crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("inbox", false)));
     assert_eq!(run(&h, cx), Run::Off);
     assert!(texts(&h, cx).is_empty(), "forgotten when turned off");
+}
+
+/// Extension "inbox" in format 2 contributing a view "runs", a command,
+/// badges and notifications (granted `agents.read` and `notify`).
+fn setup_views(cx: &mut TestAppContext, t: &TempDir) -> (Entity<Hub>, String) {
+    use pitwall_core::extensions::permissions::Decision;
+    use pitwall_core::extensions::{CommandDef, Contributes, PermissionAsk, ViewDef};
+    let m = Manifest {
+        format: 2,
+        permissions: vec![PermissionAsk { name: "agents.read".into(), reason: "To match".into() }, PermissionAsk { name: "notify".into(), reason: "To tell".into() }],
+        contributes: Contributes {
+            views: vec![ViewDef { id: "runs".into(), title: "Runs".into(), icon: None }],
+            commands: vec![CommandDef { id: "rerun".into(), title: "Re-run".into(), context: Default::default() }],
+            badges: true,
+            notifications: true,
+            ..Default::default()
+        },
+        ..manifest()
+    };
+    let h = setup_m(cx, t, m);
+    cx.update(|cx| {
+        crate::ui_state::update(cx, |u| {
+            *u = std::mem::take(u).with_extension("inbox", |e| {
+                e.enabled = true;
+                e.grants.insert("agents.read".into(), Decision { granted: true, at: 1 });
+                e.grants.insert("notify".into(), Decision { granted: true, at: 1 });
+            })
+        })
+    });
+    let id = connection("Work", "https://x.example", cx);
+    cx.run_until_parked();
+    let end = format!("inbox/{id}");
+    say(&h, &end, json!({"type": "hello", "protocol": 2}), cx);
+    (h, end)
+}
+
+fn view_of(h: &Entity<Hub>, cx: &mut TestAppContext) -> Option<views::ViewData> {
+    cx.run_until_parked();
+    h.read_with(cx, |h, _| h.get("inbox").and_then(|s| s.views.get("runs").cloned()))
+}
+
+/// A view is kept only while a tile shows it: shown, its adapter is told
+/// (again after a restart); what it sends is drawn, its rows' ids with
+/// their connection; a selection, an action and its answer go both ways;
+/// a view it doesn't contribute is refused; hidden, it is told and it goes.
+#[gpui::test]
+fn a_view_goes_both_ways(cx: &mut TestAppContext) {
+    use pitwall_core::extensions::view::Root;
+    let t = TempDir::new("hub-views");
+    let (h, end) = setup_views(cx, &t);
+    let conn = end.trim_start_matches("inbox/").to_string();
+    let list = json!({"type": "view", "view": "runs", "root": {"kind": "list", "sections": [{"items": [{"id": "r1", "title": "Build"}]}], "detail": {"kind": "markdown", "text": "hi"}}});
+    say(&h, &end, list.clone(), cx);
+    assert_eq!(view_of(&h, cx), None, "not shown: not kept");
+    h.update(cx, |h, cx| h.show_view("inbox", "runs", cx));
+    cx.run_until_parked();
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "show", "view": "runs"})));
+    say(&h, &end, list, cx);
+    let Some(Ok(Root::List { list, detail })) = view_of(&h, cx) else { panic!("drawn") };
+    let item = format!("{conn}:r1");
+    assert_eq!(list.items().map(|i| i.id.clone()).collect::<Vec<_>>(), [item.clone()]);
+    assert!(detail.is_some());
+    h.update(cx, |h, _| h.select("inbox", "runs", &item));
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "select", "view": "runs", "item": "r1"})));
+    let req = h.update(cx, |h, cx| h.view_action("inbox", "runs", Some(&item), "retry", cx)).unwrap();
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "action", "req": req, "view": "runs", "item": "r1", "action": "retry"})));
+    assert!(h.read_with(cx, |h, _| h.get("inbox").unwrap().view_busy.contains(&("runs".to_string(), item.clone()))));
+    say(&h, &end, json!({"type": "result", "req": req, "ok": false, "message": "No runner free"}), cx);
+    assert_eq!(h.read_with(cx, |h, _| h.get("inbox").unwrap().view_notes.get("runs").cloned()), Some("No runner free".into()));
+    // Too big or a form: refused, said in the tile.
+    say(&h, &end, json!({"type": "view", "view": "runs", "root": {"kind": "form"}}), cx);
+    assert!(matches!(view_of(&h, cx), Some(Err(why)) if why.contains("form")));
+    // Not its own: refused, logged.
+    say(&h, &end, json!({"type": "view", "view": "other", "root": {"kind": "markdown", "text": "x"}}), cx);
+    let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
+    assert!(log.iter().any(|e| e.method == "view" && e.refused()), "{log:?}");
+    assert!(log.iter().any(|e| e.method.starts_with("view action: runs retry")));
+    // Restarted: told again.
+    h.update(cx, |h, cx| h.restart("inbox", cx));
+    cx.run_until_parked();
+    say(&h, &end, json!({"type": "hello", "protocol": 2}), cx);
+    assert!(sent(&h, &end, cx).iter().any(|l| *l == json!({"type": "show", "view": "runs"})));
+    h.update(cx, |h, _| h.hide_view("inbox", "runs"));
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "hide", "view": "runs"})));
+    assert_eq!(view_of(&h, cx), None);
+}
+
+/// A command goes to the adapter and its answer comes back as an event.
+#[gpui::test]
+fn a_command_is_sent_and_answered(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-commands");
+    let (h, end) = setup_views(cx, &t);
+    let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let g = got.clone();
+    cx.update(|cx| cx.subscribe(&h, move |_, e: &HubEvent, _| g.borrow_mut().push(e.clone())).detach());
+    let req = h.update(cx, |h, cx| h.command("inbox", "rerun", "Re-run", Some("a1".into()), cx)).unwrap();
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "command", "req": req, "command": "rerun", "agentId": "a1"})));
+    say(&h, &end, json!({"type": "result", "req": req, "ok": true, "message": "Queued"}), cx);
+    assert!(got.borrow().contains(&HubEvent::CommandDone { ext: "inbox".into(), title: "Re-run".into(), ok: true, message: "Queued".into() }));
+}
+
+/// Badges: kept when the extension may name the row, at most a set every
+/// quarter second (the newest wins), gone when it stops.
+#[gpui::test]
+fn badges_follow_permissions_limits_and_the_adapter(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-badges");
+    let (h, end) = setup_views(cx, &t);
+    let badges = |h: &Entity<Hub>, cx: &mut TestAppContext| h.read_with(cx, |h, _| h.get("inbox").unwrap().badges.iter().map(|(_, b)| b.note.clone()).collect::<Vec<_>>());
+    say(&h, &end, json!({"type": "badges", "badges": [{"agent": {"agentId": "a1"}, "note": "one"}, {"project": {"path": "/p"}, "count": 2}]}), cx);
+    assert_eq!(badges(&h, cx), ["one"], "a project needs projects.read");
+    let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
+    assert!(log.iter().any(|e| e.method == "badges" && e.refused()));
+    say(&h, &end, json!({"type": "badges", "badges": [{"agent": {"agentId": "a1"}, "note": "two"}]}), cx);
+    say(&h, &end, json!({"type": "badges", "badges": [{"agent": {"agentId": "a1"}, "note": "three"}]}), cx);
+    assert_eq!(badges(&h, cx), ["one"], "too soon: waits");
+    cx.executor().advance_clock(views::BADGES_EVERY);
+    cx.run_until_parked();
+    assert_eq!(badges(&h, cx), ["three"], "the newest");
+    h.update(cx, |h, cx| h.restart("inbox", cx));
+    cx.run_until_parked();
+    assert!(badges(&h, cx).is_empty(), "gone with it");
+}
+
+/// Notifications: granted, a few a minute, the same one once.
+#[gpui::test]
+fn notifications_are_limited(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-notify");
+    let (h, end) = setup_views(cx, &t);
+    let got = std::rc::Rc::new(std::cell::RefCell::new(0));
+    let g = got.clone();
+    cx.update(|cx| {
+        cx.subscribe(&h, move |_, e: &HubEvent, _| {
+            if matches!(e, HubEvent::Notify { .. }) {
+                *g.borrow_mut() += 1
+            }
+        })
+        .detach()
+    });
+    say(&h, &end, json!({"type": "notify", "id": "n1", "title": "Build failed"}), cx);
+    say(&h, &end, json!({"type": "notify", "id": "n1", "title": "Build failed"}), cx);
+    assert_eq!(*got.borrow(), 1, "the same one once");
+    for i in 2..6 {
+        say(&h, &end, json!({"type": "notify", "id": format!("n{i}"), "title": "More"}), cx);
+    }
+    assert_eq!(*got.borrow(), 3, "three a minute");
+    let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
+    assert_eq!(log.iter().filter(|e| e.method == "notify" && !e.refused()).count(), 3);
+    assert!(log.iter().any(|e| e.method == "notify" && e.refused()));
+    // Revoked: refused.
+    cx.update(|cx| crate::extensions::calls::decide("inbox", "notify", false, cx));
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_secs(61));
+    say(&h, &end, json!({"type": "notify", "id": "n9", "title": "Late"}), cx);
+    assert_eq!(*got.borrow(), 3);
 }

@@ -578,6 +578,44 @@ pub fn show_inbox(ext: &str, thread: &str, cx: &mut App) {
     });
 }
 
+/// A toast from extension `ext` in the main window (a notification it
+/// sent, a command's answer); with `open`, an "Open" button that opens
+/// the view or the inbox thread it names there. Nothing comes forward.
+pub fn extension_toast(ext: &str, title: String, body: String, open: Option<pitwall_core::extensions::view::Open>, cx: &mut App) {
+    use crate::main_screen::strip::{Toast, ToastAction};
+    use pitwall_core::extensions::view::Open;
+    let ext = ext.to_string();
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(MAIN, cx) else { return };
+        let _ = handle.update(cx, |view, _, cx| {
+            let Some(screen) = view.screen.clone() else { return };
+            let detail = (!body.is_empty()).then_some(body);
+            let actions = match open {
+                None => vec![],
+                Some(open) => {
+                    let (ext, weak) = (ext.clone(), screen.downgrade());
+                    vec![ToastAction {
+                        label: "Open".into(),
+                        primary: true,
+                        run: std::rc::Rc::new(move |cx: &mut App| {
+                            let (ext, open, weak) = (ext.clone(), open.clone(), weak.clone());
+                            let Some(handle) = window_for(MAIN, cx) else { return };
+                            let _ = handle.update(cx, move |_, window, cx| {
+                                let _ = weak.update(cx, |s, cx| match &open {
+                                    Open::View { view, item } => s.open_view(&ext, view, item.as_deref(), window, cx),
+                                    Open::Thread(t) => s.open_inbox(Some(&ext), Some(t), window, cx),
+                                });
+                            });
+                        }),
+                    }]
+                }
+            };
+            let key = format!("ext-{ext}-{title}");
+            screen.update(cx, |s, cx| s.toast(Toast::ask(key, title, detail, actions), cx));
+        });
+    });
+}
+
 /// An agent was shown in window `from`; when it lives in another window,
 /// that window comes forward and focuses it (`focusRequest` + `focus_window`).
 fn route_agent(from: &str, agent: &str, cx: &mut App) {
