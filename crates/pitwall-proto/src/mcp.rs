@@ -1,6 +1,7 @@
 //! The `pitwall` MCP server's tools (`show_files`, `show_folder`,
-//! `show_web`): their definitions, the server's instructions, a call's
-//! arguments as a [`ViewerOpen`] or a [`WebOpen`], and its result in words.
+//! `show_web`, `show_settings`): their definitions, the server's
+//! instructions, a call's arguments as a [`ViewerOpen`], a [`WebOpen`] or
+//! a [`SettingsOpen`], and its result in words.
 //! Which tools a Pitwall lists follows its settings ([`served`]); this
 //! build's own copy, used when Pitwall can't be asked, has them all
 //! ([`own`]).
@@ -15,7 +16,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::show::{ViewerOpen, ViewerOpened, ViewerPlace, TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB};
+use crate::settings_open::SettingsOpen;
+use crate::show::{ViewerOpen, ViewerOpened, ViewerPlace, TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_SETTINGS, TOOL_SHOW_WEB};
 use crate::web::WebOpen;
 
 /// `mcp.tools`' answer: the tools as MCP's `tools/list` gives them, the
@@ -54,25 +56,43 @@ pub struct McpCalled {
     pub stamp: String,
 }
 
+const INTRO: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents.";
+
+const FILES_INSTRUCTIONS: &str = " When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's.";
+
+const WEB_INSTRUCTIONS: &str = " When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), use show_web: it only shows the page to the user, you get nothing back from it and can't click or type in it.";
+
+const SETTINGS_INSTRUCTIONS: &str = " When the user asks to see or change one of Pitwall's own settings (\"where do I turn that on\", \"show me that extension's permissions\"), use show_settings to open Pitwall's Settings at that page for them: it only shows Settings to the user, you get nothing back from it and can't change, click or type anything in it.";
+
 /// The instructions with every tool listed.
-pub const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's. When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), use show_web: it only shows the page to the user, you get nothing back from it and can't click or type in it.";
+pub fn all_instructions() -> String {
+    instructions(true, true, true)
+}
 
-const FILES_INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's.";
-
-const WEB_INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), use show_web: it only shows the page to the user, you get nothing back from it and can't click or type in it.";
-
-/// The instructions for the tools listed.
-pub fn instructions(files: bool, web: bool) -> &'static str {
-    match (files, web) {
-        (true, true) => INSTRUCTIONS,
-        (true, false) => FILES_INSTRUCTIONS,
-        (false, true) => WEB_INSTRUCTIONS,
-        (false, false) => "You are running inside Pitwall, a desktop app that shows the user their coding agents. Its tools for showing the user files and web pages are turned off in Pitwall's settings.",
+/// The instructions for the tools listed: the files ones while `files`,
+/// `show_web` while `web`, `show_settings` while `settings`.
+pub fn instructions(files: bool, web: bool, settings: bool) -> String {
+    let mut s = String::from(INTRO);
+    if files {
+        s.push_str(FILES_INSTRUCTIONS);
     }
+    if web {
+        s.push_str(WEB_INSTRUCTIONS);
+    }
+    if settings {
+        s.push_str(SETTINGS_INSTRUCTIONS);
+    }
+    if !files && !web && !settings {
+        s.push_str(" Its tools for showing the user files, web pages and its Settings are turned off in Pitwall's settings.");
+    }
+    s
 }
 
 /// `show_web`'s description (docs/spec/web.md quotes it).
 pub const SHOW_WEB_DESCRIPTION: &str = "Show a web page to the user in Pitwall, the app you are running in: it opens in a web tile next to your terminal in Pitwall's layout (or a window of its own), in Pitwall's own web view, where the user may be signed in to sites. This only shows a page to the user: you get no page content back, and you cannot click, type, scroll or run anything in it (nothing the user does there is sent to you). Use it when the user asks to open a page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), not to read the web yourself. Without url, an empty page opens with its address field for the user to type in. A later call goes to the page you opened before, wherever the user moved it, unless `where` names a place. The result says what opened and where, or why not (not a web address, Pitwall not running, turned off).";
+
+/// `show_settings`'s description (docs/spec/layout.md quotes it).
+pub const SHOW_SETTINGS_DESCRIPTION: &str = "Show Pitwall's own Settings to the user, at a page, in the app you are running in: it opens in the Settings tile next to your terminal in Pitwall's layout (or wherever the user keeps that tile). This only shows Settings to the user: you get nothing back about what it holds, and you cannot change, click or type anything in it (only the user does). Use it when the user asks where a Pitwall setting is or to see one (\"where do I turn that on\", \"show me that extension's permissions\"), not to change settings yourself. `page` picks the page; `extension` unfolds that extension's card on the Extensions page. The result says what opened and where, or why not (Pitwall not running, turned off).";
 
 const WHERE: &str = "Where the user sees it: right, left, above or below (a files tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default), replace (a files tile in that terminal's place, as big and where it is: the terminal leaves the layout but keeps running, and the user can show it again from the sidebar; only when the user asks for the files instead of a terminal) or window (a separate window of its own, when the user asks for it separately). Leave it out unless the user says where: a later call then adds to the same files view wherever it is (the user may have moved it, or popped it out to a window); naming a place moves it there. The user can drag it between the layout and a window either way.";
 const WEB_WHERE: &str = "Where the user sees it: right, left, above or below (a web tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default), replace (a web tile in that terminal's place: the terminal leaves the layout but keeps running; only when the user asks for the page instead of a terminal) or window (a separate window of its own, when the user asks for one). Leave it out unless the user says where: a later call then goes to the page you opened before, wherever it is; naming a place moves it there. The user can drag it between the layout and a window either way.";
@@ -82,12 +102,12 @@ const ROOT: &str = "The folder relative paths are in: a path, or a worktree of t
 
 /// `tools/list`'s tools, all of them.
 pub fn tools() -> Value {
-    tools_for(true, true)
+    tools_for(true, true, true)
 }
 
 /// `tools/list`'s tools: the files ones while `files`, `show_web` while
-/// `web`.
-pub fn tools_for(files: bool, web: bool) -> Value {
+/// `web`, `show_settings` while `settings`.
+pub fn tools_for(files: bool, web: bool, settings: bool) -> Value {
     let mut list = Vec::new();
     if files {
         list.extend(files_tools());
@@ -111,6 +131,24 @@ pub fn tools_for(files: bool, web: bool) -> Value {
             // ask each time). Open world: the page loads from the web, in
             // the project's browser account, where the user may be signed in.
             "annotations": { "title": "Show a web page in Pitwall", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
+        }));
+    }
+    if settings {
+        let pages: Vec<&str> = crate::settings::Page::ALL.iter().map(|p| p.id()).collect();
+        list.push(json!({
+            "name": TOOL_SHOW_SETTINGS,
+            "title": "Show Pitwall's Settings",
+            "description": SHOW_SETTINGS_DESCRIPTION,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "page": { "type": "string", "enum": pages, "description": "The Settings page to show. Leave it out to show the page Settings showed last (Extensions when `extension` is given)." },
+                    "extension": { "type": "string", "description": "An extension's id (as Settings → Extensions lists it): its card is unfolded on the Extensions page." }
+                },
+                "additionalProperties": false
+            },
+            // Read-only: it shows the user something and changes nothing.
+            "annotations": { "title": "Show Pitwall's Settings", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
         }));
     }
     Value::Array(list)
@@ -165,15 +203,16 @@ fn files_tools() -> Vec<Value> {
 /// This build's tools, instructions and stamp (all of them: what stands in
 /// when Pitwall can't be asked).
 pub fn own() -> McpTools {
-    served(true, true)
+    served(true, true, true)
 }
 
-/// The tools a Pitwall serves with showing files (`files`) and web pages
-/// (`web`) on or off, its instructions and their stamp.
-pub fn served(files: bool, web: bool) -> McpTools {
-    let tools = tools_for(files, web);
-    let instructions = instructions(files, web);
-    McpTools { stamp: stamp(&tools, instructions), tools, instructions: instructions.into() }
+/// The tools a Pitwall serves with showing files (`files`), web pages
+/// (`web`) and Settings (`settings`) on or off, its instructions and their
+/// stamp.
+pub fn served(files: bool, web: bool, settings: bool) -> McpTools {
+    let tools = tools_for(files, web, settings);
+    let instructions = instructions(files, web, settings);
+    McpTools { stamp: stamp(&tools, &instructions), tools, instructions }
 }
 
 /// Changes when the tools or the instructions do (FNV-1a of their JSON:
@@ -194,6 +233,8 @@ pub enum Request {
     Viewer(ViewerOpen),
     /// `show_web`: `web.open`.
     Web(WebOpen),
+    /// `show_settings`: `settings.open`.
+    Settings(SettingsOpen),
 }
 
 /// A tool's arguments as its request (the agent's own id from its
@@ -207,6 +248,16 @@ pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Reques
             Some(_) => Err(format!("`{k}` must be a string")),
         }
     };
+    if tool == TOOL_SHOW_SETTINGS {
+        let page = match text("page")? {
+            None => None,
+            Some(p) => Some(crate::settings::Page::parse(p.trim()).map(|p| p.id().to_string()).ok_or_else(|| {
+                let pages: Vec<&str> = crate::settings::Page::ALL.iter().map(|p| p.id()).collect();
+                format!("`page` is one of {}, not {p}", pages.join(", "))
+            })?),
+        };
+        return Ok(Request::Settings(SettingsOpen { agent_id: agent, page, extension: text("extension")?, proto: Some(crate::settings_open::SETTINGS_PROTO) }));
+    }
     let place = match text("where")? {
         None => None,
         Some(w) => Some(ViewerPlace::parse(&w).ok_or_else(|| format!("`where` is right, left, above, below, replace or window, not {w}"))?),
@@ -307,9 +358,9 @@ mod tests {
     #[test]
     fn the_stamp_follows_the_tools() {
         let a = own();
-        assert_eq!(a.stamp, stamp(&tools(), INSTRUCTIONS));
+        assert_eq!(a.stamp, stamp(&tools(), &all_instructions()));
         assert_eq!(a.stamp.len(), 16);
-        assert_ne!(stamp(&json!([]), INSTRUCTIONS), a.stamp);
+        assert_ne!(stamp(&json!([]), &all_instructions()), a.stamp);
         assert_ne!(stamp(&a.tools, "other"), a.stamp);
     }
 
@@ -364,16 +415,34 @@ mod tests {
     /// and words; the files tools while showing files is on.
     #[test]
     fn the_tools_listed_follow_the_settings() {
-        assert_eq!(names(&tools()), ["show_files", "show_folder", "show_web"]);
-        assert_eq!(names(&served(true, false).tools), ["show_files", "show_folder"]);
-        assert_eq!(names(&served(false, true).tools), ["show_web"]);
-        assert!(names(&served(false, false).tools).is_empty());
-        assert_eq!(own(), served(true, true));
+        assert_eq!(names(&tools()), ["show_files", "show_folder", "show_web", "show_settings"]);
+        assert_eq!(names(&served(true, false, false).tools), ["show_files", "show_folder"]);
+        assert_eq!(names(&served(false, true, false).tools), ["show_web"]);
+        assert_eq!(names(&served(false, false, true).tools), ["show_settings"]);
+        assert!(names(&served(false, false, false).tools).is_empty());
+        assert_eq!(own(), served(true, true, true));
         // Each setting has its own stamp (the agent is told to list again).
-        let stamps: std::collections::HashSet<String> = [(true, true), (true, false), (false, true), (false, false)].iter().map(|(f, w)| served(*f, *w).stamp).collect();
-        assert_eq!(stamps.len(), 4);
-        assert!(!served(true, false).instructions.contains("show_web"));
-        assert!(served(false, true).instructions.contains("show_web") && !served(false, true).instructions.contains("show_files"));
+        let all: Vec<(bool, bool, bool)> = (0..8).map(|n| (n & 1 == 1, n & 2 == 2, n & 4 == 4)).collect();
+        let stamps: std::collections::HashSet<String> = all.iter().map(|(f, w, s)| served(*f, *w, *s).stamp).collect();
+        assert_eq!(stamps.len(), 8);
+        assert!(!served(true, false, false).instructions.contains("show_web"));
+        assert!(served(false, true, false).instructions.contains("show_web") && !served(false, true, false).instructions.contains("show_files"));
+        // show_settings: one sentence of its own, only while listed.
+        assert!(!served(true, true, false).instructions.contains("show_settings"));
+        assert_eq!(served(true, true, true).instructions, format!("{}{SETTINGS_INSTRUCTIONS}", served(true, true, false).instructions));
+        assert!(served(false, false, false).instructions.contains("turned off"));
+        let set = &tools()[3];
+        assert_eq!(set["description"], SHOW_SETTINGS_DESCRIPTION);
+        let d = set["description"].as_str().unwrap();
+        assert!(d.contains("you get nothing back about what it holds, and you cannot change, click or type anything in it"), "{d}");
+        let schema = &set["inputSchema"];
+        let mut keys: Vec<String> = schema["properties"].as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["extension", "page"]);
+        assert_eq!(schema["properties"]["page"]["enum"][4], "extensions");
+        assert!(schema.get("required").is_none(), "nothing is required");
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(set["annotations"]["readOnlyHint"], true);
         let web = &tools()[2];
         assert_eq!(web["description"], SHOW_WEB_DESCRIPTION);
         let d = web["description"].as_str().unwrap();
@@ -409,6 +478,17 @@ mod tests {
         assert!(web(json!({"url": 3})).unwrap_err().contains("must be a string"));
         assert!(web(json!({"url": "example.com", "where": "tab"})).unwrap_err().contains("`where` is right, left"));
         assert!(matches!(request(TOOL_SHOW_FILES, &json!({"paths": ["a"]}), None), Ok(Request::Viewer(_))));
+    }
+
+    #[test]
+    fn a_show_settings_call_is_checked_before_it_goes_anywhere() {
+        let set = |args: Value| request(TOOL_SHOW_SETTINGS, &args, Some("a1".into()));
+        let Ok(Request::Settings(r)) = set(json!({"page": "extensions", "extension": "inbox"})) else { panic!() };
+        assert_eq!(r, SettingsOpen { agent_id: Some("a1".into()), page: Some("extensions".into()), extension: Some("inbox".into()), proto: Some(crate::settings_open::SETTINGS_PROTO) });
+        let Ok(Request::Settings(r)) = set(json!({})) else { panic!() };
+        assert_eq!((r.page, r.extension), (None, None));
+        assert!(set(json!({"page": "secrets"})).unwrap_err().contains("`page` is one of general, agents"));
+        assert!(set(json!({"page": 3})).unwrap_err().contains("must be a string"));
     }
 
     #[test]

@@ -21,8 +21,10 @@ pub const TOOL_SHOW_FILES: &str = "show_files";
 pub const TOOL_SHOW_FOLDER: &str = "show_folder";
 /// The MCP tool that shows a web page (`web.open`).
 pub const TOOL_SHOW_WEB: &str = "show_web";
+/// The MCP tool that shows Pitwall's Settings (`settings.open`).
+pub const TOOL_SHOW_SETTINGS: &str = "show_settings";
 /// Every tool (what a launch pre-approves: they only show the user things).
-pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB];
+pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB, TOOL_SHOW_SETTINGS];
 
 /// `viewer.open`'s shape: 1 had `beside` and `window` only (no `proto` on
 /// the wire); 2 has the sides, `replace`, `of`, and `text` in the answer.

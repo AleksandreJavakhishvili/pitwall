@@ -177,6 +177,11 @@ pub mod method {
     /// a web page shown to the user in the agent's page tile (`pitwall
     /// open --web` and the `show_web` tool).
     pub const WEB_OPEN: &str = "web.open";
+    /// (`caps::SHOW_SETTINGS`) [`SettingsOpen`](crate::SettingsOpen) →
+    /// [`SettingsOpened`](crate::SettingsOpened): Pitwall's Settings shown
+    /// to the user at a page, in the Settings tile (`pitwall open
+    /// --settings` and the `show_settings` tool).
+    pub const SETTINGS_OPEN: &str = "settings.open";
 
     // Events (`caps::EVENTS`).
     /// [`EventsSubscribe`](crate::EventsSubscribe) →
@@ -205,6 +210,8 @@ pub mod caps {
     pub const MCP: &str = "mcp";
     /// `web.open` (with `viewer`).
     pub const WEB: &str = "web";
+    /// `settings.open` (with `viewer`).
+    pub const SHOW_SETTINGS: &str = "showSettings";
 }
 
 /// Server-pushed events: `{"event":"…","data":…}`.

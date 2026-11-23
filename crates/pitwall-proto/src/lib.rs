@@ -15,6 +15,8 @@
 //! - [`show`]: agents showing files and folders to the user (`viewer.open`).
 //! - [`mcp`]: the agents' `pitwall` MCP tools, served by Pitwall (`mcp.*`).
 //! - [`web`]: agents showing web pages to the user (`web.open`).
+//! - [`settings_open`]: agents showing the user Pitwall's Settings
+//!   (`settings.open`).
 //! - [`profiles`]: accounts, extension connections, profiles and what
 //!   projects pick (`accounts.list`, `profile.*`, `project.accounts|pick|profile`).
 //!
@@ -31,6 +33,7 @@ pub mod peer;
 pub mod pipe;
 pub mod profiles;
 pub mod settings;
+pub mod settings_open;
 pub mod show;
 pub mod views;
 pub mod web;
@@ -44,6 +47,7 @@ pub use profiles::*;
 pub use settings::{SettingKey, SettingSet, SettingView};
 pub use show::*;
 pub use views::*;
+pub use settings_open::{SettingsOpen, SettingsOpened, SettingsShow, SettingsShown, SETTINGS_PROTO};
 pub use web::{WebOpen, WebOpened, WebShow, WebShown, WEB_PROTO};
 
 /// The protocol version this build speaks.

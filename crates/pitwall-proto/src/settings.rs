@@ -264,6 +264,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "agents.showSettings",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Agents can show you Pitwall's Settings at a page when you ask them to (\"where do I turn that on\", \"show me that extension's permissions\"): the `show_settings` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --settings` from a shell. Settings opens in its tile next to the agent's terminal, or wherever you keep that tile; it never takes the keyboard or brings Pitwall forward. The agent gets nothing back about what Settings holds and can't change, click or type anything in it. false: the tool is gone from the agents' list and `pitwall open --settings` refuses.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "agentsShowSettings", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "agents.editFiles",
         kind: Kind::Bool,
         default: DefaultValue::Bool(true),
@@ -701,7 +711,7 @@ mod tests {
         assert!(agent.validate(&json!(3)).is_err());
         assert_eq!(find("engineer.command").unwrap().sensitivity, Sensitivity::Approval, "it runs a command");
         // Web pages for agents are as sensitive as showing them files.
-        for k in ["agents.showWeb", "general.webPages"] {
+        for k in ["agents.showWeb", "general.webPages", "agents.showSettings"] {
             assert_eq!(find(k).unwrap().sensitivity, find("agents.showFiles").unwrap().sensitivity, "{k}");
             assert_eq!(find(k).unwrap().sensitivity, Sensitivity::Safe, "{k}");
             assert_eq!(find(k).unwrap().default_value(), json!(true), "{k}");

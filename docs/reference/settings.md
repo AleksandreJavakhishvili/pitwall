@@ -94,6 +94,15 @@ Agents can show you a web page in Pitwall when you ask them to ("open the docs o
 - **Stored in:** `ui.json` → `agentsShowWeb`
 - **When an agent changes it:** applies directly
 
+### `agents.showSettings`
+
+Agents can show you Pitwall's Settings at a page when you ask them to ("where do I turn that on", "show me that extension's permissions"): the `show_settings` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --settings` from a shell. Settings opens in its tile next to the agent's terminal, or wherever you keep that tile; it never takes the keyboard or brings Pitwall forward. The agent gets nothing back about what Settings holds and can't change, click or type anything in it. false: the tool is gone from the agents' list and `pitwall open --settings` refuses.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsShowSettings`
+- **When an agent changes it:** applies directly
+
 ### `agents.editFiles`
 
 You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB, and an SVG's source. Files of agents on other machines, other images, binary files (PDFs too) and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.
