@@ -86,7 +86,11 @@ pub fn start(s: &Server, caller: &Caller, r: AgentCreate) -> Res {
         return Err(bad("kind and project are required"));
     }
     let project = onboarding::project_list::normalize(&r.project);
-    let Some(known) = s.engine.projects().list().into_iter().find(|p| p.path == project) else {
+    // One of the user's projects, or a folder one of Pitwall's own agents
+    // works in (the sidebar shows it as a project too).
+    let listed = s.engine.projects().list().into_iter().find(|p| p.path == project).map(|p| p.display);
+    let agents = || s.engine.views().into_iter().find(|a| a.location == "local" && onboarding::project_list::normalize(&a.project) == project).map(|a| a.project_display);
+    let Some(display) = listed.or_else(agents) else {
         return Err(ErrorBody::new(code::NOT_FOUND, format!("{} isn't one of Pitwall's projects: an extension starts agents only there.", r.project)));
     };
     let Some(kind) = s.engine.kinds().find(r.kind.trim()) else {
@@ -104,7 +108,7 @@ pub fn start(s: &Server, caller: &Caller, r: AgentCreate) -> Res {
         pitwall_core::engine::check_name(n).map_err(bad)?;
     }
     let _asking = s.extensions.start_asking(&id)?;
-    let place = if known.display.is_empty() { project.clone() } else { known.display.clone() };
+    let place = if display.is_empty() { project.clone() } else { display };
     let mut details = vec![
         format!("Asked by the extension “{name}”, not by you."),
         format!("Project: {project}"),

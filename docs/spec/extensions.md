@@ -765,7 +765,8 @@ changes what an agent itself may do: its permissions, tools and rules
   or no longer granted are removed (`calls::sync_queue`). The user
   removes one like any other.
 - **`agents.start`**: on this computer only (no provider, machine,
-  options, account or resume), in one of Pitwall's projects, a kind
+  options, account or resume), in one of Pitwall's projects (listed, or
+  the folder of one of its local agents), a kind
   Pitwall knows, a prompt ≤ 4000 characters. Each request is an
   approval (`Risk::High`, never remembered) with the project, the tool,
   the name and the prompt in full (the details box scrolls); denied →
