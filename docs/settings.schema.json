@@ -134,6 +134,42 @@
             "description": "The user's answer to each permission it asks for (docs/extensions/permissions.md), by name, with when. One it asks for without an answer here (added by an update) is not granted. Turning a grant off applies to its next call.",
             "type": "object"
           },
+          "lastUpdate": {
+            "additionalProperties": true,
+            "description": "Its last update (docs/extensions/updates.md): Go back offers to put back the data backup taken then.",
+            "properties": {
+              "at": {
+                "description": "When, in Unix seconds.",
+                "type": "integer"
+              },
+              "backup": {
+                "description": "The backup folder of its service's data taken before it (under extension-backups/<id>/).",
+                "type": "string"
+              },
+              "confirmed": {
+                "description": "A digest of its service's commands as confirmed before the update: Go back confirms them again.",
+                "type": "string"
+              },
+              "from": {
+                "description": "The version it was updated from.",
+                "type": "string"
+              },
+              "to": {
+                "description": "The version it was updated to.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "restartAfterUpdate": {
+            "description": "Overrides `extensionsRestartAfterUpdate` for this extension: what Pitwall does with running agents that use its previous setup after an update.",
+            "enum": [
+              "ask",
+              "whenIdle",
+              "never"
+            ],
+            "type": "string"
+          },
           "secretsSet": {
             "description": "A copy of which secrets that connection has set, for an older Pitwall. The secrets are in the system's secure store, never in this file.",
             "items": {
@@ -206,6 +242,16 @@
         "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
       },
       "type": "object"
+    },
+    "extensionsRestartAfterUpdate": {
+      "default": "ask",
+      "description": "`extensions.restartAfterUpdate`: After an extension's update, what Pitwall does with running agents that use its previous setup (docs/extensions/updates.md): ask (restart nothing; their rows say so, with Restart), whenIdle (restart each once it has waited for you for 30 s, one at a time, continuing its conversation; never one that is working, waiting on an approval or can't continue its conversation) or never. An extension's card can override it.",
+      "enum": [
+        "ask",
+        "whenIdle",
+        "never"
+      ],
+      "type": "string"
     },
     "floatingPrompts": {
       "default": true,
