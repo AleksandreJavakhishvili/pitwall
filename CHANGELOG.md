@@ -2,6 +2,12 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Agention from its releases. The operator API Pitwall's inbox uses shipped in Agention v0.5.0, so the extension (now 1.1.0; Settings → Extensions offers Update) pins Agention's plugin to v0.6.0 and no longer needs a pre-release server. A new button, "Install Agention's server here", installs that server on this computer with npm after you confirm; starting it stays yours, since it runs apart from Pitwall. A server from a pre-release build can't be upgraded in place: start the released one with a new data folder.
+
 ## [0.8.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.8.0) - 2026-11-22
 
 ### Highlights

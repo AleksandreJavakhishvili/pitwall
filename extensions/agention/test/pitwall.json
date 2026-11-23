@@ -1,7 +1,7 @@
 {
   "about": "What Pitwall's tests expect of this extension (crates/pitwall-app checks every folder under extensions/ against its test/pitwall.json). Nothing here runs a real agent or server.",
   "actions": {
-    "installed": ["claude"],
+    "installed": ["claude", "npm"],
     "expect": {
       "setup": {
         "label": "Set up Agention in my agents",
@@ -15,6 +15,12 @@
         ],
         "skips": [null, null, null, "Codex isn't installed", "Codex isn't installed", "Codex isn't installed"],
         "optional": [true, false, false, true, false, false]
+      },
+      "server": {
+        "label": "Install Agention's server here",
+        "lines": ["npm install -g @wayfarerlabs/agention@0.6.0"],
+        "skips": [null],
+        "optional": [false]
       }
     }
   },
