@@ -20,7 +20,7 @@ Node.js 24 or later. No dependencies, no build step, nothing to install.
 | `lib/bounds.js` | Checks for data from the server: types, sizes, counts |
 | `test/fake-agention.js` | A fake Agention server for the tests |
 
-Agention's operator API is in a draft pull request
+Agention's operator API shipped in Agention v0.5.0
 ([WayfarerLabs/agention#41](https://github.com/WayfarerLabs/agention/pull/41));
 when it changes, `lib/operator-v1.js` (and the fake server) are what change.
 

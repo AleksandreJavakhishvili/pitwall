@@ -1,10 +1,11 @@
 // Everything this adapter knows about Agention's operator API, version 1:
 // routes, scopes, request bodies, and the mapping from the server's answers
 // into the model the UI draws (see model.md in this folder's README). The API
-// is in a draft pull request (WayfarerLabs/agention#41) and may change; when
-// it does, this is the file to change.
+// shipped in Agention v0.5.0 (WayfarerLabs/agention#41); when it changes,
+// this is the file to change.
 //
-// Contract: docs/api/openapi.json on Agention's build/operator-api branch.
+// Contract: docs/api/openapi.json in Agention's repository, read at v0.6.0.
+// Fields this adapter doesn't know (files, attachments) are left out.
 
 import {
   BadData,

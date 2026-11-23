@@ -15,7 +15,7 @@ agents.
 
 ## What you need
 
-- An Agention server, **v0.4.0 or later** (the operator API), served at an
+- An Agention server, **v0.5.0 or later** (the first release with the operator API; these steps use v0.6.0), served at an
   `https` origin.
 - Node.js 24 or later on the machine running Pitwall (the adapter runs with
   `node` from your login shell's PATH).
@@ -32,12 +32,12 @@ is the reference. In short:
   `https://agention.example.ts.net`.
 
 ```bash
-npm install -g @wayfarerlabs/agention@0.4.0
+npm install -g @wayfarerlabs/agention@0.6.0
 tailscale serve --bg http://127.0.0.1:8080
 agention serve --data ~/.local/share/agention --origin https://agention.example.ts.net
 ```
 
-To upgrade an older server, install `@wayfarerlabs/agention@0.4.0` the same
+To upgrade an older server, install `@wayfarerlabs/agention@0.6.0` the same
 way and start it again with the same `--data` and `--origin`.
 
 ## 2. Install Agention's plugin in your agents (once)
@@ -51,11 +51,11 @@ don't have. Or run them yourself:
 
 ```bash
 # Claude Code
-claude plugin marketplace add WayfarerLabs/agention#v0.4.0
+claude plugin marketplace add WayfarerLabs/agention#v0.6.0
 claude plugin install agention@agention
 
 # Codex
-codex plugin marketplace add WayfarerLabs/agention --ref v0.4.0
+codex plugin marketplace add WayfarerLabs/agention --ref v0.6.0
 codex plugin add agention@agention
 ```
 
@@ -65,7 +65,7 @@ Claude Code refuses to add a marketplace again from another tag.
 **Remove Agention from my agents** removes the marketplace and plugin
 again.
 
-The `v0.4.0` pin lives in `extension.json` (the `setup` action's steps):
+The `v0.6.0` pin lives in `extension.json` (the `setup` action's steps):
 when you upgrade your Agention server, update that ref in both `add`
 steps to the new release's tag, then press the button again.
 
