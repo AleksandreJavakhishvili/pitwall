@@ -3,7 +3,7 @@
 //! extension, used where it is (`crate::extensions::load_dev`); its card is
 //! marked "development" and has Reload (its manifest read again, its
 //! adapter started again when on) and "Remove from list" (its folder is
-//! never touched). Any card with an adapter has Log: the last protocol
+//! never touched). Any card with an adapter or a service has Log: the last protocol
 //! lines both ways and its stderr, secrets taken out, cleared when it is
 //! turned off (`hub::Hub::log`).
 
@@ -123,12 +123,12 @@ impl SettingsView {
     /// (in place of Remove). Whether it is a development one.
     pub(super) fn dev_buttons(&mut self, ui: &Ui, m: &Manifest, mut row: Div, cx: &mut Context<Self>) -> (Div, bool) {
         let dev = Self::is_dev(&m.id, cx);
-        if m.adapter.is_some() {
+        if m.adapter.is_some() || m.service.is_some() {
             let shown = self.exts.dev.logs.contains_key(&m.id);
             let id = m.id.clone();
             row = row.child(
                 crate::kit::text_button(SharedString::from(format!("extension-log-{}", m.id)), if shown { "Hide log" } else { "Log" }, BtnKind::GhostSm, false, &ui.t)
-                    .tooltip(crate::kit::tooltip("What Pitwall and its adapter said to each other, and what it printed"))
+                    .tooltip(crate::kit::tooltip("What Pitwall and its adapter said to each other, and what it and its service printed"))
                     .on_click(cx.listener(move |v, _, _, cx| {
                         if v.exts.dev.logs.remove(&id).is_none() {
                             v.exts.dev.logs.insert(id.clone(), (ScrollHandle::new(), 0));
@@ -203,7 +203,12 @@ impl SettingsView {
 
     /// The log, when it is shown: its lines, newest at the bottom.
     pub(super) fn log_view(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<Div> {
-        let lines = hub::try_hub(cx).map(|h| h.read(cx).log(&m.id)).unwrap_or_default();
+        let mut lines = hub::try_hub(cx).map(|h| h.read(cx).log(&m.id)).unwrap_or_default();
+        // Its service's output and what Pitwall did with it, marked.
+        if let Some(s) = crate::extensions::service::try_services(cx) {
+            lines.extend(s.read(cx).log(&m.id).into_iter().map(|l| ("service".to_string(), l)));
+            lines.sort_by_key(|(_, l)| l.at);
+        }
         let (handle, seen) = self.exts.dev.logs.get_mut(&m.id)?;
         if lines.len() != *seen {
             *seen = lines.len();

@@ -472,9 +472,49 @@ pub struct ExtensionPrefs {
     /// its items wait for Send. Only with `agents.queue` granted.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub send_without_asking: Option<pitwall_core::extensions::permissions::Decision>,
+    /// Its service: the commands the user confirmed, whether it is fresh
+    /// (its first run offered), whether the user stopped it.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "ServicePrefs::is_empty")]
+    pub service: ServicePrefs,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
+}
+
+/// An extension's service in `ui.json` (`extensions.<id>.service`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServicePrefs {
+    /// The commands the user confirmed
+    /// (`pitwall_core::extensions::service::digest`) and when: it runs
+    /// only while its commands are these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<ServiceConfirmed>,
+    /// Its data folder was empty when Pitwall started it, and its first
+    /// run hasn't succeeded since.
+    #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
+    pub fresh: bool,
+    /// The user stopped it: not started until they press Start.
+    #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
+    /// Keys of later versions, written back untouched.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, Value>,
+}
+
+/// A service's commands the user confirmed: their digest and when.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceConfirmed {
+    pub digest: String,
+    #[serde(default)]
+    pub at: u64,
+}
+
+impl ServicePrefs {
+    fn is_empty(&self) -> bool {
+        self.confirmed.is_none() && !self.fresh && !self.stopped && self.rest.is_empty()
+    }
 }
 
 /// Steps the user confirmed: their digest
@@ -497,7 +537,7 @@ impl Confirmed {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.rest.is_empty()
     }
 }
 

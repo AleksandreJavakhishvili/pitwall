@@ -651,6 +651,16 @@ pub fn json_schema() -> Value {
                             "required": ["granted"],
                             "additionalProperties": true
                         }
+                    },
+                    "service": {
+                        "type": "object",
+                        "description": "Its service, the program Pitwall keeps running while it is on (docs/extensions/service.md).",
+                        "properties": {
+                            "confirmed": { "type": "object", "properties": { "digest": { "type": "string", "description": "A digest of its commands as the user confirmed them." }, "at": { "type": "integer", "description": "When, in Unix seconds." } }, "required": ["digest"], "description": "The commands the user confirmed. Pitwall starts it only while its commands are these: an update that changes them stops it and asks again." },
+                            "fresh": { "type": "boolean", "default": false, "description": "Its data folder was empty when Pitwall started it and its first run (a first sign-in) hasn't succeeded since: the first run is offered." },
+                            "stopped": { "type": "boolean", "default": false, "description": "The user stopped it: it isn't started until they press Start." }
+                        },
+                        "additionalProperties": true
                     }
                 },
                 "additionalProperties": true

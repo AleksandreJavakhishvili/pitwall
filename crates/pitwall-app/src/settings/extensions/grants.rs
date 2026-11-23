@@ -254,11 +254,15 @@ impl SettingsView {
     }
 
     /// What it adds to Pitwall while it is on (its views, commands,
-    /// badges and notifications), one line each; nothing for an inbox
-    /// alone.
+    /// badges and notifications), one line each, and the program it keeps
+    /// running (its service); nothing for an inbox alone.
     pub(super) fn contributions(ui: &Ui, m: &Manifest) -> Option<Div> {
         let c = &m.contributes;
-        if c.views.is_empty() && c.commands.is_empty() && !c.badges && !c.notifications && c.panels.is_empty() && c.web_views.is_empty() {
+        let mut lines = c.lines();
+        if let Some(s) = &m.service {
+            lines.push(format!("Runs a local program continuously while it is on: {} (you confirm its command first)", s.label));
+        }
+        if lines.is_empty() {
             return None;
         }
         let sel = format!("extension-adds-{}", m.id);
@@ -269,7 +273,7 @@ impl SettingsView {
                 .flex_col()
                 .gap(px(4.))
                 .child(crate::kit::label("Adds to Pitwall", ui.t.text_3, 11.))
-                .children(c.lines().into_iter().map(|l| div().text_size(px(12.)).text_color(ui.t.text_2).child(l))),
+                .children(lines.into_iter().map(|l| div().text_size(px(12.)).text_color(ui.t.text_2).child(l))),
         )
     }
 

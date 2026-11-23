@@ -710,8 +710,9 @@ fn update_with(offer: Offer, replace_changed: bool, cx: &mut App, done: impl FnO
 
 /// Remove extension `id`: its adapter stopped, it turned off, its secrets
 /// deleted from the secure store, its settings forgotten and its folder
-/// deleted.
-pub fn remove_one(m: &Manifest, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
+/// deleted. Its service is stopped; its data folder is deleted only with
+/// `delete_data` (once the service has stopped), else kept.
+pub fn remove_one(m: &Manifest, delete_data: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let Some(data) = dir(cx) else {
         cx.defer(move |cx| done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
         return;
@@ -731,10 +732,22 @@ pub fn remove_one(m: &Manifest, cx: &mut App, done: impl FnOnce(Outcome, &mut Ap
     crate::ui_state::update(cx, |ui| *ui = std::mem::take(ui).forget_extension(&id));
     let h = hub::hub(cx);
     h.update(cx, |h, cx| h.reconcile(cx));
+    let svc = super::service::services(cx);
+    svc.update(cx, |s, cx| s.reconcile(cx));
+    let stopping = svc.read(cx).stopping(&id);
+    let service_data = if delete_data && m.service.is_some() { super::service::data_dir(&id, cx) } else { None };
     let store = super::secret_store(cx);
     let job = cx.background_executor().spawn(async move {
         let secrets: Vec<String> = accounts.iter().filter_map(|a| store.delete(a).err()).collect();
         let folder = install::remove(&data, &id);
+        if let Some(dir) = service_data {
+            // Its service stopped first: nothing writes there any more.
+            let end = std::time::Instant::now() + super::service::GRACE + std::time::Duration::from_secs(2);
+            while std::time::Instant::now() < end && stopping.as_ref().is_some_and(|c| c.lock().unwrap_or_else(|e| e.into_inner()).is_some()) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
         (secrets, folder)
     });
     cx.spawn(async move |cx| {
@@ -900,7 +913,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(data.join("inbox/main.mjs")).unwrap(), "// mine");
         cx.update(|cx| {
             let m = super::super::found(cx)[0].manifest.clone().unwrap();
-            remove_one(&m, cx, note(&seen));
+            remove_one(&m, false, cx, note(&seen));
         });
         cx.run_until_parked();
         cx.update(|cx| {

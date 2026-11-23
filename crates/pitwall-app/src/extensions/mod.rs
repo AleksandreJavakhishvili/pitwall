@@ -21,6 +21,7 @@ pub mod connections;
 pub mod hub;
 pub mod https;
 pub mod panels;
+pub mod service;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -152,6 +153,9 @@ pub fn follow(cx: &mut App) {
         }
         calls::sync(cx);
         h.update(cx, |h, cx| h.reconcile(cx));
+        // Services start and stop with their extensions.
+        let s = service::services(cx);
+        s.update(cx, |s, cx| s.reconcile(cx));
         if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
             e.set_extension_env(env_sources(cx));
             calls::sync_queue(&e, cx);
@@ -330,6 +334,9 @@ pub fn inboxes(cx: &App) -> Vec<Manifest> {
 pub fn quit(cx: &mut App) {
     if let Some(h) = hub::try_hub(cx) {
         h.update(cx, |h, _| h.quit());
+    }
+    if let Some(s) = service::try_services(cx) {
+        s.update(cx, |s, _| s.quit());
     }
 }
 

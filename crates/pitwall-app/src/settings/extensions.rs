@@ -41,7 +41,10 @@ use crate::main_screen::workspace::ExtensionPrefs;
 use pitwall_core::accounts::Account;
 
 mod grants;
+mod service_ui;
 mod updates;
+
+pub use service_ui::ServiceFacts;
 
 /// The page's own state.
 #[derive(Default)]
@@ -97,6 +100,10 @@ pub struct Section {
     /// The permission screen: the extension being turned on, and each
     /// permission's answer so far.
     asking: Option<(String, std::collections::BTreeMap<String, bool>)>,
+    /// A service's first run asked to run again, by extension.
+    first_again: Option<String>,
+    /// Remove also deletes its service's data, by extension (else kept).
+    remove_data: HashSet<String>,
     /// Cards whose activity is shown.
     activity: HashSet<String>,
     /// Open activity lists redraw every second.
@@ -156,21 +163,34 @@ pub fn run_text(run: &Run, conn: Option<&(ConnState, String)>) -> (&'static str,
 pub enum Step {
     Setting(String),
     Action(String),
+    /// Its service's program installed (and new enough).
+    ServiceInstall,
+    /// Its service's commands confirmed, and it running (or another's).
+    ServiceStart,
+    /// Its service's first run, once it is fresh.
+    ServiceFirstRun,
     Connected,
 }
 
 /// The checklist of `m` with `prefs`, `connected` saying whether its
-/// adapter is connected: each step and whether it is done. A setting that
-/// isn't required counts as done.
-pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool) -> Vec<(Step, bool)> {
-    let mut out: Vec<(Step, bool)> = m
-        .settings
-        .iter()
-        .map(|s| {
-            let set = s.is_set(prefs.values.get(&s.key).map(String::as_str), prefs.secrets_set.contains(&s.key));
-            (Step::Setting(s.key.clone()), set || !s.required)
-        })
-        .collect();
+/// adapter is connected and `svc` how its service stands: each step and
+/// whether it is done. A setting that isn't required counts as done. With
+/// a service, the settings it uses come first, then its install, confirm
+/// and start, and first run, then the other settings.
+pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool, svc: ServiceFacts) -> Vec<(Step, bool)> {
+    let setting = |s: &SettingDef| {
+        let set = s.is_set(prefs.values.get(&s.key).map(String::as_str), prefs.secrets_set.contains(&s.key));
+        (Step::Setting(s.key.clone()), set || !s.required)
+    };
+    let mut out: Vec<(Step, bool)> = m.settings.iter().filter(|s| service_ui::service_uses(m, &s.key)).map(setting).collect();
+    if let Some(s) = &m.service {
+        out.push((Step::ServiceInstall, svc.installed));
+        out.push((Step::ServiceStart, svc.up));
+        if s.first_run.is_some() {
+            out.push((Step::ServiceFirstRun, !prefs.service.fresh));
+        }
+    }
+    out.extend(m.settings.iter().filter(|s| !service_ui::service_uses(m, &s.key)).map(setting));
     out.extend(m.actions.iter().filter(|a| a.setup).map(|a| (Step::Action(a.id.clone()), prefs.actions_done.contains(&a.id))));
     if m.adapter.is_some() {
         out.push((Step::Connected, connected));
@@ -388,7 +408,7 @@ impl SettingsView {
         if !prefs.enabled {
             return ("Off", Tone::Plain, String::new(), connected);
         }
-        let list = checklist(m, &prefs, connected);
+        let list = checklist(m, &prefs, connected, ServiceFacts::of(m, cx));
         let missing = list.iter().any(|(s, done)| !done && *s != Step::Connected);
         let (word, tone, why) = run_text(&run, conn.as_ref());
         if missing {
@@ -498,12 +518,14 @@ impl SettingsView {
                     card = card.child(ask);
                 }
                 card = card.child(self.checklist_view(ui, &m, chosen.as_ref(), connected, &why, cx));
-                let more: Vec<&Action> = m.actions.iter().filter(|a| !a.setup).collect();
-                if !more.is_empty() {
+                let more: Vec<&Action> = m.actions.iter().filter(|a| !a.setup && !Self::is_service_install(&m, &a.id)).collect();
+                let again = self.service_first_again(ui, &m, cx);
+                if !more.is_empty() || again.is_some() {
                     let mut other = div().flex().flex_col().gap(px(10.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(crate::kit::label("More", ui.t.text_3, 11.));
                     for a in more {
                         other = other.child(self.action_block(ui, &m, a, chosen.as_ref(), None, cx));
                     }
+                    other = other.children(again);
                     card = card.child(other);
                 }
                 card = card.children(self.permissions_view(ui, &m, cx));
@@ -803,7 +825,7 @@ impl SettingsView {
     /// its field or button.
     fn checklist_view(&mut self, ui: &Ui, m: &Manifest, c: Option<&Account>, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
         let prefs = connections::prefs_for(m, c, cx);
-        let list = checklist(m, &prefs, connected);
+        let list = checklist(m, &prefs, connected, ServiceFacts::of(m, cx));
         let left = list.iter().filter(|(_, d)| !d).count();
         let mut col = div().flex().flex_col().gap(px(14.));
         col = col.child(div().text_size(px(12.)).text_color(ui.t.text_3).child(match left {
@@ -835,6 +857,9 @@ impl SettingsView {
                     let Some(a) = m.actions.iter().find(|a| a.id == *id) else { continue };
                     self.action_block(ui, m, a, c, Some(*done), cx).into_any_element()
                 }
+                Step::ServiceInstall => self.service_install_step(ui, m, c, *done, cx).into_any_element(),
+                Step::ServiceStart => self.service_start_step(ui, m, c, cx).into_any_element(),
+                Step::ServiceFirstRun => self.service_first_step(ui, m, *done, cx).into_any_element(),
                 Step::Connected => self.connected_row(ui, m, c, connected, why, cx).into_any_element(),
             };
             col = col.child(div().flex().gap(px(10.)).items_start().child(marker).child(div().flex_1().min_w_0().child(body)));
@@ -902,7 +927,7 @@ impl SettingsView {
                 cx.notify();
             }))
         };
-        let card = |id: &str, text: String, cancel: AnyElement, yes: AnyElement| {
+        let card = |id: &str, text: String, choice: Option<AnyElement>, cancel: AnyElement, yes: AnyElement| {
             div()
                 .id(SharedString::from(format!("extension-ask-{id}")))
                 .flex()
@@ -914,6 +939,7 @@ impl SettingsView {
                 .border_color(ui.t.line_strong)
                 .bg(ui.t.surface_2)
                 .child(div().text_size(px(13.)).text_color(ui.t.text).child(text))
+                .children(choice)
                 .child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(yes))
                 .into_any_element()
         };
@@ -923,8 +949,10 @@ impl SettingsView {
             let what = if n > 1 { format!("its {n} connections with their saved secrets, and its folder are deleted") } else { "its settings, its saved secrets and its folder are deleted".to_string() };
             let text = if on { format!("Remove {}? It is turned off, and {what}.", m.name) } else { format!("Remove {}? {}{}.", m.name, what[..1].to_uppercase(), &what[1..]) };
             let m2 = m.clone();
-            let yes = crate::kit::text_button(SharedString::from(format!("extension-ask-yes-{}", m.id)), "Remove", BtnKind::Danger, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_remove(&m2, cx)));
-            out.push(card(&m.id, text, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
+            let sel = format!("extension-ask-yes-{}", m.id);
+            let yes = crate::kit::text_button(SharedString::from(sel.clone()), "Remove", BtnKind::Danger, false, &ui.t).debug_selector(move || sel).on_click(cx.listener(move |v, _, _, cx| v.start_remove(&m2, cx)));
+            let choice = self.service_remove_choice(ui, m, cx);
+            out.push(card(&m.id, text, choice, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
         }
         if self.exts.confirm_replace.as_deref() == Some(&m.id) {
             let text = format!("{}'s folder was changed since Pitwall installed it, or was put there by hand. Updating replaces it, and those changes are lost. Its settings and secrets stay.", m.name);
@@ -933,7 +961,7 @@ impl SettingsView {
                 let sel = format!("extension-ask-yes-{}", m.id);
                 move || sel
             }).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, true, cx)));
-            out.push(card(&m.id, text, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
+            out.push(card(&m.id, text, None, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
         }
         out
     }
@@ -988,7 +1016,8 @@ impl SettingsView {
         let working = self.exts.working.contains(&m.id);
         let id = m.id.clone();
         if !dev {
-            row = row.child(crate::kit::text_button(SharedString::from(format!("extension-remove-{}", m.id)), if working { "Working…" } else { "Remove" }, BtnKind::GhostSm, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+            let sel = format!("extension-remove-{}", m.id);
+            row = row.child(crate::kit::text_button(SharedString::from(sel.clone()), if working { "Working…" } else { "Remove" }, BtnKind::GhostSm, working, &ui.t).debug_selector(move || sel).on_click(cx.listener(move |v, _, _, cx| {
                 v.exts.confirm_remove = Some(id.clone());
                 v.exts.confirm_replace = None;
                 cx.notify();
@@ -1010,9 +1039,11 @@ impl SettingsView {
         let block = |title: &str| div().flex().flex_col().gap(px(3.)).child(div().text_size(px(12.)).text_color(ui.t.text_2).child(title.to_string()));
         if let Some(a) = &m.adapter {
             col = col.child(block("While it is on, runs this in its folder:").child(crate::kit::mono_text(a.command.join(" "), &ui.t)));
-        } else {
+        } else if m.service.is_none() {
             col = col.child(block("Runs no program of its own."));
         }
+        let values = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).map(|c| c.values).unwrap_or_default();
+        col = col.children(Self::service_disclosure(ui, m, &values, cx));
         if !m.agent_env.is_empty() {
             let values = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).map(|c| c.values).unwrap_or_default();
             let mut b = block("Sets these on agents you start while it is on ({project}: the project folder's name; {agent_id}: the agent's id):");
@@ -1106,7 +1137,8 @@ impl SettingsView {
         self.exts.confirm_remove = None;
         cx.notify();
         let (me, id) = (cx.entity().downgrade(), m.id.clone());
-        catalog::remove_one(m, cx, move |o, cx| {
+        let delete_data = self.exts.remove_data.remove(&m.id);
+        catalog::remove_one(m, delete_data, cx, move |o, cx| {
             let _ = me.update(cx, |v, cx| v.ext_done(&id, o, cx));
         });
     }
@@ -1331,7 +1363,16 @@ impl SettingsView {
         let runs = actions::runs(cx);
         let record = {
             let (m, action, conn) = (m.clone(), a.id.clone(), c.map(|c| c.id));
-            move |st: &RunState, cx: &mut gpui::App| record_run(&m, &action, conn.as_deref(), st, cx)
+            // Its service's install (or update) ended: looked at again,
+            // and started again with what is installed now.
+            let service = Self::is_service_install(&m, &action);
+            move |st: &RunState, cx: &mut gpui::App| {
+                record_run(&m, &action, conn.as_deref(), st, cx);
+                if service {
+                    let id = m.id.clone();
+                    cx.defer(move |cx| crate::extensions::service::recheck(&id, cx));
+                }
+            }
         };
         runs.update(cx, |r, cx| r.start((&ext, &key), plan, home, actions::STEP_TIMEOUT, record, cx));
         cx.notify();
@@ -1466,6 +1507,8 @@ impl SettingsView {
 
 #[cfg(all(test, unix))]
 mod accounts_tests;
+#[cfg(all(test, unix))]
+mod service_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1493,7 +1536,7 @@ mod tests {
         m.settings.push(SettingDef { required: true, ..SettingDef::new("apiKey", SettingKind::Secret, "API key") });
         m.actions.push(Action { id: "setup".into(), label: "Set up".into(), description: "d".into(), setup: true, steps: vec![] });
         let mut prefs = ExtensionPrefs::default();
-        let steps = |p: &ExtensionPrefs, c| checklist(&m, p, c);
+        let steps = |p: &ExtensionPrefs, c| checklist(&m, p, c, ServiceFacts::default());
         assert_eq!(
             steps(&prefs, false),
             [(Step::Setting("greeting".into()), true), (Step::Setting("apiKey".into()), false), (Step::Action("setup".into()), false), (Step::Connected, false)],
