@@ -21,7 +21,7 @@ my-inbox/
 ## Start here
 
 ```sh
-pitwall extension new ~/code/my-inbox --name "My inbox"   # --protocol 2 reads Pitwall's data, --view draws a view tile, --panel a right-panel section
+pitwall extension new ~/code/my-inbox --name "My inbox"   # --protocol 2 reads Pitwall's data, --view draws a view tile, --panel a right-panel section, --service adds a local server
 pitwall extension check ~/code/my-inbox --human
 pitwall extension test ~/code/my-inbox --human
 ```
@@ -46,6 +46,9 @@ folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
   tiles and their components (list, detail, Markdown, status) with JSON
   examples, right-panel sections, web views, palette commands, sidebar
   badges and notes, notifications.
+- [A service](service.md): a program, such as a local server, that
+  Pitwall keeps running while the extension is on, once the user
+  confirms its commands.
 - [Actions](actions.md): showing files and pages, focusing, queueing
   text for an agent and asking to start one, each behind its permission.
 - [Permissions](permissions.md): what an extension may read and do, what
@@ -61,4 +64,5 @@ The full specification, with every limit, is
 this repository are worth reading: [`extensions/demo-inbox`](../../extensions/demo-inbox/)
 (a fake adapter with made-up threads) and
 [`extensions/agention`](../../extensions/agention/) (a real service, with
-settings, a secret, setup actions and a fake server for its tests).
+settings, a secret, setup actions, a local server Pitwall keeps running,
+and a fake server for its tests).

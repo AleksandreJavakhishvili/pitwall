@@ -6,8 +6,9 @@ updates from a git source or an npm package, the adapter
 protocol (version 1), manifest format 2 and protocol 2 (permissions,
 calls and events, the activity log; "Format 2 and protocol 2" below),
 the adapter's lifecycle, settings and secrets, the
-inbox tile, agents' ask badges and notifications, and questions in the
-floating control; for authors, dev mode (a folder loaded in place), the
+inbox tile, agents' ask badges and notifications, questions in the
+floating control, and a service Pitwall keeps running ("A service" below);
+for authors, dev mode (a folder loaded in place), the
 adapter's log, process groups and `pitwall extension check|test|new`
 ("For authors" below; the author's guide is
 [`docs/extensions/`](../extensions/README.md)). The first example is Agention
@@ -1020,6 +1021,96 @@ as installing a tool's plugin in the user's agents. Code:
 - Only `setup: true` actions run by themselves; others (installing a
   server, a "remove" action) always need a press. Turning an extension
   off removes nothing it installed.
+
+## A service
+
+A format 2 manifest may declare one `service`: a program, such as the
+server its agents talk to, that Pitwall keeps running on this computer
+while the extension is on. The author's page is
+[`docs/extensions/service.md`](../extensions/service.md). Core:
+`pitwall_core::extensions::service`; app: `crate::extensions::service`
+(the `Services` entity) and `settings/extensions/service_ui.rs`.
+
+**The manifest.** `label`; `run` (argv, no shell; the program is a bare
+name looked up on the login PATH); `install` (the id of one of its
+actions); `version` (`run`, `match` with one group, `requires: ">=X"`);
+`ready` (`listen`: a loopback address with a port, or `line`: a pattern
+its output matches; absent: up after a second); `env` (at most 8,
+`value` or `secret`); `firstRun` (`label`, `run`, `opens`, `again`).
+Placeholders: `{setting:KEY}` (plain settings only; defaults count) and
+`{data}`, the folder `<data folder>/extension-data/<id>`, made mode 700,
+outside the installed folder. A secret reaches it only through `env`.
+Format 1 ignores `service`.
+
+**Consent.** Nothing starts until the user confirms its commands on the
+card ("Pitwall will keep this running while the extension is on:"),
+which lists the command, the version command, the first run, the
+variables (a secret by name) and the data folder. `ui.json` keeps a
+digest of the commands, version check, readiness, variables and first
+run (`extensions.<id>.service.confirmed`, with when). The label and the
+lowest version aren't part of it. While the digest doesn't match (an
+update or Reload changed a command), it is stopped and the card asks
+again ("An update changed what it runs, so it was stopped", with the
+risk). An update's review lists new, changed and removed services.
+
+**Before each start**, off the UI thread, in this order: a setting it
+uses isn't set (waits); its address isn't on this computer (not
+started); its address is taken, told by binding it, never by
+connecting (*running elsewhere*: nothing is started, and nothing is ever
+stopped or signalled; checked again every 30 s by binding); its program
+isn't on the PATH (*not installed*: the install action is the step's
+button); its version is below `requires` (*version too old*: "<label>
+0.5.0; this extension needs 0.6.0 or later", and the button runs the
+install action, then looks again). A version that can't be read doesn't
+block. Then its data folder is made; if it was empty, the service is
+*fresh* (`service.fresh`) until its first run succeeds.
+
+**Running.** In its own process group (a job object on Windows), in the
+extension's folder, stdin closed, with only PATH (the login one), HOME,
+USER, LOGNAME, SHELL, LANG, LC_*, TZ, TMPDIR, XDG_RUNTIME_DIR and
+Windows' system variables, plus its `env`. Its stdout and stderr go to
+the extension's Log (marked `service`), secrets taken out. It is up when
+its `ready.listen` address accepts a connection (it was free before it
+started, so it is Pitwall's own), when a `ready.line` line comes, or
+after a second.
+
+**Restarts.** A service that exits by itself is started again after 1,
+5 and 30 s. The fourth exit within 10 minutes gives up: *stopped*, with
+its exit code and last 6 lines, and Start.
+
+**Stopping.** Off, update, remove, a changed command, the user's Stop
+(kept in `service.stopped` until Start) and quit: SIGTERM to the group,
+then SIGKILL to the group after 3 s; on Windows the job is closed.
+Remove waits for that before it deletes anything, and deletes the data
+folder only when the user switched that on in the remove card (the
+default keeps it, and the card names the folder).
+
+**The first run** runs only on a press, while the service is running:
+the checklist step while fresh, then under More, asked again with its
+`again` text. With `opens`, the first `https` link in its output is
+opened in the browser (`OpenLink`, a test hook, replaces that in tests).
+The link is never logged, shown or written: its output isn't logged,
+a failure's last lines have every link replaced by `[link]`, and the
+card and the activity log say "Opened a one-time sign-in link in your
+browser".
+
+**On the card.** The checklist gets the settings the service uses, then
+*Install*, *Confirm and start* (the confirm card, then the state:
+starting, running since …, stopped, running elsewhere, not installed,
+version too old; Start, Stop, Restart) and *first run*, then the other
+settings, setup actions and Connected. Its install action isn't listed
+under More. "What this extension does on your computer" lists the same
+lines as the confirm card, and the permission screen and "Adds to
+Pitwall" say it runs a local program continuously. A development folder
+follows the same rules.
+
+**Checks.** `pitwall extension check` describes it (it runs
+continuously) and checks its program or install action; `test`'s
+`service` part checks its commands and the verdict in each case
+(installed or not, version output, address taken, settings).
+
+Not built: starting it at login without Pitwall, HTTPS or a public
+address, a sandbox, more than one service.
 
 ## For authors
 The author's guide is [`docs/extensions/`](../extensions/README.md).

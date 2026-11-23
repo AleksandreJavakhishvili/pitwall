@@ -25,6 +25,8 @@ Reads the folder and runs nothing:
   ([publishing on npm](manifest.md#publishing-on-npm));
 - the adapter's program is found, the way Pitwall would start it;
 - the files its command names exist inside the folder;
+- a [service](service.md)'s program is found, or its `install` names an
+  action (a warning otherwise), and the files its command names exist;
 - there is a README and a `test/pitwall.json` (notes when missing);
 - the folder's name matches the id (a note when it doesn't).
 
@@ -34,7 +36,10 @@ permissions it asks for with its reasons (and a warning for
 `agents.queue` and `agents.start`, saying what the user sees and the
 limits: [actions](actions.md)), what it contributes, the
 command it runs while on, the variables it sets on agents, how its
-threads match agents, and each setup action's exact commands.
+threads match agents, and each setup action's exact commands. A
+service is described with its command, its version check, its first run,
+its variables and its data folder, and a note that it runs continuously
+while the extension is on.
 
 ```
 $ pitwall extension check extensions/demo-inbox --human
@@ -143,6 +148,37 @@ The variables Settings shows:
 
 - `unset`: what Settings shows with no settings.
 - `set`: what it shows with `values` filled in.
+
+### `service`
+
+What Pitwall would run for the extension's [service](service.md), and
+what it would do in each case. Nothing is started.
+
+```json
+"service": {
+  "values": { "server": "https://example.com" },
+  "expect": {
+    "run": "inbox serve --data {data} --origin https://example.com --listen 127.0.0.1:8787",
+    "version": "inbox version",
+    "firstRun": "inbox link --data {data}"
+  },
+  "cases": [
+    { "version": "inbox 0.6.0", "verdict": "starts (The inbox server 0.6.0)" },
+    { "version": "inbox 0.5.0", "verdict": "The inbox server 0.5.0; this extension needs 0.6.0 or later: its install action is offered" },
+    { "installed": false, "verdict": "“inbox” isn't installed: its install action is offered" },
+    { "portTaken": true, "verdict": "something else is already listening on 127.0.0.1:8787: that one is used, nothing is started" },
+    { "values": { "server": "" }, "verdict": "waits for Server address to be set" }
+  ]
+}
+```
+
+- `values`: its plain settings (defaults fill the rest).
+- `expect`: each command as Pitwall would run it, `{data}` left as is.
+- `cases`: what Pitwall finds before it starts the service. `installed`
+  (default `true`): its program is on the PATH; `version`: what its
+  version command prints; `portTaken`: something else listens on its
+  address; `values`: settings changed for this case only. `verdict` is
+  what Pitwall then does, in the words `test` prints.
 
 ### `agreement`
 

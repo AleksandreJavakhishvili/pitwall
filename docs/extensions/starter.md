@@ -68,6 +68,23 @@ buttons Pitwall runs itself ([actions](actions.md#in-a-view)):
 
 `--panel` can't be used with `--protocol` or `--view`.
 
+## `pitwall extension new <folder> --service`
+
+Writes the inbox starter plus a tiny local server, declared as the
+extension's [service](service.md), which Pitwall keeps running while the
+extension is on:
+
+| File | What it is |
+| --- | --- |
+| `extension.json` | [Format 2](manifest-2.md): the inbox, a `listen` setting (default `127.0.0.1:8790`), and a service that runs `node server.mjs --listen {setting:listen} --data {data}`, checks `node server.mjs --version` (0.1.0 or later), and is up once its address answers. |
+| `server.mjs` | A server in plain Node with no dependencies. It answers every request with one line and keeps a count in `{data}`, its private folder. `--version` prints its version. It stops on SIGTERM. Replace it with your own, or point `service.run` at a program your users install (add an `install` action). |
+| `test/pitwall.json` | The `run` check, and a [`service`](checks.md#service) check: its commands, and what Pitwall does when Node is installed or not, when its address is taken and when the address isn't on this computer. |
+
+In Pitwall, turning it on asks you to confirm the server's command; then
+the card shows it running, and its output is in the Log.
+
+`--service` can't be used with `--protocol`, `--view` or `--panel`.
+
 ## From here
 
 1. Load it in Pitwall ([dev mode](dev-mode.md)) and turn it on. Open the

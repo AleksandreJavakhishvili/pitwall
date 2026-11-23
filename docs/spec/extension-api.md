@@ -56,6 +56,9 @@ downgrade.
 6. Right-panel sections for the focused agent.
 7. Floating-control cards, only for blocking asks.
 8. Web view (an http(s) page in a web tile) as the escape hatch.
+9. Built since, beyond the phases: one local service per extension
+   (a program Pitwall keeps running once the user confirms its commands;
+   "10. A local service" below).
 - Left out for now: default keybindings, status items, anything that
   reads terminal output or changes how agents behave, rules or skills
   contributions.
@@ -360,6 +363,51 @@ arguments as `url` ones do; secrets still never.
   install commands after confirmation; that stays the way.
 - **Themes and icons** shipped by extensions: icons stay Pitwall's set
   [today], unknown names draw the puzzle piece.
+
+### 10. A local service [built, beyond the phases]
+One long-running program per extension, such as the server its agents
+talk to (docs/spec/extensions.md, "A service";
+[docs/extensions/service.md](../extensions/service.md)). It came from the
+first extension: its user had to start the server by hand, noticed only
+by chance that an update needed a newer server, and had to find the first
+sign-in command. Now that's three steps: turn it on, confirm once, sign
+in.
+
+Why it is shaped this way:
+- **It is still a process, not code in the app.** It is started like an
+  adapter (argv, no shell, its own process group) and adds no API
+  surface: it can't call Pitwall, and Pitwall never talks to it beyond
+  checking that its address accepts connections.
+- **Consent is to exact commands, once.** The confirm card shows the
+  commands as they will run, with the settings filled in. A digest of them
+  is stored, as for setup actions, so an update can't change what runs
+  without asking again. A service runs continuously, unlike a setup
+  action that runs once, so the card, the permission screen and "What
+  this extension does" each say so.
+- **Little leaks in.** The service gets a minimal environment, not
+  Pitwall's (no tokens from the user's shell), and a secret only when the
+  manifest names it for a variable, which the confirm card shows. Its
+  output is redacted like an adapter's.
+- **Loopback only, and never someone else's.** `ready.listen` must be on
+  this computer, so Pitwall never opens a port to the network for an
+  extension. A taken port is told by binding it, never by connecting
+  (connecting could reach the other program's API or wake it). Pitwall
+  then uses what is there, and has no way to stop or signal a process it
+  didn't start: it only ever signals the group it made. This is how a
+  user who already runs the server stays undisturbed.
+- **Links are secrets.** A first sign-in link grants the operator role,
+  so it goes to the browser only: not to the Log, the activity log, the
+  card or `ui.json`.
+- **Data outside the installed folder.** `{data}` is per extension, mode
+  700, not replaced by updates or Go back. Remove keeps it unless the
+  user says otherwise, so a server's data never disappears by surprise.
+- **Bounded restarts.** 1, 5 and 30 s, then it gives up with the last
+  lines. A crashing program doesn't spin, and the user sees why.
+
+What it doesn't change: it runs as the user, unsandboxed, like an adapter
+("What a hostile extension can still do" holds as written); a program can
+still `setsid` out of its group. It runs only while Pitwall runs. Not
+built: starting at login, HTTPS, more than one service.
 
 ---
 
