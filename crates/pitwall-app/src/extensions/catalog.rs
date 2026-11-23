@@ -368,14 +368,14 @@ pub fn apply(p: &Prepared, replace_changed: bool, cx: &mut App, done: impl FnOnc
         done(o, cx);
     };
     if let Some(why) = dev_refusal(&offer.manifest.id, cx) {
-        cleanup(Outcome::Failed(why), cx);
+        cx.defer(move |cx| cleanup(Outcome::Failed(why), cx));
         return;
     }
     if p.replaces.is_some() {
         update_with(offer, replace_changed, cx, cleanup);
     } else {
         let Some(data) = dir(cx) else {
-            cleanup(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx);
+            cx.defer(move |cx| cleanup(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
             return;
         };
         let id = offer.manifest.id.clone();
@@ -398,11 +398,11 @@ pub fn apply(p: &Prepared, replace_changed: bool, cx: &mut App, done: impl FnOnc
 /// `replace_changed`.
 pub fn rollback_one(id: &str, replace_changed: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     if let Some(why) = dev_refusal(id, cx) {
-        done(Outcome::Failed(why), cx);
+        cx.defer(move |cx| done(Outcome::Failed(why), cx));
         return;
     }
     let Some(data) = dir(cx) else {
-        done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx);
+        cx.defer(move |cx| done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
         return;
     };
     let was_on = crate::ui_state::get(cx).extension_on(id);
@@ -511,7 +511,7 @@ pub enum Outcome {
 /// Install bundled extension `id`: copied in, listed, still off.
 pub fn install_one(id: &str, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let (Some(s), Some(data)) = (shipped_one(id, cx), dir(cx)) else {
-        done(Outcome::Failed("It isn't shipped with this Pitwall.".into()), cx);
+        cx.defer(move |cx| done(Outcome::Failed("It isn't shipped with this Pitwall.".into()), cx));
         return;
     };
     let job = cx.background_executor().spawn(async move { install::install(&s.offer, &data) });
@@ -530,7 +530,7 @@ pub fn install_one(id: &str, cx: &mut App, done: impl FnOnce(Outcome, &mut App) 
 /// folder changed by hand is replaced only when `replace_changed`.
 pub fn update_one(id: &str, replace_changed: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let Some(s) = shipped_one(id, cx) else {
-        done(Outcome::Failed("It isn't shipped with this Pitwall.".into()), cx);
+        cx.defer(move |cx| done(Outcome::Failed("It isn't shipped with this Pitwall.".into()), cx));
         return;
     };
     update_with(s.offer, replace_changed, cx, done);
@@ -542,17 +542,17 @@ pub fn update_one(id: &str, replace_changed: bool, cx: &mut App, done: impl FnOn
 /// changed by hand is replaced only when `replace_changed`.
 fn update_with(offer: Offer, replace_changed: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let Some(data) = dir(cx) else {
-        done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx);
+        cx.defer(move |cx| done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
         return;
     };
     let id = offer.manifest.id.clone();
     if let Some(why) = dev_refusal(&id, cx) {
-        done(Outcome::Failed(why), cx);
+        cx.defer(move |cx| done(Outcome::Failed(why), cx));
         return;
     }
     let was_on = crate::ui_state::get(cx).extension_on(&id);
     if !replace_changed && !install::local(&data.join(&id)).as_installed {
-        done(Outcome::ChangedLocally, cx);
+        cx.defer(move |cx| done(Outcome::ChangedLocally, cx));
         return;
     }
     if was_on {
@@ -577,7 +577,7 @@ fn update_with(offer: Offer, replace_changed: bool, cx: &mut App, done: impl FnO
 /// deleted.
 pub fn remove_one(m: &Manifest, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let Some(data) = dir(cx) else {
-        done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx);
+        cx.defer(move |cx| done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
         return;
     };
     let id = m.id.clone();
