@@ -13,10 +13,21 @@
 //! know are ignored, so a later version can add its own without breaking
 //! this one; a manifest asking for a newer format (`v`) is refused with a
 //! word on why.
+//!
+//! Format 2 (docs/spec/extension-api.md, "The manifest, format 2") adds
+//! `pitwall` (the lowest Pitwall it needs: an older one refuses it, saying
+//! so), `permissions` (each with the extension's own reason:
+//! [`permissions`]) and `contributes` (what it adds; a kind this Pitwall
+//! doesn't draw is refused, saying it needs a newer one). A Pitwall that
+//! reads only format 1 refuses `"v": 2`, which is what makes these keys
+//! safe: none is ignored silently. Settings know `text`, `choice`, `bool`
+//! and `number` besides `url` and `secret`, in either format.
 
+pub mod activity;
 pub mod check;
 pub mod install;
 pub mod log;
+pub mod permissions;
 pub mod plan;
 pub mod process;
 pub mod protocol;
@@ -30,8 +41,18 @@ use serde_json::Value;
 /// The manifest's file name in an extension's folder.
 pub const MANIFEST: &str = "extension.json";
 
-/// The manifest format this Pitwall reads.
-pub const FORMAT: u64 = 1;
+/// The newest manifest format this Pitwall reads (it reads 1 too).
+pub const FORMAT: u64 = 2;
+
+/// This Pitwall's version, which a format 2 manifest's `pitwall` is
+/// compared with (every crate of Pitwall has the same version).
+pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
+
+/// What a format 2 manifest may contribute in this Pitwall.
+pub const CONTRIBUTES: [&str; 1] = ["inbox"];
+
+/// Contributions a later Pitwall draws (a manifest naming one needs it).
+const LATER_CONTRIBUTIONS: [&str; 7] = ["views", "commands", "badges", "notifications", "panels", "cards", "webViews"];
 
 /// The longest id, icon name and name.
 pub const MAX_ID: usize = 40;
@@ -75,6 +96,28 @@ pub struct Manifest {
     pub actions: Vec<Action>,
     /// Where its updates come from ([`source`]).
     pub source: Option<Source>,
+    /// Its format (`v`): 1 or 2.
+    pub format: u64,
+    /// Format 2: the lowest Pitwall it needs (`>=X.Y.Z`, the version kept).
+    pub pitwall: Option<String>,
+    /// Format 2: the permissions it asks for, each with its reason.
+    pub permissions: Vec<PermissionAsk>,
+    /// Format 2: what it adds to Pitwall.
+    pub contributes: Contributes,
+}
+
+/// A permission a manifest asks for, and why, in the extension's words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionAsk {
+    pub name: String,
+    pub reason: String,
+}
+
+/// What a format 2 manifest adds to Pitwall.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Contributes {
+    /// An inbox, from its adapter's threads.
+    pub inbox: bool,
 }
 
 /// Where an extension's updates come from: the tags of a git repository.
@@ -96,7 +139,31 @@ pub const VERSION_PLACEHOLDER: &str = "{version}";
 impl Manifest {
     /// A manifest with only these (tests and fixtures).
     pub fn named(id: &str, name: &str) -> Manifest {
-        Manifest { id: id.into(), name: name.into(), version: None, demo: false, docs: None, icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None, actions: vec![], source: None }
+        Manifest {
+            id: id.into(),
+            name: name.into(),
+            version: None,
+            demo: false,
+            docs: None,
+            icon: None,
+            description: None,
+            settings: vec![],
+            adapter: None,
+            agent_env: vec![],
+            match_agents: None,
+            actions: vec![],
+            source: None,
+            format: 1,
+            pitwall: None,
+            permissions: vec![],
+            contributes: Contributes::default(),
+        }
+    }
+
+    /// It has an inbox: in format 1 every extension with an adapter does;
+    /// in format 2 one that contributes it.
+    pub fn has_inbox(&self) -> bool {
+        self.adapter.is_some() && (self.format < 2 || self.contributes.inbox)
     }
 }
 
@@ -182,7 +249,95 @@ pub struct SettingDef {
     pub placeholder: Option<String>,
     /// The adapter isn't started until it is set.
     pub required: bool,
+    /// Its value until the user sets one (never for a secret), as it is
+    /// kept: `true`/`false` for a switch, a number's digits, a choice's
+    /// value.
+    pub default: Option<String>,
+    /// A `choice`'s options, in order.
+    pub options: Vec<Choice>,
+    /// A `number`'s bounds.
+    pub min: Option<serde_json::Number>,
+    pub max: Option<serde_json::Number>,
 }
+
+/// One option of a `choice` setting: what is kept and sent, and what
+/// Settings shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choice {
+    pub value: String,
+    pub label: String,
+}
+
+impl SettingDef {
+    /// A setting with only these (tests and fixtures).
+    pub fn new(key: &str, kind: SettingKind, label: &str) -> SettingDef {
+        SettingDef { key: key.into(), kind, label: label.into(), hint: None, placeholder: None, required: false, default: None, options: vec![], min: None, max: None }
+    }
+
+    /// The value it has with `stored` kept for it (else its default), as
+    /// `hello` sends it: a string, `true`/`false` for a switch, a number
+    /// for a number. `None` when it has none (or is a secret: those are
+    /// sent apart).
+    pub fn json(&self, stored: Option<&str>) -> Option<Value> {
+        let v = stored.filter(|v| !v.trim().is_empty()).or(self.default.as_deref())?;
+        Some(match self.kind {
+            SettingKind::Secret => return None,
+            SettingKind::Bool => Value::Bool(v == "true"),
+            SettingKind::Number => serde_json::from_str::<serde_json::Number>(v.trim()).map(Value::Number).ok()?,
+            SettingKind::Url | SettingKind::Text | SettingKind::Choice => Value::String(v.to_string()),
+        })
+    }
+
+    /// Whether it counts as set with `stored` kept (a default counts; a
+    /// switch always is); a secret's is told by `secret_set`.
+    pub fn is_set(&self, stored: Option<&str>, secret_set: bool) -> bool {
+        match self.kind {
+            SettingKind::Secret => secret_set,
+            SettingKind::Bool => true,
+            _ => stored.is_some_and(|v| !v.trim().is_empty()) || self.default.is_some(),
+        }
+    }
+
+    /// What `text` typed (or picked) for it is kept as: nothing when empty,
+    /// else the value; why not, in plain words. Not for `url` (the app
+    /// checks web addresses) or secrets.
+    pub fn check_value(&self, text: &str) -> Result<Option<String>, String> {
+        let t = text.trim();
+        if t.is_empty() {
+            return Ok(None);
+        }
+        match self.kind {
+            SettingKind::Text => {
+                if t.chars().count() > MAX_TEXT_SETTING || t.chars().any(char::is_control) {
+                    return Err(format!("Keep it to one line of at most {MAX_TEXT_SETTING} characters."));
+                }
+                Ok(Some(t.to_string()))
+            }
+            SettingKind::Choice => self.options.iter().find(|o| o.value == t).map(|o| Some(o.value.clone())).ok_or_else(|| "Pick one of its options.".to_string()),
+            SettingKind::Bool => match t {
+                "true" | "false" => Ok(Some(t.to_string())),
+                _ => Err("On or off.".into()),
+            },
+            SettingKind::Number => {
+                let n: f64 = t.parse().ok().filter(|n: &f64| n.is_finite()).ok_or("That isn't a number.")?;
+                let (lo, hi) = (self.min.as_ref().and_then(serde_json::Number::as_f64), self.max.as_ref().and_then(serde_json::Number::as_f64));
+                match (lo, hi) {
+                    (Some(lo), Some(hi)) if n < lo || n > hi => Err(format!("Between {lo} and {hi}.")),
+                    (Some(lo), None) if n < lo => Err(format!("At least {lo}.")),
+                    (None, Some(hi)) if n > hi => Err(format!("At most {hi}.")),
+                    _ => Ok(Some(match t.parse::<i64>() {
+                        Ok(i) => i.to_string(),
+                        Err(_) => n.to_string(),
+                    })),
+                }
+            }
+            SettingKind::Url | SettingKind::Secret => Ok(Some(t.to_string())),
+        }
+    }
+}
+
+/// The longest `text` setting.
+pub const MAX_TEXT_SETTING: usize = 500;
 
 /// What a setting holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +347,40 @@ pub enum SettingKind {
     /// A key or token, kept in the system's secure store (`ui.json` only
     /// says that it is set).
     Secret,
+    /// One line of text (at most [`MAX_TEXT_SETTING`] characters).
+    Text,
+    /// One of its `options`.
+    Choice,
+    /// A switch: on or off.
+    Bool,
+    /// A number, within its `min` and `max`.
+    Number,
+}
+
+impl SettingKind {
+    /// Its name in a manifest.
+    pub fn name(self) -> &'static str {
+        match self {
+            SettingKind::Url => "url",
+            SettingKind::Secret => "secret",
+            SettingKind::Text => "text",
+            SettingKind::Choice => "choice",
+            SettingKind::Bool => "bool",
+            SettingKind::Number => "number",
+        }
+    }
+
+    /// What it is, in a few words (`check`, the update review).
+    pub fn words(self) -> &'static str {
+        match self {
+            SettingKind::Url => "a web address",
+            SettingKind::Secret => "a secret, kept in the system's secure store",
+            SettingKind::Text => "a line of text",
+            SettingKind::Choice => "a choice",
+            SettingKind::Bool => "a switch",
+            SettingKind::Number => "a number",
+        }
+    }
 }
 
 /// The adapter: a program and its arguments, run in the extension's folder.
@@ -389,20 +578,29 @@ fn opt_str<'a>(obj: &'a serde_json::Map<String, Value>, key: &str) -> Result<Opt
     }
 }
 
-/// Read and check manifest `text`.
+/// Read and check manifest `text`, for this Pitwall.
 pub fn parse(text: &str) -> Result<Manifest, String> {
+    parse_for(text, PITWALL)
+}
+
+/// [`parse`] for Pitwall version `pitwall` (a format 2 manifest's
+/// `pitwall` is compared with it).
+pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("{MANIFEST} isn't valid JSON: {e}"))?;
     let Value::Object(obj) = v else {
         return Err(format!("{MANIFEST} must be a JSON object"));
     };
-    match obj.get("v") {
-        None => {}
+    let format = match obj.get("v") {
+        None => 1,
         Some(n) => match n.as_u64() {
-            Some(n) if n == FORMAT => {}
-            Some(n) if n > FORMAT => return Err(format!("it needs a newer Pitwall (manifest format {n}; this one reads {FORMAT})")),
-            _ => return Err(format!("\"v\" must be {FORMAT}")),
+            Some(n @ 1..=FORMAT) => n,
+            Some(n) if n > FORMAT => return Err(format!("it needs a newer Pitwall (manifest format {n}; this one reads 1 and {FORMAT})")),
+            _ => return Err(format!("\"v\" must be 1 or {FORMAT}")),
         },
-    }
+    };
+    // Format 2: the Pitwall it needs first, so an older one says that
+    // rather than what else it can't read.
+    let min_pitwall = if format >= 2 { parse_pitwall(obj.get("pitwall"), pitwall)? } else { None };
     let id = opt_str(&obj, "id")?.ok_or("\"id\" is missing")?;
     check_id(id)?;
     let name = line("name", opt_str(&obj, "name")?.ok_or("\"name\" is missing")?, MAX_NAME)?;
@@ -451,7 +649,80 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
     };
     let actions = parse_actions(obj.get("actions"), &settings)?;
     let source = parse_source(obj.get("source"))?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source })
+    // Format 1 ignores these keys, as it always has (a Pitwall reading
+    // only format 1 never saw them); `check` says so.
+    let (permissions, contributes) = if format >= 2 { (parse_permissions(obj.get("permissions"))?, parse_contributes(obj.get("contributes"))?) } else { (vec![], Contributes::default()) };
+    if contributes.inbox && adapter.is_none() {
+        return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
+    }
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes })
+}
+
+/// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
+fn parse_pitwall(v: Option<&Value>, ours: &str) -> Result<Option<String>, String> {
+    let s = match v {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(s)) => s.trim(),
+        Some(_) => return Err("\"pitwall\" must be a string like >=0.9.0".into()),
+    };
+    let want = s.strip_prefix(">=").map(str::trim).filter(|w| w.len() <= 32 && w.starts_with(|c: char| c.is_ascii_digit()) && w.chars().all(|c| c.is_ascii_alphanumeric() || ".-+".contains(c)));
+    let Some(want) = want else {
+        return Err(format!("\"pitwall\" “{s}” must be like >=0.9.0 (the lowest Pitwall it needs)"));
+    };
+    if install::compare_versions(ours, want) == std::cmp::Ordering::Less {
+        return Err(format!("it needs Pitwall {want} or later (this is {ours})"));
+    }
+    Ok(Some(want.to_string()))
+}
+
+/// The most permissions a manifest asks for.
+pub const MAX_PERMISSIONS: usize = 16;
+
+/// `permissions`: name → reason (one line, at most 200 characters). A name
+/// this Pitwall doesn't know is kept: shown as not available, never
+/// granted.
+fn parse_permissions(v: Option<&Value>) -> Result<Vec<PermissionAsk>, String> {
+    let o = match v {
+        None | Some(Value::Null) => return Ok(vec![]),
+        Some(Value::Object(o)) => o,
+        Some(_) => return Err("\"permissions\" must be an object: each permission's name and your reason for it".into()),
+    };
+    if o.len() > MAX_PERMISSIONS {
+        return Err(format!("\"permissions\" has more than {MAX_PERMISSIONS}"));
+    }
+    let mut out = Vec::new();
+    for (name, reason) in o {
+        let ok = name.len() <= 40 && name.split('.').all(|w| w.starts_with(|c: char| c.is_ascii_lowercase()) && w.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
+        if !ok {
+            return Err(format!("permission “{name}” must be lower-case words with dots, like agents.read"));
+        }
+        let Value::String(reason) = reason else { return Err(format!("permission “{name}” needs your reason, a string")) };
+        let reason = line(&format!("permissions.{name}"), reason, 200)?;
+        out.push(PermissionAsk { name: name.clone(), reason });
+    }
+    Ok(out)
+}
+
+/// `contributes`: what it adds. A kind this Pitwall doesn't draw is
+/// refused, saying so, rather than dropped without a word.
+fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
+    let o = match v {
+        None | Some(Value::Null) => return Ok(Contributes::default()),
+        Some(Value::Object(o)) => o,
+        Some(_) => return Err("\"contributes\" must be an object".into()),
+    };
+    let mut c = Contributes::default();
+    for (k, val) in o {
+        match k.as_str() {
+            "inbox" => match val {
+                Value::Bool(b) => c.inbox = *b,
+                _ => return Err("\"contributes.inbox\" must be true or false".into()),
+            },
+            later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
+            other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
+        }
+    }
+    Ok(c)
 }
 
 /// Why `url` can't be a source's repository: only `https://`, without a
@@ -532,7 +803,11 @@ fn parse_settings(v: Option<&Value>) -> Result<Vec<SettingDef>, String> {
         let kind = match opt_str(o, "type")? {
             Some("url") => SettingKind::Url,
             Some("secret") => SettingKind::Secret,
-            Some(t) => return Err(format!("setting “{key}” has type “{t}”: url or secret")),
+            Some("text") => SettingKind::Text,
+            Some("choice") => SettingKind::Choice,
+            Some("bool") => SettingKind::Bool,
+            Some("number") => SettingKind::Number,
+            Some(t) => return Err(format!("setting “{key}” has type “{t}”: url, secret, text, choice, bool or number")),
             None => return Err(format!("setting “{key}” needs \"type\"")),
         };
         let label = line("label", opt_str(o, "label")?.ok_or(format!("setting “{key}” needs \"label\""))?, 60)?;
@@ -543,7 +818,63 @@ fn parse_settings(v: Option<&Value>) -> Result<Vec<SettingDef>, String> {
             Some(Value::Bool(b)) => *b,
             Some(_) => return Err(format!("setting “{key}”: \"required\" must be true or false")),
         };
-        out.push(SettingDef { key: key.to_string(), kind, label, hint, placeholder, required });
+        let mut def = SettingDef { key: key.to_string(), kind, label, hint, placeholder, required, default: None, options: vec![], min: None, max: None };
+        if kind == SettingKind::Choice {
+            for opt in array(o.get("options"), &format!("settings.{key}.options"), 20)? {
+                let (value, label) = match opt {
+                    Value::String(s) => (s.clone(), s.clone()),
+                    Value::Object(c) => {
+                        let v = opt_str(c, "value")?.ok_or(format!("an option of setting “{key}” needs \"value\""))?.to_string();
+                        let l = opt_str(c, "label")?.map(str::to_string).unwrap_or_else(|| v.clone());
+                        (v, l)
+                    }
+                    _ => return Err(format!("each option of setting “{key}” must be a string or {{\"value\", \"label\"}}")),
+                };
+                let value = line(&format!("an option of setting “{key}”"), &value, 100)?;
+                let label = line(&format!("an option of setting “{key}”"), &label, 60)?;
+                if def.options.iter().any(|c| c.value == value) {
+                    return Err(format!("setting “{key}” has option “{value}” twice"));
+                }
+                def.options.push(Choice { value, label });
+            }
+            if def.options.len() < 2 {
+                return Err(format!("setting “{key}” is a choice: give it 2–20 \"options\""));
+            }
+        }
+        if kind == SettingKind::Number {
+            let bound = |k: &str| -> Result<Option<serde_json::Number>, String> {
+                match o.get(k) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(Value::Number(n)) => Ok(Some(n.clone())),
+                    Some(_) => Err(format!("setting “{key}”: \"{k}\" must be a number")),
+                }
+            };
+            def.min = bound("min")?;
+            def.max = bound("max")?;
+            if let (Some(lo), Some(hi)) = (def.min.as_ref().and_then(serde_json::Number::as_f64), def.max.as_ref().and_then(serde_json::Number::as_f64)) {
+                if lo > hi {
+                    return Err(format!("setting “{key}”: \"min\" is above \"max\""));
+                }
+            }
+        }
+        def.default = match (o.get("default"), kind) {
+            (None | Some(Value::Null), _) => None,
+            (Some(_), SettingKind::Secret) => return Err(format!("setting “{key}” is a secret: it can't have a \"default\"")),
+            (Some(Value::Bool(b)), SettingKind::Bool) => Some(b.to_string()),
+            (Some(Value::Number(n)), SettingKind::Number) => Some(def.check_value(&n.to_string()).map_err(|e| format!("setting “{key}”: its \"default\": {e}"))?.unwrap_or_default()),
+            (Some(Value::String(s)), SettingKind::Url | SettingKind::Text | SettingKind::Choice) => {
+                if kind == SettingKind::Url && !(s.starts_with("https://") || s.starts_with("http://")) {
+                    return Err(format!("setting “{key}”: its \"default\" must be an http(s) address"));
+                }
+                Some(def.check_value(s).map_err(|e| format!("setting “{key}”: its \"default\": {e}"))?.ok_or(format!("setting “{key}”: its \"default\" is empty"))?)
+            }
+            (Some(_), k) => return Err(format!("setting “{key}”: its \"default\" must be a {}", match k {
+                SettingKind::Bool => "true or false",
+                SettingKind::Number => "number",
+                _ => "string",
+            })),
+        };
+        out.push(def);
     }
     Ok(out)
 }
@@ -757,7 +1088,7 @@ mod tests {
         assert_eq!(m.match_agents.unwrap().session, "{agent_id}");
 
         let err = |extra: &str| parse(&format!(r#"{{"id": "x", "name": "X", {extra}}}"#)).unwrap_err();
-        assert!(err(r#""settings": [{"key": "a", "type": "color", "label": "A"}]"#).contains("url or secret"));
+        assert!(err(r#""settings": [{"key": "a", "type": "color", "label": "A"}]"#).contains("url, secret, text, choice, bool or number"));
         assert!(err(r#""settings": [{"key": "1a", "type": "url", "label": "A"}]"#).contains("letters, digits"));
         assert!(err(r#""settings": [{"key": "a", "type": "url", "label": "A"}, {"key": "a", "type": "url", "label": "B"}]"#).contains("twice"));
         assert!(err(r#""settings": [{"key": "a", "type": "url"}]"#).contains("needs \"label\""));
@@ -906,9 +1237,88 @@ mod tests {
         assert!(err(r#"{"id": "x", "name": "X", "icon": "Big Icon"}"#).contains("\"icon\""));
         assert!(err(r#"{"id": "x", "name": "X", "icon": 1}"#).contains("\"icon\" must be a string"));
         assert!(err(r#"{"id": "x", "name": "X", "description": ""}"#).contains("\"description\" is empty"));
-        assert!(err(r#"{"v": 2, "id": "x", "name": "X"}"#).contains("needs a newer Pitwall"));
-        assert!(err(r#"{"v": 0, "id": "x", "name": "X"}"#).contains("\"v\" must be 1"));
-        assert!(err(r#"{"v": "1", "id": "x", "name": "X"}"#).contains("\"v\" must be 1"));
+        assert!(err(r#"{"v": 3, "id": "x", "name": "X"}"#).contains("needs a newer Pitwall"));
+        assert!(err(r#"{"v": 0, "id": "x", "name": "X"}"#).contains("\"v\" must be 1 or 2"));
+        assert!(err(r#"{"v": "1", "id": "x", "name": "X"}"#).contains("\"v\" must be 1 or 2"));
+    }
+
+    /// Format 2: the Pitwall it needs (an older one refuses it, saying
+    /// which), its permissions with reasons, what it contributes (a kind
+    /// this Pitwall doesn't draw is refused, saying so).
+    #[test]
+    fn format_2_is_read_and_checked() {
+        let v2 = |extra: &str| format!(r#"{{"v": 2, "id": "ci", "name": "CI", "adapter": {{"command": ["node", "a.mjs"]}}{extra}}}"#);
+        let m = parse_for(&v2(r#", "pitwall": ">=0.9.0", "permissions": {"agents.read": "To match runs to agents", "weather.read": "Later"}, "contributes": {"inbox": true}"#), "0.9.0").unwrap();
+        assert_eq!((m.format, m.pitwall.as_deref(), m.contributes.inbox), (2, Some("0.9.0"), true));
+        assert_eq!(m.permissions, [PermissionAsk { name: "agents.read".into(), reason: "To match runs to agents".into() }, PermissionAsk { name: "weather.read".into(), reason: "Later".into() }]);
+        assert!(m.has_inbox());
+        // An older Pitwall refuses it, saying which it needs.
+        assert_eq!(parse_for(&v2(r#", "pitwall": ">=0.10.0""#), "0.9.4").unwrap_err(), "it needs Pitwall 0.10.0 or later (this is 0.9.4)");
+        assert!(parse_for(&v2(r#", "pitwall": ">=0.10.0""#), "0.10.0").is_ok());
+        assert!(parse(&v2(r#", "pitwall": "0.9""#)).unwrap_err().contains("like >=0.9.0"));
+        // Without an inbox contribution, format 2 has none (its adapter
+        // still runs, for what it reads).
+        let m = parse(&v2("")).unwrap();
+        assert!(!m.has_inbox() && m.adapter.is_some());
+        assert!(parse(&v2(r#", "contributes": {"views": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “views”, which needs a newer Pitwall (this one draws: inbox)"));
+        assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
+        assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
+        assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));
+        assert!(parse(&v2(r#", "permissions": {"agents.read": ""}"#)).unwrap_err().contains("is empty"));
+        assert!(parse(&v2(r#", "permissions": {"agents.read": true}"#)).unwrap_err().contains("your reason"));
+        assert!(parse(&v2(r#", "permissions": ["agents.read"]"#)).unwrap_err().contains("must be an object"));
+        // Format 1 reads exactly as before: these keys are ignored, and an
+        // adapter is an inbox.
+        let m = parse(r#"{"id": "x", "name": "X", "adapter": {"command": ["node", "a.mjs"]}, "pitwall": ">=99.0.0", "permissions": {"agents.read": "r"}, "contributes": {"views": []}}"#).unwrap();
+        assert_eq!((m.format, m.pitwall.clone(), m.permissions.len(), m.has_inbox()), (1, None, 0, true));
+    }
+
+    /// Text, choice, switch and number settings: each with its checks and
+    /// default, kept as text, sent typed.
+    #[test]
+    fn setting_types_are_read_checked_and_sent_typed() {
+        let m = parse(
+            r#"{"v": 2, "id": "x", "name": "X", "settings": [
+                {"key": "team", "type": "text", "label": "Team", "default": "core"},
+                {"key": "level", "type": "choice", "label": "Level", "options": ["low", {"value": "high", "label": "High only"}], "default": "low"},
+                {"key": "branchesOnly", "type": "bool", "label": "Only agents' branches", "default": true},
+                {"key": "limit", "type": "number", "label": "Limit", "min": 1, "max": 50, "default": 10, "required": true}]}"#,
+        )
+        .unwrap();
+        let s = |k: &str| m.settings.iter().find(|s| s.key == k).unwrap();
+        assert_eq!(s("level").options[1], Choice { value: "high".into(), label: "High only".into() });
+        assert_eq!((s("branchesOnly").default.as_deref(), s("limit").default.as_deref()), (Some("true"), Some("10")));
+        // Sent typed, the kept value over the default.
+        assert_eq!(s("team").json(None), Some(serde_json::json!("core")));
+        assert_eq!(s("team").json(Some("web")), Some(serde_json::json!("web")));
+        assert_eq!(s("branchesOnly").json(Some("false")), Some(serde_json::json!(false)));
+        assert_eq!(s("limit").json(Some("25")), Some(serde_json::json!(25)));
+        assert_eq!(SettingDef::new("k", SettingKind::Secret, "K").json(Some("x")), None, "secrets go apart");
+        assert_eq!(SettingDef::new("k", SettingKind::Text, "K").json(None), None);
+        // What typing keeps, or why not.
+        assert_eq!(s("limit").check_value(" 7 "), Ok(Some("7".into())));
+        assert_eq!(s("limit").check_value("0").unwrap_err(), "Between 1 and 50.");
+        assert_eq!(s("limit").check_value("lots").unwrap_err(), "That isn't a number.");
+        assert_eq!(s("limit").check_value(""), Ok(None));
+        assert_eq!(s("level").check_value("high"), Ok(Some("high".into())));
+        assert!(s("level").check_value("High only").is_err(), "the value, not its label");
+        assert!(s("team").check_value(&"t".repeat(501)).is_err());
+        assert_eq!(s("branchesOnly").check_value("true"), Ok(Some("true".into())));
+        // Set: a default counts, a switch always is.
+        assert!(s("limit").is_set(None, false) && s("branchesOnly").is_set(None, false));
+        assert!(!SettingDef::new("k", SettingKind::Text, "K").is_set(Some("  "), false));
+        // A plain one may go in an agent variable, as url ones do.
+        assert!(parse(r#"{"id": "x", "name": "X", "settings": [{"key": "team", "type": "text", "label": "T"}], "agentEnv": [{"name": "X_TEAM", "value": "{setting:team}"}]}"#).is_ok());
+
+        let err = |s: &str| parse(&format!(r#"{{"id": "x", "name": "X", "settings": [{s}]}}"#)).unwrap_err();
+        assert!(err(r#"{"key": "a", "type": "choice", "label": "A", "options": ["one"]}"#).contains("2–20"));
+        assert!(err(r#"{"key": "a", "type": "choice", "label": "A", "options": ["one", "one"]}"#).contains("twice"));
+        assert!(err(r#"{"key": "a", "type": "choice", "label": "A", "options": ["one", "two"], "default": "three"}"#).contains("its options"));
+        assert!(err(r#"{"key": "a", "type": "number", "label": "A", "min": 5, "max": 1}"#).contains("above"));
+        assert!(err(r#"{"key": "a", "type": "number", "label": "A", "max": 3, "default": 9}"#).contains("At most 3"));
+        assert!(err(r#"{"key": "a", "type": "bool", "label": "A", "default": "yes"}"#).contains("true or false"));
+        assert!(err(r#"{"key": "a", "type": "secret", "label": "A", "default": "k"}"#).contains("can't have a \"default\""));
+        assert!(err(r#"{"key": "a", "type": "url", "label": "A", "default": "ftp://x"}"#).contains("http(s)"));
     }
 
     /// The examples in the repository's `extensions/` folder are usable.

@@ -37,7 +37,7 @@ use serde_json::{Map, Value};
 
 use super::plan::{env_preview, line, plan, resolve};
 use super::process::Process;
-use super::protocol::{clean, parse_line, read_line, ConnState, FromAdapter, LineGuard, ToAdapter, PROTOCOL};
+use super::protocol::{clean, negotiate, parse_line, read_line, CallError, ConnState, FromAdapter, FromInbox, Hello, LineGuard, ToAdapter, ToInbox, PROTOCOL_2};
 use super::{read_in_place, Manifest, SettingKind, MANIFEST};
 
 /// The fixture's file in an extension's folder.
@@ -167,7 +167,28 @@ fn file_args(command: &[String]) -> Vec<&str> {
 pub fn check(folder: &Path, path: Option<&str>) -> Report {
     let mut r = Report::default();
     let Some(m) = manifest(folder, &mut r) else { return r };
-    r.add(Level::Ok, format!("{MANIFEST} is valid and within Pitwall's limits (format 1)"));
+    r.add(Level::Ok, format!("{MANIFEST} is valid and within Pitwall's limits (format {})", m.format));
+    if m.format < 2 {
+        let raw: Value = std::fs::read_to_string(folder.join(MANIFEST)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        for k in ["pitwall", "permissions", "contributes"] {
+            if !raw[k].is_null() {
+                r.add(Level::Warn, format!("it has \"{k}\", which format 1 ignores: add \"v\": 2 to use it"));
+            }
+        }
+    } else {
+        match &m.pitwall {
+            Some(v) => r.add(Level::Ok, format!("it needs Pitwall {v} or later (this is {})", super::PITWALL)),
+            None => r.add(Level::Warn, "it doesn't say which Pitwall it needs: add \"pitwall\": \">=0.9.0\" (a lower one would refuse it plainly)"),
+        }
+        for p in &m.permissions {
+            if let Some(why) = super::permissions::unavailable_why(&p.name) {
+                r.add(Level::Warn, format!("it asks for “{}”, {why}: never granted here", p.name));
+            }
+        }
+        if m.adapter.is_some() && !m.contributes.inbox && m.permissions.is_empty() {
+            r.add(Level::Warn, "its adapter contributes nothing and asks for no permissions: add \"contributes\": {\"inbox\": true} or a permission");
+        }
+    }
     let named = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if named != m.id {
         r.add(Level::Warn, format!("its folder is named “{named}”, not its id “{}”: fine to load in development, but a folder installed or shipped must be named after its id", m.id));
@@ -237,15 +258,43 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
             .settings
             .iter()
             .map(|s| {
-                let kind = match s.kind {
-                    SettingKind::Url => "a web address",
-                    SettingKind::Secret => "a secret, kept in the system's secure store",
-                };
+                let kind = s.kind.words();
                 let need = if s.required { "required" } else { "optional" };
-                format!("{} ({}): {kind}, {need}", s.label, s.key)
+                let mut more = String::new();
+                if s.kind == SettingKind::Choice {
+                    more += &format!(", one of {}", s.options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join(", "));
+                }
+                match (&s.min, &s.max) {
+                    (Some(lo), Some(hi)) => more += &format!(", {lo} to {hi}"),
+                    (Some(lo), None) => more += &format!(", at least {lo}"),
+                    (None, Some(hi)) => more += &format!(", at most {hi}"),
+                    (None, None) => {}
+                }
+                if let Some(d) = &s.default {
+                    more += &format!(", {d} unless set");
+                }
+                format!("{} ({}): {kind}{more}, {need}", s.label, s.key)
             })
             .collect();
         push("The user sets (they reach the adapter only in its hello):".to_string(), lines);
+    }
+    if m.format >= 2 {
+        let lines = m
+            .permissions
+            .iter()
+            .map(|p| match super::permissions::unavailable_why(&p.name) {
+                None => format!("{}: {}", p.name, p.reason),
+                Some(why) => format!("{}: {} ({why}: never granted here)", p.name, p.reason),
+            })
+            .collect::<Vec<_>>();
+        if lines.is_empty() {
+            push("It asks for no permissions: Pitwall answers none of its calls.".to_string(), vec![]);
+        } else {
+            push("It asks for (the user grants or refuses each when turning it on):".to_string(), lines);
+        }
+        if m.contributes.inbox {
+            push("It contributes:".to_string(), vec!["an inbox, from its adapter's threads".to_string()]);
+        }
     }
     match &m.adapter {
         Some(a) => push("While it is on, it runs this in its folder:".to_string(), vec![line(&a.command)]),
@@ -305,10 +354,102 @@ pub fn test(folder: &Path, path: Option<&str>) -> Report {
     if !fixture["agreement"].is_null() {
         agreement(folder, &m, &fixture["agreement"], path, &mut r);
     }
+    if !fixture["calls"].is_null() {
+        calls(folder, &m, &fixture["calls"], path, &mut r);
+    }
     if r.findings.len() == before {
-        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, run or agreement)"));
+        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, run, agreement or calls)"));
     }
     r
+}
+
+/// `calls`: the adapter against a fake Pitwall side that answers its
+/// calls from the fixture (protocol 2): it answers hello with protocol 2,
+/// makes the calls expected, subscribes to the topics expected, lists its
+/// threads and shows what it read in the thread expected; then, after the
+/// fixture's `events`, what they changed.
+fn calls(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Report) {
+    let Some(command) = command_of(m, folder, path, "calls", r) else { return };
+    let obj = |k: &str| v[k].as_object().cloned().unwrap_or_default();
+    let grants: Vec<String> = v["grants"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+    for g in &grants {
+        if !m.permissions.iter().any(|p| p.name == *g) {
+            r.add(Level::Fail, format!("calls: it is granted “{g}”, which its manifest doesn't ask for (Pitwall never grants that)"));
+        }
+    }
+    let mut d = match Driver::start(folder, &command, &hello_with(obj("settings"), obj("secrets"), grants), path) {
+        Ok(d) => d,
+        Err(why) => {
+            r.add(Level::Fail, format!("calls: its adapter: {why}"));
+            return;
+        }
+    };
+    d.answers = obj("answers");
+    if let Err(why) = exchange(&mut d, &v["expect"], &v["events"], r) {
+        r.add(Level::Fail, format!("calls: {why}"));
+    }
+    finish(d, r);
+}
+
+/// The calls' exchange, step by step.
+fn exchange(d: &mut Driver, expect: &Value, events: &Value, r: &mut Report) -> Result<(), String> {
+    match said_hello(d, r) {
+        None => return Ok(()),
+        Some(p) if p < PROTOCOL_2 => return Err("it answers hello with protocol 1: calls need protocol 2".into()),
+        Some(_) => {}
+    }
+    let strs = |v: &Value| -> Vec<String> { v.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect() };
+    let at_least = expect["threads"].as_u64().unwrap_or(0) as usize;
+    let list = d.until("its threads", |m| matches!(m, FromAdapter::Inbox(FromInbox::Threads(l)) if l.len() >= at_least.max(1)));
+    // Its calls come before its list, or soon after.
+    let want = strs(&expect["called"]);
+    let end = Instant::now() + WAIT;
+    while !want.iter().all(|w| d.called.contains(w)) && Instant::now() < end {
+        let _ = d.until("its calls", |_| false);
+    }
+    for w in &want {
+        if d.called.contains(w) {
+            r.add(Level::Ok, format!("calls: it calls {w}"));
+        } else {
+            r.add(Level::Fail, format!("calls: it never calls {w} (it called {})", if d.called.is_empty() { "nothing".to_string() } else { d.called.join(", ") }));
+        }
+    }
+    for t in strs(&expect["subscribes"]) {
+        if d.topics.contains(&t) {
+            r.add(Level::Ok, format!("calls: it subscribes to {t}"));
+        } else {
+            r.add(Level::Fail, format!("calls: it never subscribes to {t}"));
+        }
+    }
+    match list {
+        Ok(FromAdapter::Inbox(FromInbox::Threads(l))) => r.add(Level::Ok, format!("calls: it lists {} thread(s)", l.len())),
+        Ok(_) => {}
+        Err(why) if at_least > 0 => return Err(why),
+        Err(_) => {}
+    }
+    let Some(id) = expect["open"].as_str().map(str::to_string) else { return Ok(()) };
+    let text = expect["text"].as_str().unwrap_or_default().to_string();
+    d.send(&ToAdapter::Inbox(ToInbox::Open { thread: id.clone() }))?;
+    let has = |t: &super::protocol::ThreadDetail, s: &str| t.messages.iter().any(|m| m.text.contains(s) || m.detail.contains(s));
+    let FromAdapter::Inbox(FromInbox::Thread(t)) = d.until(&format!("thread “{id}”"), |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(t)) if t.id == id))? else { unreachable!() };
+    if !has(&t, &text) {
+        return Err(format!("thread “{id}” doesn't show “{text}”, what the fake Pitwall answered"));
+    }
+    r.add(Level::Ok, format!("calls: thread “{id}” shows what it read (“{text}”)"));
+    let after = expect["afterEvents"].as_str().unwrap_or_default().to_string();
+    let list = events.as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        return Ok(());
+    }
+    for e in &list {
+        d.send(&ToAdapter::Event { event: e["event"].as_str().unwrap_or_default().to_string(), data: e["data"].clone() })?;
+    }
+    if after.is_empty() {
+        return Ok(());
+    }
+    d.until(&format!("thread “{id}” showing “{after}” after the events"), |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(t)) if t.id == id && has(t, &after)))?;
+    r.add(Level::Ok, format!("calls: after {} event(s), thread “{id}” shows “{after}”", list.len()));
+    Ok(())
 }
 
 fn strings(v: &Value) -> Option<Vec<Option<String>>> {
@@ -414,6 +555,29 @@ struct Driver {
     stderr: Arc<Mutex<Vec<u8>>>,
     /// Lines it sent that Pitwall can't read.
     bad: Vec<String>,
+    /// The protocol it answered hello with.
+    protocol: u64,
+    /// The fake Pitwall side of `calls`: what each method answers.
+    answers: Map<String, Value>,
+    /// The methods it called, in order.
+    called: Vec<String>,
+    /// The topics it subscribed to.
+    topics: Vec<String>,
+}
+
+/// What the fake Pitwall side answers call `c` with: the fixture's
+/// `answers` (an object with `error` is an error), `events.subscribe` the
+/// topics asked for, anything else "not in the fixture".
+fn fake_answer(answers: &Map<String, Value>, method: &str, params: &Value) -> Result<Value, CallError> {
+    match answers.get(method) {
+        Some(Value::Object(o)) if o.contains_key("error") => {
+            let e = &o["error"];
+            Err(CallError::new(e["code"].as_str().unwrap_or("denied"), e["message"].as_str().unwrap_or("Not allowed")))
+        }
+        Some(v) => Ok(v.clone()),
+        None if method == "events.subscribe" => Ok(serde_json::json!({"topics": params["topics"].clone()})),
+        None => Err(CallError::new("unknown_method", format!("{method} isn't in {FIXTURE}'s calls.answers"))),
+    }
 }
 
 impl Driver {
@@ -466,9 +630,24 @@ impl Driver {
                 t.drain(..over);
             }
         });
-        let mut d = Driver { proc, stdin: Some(pipes.stdin), rx, stderr, bad: Vec::new() };
+        let mut d = Driver { proc, stdin: Some(pipes.stdin), rx, stderr, bad: Vec::new(), protocol: 0, answers: Map::new(), called: Vec::new(), topics: Vec::new() };
         d.send(hello)?;
         Ok(d)
+    }
+
+    /// Answer call `c` as the fixture says (a call on protocol 1 is
+    /// refused, as Pitwall refuses it).
+    fn answer(&mut self, id: String, method: String, params: Value) -> Result<(), String> {
+        let result = if self.protocol < PROTOCOL_2 {
+            Err(CallError::new("unsupported", "calls need protocol 2: answer hello with \"protocol\": 2"))
+        } else {
+            if method == "events.subscribe" {
+                self.topics.extend(params["topics"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string));
+            }
+            fake_answer(&self.answers, &method, &params)
+        };
+        self.called.push(method);
+        self.send(&ToAdapter::Reply { id, result })
     }
 
     fn send(&mut self, m: &ToAdapter) -> Result<(), String> {
@@ -494,6 +673,12 @@ impl Driver {
             let left = end.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left) {
                 Ok(Ok(m)) if want(&m) => return Ok(m),
+                // Calls are answered as they come, whatever is awaited.
+                Ok(Ok(FromAdapter::Call(c))) => self.answer(c.id, c.method, c.params)?,
+                Ok(Ok(FromAdapter::BadCall { id, why })) => {
+                    self.bad.push(format!("a call Pitwall can't make: {why}"));
+                    self.send(&ToAdapter::Reply { id, result: Err(CallError::new("bad_params", why)) })?;
+                }
                 Ok(Ok(_)) => {}
                 Ok(Err(why)) if why.starts_with("it sent") || why.contains("lines in a second") => return Err(format!("waiting for {what}, it was stopped: {why}")),
                 Ok(Err(why)) => self.bad.push(why),
@@ -536,7 +721,12 @@ impl Drop for Driver {
 
 /// `settings` and `secrets` as `hello` carries them.
 fn hello(settings: Map<String, Value>, secrets: Map<String, Value>) -> ToAdapter {
-    ToAdapter::Hello { pitwall: env!("CARGO_PKG_VERSION").to_string(), settings, secrets }
+    hello_with(settings, secrets, vec![])
+}
+
+/// [`hello`] with the permissions granted (`calls`).
+fn hello_with(settings: Map<String, Value>, secrets: Map<String, Value>, grants: Vec<String>) -> ToAdapter {
+    ToAdapter::Hello(Hello { pitwall: super::PITWALL.to_string(), settings, secrets, connection: None, grants })
 }
 
 /// The adapter's command, or the report says why there is none to run.
@@ -552,21 +742,26 @@ fn command_of(m: &Manifest, folder: &Path, path: Option<&str>, what: &str, r: &m
     Some(a.command.clone())
 }
 
-/// After its `hello`: what it said, as findings.
-fn said_hello(d: &mut Driver, r: &mut Report) -> bool {
+/// After its `hello`: what it said, as findings; the protocol it speaks,
+/// when Pitwall speaks it.
+fn said_hello(d: &mut Driver, r: &mut Report) -> Option<u64> {
     match d.until("its hello", |m| matches!(m, FromAdapter::Hello { .. })) {
-        Ok(FromAdapter::Hello { protocol }) if protocol == PROTOCOL => {
-            r.add(Level::Ok, format!("it answers hello with protocol {PROTOCOL}"));
-            true
-        }
-        Ok(FromAdapter::Hello { protocol }) => {
-            r.add(Level::Fail, format!("it answers hello with protocol {protocol}; this Pitwall speaks {PROTOCOL}"));
-            false
-        }
-        Ok(_) => false,
+        Ok(FromAdapter::Hello { protocol, uses }) => match negotiate(protocol) {
+            Ok(p) => {
+                let uses = if uses.is_empty() { String::new() } else { format!(", using {}", uses.join(", ")) };
+                r.add(Level::Ok, format!("it answers hello with protocol {p}{uses}"));
+                d.protocol = p;
+                Some(p)
+            }
+            Err(why) => {
+                r.add(Level::Fail, format!("it answers hello with protocol {protocol}: {why}"));
+                None
+            }
+        },
+        Ok(_) => None,
         Err(why) => {
             r.add(Level::Fail, why);
-            false
+            None
         }
     }
 }
@@ -595,7 +790,7 @@ fn run(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Repor
             return;
         }
     };
-    if !said_hello(&mut d, r) {
+    if said_hello(&mut d, r).is_none() {
         finish(d, r);
         return;
     }
@@ -609,9 +804,9 @@ fn run(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Repor
         }
     }
     let at_least = v["threads"].as_u64().unwrap_or(0) as usize;
-    match d.until("its threads", |m| matches!(m, FromAdapter::Threads(_))) {
-        Ok(FromAdapter::Threads(list)) if list.len() >= at_least => r.add(Level::Ok, format!("it lists {} thread(s)", list.len())),
-        Ok(FromAdapter::Threads(list)) => r.add(Level::Fail, format!("it lists {} thread(s), fewer than {at_least}", list.len())),
+    match d.until("its threads", |m| matches!(m, FromAdapter::Inbox(FromInbox::Threads(_)))) {
+        Ok(FromAdapter::Inbox(FromInbox::Threads(list))) if list.len() >= at_least => r.add(Level::Ok, format!("it lists {} thread(s)", list.len())),
+        Ok(FromAdapter::Inbox(FromInbox::Threads(list))) => r.add(Level::Fail, format!("it lists {} thread(s), fewer than {at_least}", list.len())),
         Ok(_) => {}
         Err(why) => {
             r.add(Level::Fail, why);
@@ -621,14 +816,14 @@ fn run(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Repor
     }
     if let Some(id) = v["open"].as_str() {
         let id = id.to_string();
-        let opened = d.send(&ToAdapter::Open { thread: id.clone() }).and_then(|_| d.until(&format!("thread “{id}”"), |m| matches!(m, FromAdapter::Thread(t) if t.id == id)));
+        let opened = d.send(&ToAdapter::Inbox(ToInbox::Open { thread: id.clone() })).and_then(|_| d.until(&format!("thread “{id}”"), |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(t)) if t.id == id)));
         match opened {
-            Ok(FromAdapter::Thread(t)) if !t.messages.is_empty() => r.add(Level::Ok, format!("opened, thread “{id}” comes with {} message(s)", t.messages.len())),
+            Ok(FromAdapter::Inbox(FromInbox::Thread(t))) if !t.messages.is_empty() => r.add(Level::Ok, format!("opened, thread “{id}” comes with {} message(s)", t.messages.len())),
             Ok(_) => r.add(Level::Fail, format!("opened, thread “{id}” comes with no messages")),
             Err(why) => r.add(Level::Fail, why),
         }
         if let Some(text) = v["reply"].as_str() {
-            let sent = d.send(&ToAdapter::Message { req: 1, thread: id.clone(), text: text.to_string() }).and_then(|_| d.until("the result of a reply", |m| matches!(m, FromAdapter::Result { req: 1, .. })));
+            let sent = d.send(&ToAdapter::Inbox(ToInbox::Message { req: 1, thread: id.clone(), text: text.to_string() })).and_then(|_| d.until("the result of a reply", |m| matches!(m, FromAdapter::Result { req: 1, .. })));
             match sent {
                 Ok(FromAdapter::Result { ok: true, .. }) => r.add(Level::Ok, "a reply is answered ok"),
                 Ok(FromAdapter::Result { message, .. }) => r.add(Level::Fail, format!("a reply is refused: {message}")),
@@ -722,23 +917,23 @@ fn agreement(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut
 
 /// The agreement's exchange, step by step.
 fn agree(d: &mut Driver, thread: &str, answer: &Value, r: &mut Report) -> Result<(), String> {
-    if !said_hello(d, r) {
+    if said_hello(d, r).is_none() {
         return Ok(());
     }
     d.until("status “ready”", |m| matches!(m, FromAdapter::Status { state: ConnState::Ready, .. }))?;
     r.add(Level::Ok, "agreement: it connects to the fake server and says ready");
-    let FromAdapter::Threads(list) = d.until("its threads", |m| matches!(m, FromAdapter::Threads(_)))? else { unreachable!() };
+    let FromAdapter::Inbox(FromInbox::Threads(list)) = d.until("its threads", |m| matches!(m, FromAdapter::Inbox(FromInbox::Threads(_))))? else { unreachable!() };
     let t = list.iter().find(|t| t.id == thread).ok_or(format!("its list doesn't have the fake's thread “{thread}”"))?;
     if !(t.blocking && t.open_asks == 1 && t.unread >= 1 && t.from.is_some()) {
         return Err(format!("the fake's thread should be unread, from an agent, with one blocking ask; it is {t:?}"));
     }
     r.add(Level::Ok, "agreement: it lists the fake's thread, unread, with its blocking ask");
-    let FromAdapter::Counts(c) = d.until("its counts", |m| matches!(m, FromAdapter::Counts(_)))? else { unreachable!() };
+    let FromAdapter::Inbox(FromInbox::Counts(c)) = d.until("its counts", |m| matches!(m, FromAdapter::Inbox(FromInbox::Counts(_))))? else { unreachable!() };
     if (c.open_asks, c.blocking) != (1, 1) {
         return Err(format!("its counts should be one open ask, one blocking; they are {c:?}"));
     }
-    d.send(&ToAdapter::Open { thread: thread.to_string() })?;
-    let FromAdapter::Thread(t) = d.until("the thread", |m| matches!(m, FromAdapter::Thread(_)))? else { unreachable!() };
+    d.send(&ToAdapter::Inbox(ToInbox::Open { thread: thread.to_string() }))?;
+    let FromAdapter::Inbox(FromInbox::Thread(t)) = d.until("the thread", |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(_))))? else { unreachable!() };
     let ask = t.messages.first().and_then(|m| m.asks.first()).ok_or("the thread's first message has no ask")?;
     let pick = answer["pick"].as_u64().unwrap_or(0) as u32;
     let (label, text) = (answer["label"].as_str().unwrap_or_default(), answer["text"].as_str().unwrap_or_default());
@@ -747,13 +942,13 @@ fn agree(d: &mut Driver, thread: &str, answer: &Value, r: &mut Report) -> Result
     }
     r.add(Level::Ok, "agreement: the thread opens with its ask and suggestions");
     let number = ask.number;
-    d.send(&ToAdapter::Answer { req: 3, thread: thread.to_string(), ask: number, picks: vec![pick], text: Some(text.into()), declined: false })?;
+    d.send(&ToAdapter::Inbox(ToInbox::Answer { req: 3, thread: thread.to_string(), ask: number, picks: vec![pick], text: Some(text.into()), declined: false }))?;
     match d.until("the answer's result", |m| matches!(m, FromAdapter::Result { req: 3, .. }))? {
         FromAdapter::Result { ok: true, .. } => {}
         FromAdapter::Result { message, .. } => return Err(format!("the answer was refused: {message}")),
         _ => {}
     }
-    let FromAdapter::Thread(t) = d.until("the answered thread", |m| matches!(m, FromAdapter::Thread(t) if t.messages.len() > 1))? else { unreachable!() };
+    let FromAdapter::Inbox(FromInbox::Thread(t)) = d.until("the answered thread", |m| matches!(m, FromAdapter::Inbox(FromInbox::Thread(t)) if t.messages.len() > 1))? else { unreachable!() };
     let answered = t.messages.iter().flat_map(|m| &m.answers).next().ok_or("the answered thread carries no answer")?;
     if answered.labels != [label.to_string()] || answered.text != text {
         return Err(format!("the answer comes back as {:?} “{}”, not [“{label}”] “{text}”", answered.labels, answered.text));

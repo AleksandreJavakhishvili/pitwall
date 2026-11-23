@@ -204,7 +204,11 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
     let steps = |a: &super::Action| -> Vec<String> { a.steps.iter().map(|s| s.run.join(" ")).collect() };
     let setting = |s: &super::SettingDef| match s.kind {
         super::SettingKind::Secret => format!("{} (a secret, kept in the system's secure store)", s.label),
-        super::SettingKind::Url => s.label.clone(),
+        _ => s.label.clone(),
+    };
+    let permission = |p: &super::PermissionAsk| match super::permissions::find(&p.name).filter(|k| k.available) {
+        Some(k) => format!("{} ({}): {}", k.title, p.name, p.reason),
+        None => format!("{}: {} ({})", p.name, p.reason, super::permissions::unavailable_why(&p.name).unwrap_or_default()),
     };
     let updates_from = |m: &Manifest| m.source.as_ref().map_or_else(|| "Pitwall's own copy only".into(), source_line);
     let Some((old, old_origin)) = installed else {
@@ -225,6 +229,9 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
         }
         if !new.settings.is_empty() {
             push("Asks you for:".into(), new.settings.iter().map(setting).collect());
+        }
+        if !new.permissions.is_empty() {
+            push("Asks for these permissions (you grant or refuse each when you turn it on):".into(), new.permissions.iter().map(permission).collect());
         }
         if new.source.is_some() {
             push("Its updates come from:".into(), vec![updates_from(new)]);
@@ -265,6 +272,14 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
     let dropped: Vec<String> = old.settings.iter().filter(|o| !new.settings.iter().any(|s| s.key == o.key)).map(setting).collect();
     if !dropped.is_empty() {
         push("It no longer asks for:".into(), dropped);
+    }
+    let more: Vec<String> = new.permissions.iter().filter(|p| !old.permissions.iter().any(|o| o.name == p.name)).map(permission).collect();
+    if !more.is_empty() {
+        push("It asks for more permissions (not granted until you allow them):".into(), more);
+    }
+    let fewer: Vec<String> = old.permissions.iter().filter(|o| !new.permissions.iter().any(|p| p.name == o.name)).map(|o| o.name.clone()).collect();
+    if !fewer.is_empty() {
+        push("It no longer asks for these permissions (their grants are forgotten):".into(), fewer);
     }
     if old.source != new.source {
         push("Its updates will come from:".into(), vec![updates_from(new)]);
@@ -793,6 +808,25 @@ mod tests {
         // The same manifest from the same place: only where it comes from.
         let same = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
         assert_eq!(changes(Some((&old, Some(&Origin::Bundled))), &same), [Change { title: "Comes from:".into(), lines: vec!["Comes with Pitwall".into()] }]);
+    }
+
+    /// Format 2's permissions: all of them, with reasons, for an install;
+    /// an update lists the ones it adds (not granted until allowed) and
+    /// drops.
+    #[test]
+    fn permissions_are_part_of_what_changes() {
+        let m = |perms: &str| super::super::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "version": "1.0.0", "permissions": {{{perms}}}}}"#)).unwrap();
+        let old = m(r#""agents.read": "To match runs", "notify": "To tell you""#);
+        let new = m(r#""agents.read": "To match runs", "projects.read": "To list projects""#);
+        let offer = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
+        let fresh = changes(None, &offer);
+        let p = fresh.iter().find(|c| c.title.starts_with("Asks for these permissions")).unwrap();
+        assert_eq!(p.lines, ["Read your agents (agents.read): To match runs", "notify: To tell you (not available in this Pitwall yet)"]);
+        let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer });
+        let more = up.iter().find(|c| c.title.starts_with("It asks for more permissions")).unwrap();
+        assert_eq!(more.lines, ["Read your projects (projects.read): To list projects"]);
+        assert!(more.title.contains("not granted until you allow them"));
+        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["notify"]);
     }
 
     /// A folder put there by hand: not as installed, and older than any
