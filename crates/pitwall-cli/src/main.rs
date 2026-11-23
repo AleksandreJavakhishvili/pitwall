@@ -164,6 +164,11 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Extension(_) => unreachable!("run by main (extension::run)"),
         Command::Events(_) => unreachable!("streamed by main (events::follow)"),
         Command::Mcp => unreachable!("served by main (mcp::serve)"),
+        Command::Open(a) if a.settings.is_some() => {
+            let req = open::settings_request(a).expect("Settings");
+            let (opened, text) = open::open_settings(&mut c, &req)?;
+            out(&opened, text)
+        }
         Command::Open(a) if a.web.is_some() => {
             let req = open::web_request(a).expect("a web page");
             let (opened, text) = open::open_web(&mut c, &req)?;

@@ -83,10 +83,14 @@ pub enum Command {
     /// With --web, a web page instead: in the agent's page tile next to its
     /// terminal (or a window of its own), http and https only; it only
     /// shows the page to the user. Off with `agents.showWeb`.
+    /// With --settings, Pitwall's Settings at a page instead, in the
+    /// Settings tile (next to the agent's terminal unless it is open
+    /// already); it only shows Settings to the user. Off with
+    /// `agents.showSettings`.
     Open(OpenArgs),
     /// Run Pitwall's MCP server on stdin/stdout (its tools `show_files`,
-    /// `show_folder` and `show_web` do what `open` does). Pitwall adds it to
-    /// the agents it starts; any MCP client can run it.
+    /// `show_folder`, `show_web` and `show_settings` do what `open` does).
+    /// Pitwall adds it to the agents it starts; any MCP client can run it.
     Mcp,
     /// Follow Pitwall as it changes: the agent list, agents that need you
     /// (blocked) or finished (done), and how many are blocked. The current
@@ -644,6 +648,15 @@ pub struct OpenArgs {
     /// agent opened before unless --where names a place.
     #[arg(long, value_name = "URL", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["files", "folder", "root"])]
     pub web: Option<String>,
+    /// Pitwall's Settings instead of files: at this page (general, agents,
+    /// profiles, accounts, extensions, rules, appearance, folderAccess,
+    /// peers, about; alone, the page shown last), in the Settings tile.
+    #[arg(long, value_name = "PAGE", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["files", "folder", "root", "web", "place", "of"])]
+    pub settings: Option<String>,
+    /// With --settings: this extension's card unfolded on the Extensions
+    /// page (its id).
+    #[arg(long, value_name = "ID", requires = "settings")]
+    pub extension: Option<String>,
     /// A folder to show as a tree (relative to --root, default: this
     /// folder). With only --root, that folder is shown.
     #[arg(long, value_name = "DIR")]
@@ -902,6 +915,8 @@ mod tests {
             Command::Open(OpenArgs {
                 files: vec!["src/a.rs:42:7".into(), "README.md".into()],
                 web: None,
+                settings: None,
+                extension: None,
                 folder: None,
                 root: Some("fix/login".into()),
                 agent: Some("api".into()),
@@ -924,6 +939,14 @@ mod tests {
         assert_eq!((o.web.as_deref(), o.place.as_deref(), o.of.as_deref()), (Some(""), Some("window"), Some("api")));
         assert!(parse(&["open", "--web", "a.dev", "b.rs"]).is_err(), "files and a page don't mix");
         assert!(parse(&["open", "--web", "a.dev", "--folder", "src"]).is_err());
+        // Settings: at a page, alone, with an extension's card.
+        let Command::Open(o) = parse(&["open", "--settings", "extensions", "--extension", "inbox"]).unwrap().command else { panic!() };
+        assert_eq!((o.settings.as_deref(), o.extension.as_deref()), (Some("extensions"), Some("inbox")));
+        let Command::Open(o) = parse(&["open", "--settings"]).unwrap().command else { panic!() };
+        assert_eq!(o.settings.as_deref(), Some(""));
+        assert!(parse(&["open", "--settings", "agents", "a.rs"]).is_err(), "files and Settings don't mix");
+        assert!(parse(&["open", "--settings", "agents", "--web", "a.dev"]).is_err());
+        assert!(parse(&["open", "--extension", "inbox"]).is_err(), "--extension needs --settings");
         let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(
             c.command,

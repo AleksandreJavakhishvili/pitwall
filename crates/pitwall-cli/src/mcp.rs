@@ -1,8 +1,8 @@
 //! `pitwall mcp`: Pitwall's MCP server, on stdin/stdout (JSON-RPC 2.0, one
 //! message per line, as MCP's stdio transport says). Pitwall adds it to
-//! the agents it starts (`agents.showFiles`, `agents.showWeb`) so they can
-//! show the user files and web pages. Nothing is ever printed but protocol
-//! messages.
+//! the agents it starts (`agents.showFiles`, `agents.showWeb`,
+//! `agents.showSettings`) so they can show the user files, web pages and
+//! Pitwall's Settings. Nothing is ever printed but protocol messages.
 //!
 //! It is a proxy: the agent's CLI keeps this process as long as the agent
 //! runs, across Pitwall updates, so the tools aren't this build's. Their
@@ -216,6 +216,9 @@ impl<'a> Proxy<'a> {
             Err(Miss::Old) => {
                 let r = match mcp::request(&name, &arguments, self.agent.clone()) {
                     Err(e) => mcp::result(&format!("Nothing was opened: {e}"), None, true),
+                    // `mcp.*` came before `settings.open`: an older Pitwall
+                    // has neither.
+                    Ok(mcp::Request::Settings(_)) => mcp::result(crate::open::NO_SETTINGS, None, true),
                     Ok(mcp::Request::Web(req)) => match self.up.open_web(&req) {
                         Ok((v, text)) => mcp::result(&text, Some(v), false),
                         Err(e) => {
@@ -432,7 +435,7 @@ mod tests {
         assert_eq!(out[0]["result"]["capabilities"]["tools"]["listChanged"], true);
         assert_eq!(out[0]["result"]["instructions"], "the app's words");
         let names: Vec<&str> = out[1]["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["show_files", "show_folder", "show_web"]);
+        assert_eq!(names, ["show_files", "show_folder", "show_web", "show_settings"]);
         // A `where` this build doesn't know goes to Pitwall as it is, and
         // its answer comes back as it is.
         assert_eq!(out[2]["result"]["isError"], false);
@@ -499,7 +502,7 @@ mod tests {
         let mut lines = init();
         lines.push(call(3, "show_files", json!({"paths":["a"]})));
         let out = session(&p, &lines);
-        assert_eq!(out[0]["result"]["instructions"], mcp::INSTRUCTIONS, "this build's");
+        assert_eq!(out[0]["result"]["instructions"], mcp::all_instructions(), "this build's");
         assert_eq!(out[1]["result"]["tools"], mcp::tools());
         assert_eq!(out[2]["result"]["isError"], true);
         assert!(out[2]["result"]["content"][0]["text"].as_str().unwrap().contains("Pitwall isn't running"));
