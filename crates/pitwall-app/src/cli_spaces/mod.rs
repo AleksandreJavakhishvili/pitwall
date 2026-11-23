@@ -172,6 +172,12 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
         self.on_main(move |cx| crate::web::show::show(&req, cx))
     }
 
+    /// `settings.open` (`crate::main_screen::settings_tile`).
+    fn show_settings(&self, req: &pitwall_proto::SettingsShow) -> Result<pitwall_proto::SettingsShown, ErrorBody> {
+        let req = req.clone();
+        self.on_main(move |cx| crate::main_screen::settings_tile::show_for_agent(&req, cx))
+    }
+
     fn mirrored(&self, id: &str) -> Option<String> {
         let id = id.to_string();
         self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()

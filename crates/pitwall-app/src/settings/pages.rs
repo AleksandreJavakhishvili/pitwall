@@ -90,6 +90,7 @@ impl SettingsView {
                 Part::section("tool-updates", |_, ui, _, cx| any(Self::tool_updates(ui, cx))),
                 Part::section("show-files", |s, ui, _, cx| any(s.show_files(ui, cx))),
                 Part::section("show-web", |_, ui, _, cx| any(Self::show_web(ui, cx))),
+                Part::section("show-settings", |_, ui, _, cx| any(Self::show_settings(ui, cx))),
                 Part::section("edit-files", |_, ui, _, cx| any(Self::edit_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
@@ -389,6 +390,42 @@ impl SettingsView {
                         )),
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on && pages, !pages, 14., &ui.t))),
+        )
+    }
+
+    /// `agents.showSettings`: agents can show the user Pitwall's Settings
+    /// at a page (`show_settings`), the same way each kind gets files.
+    fn show_settings(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::main_screen::settings_tile::SETTING);
+        let on = crate::main_screen::settings_tile::enabled(cx);
+        section().child(
+            div()
+                .id("show-settings")
+                .debug_selector(|| "show-settings".into())
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Agents can show you Settings"))
+                        .child(crate::kit::hint(
+                            "Ask an agent where a setting is and it opens Settings at that page, in a tile next to its terminal (or wherever you keep the Settings tile). It only shows you Settings: the agent gets nothing back from it and can’t change, click or type anything in it. Each kind gets it the way it gets files, listed above.",
+                            &ui.t,
+                        )),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
     }
 

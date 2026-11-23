@@ -381,10 +381,12 @@ fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>
         cx.background_spawn(async move { e.set_cli_bin(platform::cli_install::mcp_cli(&r).ok()) }).detach();
     }
     // `agents.showWeb` and `general.webPages` too: `show_web` is listed
-    // (and `web.open` served) while both are on.
+    // (and `web.open` served) while both are on; `agents.showSettings`:
+    // `show_settings` (and `settings.open`).
     let follow = move |engine: &pitwall_core::engine::Shared, cx: &App| {
         engine.set_show_files(crate::explorer::show::enabled(cx));
         engine.set_show_web(crate::web::show::enabled(cx), crate::web::page::enabled(cx));
+        engine.set_show_settings(crate::main_screen::settings_tile::enabled(cx));
     };
     follow(&engine, cx);
     let store = ui_state::store(cx);
