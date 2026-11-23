@@ -106,6 +106,10 @@ pub struct Agent {
     pub preview: Vec<String>,
     /// How many times one was printed (`TermHost::preview`).
     pub preview_seen: u32,
+    /// The setup it would start with now, by extension
+    /// (`extensions::update::generation`); set by
+    /// `Engine::set_extension_setup` and at each start.
+    pub ext_now: std::collections::BTreeMap<String, String>,
 }
 
 impl Agent {
@@ -161,6 +165,7 @@ impl Agent {
             title_wanted: rec_has_session,
             preview: Vec::new(),
             preview_seen: 0,
+            ext_now: Default::default(),
         }
     }
 
@@ -328,7 +333,18 @@ impl Agent {
             caps: self.caps(),
             preview_urls: if self.running() { self.preview.clone() } else { Vec::new() },
             preview_seen: if self.running() { self.preview_seen } else { 0 },
+            stale_for: self.stale_for(),
         }
+    }
+
+    /// The extensions whose setup changed since it started (it runs, and
+    /// started with an earlier one: [`AgentRecord::ext_setup`] against
+    /// what it would start with now). One turned off since isn't counted.
+    pub fn stale_for(&self) -> Vec<String> {
+        if !self.running() {
+            return Vec::new();
+        }
+        self.rec.ext_setup.iter().filter(|(id, started)| self.ext_now.get(*id).is_some_and(|now| now != *started)).map(|(id, _)| id.clone()).collect()
     }
 
     pub fn apply_hook(&mut self, effect: HookEffect) -> bool {

@@ -199,6 +199,11 @@ pub struct AgentView {
     /// restarts prints its address again, and the in-app preview reloads.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub preview_seen: u32,
+    /// The extensions (their ids) updated since it started, or whose setup
+    /// or settings for it changed: it keeps the setup it started with until
+    /// restarted (docs/extensions/updates.md). Only while it runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stale_for: Vec<String>,
 }
 
 fn is_zero(n: &u32) -> bool {

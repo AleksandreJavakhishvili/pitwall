@@ -31,7 +31,12 @@ pub fn agents(list: &[AgentView]) -> String {
     }
     let mut rows = vec![vec!["NAME".into(), "KIND".into(), "STATUS".into(), "MACHINE".into(), "FOLDER".into(), "ID".into()]];
     rows.extend(list.iter().map(|a| vec![a.name.clone(), a.kind_name.clone(), status(a), a.machine.label.clone(), a.cwd_display.clone(), a.id.clone()]));
-    table(&rows)
+    let mut out = table(&rows);
+    // Agents that started before an extension's setup changed (staleFor).
+    for a in list.iter().filter(|a| !a.stale_for.is_empty()) {
+        let _ = writeln!(out, "{} started before {} changed: it keeps the previous setup until restarted.", a.name, a.stale_for.join(", "));
+    }
+    out
 }
 
 pub fn agent_new(a: &AgentView) -> String {
