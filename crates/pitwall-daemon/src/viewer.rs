@@ -17,7 +17,7 @@
 use serde_json::Value;
 
 use pitwall_proto::mcp::{self, McpCall, McpCalled, McpTools};
-use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, WebOpen, WebOpened, WebShow, WebShown, VIEWER_PROTO, WEB_PROTO};
+use pitwall_proto::{code, AgentFocused, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, WebOpen, WebOpened, WebShow, WebShown, VIEWER_PROTO, WEB_PROTO};
 
 use crate::identity::Caller;
 use crate::server::Server;
@@ -39,6 +39,23 @@ pub trait ViewerBackend: Send + Sync {
         let _ = req;
         Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't show web pages"))
     }
+    /// Move the focus to agent `id`'s tile in the window that shows it,
+    /// only while Pitwall is the app in front: never brings Pitwall
+    /// forward. Not in front, nothing happens (`focused: false`, and why).
+    fn focus_agent(&self, id: &str) -> Result<AgentFocused, ErrorBody> {
+        let _ = id;
+        Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to focus an agent in"))
+    }
+}
+
+/// `agent.focus`.
+pub fn focus(s: &Server, r: pitwall_proto::AgentRef) -> Res {
+    let Some(backend) = s.viewer.as_deref() else {
+        return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to focus an agent in"));
+    };
+    let agent = crate::manage::agent(s, &r.agent_id)?;
+    let o = backend.focus_agent(&agent.id)?;
+    serde_json::to_value(o).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
 }
 
 type Res = Result<Value, ErrorBody>;
