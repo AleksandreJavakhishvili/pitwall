@@ -332,13 +332,13 @@ mod tests {
         let line = &p.command_line;
         let json = r#"{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}}"#;
         assert!(line.contains(&format!(" --mcp-config '{json}' --settings '")), "{line}");
-        assert!(line.contains(r#""permissions":{"allow":["mcp__pitwall__show_files","mcp__pitwall__show_folder","mcp__pitwall__show_web"]}"#), "{line}");
+        assert!(line.contains(r#""permissions":{"allow":["mcp__pitwall__show_files","mcp__pitwall__show_folder","mcp__pitwall__show_web","mcp__pitwall__show_settings"]}"#), "{line}");
         assert!(line.contains(r#""hooks":{"#), "{line}");
         // No hooks (a provider that can't deliver them): still the server
         // and its permissions.
         let p = plan(&claude(), Some("abc"), true, "", Some(&m), None);
         assert!(p.command_line.starts_with("claude --resume abc --mcp-config '"), "{}", p.command_line);
-        assert!(p.command_line.ends_with(r#"--settings '{"permissions":{"allow":["mcp__pitwall__show_files","mcp__pitwall__show_folder","mcp__pitwall__show_web"]}}'"#));
+        assert!(p.command_line.ends_with(r#"--settings '{"permissions":{"allow":["mcp__pitwall__show_files","mcp__pitwall__show_folder","mcp__pitwall__show_web","mcp__pitwall__show_settings"]}}'"#));
         // Codex: -c overrides before its own arguments.
         let p = plan(&codex(), Some("s1"), true, "x", Some(&m), None);
         assert_eq!(
@@ -370,7 +370,7 @@ mod tests {
         let p = plan(&kind(include_str!("../../agents/qwen.toml")), None, false, "x", Some(&m), None);
         assert_eq!(
             p.command_line,
-            r#"qwen --mcp-config '{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web"#
+            r#"qwen --mcp-config '{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web --allowed-tools mcp__pitwall__show_settings"#
         );
         // Amp: a plain map of servers, before `threads continue <id>`.
         let p = plan(&kind(include_str!("../../agents/amp.toml")), Some("T-1"), true, "x", Some(&m), None);
