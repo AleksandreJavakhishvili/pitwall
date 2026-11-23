@@ -1,14 +1,20 @@
 {
-  "v": 1,
+  "v": 2,
   "id": "demo-inbox",
   "name": "Demo inbox",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "demo": true,
   "icon": "chat",
-  "description": "Made-up threads from a fake adapter: shows how an extension's inbox looks",
+  "description": "Made-up threads and CI runs from a fake adapter: shows how an extension's inbox, view tiles and badges look",
   "settings": [
     { "key": "greeting", "type": "url", "label": "Any address", "hint": "Shown in the first thread's details.", "placeholder": "https://example.com" }
   ],
+  "contributes": {
+    "inbox": true,
+    "views": [{ "id": "runs", "title": "Demo runs", "icon": "list" }],
+    "commands": [{ "id": "new-run", "title": "Start a made-up run" }],
+    "badges": true
+  },
   "adapter": { "command": ["node", "adapter.mjs"] },
   "matchAgents": { "agent": "{project}", "session": "{agent_id}" }
 }

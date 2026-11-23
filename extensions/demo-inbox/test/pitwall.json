@@ -5,5 +5,15 @@
     "threads": 4,
     "open": "demo/1",
     "reply": "Thanks, looking now."
+  },
+  "views": {
+    "show": "runs",
+    "kind": "list",
+    "items": 4,
+    "select": "run-43",
+    "detail": "detail",
+    "action": { "item": "run-43", "action": "retry" },
+    "command": "new-run",
+    "badges": 1
   }
 }
