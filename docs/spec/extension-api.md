@@ -445,6 +445,22 @@ one kind:
   Pre-releases (`1.2.0-beta`) are offered only to an installed
   pre-release.
 
+**npm packages [built, after phase 5].** A second kind, for authors who
+already publish to npm:
+```json
+"source": { "npm": "@me/ci-status", "registry": "https://registry.npmjs.org" }
+```
+Built as docs/spec/extensions.md "Updates from an npm package" says.
+Differences from git: the version is the release (no tag pattern, no
+folder: `extension.json` is at the package's root, and its `version`
+must be the package's); the integrity anchor is the registry's sha512
+`dist.integrity`, checked before unpacking, where git's is the commit;
+"a moved tag" becomes "a version whose integrity changed"; deprecated
+versions are passed over while another isn't; Pitwall makes the
+requests itself (no npm, no credentials, so no private packages) and
+unpacks the tarball itself, plain files under `package/` only. Like
+git, nothing runs and no dependency is installed.
+
 Phase 6 adds a feed for authors who build archives:
 ```json
 "source": { "feed": "https://example.com/pitwall/ci-status.json", "key": "ed25519:4f1c…" }
@@ -456,7 +472,7 @@ Phase 6 adds a feed for authors who build archives:
 ```
 
 ### Installing from a source
-"Add from Git…" under Available in Settings → Extensions (and later
+"Add from Git…" (built as "Add from Git or npm…") under Available in Settings → Extensions (and later
 `pitwall extension install <url>`): a URL, optionally a tag. Pitwall
 lists the tags (`git ls-remote --tags`, no clone), takes the newest
 version, fetches that tag shallowly into a hidden folder beside
@@ -768,6 +784,17 @@ Each phase ships on its own.
 - Risks: git missing (then only bundled copies; say so); private
   repositories and credential prompts; a user offline (checks fail
   quietly, the card says when it last checked).
+- **Built later: npm sources** (docs/spec/extensions.md, "Updates from
+  an npm package"). `mod.rs`: `Source` is `Git { git, dir, tags }` or
+  `Npm { package, registry }`. New `pitwall-core/src/extensions/npm.rs`:
+  `releases` (the registry's metadata over https, ureq, no
+  credentials), `newest`, `refusal` (no sha512, or an integrity that
+  changed), `fetch` (the tarball, its integrity, then `unpack`, Pitwall's
+  own tar reader). `install.rs`: `Origin::Npm { package, registry,
+  version, integrity }` in the marker. `catalog.rs`: checks, offers and
+  `prepare_from_npm`; tests route the registry to a loopback stand-in
+  (`testing::NpmRegistry`, `catalog::NpmRedirect`). Settings: "Add from
+  Git or npm…". Differences from git are under "Sources" above.
 
 ### Phase 2 — Dev mode and checks
 - `mod.rs`/`discover`: a list of development folders in `ui.json`

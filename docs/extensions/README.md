@@ -34,7 +34,8 @@ folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
 
 - [The starter](starter.md): what `pitwall extension new` writes and
   where to go from it.
-- [The manifest](manifest.md): `extension.json`, format 1.
+- [The manifest](manifest.md): `extension.json`, format 1, and
+  releases from git or [npm](manifest.md#publishing-on-npm).
 - [Manifest format 2](manifest-2.md): the Pitwall it needs, permissions,
   what it contributes, and text, choice, switch and number settings.
 - [Protocol 1](protocol.md): what the adapter and Pitwall say to each

@@ -17,6 +17,12 @@ Reads the folder and runs nothing:
   missing `pitwall`, permissions this Pitwall doesn't serve, and an adapter
   that contributes nothing;
 - its version;
+- its `source`, when it has one: which tag (git) or package version
+  (npm) this version's release is. For an npm package, also that
+  `package.json` names the package at the same version, with notes for
+  dependencies and install scripts (Pitwall installs and runs neither)
+  and for a `files` list that leaves out `extension.json`
+  ([publishing on npm](manifest.md#publishing-on-npm));
 - the adapter's program is found, the way Pitwall would start it;
 - the files its command names exist inside the folder;
 - there is a README and a `test/pitwall.json` (notes when missing);
