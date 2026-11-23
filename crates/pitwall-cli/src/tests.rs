@@ -1408,3 +1408,175 @@ fn open_and_the_mcp_tools_end_to_end() {
     assert!(r["content"][0]["text"].as_str().unwrap().contains("Pitwall isn't running"), "{r}");
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
+
+/// The app's extensions, as a test sees them: one ("inbox") with a URL and
+/// a secret, and what was prepared, run and dropped.
+#[derive(Default)]
+struct MemExtensions {
+    runs: std::sync::Mutex<Vec<u64>>,
+    dropped: std::sync::Mutex<Vec<u64>>,
+    next: std::sync::atomic::AtomicU64,
+}
+
+impl pitwall_daemon::ExtensionsBackend for MemExtensions {
+    fn list(&self) -> Result<pitwall_proto::extensions::ExtList, pitwall_proto::ErrorBody> {
+        use pitwall_proto::extensions::*;
+        Ok(ExtList { proto: EXT_PROTO, installed: vec![ExtListItem { id: "inbox".into(), name: "Inbox".into(), version: Some("1.0.0".into()), installed: true, on: true, source: "comes with Pitwall".into(), state: "Needs setup".into(), ..Default::default() }], available: vec![] })
+    }
+    fn status(&self, r: &pitwall_proto::extensions::ExtRef) -> Result<pitwall_proto::extensions::ExtStatus, pitwall_proto::ErrorBody> {
+        use pitwall_proto::extensions::*;
+        if r.id != "inbox" {
+            return Err(pitwall_proto::ErrorBody::new(code::NOT_FOUND, "no extension"));
+        }
+        let mut s = ExtStatus {
+            proto: EXT_PROTO,
+            id: "inbox".into(),
+            name: "Inbox".into(),
+            installed: true,
+            on: true,
+            steps: vec![ExtStep { kind: StepKind::Setting, key: Some("apiKey".into()), label: "API key".into(), state: StepState::Todo, secret: true, ..Default::default() }],
+            settings: vec![
+                ExtSettingInfo { key: "server".into(), label: "Server address".into(), kind: "url".into(), ..Default::default() },
+                ExtSettingInfo { key: "apiKey".into(), label: "API key".into(), kind: "secret".into(), required: true, ..Default::default() },
+            ],
+            connections: vec![ExtConnection { id: "c1".into(), name: "Inbox".into(), default: true, secrets: [("apiKey".to_string(), false)].into(), ..Default::default() }],
+            ..Default::default()
+        };
+        s.next = next_of(&s);
+        Ok(s)
+    }
+    fn log(&self, r: &pitwall_proto::extensions::ExtLogRequest) -> Result<pitwall_proto::extensions::ExtLog, pitwall_proto::ErrorBody> {
+        use pitwall_proto::extensions::*;
+        Ok(ExtLog { proto: EXT_PROTO, id: r.id.clone(), lines: vec![ExtLogLine { at: 0, dir: "stderr".into(), source: String::new(), text: "listening".into() }] })
+    }
+    fn check_updates(&self, id: &str) -> Result<pitwall_proto::extensions::ExtActed, pitwall_proto::ErrorBody> {
+        Ok(pitwall_proto::extensions::ExtActed { id: id.into(), op: "check-updates".into(), text: "It is up to date.".into(), ..Default::default() })
+    }
+    fn prepare(&self, act: &pitwall_proto::extensions::ExtAct) -> Result<pitwall_daemon::extension_setup::Prepared, pitwall_proto::ErrorBody> {
+        let token = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        Ok(pitwall_daemon::extension_setup::Prepared { token, summary: format!("{} Inbox", act.op.word()), details: vec!["$ fake-install --for Home".into()], risk: pitwall_proto::Risk::High })
+    }
+    fn run(&self, token: u64) -> Result<pitwall_proto::extensions::ExtActed, pitwall_proto::ErrorBody> {
+        self.runs.lock().unwrap().push(token);
+        Ok(pitwall_proto::extensions::ExtActed { id: "inbox".into(), op: "setup".into(), text: "Done.".into(), ..Default::default() })
+    }
+    fn discard(&self, token: u64) {
+        self.dropped.lock().unwrap().push(token);
+    }
+}
+
+/// Every `pitwall extension` command parses; only check, test and new
+/// stay offline.
+#[test]
+fn extension_commands_parse() {
+    use args::{ConnectionCmd, ExtensionCmd as E, ServiceWhat};
+    let parse = |args: &[&str]| match Cli::try_parse_from(["pitwall", "extension"].into_iter().chain(args.iter().copied())).unwrap().command {
+        Command::Extension(e) => e,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(parse(&["list"]), E::List);
+    assert_eq!(parse(&["status", "inbox", "--connection", "Work"]), E::Status { id: "inbox".into(), connection: Some("Work".into()) });
+    assert_eq!(parse(&["log", "inbox", "--lines", "20"]), E::Log { id: "inbox".into(), lines: 20 });
+    assert_eq!(parse(&["install", "inbox"]), E::Install { id: "inbox".into() });
+    assert_eq!(parse(&["on", "inbox"]), E::On { id: "inbox".into() });
+    assert_eq!(parse(&["off", "inbox"]), E::Off { id: "inbox".into() });
+    assert_eq!(parse(&["check-updates", "inbox"]), E::CheckUpdates { id: "inbox".into() });
+    assert_eq!(parse(&["update", "inbox"]), E::Update { id: "inbox".into() });
+    assert_eq!(parse(&["remove", "inbox"]), E::Remove { id: "inbox".into() });
+    assert_eq!(parse(&["setup", "inbox", "--action", "setup"]), E::Setup { id: "inbox".into(), action: Some("setup".into()), connection: None });
+    assert_eq!(parse(&["service", "kit", "confirm"]), E::Service { id: "kit".into(), what: ServiceWhat::Confirm });
+    assert_eq!(parse(&["first-run", "kit"]), E::FirstRun { id: "kit".into() });
+    assert_eq!(parse(&["set", "inbox", "server", "https://x", "--connection", "Work"]), E::Set { id: "inbox".into(), key: "server".into(), value: "https://x".into(), connection: Some("Work".into()) });
+    assert_eq!(parse(&["secret", "inbox", "apiKey"]), E::Secret { id: "inbox".into(), key: "apiKey".into(), connection: None, agent: None });
+    assert_eq!(parse(&["connection", "add", "inbox", "Work"]), E::Connection(ConnectionCmd::Add { id: "inbox".into(), name: "Work".into() }));
+    assert_eq!(parse(&["connection", "remove", "inbox", "Work", "--default", "Home"]), E::Connection(ConnectionCmd::Remove { id: "inbox".into(), connection: "Work".into(), default: Some("Home".into()) }));
+    assert!(Cli::try_parse_from(["pitwall", "extension", "service", "kit", "kill"]).is_err());
+    assert!(Cli::try_parse_from(["pitwall", "extension", "grant", "kit", "agents.queue"]).is_err(), "granting isn't a command");
+    assert!(parse(&["check", "."]).offline() && !parse(&["status", "x"]).offline());
+}
+
+/// Against a running server: reading answers at once, each act waits for
+/// the user (declined: nothing runs; one at a time per extension), and a
+/// secret only shows the user its field.
+#[test]
+fn extension_setup_end_to_end() {
+    let dir = TempDir::new("cli-ext");
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let project = dir.path().join("api");
+    std::fs::create_dir_all(&project).unwrap();
+    let exts = Arc::new(MemExtensions::default());
+    let shown = Arc::new(MemSettingsTile::default());
+    let approvals = Approvals::new(Duration::from_secs(10));
+    let sock_dir = std::env::temp_dir().join(format!("pwx-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("s.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: Some(shown.clone()), events: None, extensions: None, ext_backend: Some(exts.clone()) };
+    let server = serve(engine.clone(), approvals.clone(), Arc::new(Outside), cfg).unwrap();
+    let cli = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let answer = |allow: bool| {
+        let a = approvals.clone();
+        std::thread::spawn(move || loop {
+            if let Some(p) = a.pending().first().cloned() {
+                a.answer(&ApprovalAnswer { id: p.id.clone(), allow, remember: false }).unwrap();
+                return p;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        })
+    };
+
+    let o = cli(&["extension", "list"]).unwrap();
+    assert_eq!(o.json["installed"][0]["id"], "inbox");
+    let o = cli(&["extension", "status", "inbox"]).unwrap();
+    assert_eq!(o.json["next"]["command"], "pitwall extension secret inbox apiKey");
+    assert_eq!(o.json["connections"][0]["secrets"], json!({"apiKey": false}));
+    assert!(o.human.contains("Next (the user)"), "{}", o.human);
+    assert!(cli(&["extension", "log", "inbox"]).unwrap().human.contains("listening"));
+
+    // Declined: exit 3, nothing ran, and it's dropped.
+    let t = answer(false);
+    let e = cli(&["extension", "setup", "inbox"]).err().unwrap();
+    let asked = t.join().unwrap();
+    assert_eq!((asked.summary.as_str(), asked.details.as_slice(), asked.risk), ("setup Inbox", ["$ fake-install --for Home".to_string()].as_slice(), pitwall_proto::Risk::High));
+    assert_eq!(asked.requester.name, "A terminal outside Pitwall");
+    assert_eq!(failure(&e).1, 3);
+    assert!(e.to_string().contains("Nothing ran") && e.to_string().contains("Don't ask again"), "{e}");
+    assert!(exts.runs.lock().unwrap().is_empty());
+    assert_eq!(*exts.dropped.lock().unwrap(), [1]);
+    // A second request while one waits: refused, not asked.
+    let first = std::thread::spawn({
+        let socket = socket.clone();
+        move || run(&Cli::try_parse_from(["pitwall", "extension", "on", "inbox"]).unwrap().command, &socket)
+    });
+    while approvals.pending().is_empty() {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let e = cli(&["extension", "set", "inbox", "server", "https://x"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "busy");
+    assert_eq!(approvals.pending().len(), 1, "only the first asks");
+    // Approved: run, and its outcome comes back.
+    answer(true).join().unwrap();
+    let o = first.join().unwrap().unwrap();
+    assert_eq!((o.json["approved"].as_bool(), o.json["text"].as_str()), (Some(true), Some("Done.")));
+    assert_eq!(*exts.runs.lock().unwrap(), [2]);
+
+    // A secret: Settings shown at its field; no value either way.
+    let p = project.to_string_lossy().into_owned();
+    let id = cli(&["agent", "new", "--kind", "claude", "--project", &p, "--name", "api"]).unwrap().json["id"].as_str().unwrap().to_string();
+    let o = cli(&["extension", "secret", "inbox", "apiKey", "--agent", "api"]).unwrap();
+    assert!(o.json["text"].as_str().unwrap().starts_with("Waiting for the user to enter API key in Pitwall"), "{}", o.json);
+    assert_eq!(shown.0.lock().unwrap().last().unwrap(), &pitwall_proto::SettingsShow { agent_id: id, page: Some("extensions".into()), extension: Some("inbox".into()), secret: Some("apiKey".into()), connection: None });
+    assert!(approvals.pending().is_empty(), "nothing to approve");
+    let e = cli(&["extension", "secret", "inbox", "server", "--agent", "api"]).err().unwrap();
+    assert!(e.to_string().contains("isn't a secret"), "{e}");
+    // Not shown (no agent to put it beside): the user is told where.
+    let o = cli(&["extension", "secret", "inbox", "apiKey"]).unwrap();
+    assert!(o.json["text"].as_str().unwrap().contains("Settings → Extensions → Inbox"), "{}", o.json);
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}

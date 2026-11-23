@@ -91,7 +91,7 @@ These work with every command.
 - [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`. With --settings, Pitwall's Settings at a page instead, in the Settings tile (next to the agent's terminal unless it is open already); it only shows Settings to the user. Off with `agents.showSettings`
 - [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder`, `show_web` and `show_settings` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
-- [`extension`](#extension): For extension authors: check a folder, run its tests, or start a new one. Works on the folder, offline, without the app (exit status 1 when a check fails)
+- [`extension`](#extension): The user's extensions: see how each stands and set one up, each step approved by the user in Pitwall (list, status, log, install, on, setup, service, first-run, set, secret, connection…). For authors, check, test and new work on a folder, offline, without the app (exit status 1 when a check fails)
 
 ## agent
 
@@ -1256,7 +1256,7 @@ pitwall events --topics attention | jq -r 'select(.data.reason == "blocked") | .
 
 ## extension
 
-For extension authors: check a folder, run its tests, or start a new one. Works on the folder, offline, without the app (exit status 1 when a check fails).
+The user's extensions: see how each stands and set one up, each step approved by the user in Pitwall (list, status, log, install, on, setup, service, first-run, set, secret, connection…). For authors, check, test and new work on a folder, offline, without the app (exit status 1 when a check fails).
 
 ### extension check
 
@@ -1311,4 +1311,238 @@ pitwall extension new ~/code/my-inbox --name "My inbox"
 pitwall extension check ~/code/my-inbox --human
 pitwall extension test ~/code/my-inbox --human
 ```
+
+### extension list
+
+The installed extensions (id, name, version, on or off, where it came from, an update already known) and those Pitwall ships that aren't installed. Fetches nothing.
+
+```bash
+pitwall extension list [OPTIONS]
+```
+
+### extension status
+
+One extension's setup as data: its checklist (each step done, to do or blocked, and why), connections (secrets only as set or not), the adapter's state, the service's, permissions, accounts not set up yet, and `next`: the one step to take, by you or by the user.
+
+```bash
+pitwall extension status [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+| Option | |
+|---|---|
+| `--connection <CONNECTION>` | The connection to show (name or id; default: the one Settings shows). |
+
+### extension log
+
+Its card's Log: protocol lines, stderr and its service's output, secrets already taken out.
+
+```bash
+pitwall extension log [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+| Option | |
+|---|---|
+| `--lines <LINES>` | The newest this many lines (at most 500). |
+
+### extension install
+
+Install one Pitwall ships. It stays off. Asks the user.
+
+```bash
+pitwall extension install [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension on
+
+Turn it on, granting what its permission screen grants by default (reading; nothing that acts). The approval shows what it runs, sets and adds. Asks the user.
+
+```bash
+pitwall extension on [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension off
+
+Turn it off. Asks the user.
+
+```bash
+pitwall extension off [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension check-updates
+
+Look at its source for a newer release, as "Check for updates" does. Installs nothing.
+
+```bash
+pitwall extension check-updates [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension update
+
+Update it to the release found (check-updates first). The approval lists what changes. Asks the user.
+
+```bash
+pitwall extension update [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension remove
+
+Remove it: its settings and secrets go, its service's data stays. Asks the user.
+
+```bash
+pitwall extension remove [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension setup
+
+Run a setup action (default: the first not done). The approval lists each command line, per account. Asks the user.
+
+```bash
+pitwall extension setup [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+| Option | |
+|---|---|
+| `--action <ACTION>` | The action's id (see `status`). |
+| `--connection <CONNECTION>` | The connection whose settings it uses (name or id). |
+
+### extension service
+
+Its local service: confirm its commands (and start it), start, stop, restart (or look again), or update (its install action, then started again). Never one running elsewhere. Asks the user.
+
+```bash
+pitwall extension service [OPTIONS] <ID> <WHAT>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `WHAT` |  |
+
+### extension first-run
+
+Its service's first run (a first sign-in): the link it prints opens in the user's browser; you only hear that it did. Asks the user.
+
+```bash
+pitwall extension first-run [OPTIONS] <ID>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+
+### extension set
+
+Set a plain setting (never a secret). Asks the user.
+
+```bash
+pitwall extension set [OPTIONS] <ID> <KEY> <VALUE>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `KEY` |  |
+| `VALUE` |  |
+
+| Option | |
+|---|---|
+| `--connection <CONNECTION>` | The connection (name or id; default: the one Settings shows). |
+
+### extension secret
+
+Show the user a secret setting's field in Pitwall, next to your terminal. Its value never comes or goes here: wait for the user and read `status` to see it set.
+
+```bash
+pitwall extension secret [OPTIONS] <ID> <KEY>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `KEY` |  |
+
+| Option | |
+|---|---|
+| `--connection <CONNECTION>` |  |
+| `--agent <AGENT>` | The agent whose terminal Settings opens beside (default: the one running this, from PITWALL_AGENT_ID). |
+
+### extension connection add
+
+Add a connection (another server or key).
+
+```bash
+pitwall extension connection add [OPTIONS] <ID> <NAME>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `NAME` |  |
+
+### extension connection rename
+
+Rename connection CONNECTION (name or id).
+
+```bash
+pitwall extension connection rename [OPTIONS] <ID> <CONNECTION> <NAME>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `CONNECTION` |  |
+| `NAME` |  |
+
+### extension connection remove
+
+Remove connection CONNECTION with its settings and secrets.
+
+```bash
+pitwall extension connection remove [OPTIONS] <ID> <CONNECTION>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `CONNECTION` |  |
+
+| Option | |
+|---|---|
+| `--default <DEFAULT>` | When it is the default: the connection that becomes the default. |
 
