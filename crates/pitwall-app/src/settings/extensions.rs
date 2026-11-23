@@ -8,7 +8,7 @@
 //! action shows its steps live while it runs. "What this extension does on
 //! your computer" says what it runs and sets, folded. Available: the
 //! extensions Pitwall ships that aren't installed, each with Install, and
-//! "Add from Git…". Where each came from, its source's checks, updates
+//! "Add from Git or npm…". Where each came from, its source's checks, updates
 //! looked at before they are installed and Go back: [`updates`].
 //!
 //! **Connections** (docs/spec/profiles.md): an extension with settings
@@ -90,7 +90,7 @@ pub struct Section {
     preparing: HashSet<String>,
     /// Updates looked at: what each changes, waiting for Update.
     prepared: HashMap<String, Prepared>,
-    /// "Add from Git…" open.
+    /// "Add from Git or npm…" open.
     add_git: Option<AddGit>,
     /// Go back of a folder changed by hand asked to confirm.
     confirm_back: Option<String>,
@@ -107,11 +107,16 @@ pub struct Section {
 /// By extension: where it came from, and the version Go back returns to.
 type Origins = HashMap<String, (Option<Origin>, Option<String>)>;
 
-/// "Add from Git…": the repository's address and the folder in it, then
-/// what its newest release changes on this computer.
+/// "Add from Git or npm…": a repository's address and the folder in it,
+/// or an npm package and its registry; then what its newest release
+/// changes on this computer.
 pub(super) struct AddGit {
+    /// An npm package (else a git repository).
+    npm: bool,
     url: Entity<TextInput>,
     dir: Entity<TextInput>,
+    package: Entity<TextInput>,
+    registry: Entity<TextInput>,
     busy: bool,
     note: Option<String>,
     prepared: Option<Prepared>,
@@ -1010,7 +1015,7 @@ impl SettingsView {
         let found = crate::extensions::found(cx);
         let listed = |id: &str| found.iter().any(|f| f.key() == id);
         let available: Vec<Manifest> = shipped.iter().filter(|s| s.status == Status::Available && !listed(&s.offer.manifest.id)).map(|s| s.offer.manifest.clone()).collect();
-        // The heading with "Add from Git…", and its form.
+        // The heading with "Add from Git or npm…", and its form.
         let d = self.add_git_view(ui, cx);
         if available.is_empty() {
             return d;
