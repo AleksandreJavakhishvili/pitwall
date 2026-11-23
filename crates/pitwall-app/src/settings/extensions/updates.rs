@@ -157,9 +157,17 @@ impl SettingsView {
                 );
             }
             out.push(row.into_any_element());
-            if let Some(p) = prepared {
+            let updating = crate::extensions::safe_update::model(cx).read(cx).running(&m.id);
+            if let Some(p) = prepared.filter(|_| !updating) {
                 out.push(self.review_card(ui, m, &p, working, cx).into_any_element());
             }
+        }
+        // The update running, or how the last one went.
+        if let Some(run) = crate::extensions::safe_update::model(cx).read(cx).get(&m.id).cloned() {
+            out.push(self.update_run_view(ui, m, &run, cx).into_any_element());
+        }
+        if crate::extensions::safe_update::model(cx).read(cx).asking_back.as_deref() == Some(m.id.as_str()) {
+            out.push(self.back_data_card(ui, m, cx).into_any_element());
         }
         if self.exts.confirm_back.as_deref() == Some(&m.id) {
             let text = format!("{}'s folder was changed since Pitwall installed it. Going back replaces it, and those changes are lost. Its settings and secrets stay.", m.name);
@@ -216,7 +224,42 @@ impl SettingsView {
         if only_files {
             card = card.child(crate::kit::hint("Nothing else changes on this computer: only its files.", &ui.t));
         }
-        card = card.child(crate::kit::hint("Updating runs nothing by itself. If it is on, its program starts again with the new files.", &ui.t));
+        // The steps Update takes, in order, with their exact commands; and
+        // what becomes of the agents running now.
+        let review = crate::extensions::safe_update::review(&m.id, &p.offer.manifest, cx);
+        let mut too_big = None;
+        if let Some(r) = review {
+            too_big = r.too_big;
+            let sel = format!("extension-update-plan-{}", m.id);
+            let mut list = div().debug_selector(move || sel).flex().flex_col().gap(px(6.)).child(div().text_size(px(12.)).text_color(ui.t.text_2).child("Update does this, in order (it puts everything back by itself if a step before the setup fails):"));
+            for (i, s) in r.steps.iter().enumerate() {
+                let mut b = div().flex().flex_col().gap(px(3.)).child(div().text_size(px(12.)).text_color(ui.t.text_2).child(format!("{}. {}", i + 1, s.title)));
+                for l in &s.lines {
+                    b = b.child(crate::kit::mono_text(l.clone(), &ui.t));
+                }
+                list = list.child(b);
+            }
+            card = card.child(list);
+            if !r.agents.is_empty() {
+                let sel = format!("extension-update-agents-{}", m.id);
+                let risk = r.agents.first().is_some_and(|l| l.starts_with("Risk:"));
+                let mut col = div().debug_selector(move || sel).flex().flex_col().gap(px(2.));
+                for (i, l) in r.agents.iter().enumerate() {
+                    let color = if i == 0 && risk { ui.t.amber } else { ui.t.text_2 };
+                    col = col.child(div().text_size(px(12.)).text_color(color).child(l.clone()));
+                }
+                card = card.child(col);
+            }
+        } else {
+            card = card.child(crate::kit::hint("Updating runs nothing by itself. If it is on, its program starts again with the new files.", &ui.t));
+        }
+        if let Some(n) = too_big {
+            card = card.child(div().text_size(px(12.)).text_color(ui.t.amber).child(format!(
+                "Its data is {}, more than Pitwall copies ({}): updating without a backup means a failed update can't put its data back.",
+                pitwall_core::extensions::update::size_words(n),
+                pitwall_core::extensions::update::size_words(pitwall_core::extensions::update::COPY_CAP)
+            )));
+        }
         let id = m.id.clone();
         let cancel = btn(format!("extension-review-cancel-{}", m.id), "Cancel", BtnKind::GhostSm, working, ui).on_click(cx.listener(move |v, _, _, cx| {
             if let Some(p) = v.exts.prepared.remove(&id) {
@@ -225,7 +268,18 @@ impl SettingsView {
             cx.notify();
         }));
         let id = m.id.clone();
-        let yes = btn(format!("extension-review-update-{}", m.id), if working { "Updating…".to_string() } else { format!("Update to {v}") }, BtnKind::Small, working, ui).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, false, cx)));
+        let text = match (working, too_big) {
+            (true, _) => "Updating…".to_string(),
+            (false, Some(_)) => format!("Update to {v} without a backup"),
+            (false, None) => format!("Update to {v}"),
+        };
+        let go_on = too_big.is_some();
+        let yes = btn(format!("extension-review-update-{}", m.id), text, BtnKind::Small, working, ui).on_click(cx.listener(move |v, _, _, cx| {
+            if go_on {
+                crate::extensions::safe_update::model(cx).update(cx, |s, _| s.set_go_on(&id));
+            }
+            v.start_update(&id, false, cx)
+        }));
         card.child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(yes))
     }
 
@@ -271,18 +325,164 @@ impl SettingsView {
         Some(
             btn(format!("extension-back-{}", m.id), format!("Go back to {back}"), BtnKind::GhostSm, working, ui)
                 .tooltip(crate::kit::tooltip("Put back the copy from before the last update; its settings and secrets stay"))
-                .on_click(cx.listener(move |v, _, _, cx| v.start_back(&id, false, cx)))
+                .on_click(cx.listener(move |v, _, _, cx| {
+                    // A backup of its data was taken at that update: ask
+                    // whether to put it back too.
+                    if crate::extensions::safe_update::last_backup(&id, cx).is_some() {
+                        let id = id.clone();
+                        crate::extensions::safe_update::model(cx).update(cx, |s, cx| {
+                            s.asking_back = Some(id);
+                            cx.notify();
+                        });
+                        cx.notify();
+                    } else {
+                        v.start_back(&id, false, cx)
+                    }
+                }))
                 .into_any_element(),
         )
     }
 
+    /// Go back, when the update took a backup of its data: keep the data
+    /// as it is (the default), or put the backup back too.
+    fn back_data_card(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let (when, label) = match crate::extensions::safe_update::last_backup(&m.id, cx) {
+            Some((folder, note)) => (
+                format!("{} (before the update to {})", pitwall_core::paths::tildify(&folder.to_string_lossy()), note.to.unwrap_or_default()),
+                m.service.as_ref().map_or("its service".to_string(), |s| s.label.clone()),
+            ),
+            None => (String::new(), String::new()),
+        };
+        let text = format!(
+            "Keep current data: {label} keeps everything it stored since the update; if the older version can't read it, put the backup back instead. Put back the backup: its data is as it was before the update (what is there now is kept in the backup folder, not deleted), and whatever it stored since is no longer used. The backup: {when}."
+        );
+        let close = |cx: &mut gpui::App| {
+            crate::extensions::safe_update::model(cx).update(cx, |s, cx| {
+                s.asking_back = None;
+                cx.notify();
+            })
+        };
+        let cancel = btn(format!("extension-back-cancel-{}", m.id), "Cancel", BtnKind::GhostSm, false, ui).on_click(cx.listener(move |_, _, _, cx| {
+            close(cx);
+            cx.notify();
+        }));
+        let id = m.id.clone();
+        let keep = btn(format!("extension-back-keep-{}", m.id), "Keep current data", BtnKind::Small, false, ui).on_click(cx.listener(move |v, _, _, cx| {
+            close(cx);
+            v.start_back(&id, false, cx);
+        }));
+        let id = m.id.clone();
+        let restore = btn(format!("extension-back-restore-{}", m.id), "Put back the backup too", BtnKind::GhostSm, false, ui).on_click(cx.listener(move |v, _, _, cx| {
+            close(cx);
+            v.start_back_with(&id, false, true, cx);
+        }));
+        div()
+            .id(SharedString::from(format!("extension-back-data-{}", m.id)))
+            .debug_selector({ let s = format!("extension-back-data-{}", m.id); move || s })
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .p(px(10.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(ui.t.line_strong)
+            .bg(ui.t.surface_2)
+            .child(div().text_size(px(13.)).text_color(ui.t.text).child(format!("Go back: also put back {}'s data from before the update?", m.name)))
+            .child(div().text_size(px(12.)).text_color(ui.t.text_2).child(text))
+            .child(div().flex().flex_wrap().gap(px(8.)).child(div().flex_1()).child(cancel).child(restore).child(keep))
+    }
+
+    /// The update running, step by step, or how it ended (put back, a
+    /// setup that failed with Retry), with Dismiss once over.
+    fn update_run_view(&mut self, ui: &Ui, m: &Manifest, run: &crate::extensions::safe_update::Run, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        use crate::extensions::safe_update::{Ending, StepState};
+        let to = run.to.clone().unwrap_or_default();
+        let title = match &run.ending {
+            None => format!("Updating {} to {to}…", m.name),
+            Some(Ending::Done) => format!("Updated {} to {to}.", m.name),
+            Some(Ending::NothingChanged(_)) => format!("{} wasn't updated: nothing changed.", m.name),
+            Some(Ending::RolledBack { .. }) => format!("Updating {} to {to} failed, and it was put back as it was.", m.name),
+            Some(Ending::SetupFailed(_)) => format!("Updated {} to {to}, but its setup failed for some accounts.", m.name),
+        };
+        let mut card = div()
+            .id(SharedString::from(format!("extension-update-run-{}", m.id)))
+            .debug_selector({ let s = format!("extension-update-run-{}", m.id); move || s })
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .p(px(10.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(ui.t.line_strong)
+            .bg(ui.t.surface_2)
+            .child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child(title));
+        for (i, s) in run.steps.iter().enumerate() {
+            let (mark, color, note) = match &s.state {
+                StepState::Waiting => ("·", ui.t.text_3, None),
+                StepState::Running => ("…", ui.t.text_2, None),
+                StepState::Done(n) => ("✓", ui.t.green, n.clone()),
+                StepState::Failed(w) => ("✕", ui.t.amber, Some(w.clone())),
+                StepState::Skipped(w) => ("–", ui.t.text_3, Some(w.clone())),
+            };
+            let sel = format!("extension-update-step-{}-{i}", m.id);
+            let mut row = div().debug_selector(move || sel).flex().flex_col().gap(px(2.)).child(div().flex().gap(px(6.)).child(div().w(px(12.)).text_size(px(12.)).text_color(color).child(mark)).child(div().flex_1().min_w_0().text_size(px(12.)).text_color(ui.t.text_2).child(s.planned.title.clone())));
+            if let Some(n) = note {
+                row = row.child(div().pl(px(18.)).text_size(px(12.)).text_color(color).child(n));
+            }
+            card = card.child(row);
+        }
+        match &run.ending {
+            Some(Ending::RolledBack { why, notes }) => {
+                let sel = format!("extension-update-why-{}", m.id);
+                card = card.child(div().debug_selector(move || sel).text_size(px(12.)).text_color(ui.t.amber).child(format!("What failed: {why}")));
+                for n in notes {
+                    card = card.child(div().text_size(px(12.)).text_color(ui.t.text_2).child(n.clone()));
+                }
+            }
+            Some(Ending::NothingChanged(why)) => {
+                let sel = format!("extension-update-why-{}", m.id);
+                card = card.child(div().debug_selector(move || sel).text_size(px(12.)).text_color(ui.t.amber).child(why.clone()));
+            }
+            Some(Ending::SetupFailed(list)) => {
+                for l in list {
+                    card = card.child(div().text_size(px(12.)).text_color(ui.t.amber).child(l.clone()));
+                }
+            }
+            _ => {}
+        }
+        if run.over() {
+            let mut foot = div().flex().gap(px(8.)).child(div().flex_1());
+            if matches!(run.ending, Some(Ending::SetupFailed(_))) {
+                let id = m.id.clone();
+                foot = foot.child(btn(format!("extension-update-retry-{}", m.id), "Retry", BtnKind::Small, false, ui).on_click(cx.listener(move |_, _, _, cx| {
+                    let id = id.clone();
+                    cx.defer(move |cx| crate::extensions::safe_update::retry(&id, cx));
+                })));
+            }
+            let id = m.id.clone();
+            foot = foot.child(btn(format!("extension-update-dismiss-{}", m.id), "Dismiss", BtnKind::GhostSm, false, ui).on_click(cx.listener(move |_, _, _, cx| {
+                crate::extensions::safe_update::model(cx).update(cx, |s, cx| {
+                    s.dismiss(&id);
+                    cx.notify();
+                });
+                cx.notify();
+            })));
+            card = card.child(foot);
+        }
+        card
+    }
+
     pub(super) fn start_back(&mut self, id: &str, replace_changed: bool, cx: &mut Context<Self>) {
+        self.start_back_with(id, replace_changed, false, cx)
+    }
+
+    fn start_back_with(&mut self, id: &str, replace_changed: bool, restore_data: bool, cx: &mut Context<Self>) {
         self.exts.working.insert(id.to_string());
         self.exts.failed.remove(id);
         self.exts.confirm_back = None;
         cx.notify();
         let (me, id2) = (cx.entity().downgrade(), id.to_string());
-        catalog::rollback_one(id, replace_changed, cx, move |o, cx| {
+        crate::extensions::safe_update::go_back(id, restore_data, replace_changed, cx, move |o, cx| {
             let _ = me.update(cx, |v, cx| {
                 if o == catalog::Outcome::ChangedLocally {
                     v.exts.working.remove(&id2);
@@ -765,6 +965,7 @@ mod tests {
         cx.update(|_, cx| cx.set_global(catalog::NpmRedirect(HashMap::from([(REG.to_string(), reg.url.clone())]))));
         click(cx, "extension-add-git");
         assert!(cx.debug_bounds("extension-add-kind-npm").is_some(), "the choice of where from");
+        to_end(&view, cx);
         click(cx, "extension-add-kind-npm");
         assert!(view.read_with(cx, |v, _| v.exts.add_git.as_ref().is_some_and(|a| a.npm)));
         type_in(&view, cx, "package", "@me/notes");
@@ -794,6 +995,7 @@ mod tests {
         let t = TempDir::new("settings-ext-add-refused");
         let (view, cx) = open(cx, &t);
         click(cx, "extension-add-git");
+        to_end(&view, cx);
         click(cx, "extension-add-kind-npm");
         for (package, registry, why) in [("My Ext", "", "isn't an npm package name"), ("@me/x@1.0.0", "", "isn't an npm package name"), ("../x", "", "isn't an npm package name"), ("@me/x", "http://registry.example.com", "https://")] {
             type_in(&view, cx, "package", package);

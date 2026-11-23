@@ -83,6 +83,9 @@ pub enum State {
     /// It couldn't start, or kept stopping and Pitwall gave up: why, with
     /// its last lines.
     Stopped(String),
+    /// Stopped while its extension is updated
+    /// (`crate::extensions::safe_update`): started again by the update.
+    Updating,
 }
 
 impl State {
@@ -154,6 +157,9 @@ pub struct Services {
     svcs: HashMap<String, Svc>,
     logs: HashMap<String, log::Shared>,
     next_gen: u64,
+    /// Extensions being updated: their services stay stopped until the
+    /// update lets them go ([`Services::hold`]).
+    held: std::collections::HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -298,6 +304,8 @@ impl Services {
             let installed = pitwall_core::extensions::plan::resolve(Path::new("."), &s.run[0], path.as_deref()).is_ok();
             let want = if !on {
                 Err(State::Off)
+            } else if self.held.contains(&m.id) {
+                Err(State::Updating)
             } else if let Err(changed) = confirmed(m, cx) {
                 Err(State::NeedsConfirm { changed })
             } else if prefs.stopped {
@@ -312,6 +320,7 @@ impl Services {
                     if st.child.is_some() {
                         let why = match &state {
                             State::Off => "Stopped: the extension was turned off.",
+                            State::Updating => "Stopped for the extension's update.",
                             State::NeedsConfirm { .. } => "Stopped: its commands changed; confirm them to start it again.",
                             _ => "Stopped by you.",
                         };
@@ -365,6 +374,22 @@ impl Services {
             st.gen = 0;
         }
         self.reconcile(cx);
+    }
+
+    /// Keep extension `id`'s service stopped (`true`: stopped now, as
+    /// while it is updated) or let it start again (`false`, looked at
+    /// afresh). Returns the process being stopped, to wait for.
+    pub fn hold(&mut self, id: &str, held: bool, cx: &mut Context<Self>) -> Option<Arc<Mutex<Option<Process>>>> {
+        if held {
+            self.held.insert(id.to_string());
+        } else if self.held.remove(id) {
+            if let Some(st) = self.svcs.get_mut(id) {
+                st.fingerprint = None;
+                st.crashes.clear();
+            }
+        }
+        self.reconcile(cx);
+        self.stopping(id)
     }
 
     /// The process being stopped for extension `id` (removing it waits for

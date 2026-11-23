@@ -43,6 +43,7 @@ use pitwall_core::accounts::Account;
 mod grants;
 pub use grants::{initial_picks, turn_on_with};
 mod service_ui;
+mod stale_ui;
 mod updates;
 
 pub use service_ui::ServiceFacts;
@@ -467,9 +468,16 @@ impl SettingsView {
             self.exts._subs.push(cx.observe(&runs, |_, _, cx| cx.notify()));
             let updates = catalog::updates(cx);
             self.exts._subs.push(cx.observe(&updates, |_, _, cx| cx.notify()));
+            let safe = crate::extensions::safe_update::model(cx);
+            self.exts._subs.push(cx.observe(&safe, |_, _, cx| cx.notify()));
+            // Agents using an extension's previous setup (its card lists them).
+            if let Some(store) = cx.try_global::<crate::agents::StoreHandle>().map(|h| h.0.clone()) {
+                self.exts._subs.push(cx.observe(&store, |_, _, cx| cx.notify()));
+            }
         }
         let folder = crate::extensions::dir(cx).map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()));
         let load = self.dev_load_button(ui, cx);
+        let restart = folder.is_some().then(|| self.restart_setting(ui, cx));
         section()
             .child(
                 head(ui, "Extensions").child(
@@ -491,6 +499,7 @@ impl SettingsView {
                 },
                 &ui.t,
             ))
+            .children(restart)
     }
 
     /// A card: one extension and everything about it.
@@ -993,6 +1002,9 @@ impl SettingsView {
     fn installed_notes(&mut self, ui: &Ui, m: &Manifest, shipped: Option<&Shipped>, changed: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
         // Where it came from, an update offered and what it changes.
         let mut out = self.update_notes(ui, m, shipped, changed, cx);
+        // Running agents on its previous setup, and what Pitwall does
+        // with them after an update.
+        out.extend(self.stale_notes(ui, m, cx));
         if let Some(why) = self.exts.failed.get(&m.id) {
             out.push(div().text_size(px(12.)).text_color(ui.t.amber).child(why.clone()).into_any_element());
         }
@@ -1200,11 +1212,10 @@ impl SettingsView {
             });
         };
         // An update looked at (from a source or Pitwall's copy), else
-        // Pitwall's copy.
-        match self.exts.prepared.get(id).cloned() {
-            Some(p) => catalog::apply(&p, replace_changed, cx, done),
-            None => catalog::update_one(id, replace_changed, cx, done),
-        }
+        // Pitwall's copy: as one ordered step (backup, files, service,
+        // check, setup), put back by itself when it fails.
+        let without_backup = crate::extensions::safe_update::model(cx).read(cx).go_on(id);
+        crate::extensions::safe_update::start(id, self.exts.prepared.get(id).cloned(), replace_changed, without_backup, cx, done);
     }
 
     fn start_remove(&mut self, m: &Manifest, cx: &mut Context<Self>) {
@@ -1567,6 +1578,8 @@ mod accounts_tests;
 mod service_tests;
 #[cfg(all(test, unix))]
 mod agent_tests;
+#[cfg(all(test, unix))]
+mod update_tests;
 
 #[cfg(test)]
 mod tests {

@@ -938,6 +938,8 @@ impl MainScreen {
             )
             .child(div().flex_1())
             .children(self.preview_chip(a, pane_id, t, cx))
+            // Started before an extension was updated (extensions::stale).
+            .children(crate::extensions::stale::chip_view(&format!("pane-stale-{pane_id}"), a, t, cx))
             .children(crate::rules::stale::button(&a.id, t, cx, {
                 let id = a.id.clone();
                 move |this: &mut Self, r, cx| match r {

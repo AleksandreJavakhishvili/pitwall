@@ -136,6 +136,7 @@ impl SettingsView {
             State::Elsewhere(a) => ("Running elsewhere".into(), format!("Something else is already listening on {a}. Pitwall uses it, and never starts or stops it."), false),
             State::Stopped(why) => ("Stopped".into(), why.clone(), true),
             State::UserStopped => ("Stopped".into(), "You stopped it: it isn't started until you press Start.".into(), false),
+            State::Updating => ("Stopped for the update".into(), "The extension is being updated: it starts again once its new files are in place.".into(), false),
             State::NeedsSetting(l) => (format!("Start {}", s.label), format!("Set {l} above first."), false),
             State::BadAddress(why) => ("Not started".into(), why.clone(), true),
             State::NotInstalled(_) | State::TooOld { .. } => (format!("Start {}", s.label), "It starts once the step above is done.".into(), false),
