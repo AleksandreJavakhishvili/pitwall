@@ -964,7 +964,8 @@ impl SettingsView {
                 }
                 cx.notify();
             }));
-        let mut row = div().flex().flex_none().items_center().gap(px(10.));
+        // Never wider than the card: with many buttons they take more rows.
+        let mut row = div().flex().flex_none().flex_wrap().justify_end().max_w_full().items_center().gap_x(px(10.)).gap_y(px(6.));
         // Another connection: only once there is one and it is on.
         let on = crate::ui_state::get(cx).extension_on(&m.id);
         if on && !m.settings.is_empty() && !connections::list(&m.id, cx).is_empty() {
