@@ -13,6 +13,8 @@ use pitwall_proto::{code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateF
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
+use pitwall_core::extensions::activity::Via;
+use pitwall_core::extensions::permissions::{AGENTS_QUEUE, AGENTS_READ, AGENTS_START, PROFILES_READ, PROJECTS_READ, SHOW, WORKTREES_READ};
 use crate::{manage, workspace};
 use crate::server::Server;
 
@@ -29,98 +31,116 @@ pub enum Access {
     Ui,
 }
 
+/// What an extension may call (docs/spec/extension-api.md, "Permissions"):
+/// the permission column. An extension is a caller of its own, from its
+/// adapter's stdio or a process its adapter started; its user's own
+/// terminal keeps [`Access`] alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ext {
+    /// With this permission granted (only reads in this Pitwall).
+    Grant(&'static str),
+    /// A later Pitwall, with this permission: refused as not available yet.
+    Later(&'static str),
+    /// Never an extension's.
+    Never,
+}
+
 /// Why the project-rules methods ask.
 const PROJECT_WRITE: &str = "always: writes rule files into the project's folder (shown in Review, to commit)";
 
-pub const METHODS: &[(&str, Access)] = &[
-    (method::AGENT_LIST, Access::Open),
+/// Every method: who may call it, and what an extension needs to.
+pub const METHODS: &[(&str, Access, Ext)] = &[
+    (method::AGENT_LIST, Access::Open, Ext::Grant(AGENTS_READ)),
     // Read-only: git reads on the agent's machine.
-    (method::AGENT_REFRESH, Access::Open),
+    (method::AGENT_REFRESH, Access::Open, Ext::Never),
     (
         method::AGENT_CREATE,
         // Low; High (asked every time) when it also makes a workspace or an
         // agent user there.
         Access::AskWhen("`machine` is a platform's (agw): creates and starts a session on that machine", Risk::Low),
+        Ext::Later(AGENTS_START),
     ),
-    (method::MACHINE_LIST, Access::Open),
-    (method::MACHINE_FORM, Access::Open),
-    (method::SESSION_LIST, Access::Open),
-    (method::SESSION_ADD, Access::AskWhen("`start`: starts a stopped session on its machine", Risk::Low)),
-    (method::APPROVAL_LIST, Access::Ui),
-    (method::APPROVAL_ANSWER, Access::Ui),
-    (method::SETTINGS_LIST, Access::Open),
-    (method::SETTINGS_GET, Access::Open),
+    (method::MACHINE_LIST, Access::Open, Ext::Never),
+    (method::MACHINE_FORM, Access::Open, Ext::Never),
+    (method::SESSION_LIST, Access::Open, Ext::Never),
+    (method::SESSION_ADD, Access::AskWhen("`start`: starts a stopped session on its machine", Risk::Low), Ext::Never),
+    (method::APPROVAL_LIST, Access::Ui, Ext::Never),
+    (method::APPROVAL_ANSWER, Access::Ui, Ext::Never),
+    (method::SETTINGS_LIST, Access::Open, Ext::Never),
+    (method::SETTINGS_GET, Access::Open, Ext::Never),
     // `safe` settings (Pitwall's own look) apply directly.
-    (method::SETTINGS_SET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High)),
-    (method::SETTINGS_RESET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High)),
+    (method::SETTINGS_SET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High), Ext::Never),
+    (method::SETTINGS_RESET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High), Ext::Never),
     // Managing agents (manage.rs). Stop/restart: Low on this Mac, High
     // (asked every time) on another machine.
-    (method::AGENT_STOP, Access::AskWhen("always: ends the agent's process", Risk::Low)),
-    (method::AGENT_RESTART, Access::AskWhen("always: ends and starts the agent's process", Risk::Low)),
-    (method::AGENT_REMOVE, Access::AskWhen("always; `deleteWorktree` also deletes its worktree", Risk::High)),
-    (method::AGENT_RENAME, Access::Open),
-    (method::AGENT_STATUS, Access::Open),
+    (method::AGENT_STOP, Access::AskWhen("always: ends the agent's process", Risk::Low), Ext::Never),
+    (method::AGENT_RESTART, Access::AskWhen("always: ends and starts the agent's process", Risk::Low), Ext::Never),
+    (method::AGENT_REMOVE, Access::AskWhen("always; `deleteWorktree` also deletes its worktree", Risk::High), Ext::Never),
+    (method::AGENT_RENAME, Access::Open, Ext::Never),
+    (method::AGENT_STATUS, Access::Open, Ext::Grant(AGENTS_READ)),
     // Only which worktrees Review and the sidebar show as the agent's.
-    (method::AGENT_TRACK, Access::Open),
-    (method::AGENT_WAIT, Access::Open),
+    (method::AGENT_TRACK, Access::Open, Ext::Never),
+    (method::AGENT_WAIT, Access::Open, Ext::Never),
     // Queued prompts go to agents already in Pitwall, as the UI's queue.
-    (method::QUEUE_ADD, Access::Open),
-    (method::QUEUE_LIST, Access::Open),
-    (method::QUEUE_REMOVE, Access::Open),
-    (method::QUEUE_SEND, Access::Open),
+    (method::QUEUE_ADD, Access::Open, Ext::Later(AGENTS_QUEUE)),
+    (method::QUEUE_LIST, Access::Open, Ext::Never),
+    (method::QUEUE_REMOVE, Access::Open, Ext::Never),
+    (method::QUEUE_SEND, Access::Open, Ext::Later(AGENTS_QUEUE)),
     // Pitwall's project list; never touches the folders.
-    (method::PROJECT_LIST, Access::Open),
-    (method::PROJECT_ADD, Access::Open),
-    (method::PROJECT_REMOVE, Access::Open),
+    (method::PROJECT_LIST, Access::Open, Ext::Grant(PROJECTS_READ)),
+    // Every project's git worktrees (read-only git calls).
+    (method::WORKTREE_LIST, Access::Open, Ext::Grant(WORKTREES_READ)),
+    (method::PROJECT_ADD, Access::Open, Ext::Never),
+    (method::PROJECT_REMOVE, Access::Open, Ext::Never),
     // Accounts and profiles (profiles.rs): what agents launch with.
-    (method::ACCOUNTS_LIST, Access::Open),
-    (method::PROFILE_SAVE, Access::Open),
-    (method::PROFILE_SET, Access::AskWhen("a project uses the profile: decides what its agents launch with", Risk::Low)),
-    (method::PROFILE_DELETE, Access::AskWhen("always: the profile goes (its projects keep what they run under)", Risk::Low)),
-    (method::PROJECT_ACCOUNTS, Access::Open),
-    (method::PROJECT_PICK, Access::AskWhen("always: decides what the project's agents launch with", Risk::Low)),
-    (method::PROJECT_PROFILE, Access::AskWhen("always: decides what the project's agents launch with", Risk::Low)),
-    (method::RULES_LIST, Access::Open),
-    (method::RULES_SETS, Access::Open),
-    (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
-    (method::RULES_DEFAULT, Access::Open),
-    (method::RULES_SHOW, Access::Open),
+    (method::ACCOUNTS_LIST, Access::Open, Ext::Grant(PROFILES_READ)),
+    (method::PROFILE_SAVE, Access::Open, Ext::Never),
+    (method::PROFILE_SET, Access::AskWhen("a project uses the profile: decides what its agents launch with", Risk::Low), Ext::Never),
+    (method::PROFILE_DELETE, Access::AskWhen("always: the profile goes (its projects keep what they run under)", Risk::Low), Ext::Never),
+    (method::PROJECT_ACCOUNTS, Access::Open, Ext::Grant(PROFILES_READ)),
+    (method::PROJECT_PICK, Access::AskWhen("always: decides what the project's agents launch with", Risk::Low), Ext::Never),
+    (method::PROJECT_PROFILE, Access::AskWhen("always: decides what the project's agents launch with", Risk::Low), Ext::Never),
+    (method::RULES_LIST, Access::Open, Ext::Never),
+    (method::RULES_SETS, Access::Open, Ext::Never),
+    (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High), Ext::Never),
+    (method::RULES_DEFAULT, Access::Open, Ext::Never),
+    (method::RULES_SHOW, Access::Open, Ext::Never),
     // New entries only add to Pitwall's library; replacing one asks.
-    (method::RULES_LIBRARY_NEW, Access::AskWhen("`overwrite` and the library has one of that name: replaces it", Risk::Low)),
+    (method::RULES_LIBRARY_NEW, Access::AskWhen("`overwrite` and the library has one of that name: replaces it", Risk::Low), Ext::Never),
     // Project rules write into the user's repository (to be committed, shown in Review).
-    (method::RULES_PROJECT_STATUS, Access::Open),
-    (method::RULES_PROJECT_UPDATES, Access::Open),
-    (method::RULES_PROJECT_ASSIGN, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
-    (method::RULES_PROJECT_UNASSIGN, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
-    (method::RULES_PROJECT_UPDATE, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
-    (method::RULES_PROJECT_IMPORT, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
-    (method::RULES_PROJECT_GENERATE, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
-    (method::RULES_PROJECT_MOVE, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
+    (method::RULES_PROJECT_STATUS, Access::Open, Ext::Never),
+    (method::RULES_PROJECT_UPDATES, Access::Open, Ext::Never),
+    (method::RULES_PROJECT_ASSIGN, Access::AskWhen(PROJECT_WRITE, Risk::Low), Ext::Never),
+    (method::RULES_PROJECT_UNASSIGN, Access::AskWhen(PROJECT_WRITE, Risk::Low), Ext::Never),
+    (method::RULES_PROJECT_UPDATE, Access::AskWhen(PROJECT_WRITE, Risk::Low), Ext::Never),
+    (method::RULES_PROJECT_IMPORT, Access::AskWhen(PROJECT_WRITE, Risk::Low), Ext::Never),
+    (method::RULES_PROJECT_GENERATE, Access::AskWhen(PROJECT_WRITE, Risk::Low), Ext::Never),
+    (method::RULES_PROJECT_MOVE, Access::AskWhen(PROJECT_WRITE, Risk::Low), Ext::Never),
     // Only where rules.apply wouldn't ask: worktrees and main checkouts the user confirmed.
-    (method::RULES_REAPPLY, Access::Open),
+    (method::RULES_REAPPLY, Access::Open, Ext::Never),
     // Sets are Pitwall's own data; deleting one takes it from projects and agents.
-    (method::RULES_SET_SAVE, Access::Open),
-    (method::RULES_SET_DELETE, Access::AskWhen("always: projects and agents that use the set lose it", Risk::High)),
+    (method::RULES_SET_SAVE, Access::Open, Ext::Never),
+    (method::RULES_SET_DELETE, Access::AskWhen("always: projects and agents that use the set lose it", Risk::High), Ext::Never),
     // A project's own .rulesync/ is read in place; a file or a repository is copied in.
-    (method::RULES_IMPORT, Access::AskWhen("`kind` is file or git: copies rules from outside Pitwall into its library", Risk::High)),
-    (method::REVIEW_CHANGES, Access::Open),
+    (method::RULES_IMPORT, Access::AskWhen("`kind` is file or git: copies rules from outside Pitwall into its library", Risk::High), Ext::Never),
+    (method::REVIEW_CHANGES, Access::Open, Ext::Never),
     // Pitwall's own windows (workspace.rs).
-    (method::SPACE_LIST, Access::Open),
-    (method::SPACE_CREATE, Access::Open),
-    (method::SPACE_RENAME, Access::Open),
-    (method::SPACE_MOVE, Access::Open),
-    (method::AGENT_MOVE, Access::Open),
+    (method::SPACE_LIST, Access::Open, Ext::Never),
+    (method::SPACE_CREATE, Access::Open, Ext::Never),
+    (method::SPACE_RENAME, Access::Open, Ext::Never),
+    (method::SPACE_MOVE, Access::Open, Ext::Never),
+    (method::AGENT_MOVE, Access::Open, Ext::Never),
     // Only shows files in Pitwall's viewer, read-only (viewer.rs).
-    (method::VIEWER_OPEN, Access::Open),
+    (method::VIEWER_OPEN, Access::Open, Ext::Later(SHOW)),
     // The agents' MCP tools: the same, as tools (viewer.rs).
-    (method::MCP_TOOLS, Access::Open),
-    (method::MCP_CALL, Access::Open),
+    (method::MCP_TOOLS, Access::Open, Ext::Never),
+    (method::MCP_CALL, Access::Open, Ext::Never),
     // Only shows the user a web page (http/https) in Pitwall; nothing of it
     // comes back (viewer.rs).
-    (method::WEB_OPEN, Access::Open),
+    (method::WEB_OPEN, Access::Open, Ext::Later(SHOW)),
     // What agent.list shows, as it changes; `approvals` only for the UI
     // (events.rs). Answered per connection (server.rs).
-    (method::EVENTS_SUBSCRIBE, Access::Open),
+    (method::EVENTS_SUBSCRIBE, Access::Open, Ext::Grant(AGENTS_READ)),
 ];
 
 /// What a paired machine may call over the tailnet (tailnet-peers.md §6),
@@ -140,7 +160,52 @@ pub fn peer_access(name: &str) -> Option<PeerAccess> {
 }
 
 pub fn access(name: &str) -> Option<Access> {
-    METHODS.iter().find(|(m, _)| *m == name).map(|(_, a)| *a)
+    METHODS.iter().find(|(m, _, _)| *m == name).map(|(_, a, _)| *a)
+}
+
+/// What an extension needs to call `name` (`None`: no such method).
+pub fn ext_access(name: &str) -> Option<Ext> {
+    METHODS.iter().find(|(m, _, _)| *m == name).map(|(_, _, e)| *e)
+}
+
+/// Whether extension `ext` (id, name) may call `name` now, granted
+/// `allows`; why not, as the error it gets.
+pub fn ext_allowed(name: &str, ext: &(String, String), allows: impl Fn(&str) -> bool) -> Result<(), ErrorBody> {
+    let (_, ext_name) = ext;
+    match ext_access(name) {
+        None => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
+        Some(Ext::Grant(p)) if allows(p) => Ok(()),
+        Some(Ext::Grant(p)) => Err(ErrorBody::new(code::DENIED, format!("Not allowed: {ext_name} isn't granted {p} (Settings → Extensions → {ext_name} → Permissions)."))),
+        Some(Ext::Later(p)) => Err(ErrorBody::new(code::UNSUPPORTED, format!("{name} isn't available to extensions yet (it will need {p})."))),
+        Some(Ext::Never) => Err(ErrorBody::new(code::UNSUPPORTED, format!("{name} isn't available to extensions."))),
+    }
+}
+
+/// What an extension with `profiles.read` gets of `accounts.list` and
+/// `project.accounts`: only its own connections (`ext:<id>`) and the
+/// profiles' names, never other slots, git identities or tool accounts.
+fn own_slots(name: &str, ext_id: &str, mut v: Value) -> Value {
+    let slot = pitwall_core::accounts::ext_kind(ext_id);
+    let mine = |x: &Value| x["slot"].as_str() == Some(slot.as_str());
+    let keep = |arr: &mut Value| {
+        if let Some(a) = arr.as_array_mut() {
+            a.retain(&mine);
+        }
+    };
+    match name {
+        method::ACCOUNTS_LIST => {
+            keep(&mut v["accounts"]);
+            v["git"] = Value::Array(vec![]);
+            if let Some(ps) = v["profiles"].as_array_mut() {
+                for p in ps {
+                    keep(&mut p["picks"]);
+                }
+            }
+        }
+        method::PROJECT_ACCOUNTS => keep(&mut v["slots"]),
+        _ => {}
+    }
+    v
 }
 
 type Res = Result<Value, ErrorBody>;
@@ -164,6 +229,15 @@ fn other(e: impl Into<String>) -> ErrorBody {
     ErrorBody::new(code::OTHER, e)
 }
 
+/// A call from `caller`, counted and logged when it is an extension's
+/// (`via`: how it came): its budget first, then [`dispatch`].
+pub fn call(s: &Server, caller: &Caller, name: &str, p: Value, via: Via) -> Res {
+    let Some((id, _)) = &caller.extension else { return dispatch(s, caller, name, p) };
+    let res = s.extensions.admit(id).and_then(|_| dispatch(s, caller, name, p));
+    s.extensions.record_call(id, via, name, &res);
+    res
+}
+
 pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     match access(name) {
         None => return Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
@@ -172,6 +246,17 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         }
         _ => {}
     }
+    // An extension: only what it is granted, checked at every call (a
+    // revoke applies at once), and of profiles only its own.
+    if let Some(ext) = &caller.extension {
+        ext_allowed(name, ext, |perm| s.extensions.allows(&ext.0, perm))?;
+        let v = run(s, caller, name, p)?;
+        return Ok(own_slots(name, &ext.0, v));
+    }
+    run(s, caller, name, p)
+}
+
+fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     match name {
         method::AGENT_LIST => ok(s.engine.views()),
         method::AGENT_REFRESH => {
@@ -214,6 +299,7 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::QUEUE_REMOVE => manage::queue_remove(s, required(p)?),
         method::QUEUE_SEND => manage::queue_send(s, required(p)?),
         method::PROJECT_LIST => manage::project_list(s),
+        method::WORKTREE_LIST => ok(pitwall_core::worktrees::list(&s.engine)),
         method::PROJECT_ADD => manage::project_add(s, required(p)?),
         method::PROJECT_REMOVE => manage::project_remove(s, required(p)?),
         method::ACCOUNTS_LIST => crate::profiles::list(s),
@@ -403,10 +489,73 @@ fn session_add(s: &Server, caller: &Caller, req: SessionAdd) -> Res {
 mod tests {
     use super::*;
 
+    /// What an extension gets from a method it may call.
+    fn what(name: &str) -> &'static str {
+        match name {
+            method::AGENT_LIST => "Every agent Pitwall shows, with its state, folder, machine and branch.",
+            method::AGENT_STATUS => "What one agent is doing and why (`agentId`: its id).",
+            method::PROJECT_LIST => "The user's projects: name and folder.",
+            method::WORKTREE_LIST => "Each repository with its worktrees: folder, branch, and the agents working there.",
+            method::ACCOUNTS_LIST => "The profiles, only the extension's own connections (`ext:<id>`); git identities are left out.",
+            method::PROJECT_ACCOUNTS => "Which of the extension's own connections a project uses.",
+            method::EVENTS_SUBSCRIBE => "Events as they happen (`topics`: `agents`, `attention`, `blocked`), each as an `event` line. Calling it again replaces the topics.",
+            _ => "",
+        }
+    }
+
+    /// `docs/extensions/methods.md`, from [`METHODS`].
+    fn methods_markdown() -> String {
+        let mut md = String::from(
+            "# Methods an extension may call\n\n\
+             <!-- Generated from crates/pitwall-daemon/src/methods.rs (METHODS): run\n\
+             `PITWALL_WRITE_DOCS=1 cargo test -p pitwall-daemon methods_doc`. -->\n\n\
+             An adapter speaking [protocol 2](protocol-2.md) calls these with a `call`\n\
+             line; a program it started can call them on Pitwall's socket\n\
+             (`pitwall` or `pitwall-client`) and is the extension there too. Each needs\n\
+             a [permission](permissions.md) the user granted. Params and results are\n\
+             those of the command-line API (`pitwall --json`).\n\n\
+             | Method | Needs | What it gives |\n|---|---|---|\n",
+        );
+        for (m, _, e) in METHODS {
+            if let Ext::Grant(p) = e {
+                md.push_str(&format!("| `{m}` | `{p}` | {} |\n", what(m)));
+            }
+        }
+        md.push_str("\n## Not yet\n\nThese act, and are refused with `unsupported` in this Pitwall. A later one\nwill offer them with the permission named.\n\n| Method | Will need |\n|---|---|\n");
+        for (m, _, e) in METHODS {
+            if let Ext::Later(p) = e {
+                md.push_str(&format!("| `{m}` | `{p}` |\n"));
+            }
+        }
+        let never: Vec<String> = METHODS.iter().filter(|(_, _, e)| *e == Ext::Never).map(|(m, _, _)| format!("`{m}`")).collect();
+        md.push_str(&format!(
+            "\n## Never\n\nEverything else is the user's own, refused with `unsupported` whatever is\ngranted: {}.\n\n\
+             ## Errors\n\n\
+             - `denied`: the permission isn't granted (or was revoked: it applies to the\n  next call). The message names it and where the user grants it.\n\
+             - `unsupported`: not an extension's method, or not in this Pitwall yet.\n\
+             - `busy`: past {} calls a second, socket and adapter together. Wait and\n  call again.\n\
+             - `unknown_method`: no such method.\n",
+            never.join(", "),
+            crate::extensions::MAX_CALLS
+        ));
+        md
+    }
+
+    #[test]
+    fn methods_doc_is_current() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/extensions/methods.md");
+        let md = methods_markdown();
+        if std::env::var_os("PITWALL_WRITE_DOCS").is_some() {
+            std::fs::write(&path, &md).unwrap();
+            return;
+        }
+        assert!(std::fs::read_to_string(&path).unwrap_or_default() == md, "docs/extensions/methods.md is out of date with METHODS: run `PITWALL_WRITE_DOCS=1 cargo test -p pitwall-daemon methods_doc` and commit it");
+    }
+
     #[test]
     fn every_method_has_one_row() {
-        for (i, (m, _)) in METHODS.iter().enumerate() {
-            assert!(METHODS[i + 1..].iter().all(|(n, _)| n != m), "{m} twice");
+        for (i, (m, _, _)) in METHODS.iter().enumerate() {
+            assert!(METHODS[i + 1..].iter().all(|(n, _, _)| n != m), "{m} twice");
         }
         assert_eq!(access(method::AGENT_LIST), Some(Access::Open));
         assert_eq!(access(method::MACHINE_FORM), Some(Access::Open));
@@ -436,6 +585,59 @@ mod tests {
         }
         assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
         assert_eq!(access("agent.prompt"), None);
+    }
+
+    /// The permission column: extensions read with a grant, never act in
+    /// this Pitwall; what they will act on later says so.
+    #[test]
+    fn extensions_read_with_a_grant_and_never_act() {
+        assert_eq!(ext_access(method::AGENT_LIST), Some(Ext::Grant(AGENTS_READ)));
+        assert_eq!(ext_access(method::WORKTREE_LIST), Some(Ext::Grant(WORKTREES_READ)));
+        assert_eq!(ext_access(method::QUEUE_ADD), Some(Ext::Later(AGENTS_QUEUE)));
+        assert_eq!(ext_access(method::AGENT_CREATE), Some(Ext::Later(AGENTS_START)));
+        for (m, a, e) in METHODS {
+            if let Ext::Grant(p) = e {
+                // A granted method only reads: open to anyone, and its
+                // permission one this Pitwall serves.
+                assert_eq!(*a, Access::Open, "{m}");
+                assert!(pitwall_core::extensions::permissions::available(p), "{m}: {p}");
+            }
+            if let Ext::Later(p) = e {
+                assert!(!pitwall_core::extensions::permissions::available(p), "{m}: {p} isn't served yet");
+            }
+        }
+        for m in [method::AGENT_STOP, method::SETTINGS_SET, method::APPROVAL_ANSWER, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD] {
+            assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
+        }
+        let ext = ("ci".to_string(), "CI".to_string());
+        let granted = |p: &str| p == AGENTS_READ;
+        assert!(ext_allowed(method::AGENT_LIST, &ext, granted).is_ok());
+        let no = ext_allowed(method::PROJECT_LIST, &ext, granted).unwrap_err();
+        assert_eq!(no.code, code::DENIED);
+        assert!(no.message.contains("isn't granted projects.read"), "{}", no.message);
+        let later = ext_allowed(method::QUEUE_ADD, &ext, |_| true).unwrap_err();
+        assert_eq!(later.code, code::UNSUPPORTED);
+        assert!(later.message.contains("isn't available to extensions yet") && later.message.contains("agents.queue"), "{}", later.message);
+        assert_eq!(ext_allowed(method::AGENT_STOP, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED);
+        assert_eq!(ext_allowed("agent.prompt", &ext, |_| true).unwrap_err().code, code::UNKNOWN_METHOD);
+    }
+
+    /// `profiles.read`: an extension sees its own connections and the
+    /// profiles' names, never other slots or git identities.
+    #[test]
+    fn an_extension_sees_only_its_own_slots() {
+        let v = serde_json::json!({
+            "accounts": [{"id": "c1", "slot": "ext:ci"}, {"id": "k1", "slot": "claude"}, {"id": "o1", "slot": "ext:other"}],
+            "git": [{"id": "g1", "email": "me@example.com"}],
+            "profiles": [{"id": "p1", "name": "Work", "picks": [{"slot": "ext:ci"}, {"slot": "git"}]}]
+        });
+        let v = own_slots(method::ACCOUNTS_LIST, "ci", v);
+        assert_eq!(v["accounts"], serde_json::json!([{"id": "c1", "slot": "ext:ci"}]));
+        assert_eq!(v["git"], serde_json::json!([]));
+        assert_eq!(v["profiles"][0]["picks"], serde_json::json!([{"slot": "ext:ci"}]));
+        assert_eq!(v["profiles"][0]["name"], "Work");
+        let p = own_slots(method::PROJECT_ACCOUNTS, "ci", serde_json::json!({"project": "/p", "slots": [{"slot": "git"}, {"slot": "ext:ci"}]}));
+        assert_eq!(p["slots"], serde_json::json!([{"slot": "ext:ci"}]));
     }
 
     #[test]

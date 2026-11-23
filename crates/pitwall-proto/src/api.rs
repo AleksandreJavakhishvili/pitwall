@@ -74,6 +74,9 @@ pub mod method {
     pub const QUEUE_SEND: &str = "queue.send";
     /// → [`ProjectView`](crate::ProjectView)`[]`
     pub const PROJECT_LIST: &str = "project.list";
+    /// → `ProjectWorktrees[]`: every project's git worktrees, as the
+    /// sidebar lists them (read-only git calls; due ones listed again).
+    pub const WORKTREE_LIST: &str = "worktree.list";
     /// [`ProjectPath`](crate::ProjectPath) → `ProjectView[]`
     pub const PROJECT_ADD: &str = "project.add";
     /// [`ProjectPath`](crate::ProjectPath) → `ProjectView[]` (never deletes files).
@@ -408,6 +411,9 @@ pub enum RequesterKind {
     Agent,
     /// A process outside Pitwall (the user's own terminal, a script).
     Outside,
+    /// A process an extension's adapter started (its parent chain reaches
+    /// the adapter Pitwall runs): the extension's permissions apply.
+    Extension,
 }
 
 /// Who asked, as the server established it from the connecting process —

@@ -8,7 +8,10 @@
 //! - [`approvals`]: risky requests wait for the user's answer in Pitwall.
 //! - [`events`]: the engine's events to subscribed connections
 //!   (`events.subscribe`), never blocking the engine.
-//! - [`identity`]: who is calling (peer pid → the agent it runs in).
+//! - [`identity`]: who is calling (peer pid → the agent it runs in, or the
+//!   extension whose adapter started it).
+//! - [`extensions`]: extensions as callers: their grants, adapters, call
+//!   budget and activity.
 //! - [`settings`]: `settings.*` over the host's [`SettingsBackend`].
 //! - [`manage`]: stop/restart/remove/rename/status/wait, queues, projects,
 //!   rules, review.
@@ -18,6 +21,7 @@
 
 pub mod approvals;
 pub mod events;
+pub mod extensions;
 pub mod identity;
 pub mod manage;
 pub mod methods;
@@ -31,7 +35,8 @@ pub mod workspace;
 pub use approvals::{Approvals, Decision};
 pub use events::Hub;
 pub use identity::{Caller, Identify, ProcessIdentity};
-pub use server::{serve, Config, Handle};
+pub use extensions::Registry;
+pub use server::{build, listen, serve, Config, Handle, Server};
 pub use settings::SettingsBackend;
 pub use viewer::ViewerBackend;
 pub use workspace::WorkspaceBackend;

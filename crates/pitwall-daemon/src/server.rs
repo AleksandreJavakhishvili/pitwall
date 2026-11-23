@@ -18,6 +18,7 @@ use crate::approvals::Approvals;
 use crate::events::{self, Hub, Queue};
 use crate::identity::{Caller, Identify};
 use crate::{methods, platform};
+use pitwall_core::extensions::activity::Via;
 
 /// How long a client may take to say hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -40,6 +41,9 @@ pub struct Config {
     /// The engine's event sink, when events go out over the socket
     /// (`None`: `events.subscribe` is not offered).
     pub events: Option<Arc<Hub>>,
+    /// The extensions that are on, as callers (`None`: a registry of its
+    /// own, empty).
+    pub extensions: Option<Arc<crate::extensions::Registry>>,
 }
 
 /// What every connection shares.
@@ -51,6 +55,7 @@ pub struct Server {
     pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
     pub viewer: Option<Arc<dyn crate::ViewerBackend>>,
     pub events: Option<Arc<Hub>>,
+    pub extensions: Arc<crate::extensions::Registry>,
     caps: Vec<&'static str>,
     instance: String,
     version: String,
@@ -95,7 +100,13 @@ impl Drop for Handle {
 /// Start listening. Requests go to `engine`; risky ones wait in `approvals`;
 /// `identify` says who each connection is.
 pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identify>, cfg: Config) -> io::Result<Handle> {
-    let listener = platform::bind(&cfg.socket)?;
+    let socket = cfg.socket.clone();
+    listen(build(engine, approvals, identify, cfg), socket)
+}
+
+/// The server without a socket: what [`listen`] serves, and what the app
+/// answers its extensions' calls with ([`Server::call_as`]).
+pub fn build(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identify>, cfg: Config) -> Arc<Server> {
     let mut offered = CAPS.to_vec();
     if cfg.settings.is_some() {
         offered.push(caps::SETTINGS);
@@ -111,7 +122,7 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
         offered.push(caps::MCP);
         offered.push(caps::WEB);
     }
-    let server = Arc::new(Server {
+    Arc::new(Server {
         engine,
         approvals,
         identify,
@@ -119,10 +130,16 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
         workspace: cfg.workspace,
         viewer: cfg.viewer,
         events: cfg.events,
+        extensions: cfg.extensions.unwrap_or_default(),
         caps: offered,
         instance: uuid::Uuid::new_v4().to_string(),
         version: cfg.version,
-    });
+    })
+}
+
+/// Listen on `socket` for `server`.
+pub fn listen(server: Arc<Server>, socket: PathBuf) -> io::Result<Handle> {
+    let listener = platform::bind(&socket)?;
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let thread = std::thread::Builder::new().name("pitwall-server".into()).spawn(move || {
@@ -141,7 +158,76 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
             });
         }
     })?;
-    Ok(Handle { path: cfg.socket, stop, thread: Some(thread) })
+    Ok(Handle { path: socket, stop, thread: Some(thread) })
+}
+
+impl Server {
+    /// Extension `id`'s caller (its adapter's stdio).
+    pub fn extension_caller(&self, id: &str) -> Option<Caller> {
+        let name = self.extensions.of_id(id)?;
+        Some(Caller { extension: Some((id.to_string(), name)), ..Caller::outside() })
+    }
+
+    /// Call `method` as `caller` (`via`: how it came; counted and logged
+    /// for an extension). `events.subscribe` isn't one: see
+    /// [`Server::subscribe_as`].
+    pub fn call_as(&self, caller: &Caller, method: &str, params: serde_json::Value, via: Via) -> Result<serde_json::Value, ErrorBody> {
+        if method == method::EVENTS_SUBSCRIBE {
+            return Err(ErrorBody::new(code::UNSUPPORTED, "events.subscribe is answered by subscribe_as"));
+        }
+        methods::call(self, caller, method, params, via)
+    }
+
+    /// Subscribe `caller` to `req`'s topics: a queue of its own, the
+    /// state now first, and the topics it gets. An extension's events
+    /// stop when its permission is revoked ([`Server::may_get`]).
+    pub fn subscribe_as(&self, caller: &Caller, req: &pitwall_proto::EventsSubscribe, via: Via) -> Result<(Arc<Queue>, Vec<&'static str>), ErrorBody> {
+        let res = (|| {
+            let Some(hub) = &self.events else {
+                return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall doesn't send events"));
+            };
+            let topics = self.topics_for(caller, req)?;
+            let q = hub.subscribe(topics.clone());
+            events::snapshot(&self.engine, &q);
+            Ok((q, topics))
+        })();
+        if let Some((id, _)) = &caller.extension {
+            let logged = res.as_ref().map(|(_, t)| serde_json::json!(t)).map_err(Clone::clone);
+            self.extensions.record_call(id, via, method::EVENTS_SUBSCRIBE, &logged);
+        }
+        res
+    }
+
+    /// The topics `caller` gets for `req`: an extension needs its
+    /// permission for each, and counts the call.
+    fn topics_for(&self, caller: &Caller, req: &pitwall_proto::EventsSubscribe) -> Result<Vec<&'static str>, ErrorBody> {
+        if let Some(ext) = &caller.extension {
+            self.extensions.admit(&ext.0)?;
+            methods::ext_allowed(method::EVENTS_SUBSCRIBE, ext, |p| self.extensions.allows(&ext.0, p))?;
+            let topics = events::topics(caller, req)?;
+            for t in &topics {
+                let need = pitwall_core::extensions::permissions::of_topic(t).unwrap_or("");
+                if !self.extensions.allows(&ext.0, need) {
+                    return Err(ErrorBody::new(code::DENIED, format!("Not allowed: {} isn't granted {need} (for {t}).", ext.1)));
+                }
+            }
+            return Ok(topics);
+        }
+        events::topics(caller, req)
+    }
+
+    /// Whether `caller` may still get event `name` (an extension's
+    /// permission can be revoked while it is subscribed).
+    pub fn may_get(&self, caller: &Caller, name: &str) -> bool {
+        may_get(&self.extensions, caller.extension.as_ref(), name)
+    }
+}
+
+/// Whether extension `ext` (none: not an extension) may get event `name`
+/// now.
+fn may_get(reg: &crate::extensions::Registry, ext: Option<&(String, String)>, name: &str) -> bool {
+    let Some((id, _)) = ext else { return true };
+    events::topic_of_event(name).and_then(pitwall_core::extensions::permissions::of_topic).is_some_and(|p| reg.allows(id, p))
 }
 
 fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
@@ -185,7 +271,8 @@ fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
         };
         frame::write_json(&mut *lock(&writer), &resp)?;
         // After the answer, so the subscriber sees it before any event.
-        sub.start(&writer);
+        let (reg, ext) = (server.extensions.clone(), caller.extension.clone());
+        sub.start(&writer, move |ev| may_get(&reg, ext.as_ref(), ev));
     }
 }
 
@@ -203,13 +290,18 @@ struct Subscription {
 }
 
 impl Subscription {
-    fn start(&mut self, writer: &Writer) {
+    /// Write its events out; `may`: whether the caller may still get one
+    /// (an extension's grant is checked again for each).
+    fn start(&mut self, writer: &Writer, may: impl Fn(&str) -> bool + Send + 'static) {
         let Some(q) = self.queue.clone().filter(|_| self.pusher.is_none()) else { return };
         let writer = writer.clone();
         self.pusher = std::thread::Builder::new()
             .name("pitwall-events".into())
             .spawn(move || {
                 while let Some(ev) = q.pop() {
+                    if !may(&ev.event) {
+                        continue;
+                    }
                     // A client that stopped reading blocks only this thread;
                     // the engine keeps filling (and trimming) the queue.
                     if frame::write_json(&mut *lock(&writer), &ServerMsg::Event(ev)).is_err() {
@@ -236,19 +328,22 @@ impl Drop for Subscription {
 /// [`methods::dispatch`]. Subscribing again changes the topics.
 fn subscribe(server: &Server, caller: &Caller, sub: &mut Subscription, req: Request) -> Response {
     let res = (|| {
-        let Some(hub) = &server.events else {
+        if server.events.is_none() {
             return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall doesn't send events"));
-        };
-        let p: pitwall_proto::EventsSubscribe = methods::params(req.params)?;
-        let topics = events::topics(caller, &p)?;
-        match &sub.queue {
-            Some(q) => q.set_topics(topics.clone()),
-            None => {
-                let q = hub.subscribe(topics.clone());
-                events::snapshot(&server.engine, &q);
-                sub.queue = Some(q);
-            }
         }
+        let p: pitwall_proto::EventsSubscribe = methods::params(req.params)?;
+        let topics = match &sub.queue {
+            Some(q) => {
+                let topics = server.topics_for(caller, &p)?;
+                q.set_topics(topics.clone());
+                topics
+            }
+            None => {
+                let (q, topics) = server.subscribe_as(caller, &p, Via::Socket)?;
+                sub.queue = Some(q);
+                topics
+            }
+        };
         Ok(EventsSubscribed { topics: topics.iter().map(|t| t.to_string()).collect() })
     })();
     match res.and_then(|v| serde_json::to_value(v).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))) {
@@ -258,7 +353,7 @@ fn subscribe(server: &Server, caller: &Caller, sub: &mut Subscription, req: Requ
 }
 
 fn respond(server: &Server, caller: &Caller, req: Request) -> Response {
-    match methods::dispatch(server, caller, &req.method, req.params) {
+    match methods::call(server, caller, &req.method, req.params, Via::Socket) {
         Ok(v) => Response::ok(req.id, v),
         Err(e) => Response::err(req.id, e),
     }
