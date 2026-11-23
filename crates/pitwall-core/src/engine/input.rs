@@ -154,7 +154,7 @@ pub fn queue_send_now(engine: &Shared, agent_id: &str, item_id: &str) -> Res<Age
             let session = a.host.clone().filter(|_| a.running()).ok_or("agent is not running")?;
             let pos = a.rec.queue.iter().position(|q| q.id == item_id).ok_or("queue item not found")?;
             let item = a.rec.queue.remove(pos);
-            a.note_sent(&item.text, now);
+            a.note_sent_by(&item.text, item.origin.clone(), now);
             Ok::<_, &str>((session, item.text, a.view()))
         })?
         .map_err(String::from)?;

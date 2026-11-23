@@ -322,6 +322,7 @@ impl Agent {
             auto_send: r.auto_send,
             last_sent: r.last_sent.clone(),
             last_sent_at: r.last_sent_at,
+            last_sent_by: r.last_sent_by.clone(),
             created_at: r.created_at,
             current_task_id: super::tasks::current_task_id(r),
             caps: self.caps(),
@@ -375,6 +376,12 @@ impl Agent {
 
     /// Record a prompt as sent (verbatim) at `now` (mono ms).
     pub fn note_sent(&mut self, text: &str, now: u64) {
+        self.note_sent_by(text, None, now);
+    }
+
+    /// [`Agent::note_sent`] of an item queued by `by` (an extension).
+    pub fn note_sent_by(&mut self, text: &str, by: Option<pitwall_proto::QueueOrigin>, now: u64) {
+        self.rec.last_sent_by = by;
         self.rec.last_sent = Some(text.to_string());
         self.rec.last_sent_at = Some(crate::clock::unix_ms());
         self.rec.has_conversation = true;

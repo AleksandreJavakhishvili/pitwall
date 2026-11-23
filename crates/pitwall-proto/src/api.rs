@@ -61,6 +61,11 @@ pub mod method {
     pub const AGENT_STATUS: &str = "agent.status";
     /// [`AgentTrack`](crate::AgentTrack) → [`AgentTracked`](crate::AgentTracked)
     pub const AGENT_TRACK: &str = "agent.track";
+    /// [`AgentRef`](super::AgentRef) → [`AgentFocused`](crate::AgentFocused):
+    /// its tile focused, only while Pitwall is in front (never brought
+    /// forward). Pitwall's own window and extensions granted
+    /// `agents.focus` only.
+    pub const AGENT_FOCUS: &str = "agent.focus";
     /// [`AgentWait`](crate::AgentWait) → [`WaitResult`](crate::WaitResult);
     /// error `timeout` when it didn't get there in time.
     pub const AGENT_WAIT: &str = "agent.wait";
@@ -236,6 +241,18 @@ pub struct AgentRef {
     pub agent_id: String,
 }
 
+/// What `agent.focus` did: the agent's tile has the focus (`focused`),
+/// or why nothing changed (`note`: Pitwall isn't in front, no open window
+/// shows the agent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentFocused {
+    pub agent_id: String,
+    pub focused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
 /// Start a new agent (or terminal) in Pitwall: on this Mac by default, or
 /// on another machine (`machine`, e.g. an agw VM), where it is made with
 /// that machine's form (`machine.form`) and the user approves it first.
@@ -269,6 +286,12 @@ pub struct AgentCreate {
     /// (default: the project's account, else the user's own).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// From an extension only (`agents.start`): its first prompt, shown in
+    /// full in the approval and put in the new agent's Next up as the
+    /// extension's item (sent as its other items are). Anyone else is
+    /// refused it: they queue with `queue.add`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cols: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -828,7 +828,7 @@ mod tests {
                 name: "api".into(),
                 status: Status::Working,
                 auto_send: true,
-                items: vec![QueueItem { id: "q1".into(), text: "next".into() }],
+                items: vec![QueueItem { id: "q1".into(), text: "next".into(), origin: None }],
             },
             json!({"agentId":"a1","name":"api","status":"working","autoSend":true,"items":[{"id":"q1","text":"next"}]}),
         );
