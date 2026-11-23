@@ -33,9 +33,10 @@ pub const PROTOCOLS: [u64; 2] = [1, 2];
 pub const PROTOCOL_2: u64 = 2;
 /// What this Pitwall draws and serves (`hello.offers`): the inbox, view
 /// tiles, palette commands, sidebar badges and notifications (for a
-/// manifest that contributes them), and in protocol 2 calls to its method
-/// table and events.
-pub const OFFERS: [&str; 7] = ["inbox", "views", "commands", "badges", "notify", "call", "events"];
+/// manifest that contributes them), right-panel sections and web views,
+/// and in protocol 2 calls to its method table (reads, and the actions
+/// the user grants) and events.
+pub const OFFERS: [&str; 9] = ["inbox", "views", "commands", "badges", "notify", "panels", "webViews", "call", "events"];
 /// The longest id an adapter gives a call (longer ones aren't answered).
 pub const MAX_CALL_ID: usize = 64;
 /// The longest method name in a call.
@@ -231,6 +232,8 @@ pub enum FromAdapter {
     Badges(Vec<super::view::RowBadge>),
     /// A notification it asks for.
     Notify(super::view::Notify),
+    /// The address of one of its web views (or why it can't be opened).
+    WebView { view: String, url: Result<String, String> },
     /// A `type` this Pitwall doesn't know.
     Unknown,
 }
@@ -300,16 +303,18 @@ pub enum ToAdapter {
     Grants(Vec<String>),
     /// One of the inbox's messages.
     Inbox(ToInbox),
-    /// View `view` is shown (send it, and keep it current).
-    Show { view: String },
-    /// View `view` isn't shown any more.
-    Hide { view: String },
+    /// View `view` is shown (send it, and keep it current); a right-panel
+    /// section's for agent `agent_id`.
+    Show { view: String, agent_id: Option<String> },
+    /// View `view` isn't shown any more (a section's: for that agent).
+    Hide { view: String, agent_id: Option<String> },
     /// The user selected `item` of view `view` (send the view with its
     /// detail).
     Select { view: String, item: String },
     /// The user pressed action `action` (of `item`, when it is an item's
-    /// or the selected item's detail's); answered by a `result`.
-    Action { req: u64, view: String, item: Option<String>, action: String },
+    /// or the selected item's detail's; a section's names its agent);
+    /// answered by a `result`.
+    Action { req: u64, view: String, item: Option<String>, action: String, agent_id: Option<String> },
     /// The user picked command `command` in the palette (with the focused
     /// agent, for an agent command with `agents.read`); answered by a
     /// `result`.
@@ -349,13 +354,28 @@ impl ToAdapter {
             ToAdapter::Event { event, data } => json!({"type": "event", "event": event, "data": data}),
             ToAdapter::Grants(g) => json!({"type": "grants", "grants": g}),
             ToAdapter::Inbox(m) => m.value(),
-            ToAdapter::Show { view } => json!({"type": "show", "view": view}),
-            ToAdapter::Hide { view } => json!({"type": "hide", "view": view}),
+            ToAdapter::Show { view, agent_id } => {
+                let mut v = json!({"type": "show", "view": view});
+                if let Some(a) = agent_id {
+                    v["agentId"] = json!(a);
+                }
+                v
+            }
+            ToAdapter::Hide { view, agent_id } => {
+                let mut v = json!({"type": "hide", "view": view});
+                if let Some(a) = agent_id {
+                    v["agentId"] = json!(a);
+                }
+                v
+            }
             ToAdapter::Select { view, item } => json!({"type": "select", "view": view, "item": item}),
-            ToAdapter::Action { req, view, item, action } => {
+            ToAdapter::Action { req, view, item, action, agent_id } => {
                 let mut v = json!({"type": "action", "req": req, "view": view, "action": action});
                 if let Some(i) = item {
                     v["item"] = json!(i);
+                }
+                if let Some(a) = agent_id {
+                    v["agentId"] = json!(a);
                 }
                 v
             }
@@ -605,6 +625,10 @@ pub fn parse_line(line: &str) -> Result<FromAdapter, String> {
         "view" => FromAdapter::View(super::view::parse_view(&v)?),
         "badges" => FromAdapter::Badges(super::view::parse_badges(&v)),
         "notify" => FromAdapter::Notify(super::view::parse_notify(&v)?),
+        "webView" => {
+            let (view, url) = super::view::parse_web_view(&v)?;
+            FromAdapter::WebView { view, url }
+        }
         _ => FromAdapter::Unknown,
     })
 }
@@ -848,7 +872,7 @@ mod tests {
         // `protocol` stays 1: a protocol 1 adapter reads only that.
         assert_eq!(
             hello,
-            json!({"type": "hello", "protocol": 1, "protocols": [1, 2], "pitwall": "0.7.0", "settings": {"server": "https://inbox.example.com"}, "secrets": {"apiKey": "k"}, "grants": [], "offers": ["inbox", "views", "commands", "badges", "notify", "call", "events"]})
+            json!({"type": "hello", "protocol": 1, "protocols": [1, 2], "pitwall": "0.7.0", "settings": {"server": "https://inbox.example.com"}, "secrets": {"apiKey": "k"}, "grants": [], "offers": ["inbox", "views", "commands", "badges", "notify", "panels", "webViews", "call", "events"]})
         );
         let h = Hello { connection: Some(Connection { id: "ext-x-work".into(), name: "Work".into() }), grants: vec!["agents.read".into()], ..h };
         let hello: Value = serde_json::from_str(&ToAdapter::Hello(h).line()).unwrap();
@@ -866,11 +890,14 @@ mod tests {
         assert_eq!(serde_json::from_str::<Value>(&ev).unwrap(), json!({"type": "event", "event": "agents.changed", "data": []}));
         assert_eq!(serde_json::from_str::<Value>(&ToAdapter::Grants(vec![]).line()).unwrap(), json!({"type": "grants", "grants": []}));
         let v = |m: ToAdapter| serde_json::from_str::<Value>(&m.line()).unwrap();
-        assert_eq!(v(ToAdapter::Show { view: "runs".into() }), json!({"type": "show", "view": "runs"}));
-        assert_eq!(v(ToAdapter::Hide { view: "runs".into() }), json!({"type": "hide", "view": "runs"}));
+        assert_eq!(v(ToAdapter::Show { view: "runs".into(), agent_id: None }), json!({"type": "show", "view": "runs"}));
+        assert_eq!(v(ToAdapter::Hide { view: "runs".into(), agent_id: None }), json!({"type": "hide", "view": "runs"}));
+        assert_eq!(v(ToAdapter::Show { view: "ci".into(), agent_id: Some("a1".into()) }), json!({"type": "show", "view": "ci", "agentId": "a1"}));
+        assert_eq!(v(ToAdapter::Hide { view: "ci".into(), agent_id: Some("a1".into()) }), json!({"type": "hide", "view": "ci", "agentId": "a1"}));
+        assert_eq!(v(ToAdapter::Action { req: 14, view: "ci".into(), item: Some("r1".into()), action: "rerun".into(), agent_id: Some("a1".into()) }), json!({"type": "action", "req": 14, "view": "ci", "item": "r1", "action": "rerun", "agentId": "a1"}));
         assert_eq!(v(ToAdapter::Select { view: "runs".into(), item: "r1".into() }), json!({"type": "select", "view": "runs", "item": "r1"}));
-        assert_eq!(v(ToAdapter::Action { req: 12, view: "runs".into(), item: Some("r1".into()), action: "rerun".into() }), json!({"type": "action", "req": 12, "view": "runs", "item": "r1", "action": "rerun"}));
-        assert_eq!(v(ToAdapter::Action { req: 13, view: "runs".into(), item: None, action: "signin".into() }), json!({"type": "action", "req": 13, "view": "runs", "action": "signin"}));
+        assert_eq!(v(ToAdapter::Action { req: 12, view: "runs".into(), item: Some("r1".into()), action: "rerun".into(), agent_id: None }), json!({"type": "action", "req": 12, "view": "runs", "item": "r1", "action": "rerun"}));
+        assert_eq!(v(ToAdapter::Action { req: 13, view: "runs".into(), item: None, action: "signin".into(), agent_id: None }), json!({"type": "action", "req": 13, "view": "runs", "action": "signin"}));
         assert_eq!(v(ToAdapter::Command { req: 5, command: "rerun".into(), agent_id: Some("a1".into()) }), json!({"type": "command", "req": 5, "command": "rerun", "agentId": "a1"}));
         assert_eq!(v(ToAdapter::Command { req: 6, command: "refresh".into(), agent_id: None }), json!({"type": "command", "req": 6, "command": "refresh"}));
     }

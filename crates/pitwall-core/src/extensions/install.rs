@@ -207,6 +207,8 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
         _ => s.label.clone(),
     };
     let permission = |p: &super::PermissionAsk| match super::permissions::find(&p.name).filter(|k| k.available) {
+        // One that acts on agents says what can go wrong.
+        Some(k) if k.risk_note.is_some() => format!("{} ({}): {} — {}", k.title, p.name, p.reason, k.risk_note.unwrap_or_default()),
         Some(k) => format!("{} ({}): {}", k.title, p.name, p.reason),
         None => format!("{}: {} ({})", p.name, p.reason, super::permissions::unavailable_why(&p.name).unwrap_or_default()),
     };
@@ -826,17 +828,23 @@ mod tests {
     #[test]
     fn permissions_are_part_of_what_changes() {
         let m = |perms: &str| super::super::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "version": "1.0.0", "permissions": {{{perms}}}}}"#)).unwrap();
-        let old = m(r#""agents.read": "To match runs", "agents.start": "To start one""#);
-        let new = m(r#""agents.read": "To match runs", "projects.read": "To list projects""#);
+        let old = m(r#""agents.read": "To match runs", "agents.start": "To start one", "weather.read": "Later""#);
+        let new = m(r#""agents.read": "To match runs", "projects.read": "To list projects", "agents.queue": "To send failures""#);
         let offer = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
         let fresh = changes(None, &offer);
         let p = fresh.iter().find(|c| c.title.starts_with("Asks for these permissions")).unwrap();
-        assert_eq!(p.lines, ["Read your agents (agents.read): To match runs", "agents.start: To start one (not available in this Pitwall yet)"]);
+        assert_eq!(p.lines[0], "Read your agents (agents.read): To match runs");
+        assert!(p.lines[1].starts_with("Start agents (agents.start): To start one — An agent it starts runs as you"), "{}", p.lines[1]);
+        assert_eq!(p.lines[2], "weather.read: Later (not available in this Pitwall)");
         let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer });
         let more = up.iter().find(|c| c.title.starts_with("It asks for more permissions")).unwrap();
-        assert_eq!(more.lines, ["Read your projects (projects.read): To list projects"]);
+        // In either key order (serde_json's `preserve_order` may be on in a
+        // workspace build).
+        assert!(more.lines.iter().any(|l| l == "Read your projects (projects.read): To list projects"), "{:?}", more.lines);
+        assert!(more.lines.iter().any(|l| l.starts_with("Send text to your agents (agents.queue): To send failures — Text an agent gets becomes what it does")), "{:?}", more.lines);
+        assert_eq!(more.lines.len(), 2);
         assert!(more.title.contains("not granted until you allow them"));
-        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.start"]);
+        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.start", "weather.read"]);
     }
 
     /// What it adds to Pitwall (views, commands, badges, notifications):

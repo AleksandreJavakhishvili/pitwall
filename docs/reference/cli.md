@@ -1286,7 +1286,7 @@ pitwall extension test . --human        # in CI: exit status 1 when a check fail
 
 ### extension new
 
-Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread. With --view it draws a list view tile instead, with a palette command and a note on your agents' rows.
+Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread. With --view it draws a list view tile instead, with a palette command and a note on your agents' rows. With --panel it draws a section in the right panel for the focused agent, with buttons Pitwall runs (open a file, focus an agent) behind the show and agents.focus permissions.
 
 ```bash
 pitwall extension new [OPTIONS] <FOLDER>
@@ -1301,6 +1301,7 @@ pitwall extension new [OPTIONS] <FOLDER>
 | `--name <NAME>` | What Pitwall calls it (default: from the folder's name). |
 | `--protocol <PROTOCOL>` | The adapter protocol it speaks: 1 (an inbox of its own) or 2 (also reads Pitwall, with permissions). |
 | `--view` | A view tile, a palette command and sidebar notes (format 2, protocol 2) instead of an inbox. |
+| `--panel` | A right-panel section for the focused agent, with buttons Pitwall runs itself (format 2, protocol 2). |
 
 ```bash
 pitwall extension new ~/code/my-inbox --name "My inbox"

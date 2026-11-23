@@ -198,6 +198,15 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
         if asks(super::permissions::NOTIFY) && !m.contributes.notifications {
             r.add(Level::Warn, "it asks for “notify” but doesn't contribute \"notifications\": add \"notifications\": true to \"contributes\"");
         }
+        if asks(super::permissions::AGENTS_QUEUE) {
+            r.add(Level::Warn, "it asks for “agents.queue”: text an agent gets becomes what it does, so users see a warning before granting it. What it queues waits in Next up marked with its name until they press Send (Auto-send skips it unless they let it send without asking); at most 4000 characters, one item per agent every 10 seconds, three waiting per agent. Ask only if your users need it, and say why in its reason");
+        }
+        if asks(super::permissions::AGENTS_START) {
+            r.add(Level::Warn, "it asks for “agents.start”: every request shows the user an approval with the project, the tool and the first prompt in full, and no answer in time is a no; one request at a time, three in ten minutes, only in Pitwall's projects on this computer");
+        }
+        if !m.contributes.web_views.is_empty() {
+            r.add(Level::Ok, "its web views are plain pages: no script bridge to Pitwall, each extension's own browser store");
+        }
         if m.contributes.badges && m.match_agents.is_none() && !asks(super::permissions::AGENTS_READ) && !asks(super::permissions::PROJECTS_READ) {
             r.add(Level::Warn, "its badges can name no row: ask for agents.read (agents by id) or projects.read (projects), or add \"matchAgents\" (agents by name)");
         }
@@ -392,8 +401,15 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         r.add(Level::Fail, format!("{FIXTURE}'s “views” needs “show”: the id of the view to show"));
         return;
     };
-    if m.contributes.view(&show).is_none() {
-        r.add(Level::Fail, format!("views: its manifest declares no view “{show}” (contributes.views)"));
+    let panel = m.contributes.panel(&show).is_some();
+    if m.contributes.view(&show).is_none() && !panel {
+        r.add(Level::Fail, format!("views: its manifest declares no view or panel “{show}” (contributes.views, contributes.panels)"));
+        return;
+    }
+    // A right-panel section is shown for an agent.
+    let agent_id = v["agentId"].as_str().map(str::to_string);
+    if panel && agent_id.is_none() {
+        r.add(Level::Fail, format!("{FIXTURE}'s “views” shows the panel “{show}”: give “agentId”, the agent it is shown for"));
         return;
     }
     let obj = |k: &str| v[k].as_object().cloned().unwrap_or_default();
@@ -406,6 +422,7 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         }
     };
     d.answers = obj("answers");
+    d.grants = v["grants"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
     let kind_of = |root: &Root| match root {
         Root::List { .. } => "list",
         Root::Pane(Pane::Detail(_)) => "detail",
@@ -421,10 +438,10 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         if said_hello(&mut d, r).is_none() {
             return Ok(());
         }
-        d.send(&ToAdapter::Show { view: show.clone() })?;
+        d.send(&ToAdapter::Show { view: show.clone(), agent_id: agent_id.clone() })?;
         let want_kind = v["kind"].as_str().unwrap_or_default().to_string();
         let at_least = v["items"].as_u64().unwrap_or(0) as usize;
-        let FromAdapter::View(view) = d.until(&format!("view “{show}”"), |m| matches!(m, FromAdapter::View(x) if x.id == show))? else { unreachable!() };
+        let FromAdapter::View(view) = d.until(&format!("view “{show}”"), |m| matches!(m, FromAdapter::View(x) if x.id == show && x.agent_id == agent_id))? else { unreachable!() };
         let root = view.root.map_err(|why| format!("view “{show}” is refused: {why}"))?;
         let kind = kind_of(&root);
         if !want_kind.is_empty() && kind != want_kind {
@@ -437,7 +454,30 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         if items < at_least {
             return Err(format!("view “{show}” has {items} item(s), fewer than {at_least}"));
         }
-        r.add(Level::Ok, format!("views: after show, view “{show}” is a {kind}{}", if kind == "list" { format!(" of {items} item(s)") } else { String::new() }));
+        let what = if panel { format!("the section “{show}” for {}", agent_id.as_deref().unwrap_or_default()) } else { format!("view “{show}”") };
+        r.add(Level::Ok, format!("views: after show, {what} is a {kind}{}", if kind == "list" { format!(" of {items} item(s)") } else { String::new() }));
+        if panel && items > super::view::PANEL_ROWS {
+            r.add(Level::Warn, format!("views: the section has {items} items; the right panel draws {} and counts the rest", super::view::PANEL_ROWS));
+        }
+        // Buttons Pitwall runs itself, and what each needs.
+        if let Root::List { list, .. } = &root {
+            for i in list.items() {
+                for a in i.actions.iter().filter(|a| a.run.is_some() || a.needs.is_some()) {
+                    let need = a.needs().unwrap_or_default();
+                    let runs = match &a.run {
+                        Some(super::view::Run::File { file, .. }) => format!("Pitwall shows {file}"),
+                        Some(super::view::Run::Url { url, .. }) => format!("Pitwall shows {url}"),
+                        Some(super::view::Run::Focus(agent)) => format!("Pitwall focuses agent {agent}"),
+                        None => "the adapter acts".to_string(),
+                    };
+                    if m.permissions.iter().any(|p| p.name == need) {
+                        r.add(Level::Ok, format!("views: “{}” on “{}”: {runs} (needs {need}; drawn disabled until granted)", a.label, i.id));
+                    } else {
+                        r.add(Level::Warn, format!("views: “{}” on “{}” needs {need}, which its manifest doesn't ask for: it is always drawn disabled", a.label, i.id));
+                    }
+                }
+            }
+        }
         if let Some(item) = v["select"].as_str().map(str::to_string) {
             let want = v["detail"].as_str().unwrap_or("detail").to_string();
             d.send(&ToAdapter::Select { view: show.clone(), item: item.clone() })?;
@@ -449,7 +489,7 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
             req += 1;
             let action = a.get("action").and_then(Value::as_str).unwrap_or_default().to_string();
             let item = a.get("item").and_then(Value::as_str).map(str::to_string);
-            d.send(&ToAdapter::Action { req, view: show.clone(), item: item.clone(), action: action.clone() })?;
+            d.send(&ToAdapter::Action { req, view: show.clone(), item: item.clone(), action: action.clone(), agent_id: agent_id.clone() })?;
             match d.until(&format!("the result of action “{action}”"), |m| matches!(m, FromAdapter::Result { req: x, .. } if *x == req))? {
                 FromAdapter::Result { ok: true, .. } => r.add(Level::Ok, format!("views: action “{action}”{} is answered ok", item.map(|i| format!(" on “{i}”")).unwrap_or_default())),
                 FromAdapter::Result { message, .. } => r.add(Level::Fail, format!("views: action “{action}” is refused: {message}")),
@@ -505,8 +545,25 @@ fn calls(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         }
     };
     d.answers = obj("answers");
+    d.grants = v["grants"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
     if let Err(why) = exchange(&mut d, &v["expect"], &v["events"], r) {
         r.add(Level::Fail, format!("calls: {why}"));
+    }
+    let mut acted: Vec<&String> = d.called.iter().filter(|c| super::permissions::action_needs(c).is_some()).collect();
+    acted.dedup();
+    for c in acted {
+        let need = super::permissions::action_needs(c).unwrap_or_default();
+        let said = match c.as_str() {
+            "queue.add" => "its text waits in the agent's Next up, marked with its name, until the user presses Send",
+            "agent.create" => "Pitwall asks the user every time",
+            "agent.focus" => "only while Pitwall is in front",
+            _ => "next to the agent's terminal, never bringing Pitwall forward",
+        };
+        if d.grants.iter().any(|g| g == need) {
+            r.add(Level::Ok, format!("calls: it calls {c} (needs {need}): {said}"));
+        } else {
+            r.add(Level::Ok, format!("calls: it calls {c} without {need}, and is refused (denied) as Pitwall refuses it"));
+        }
     }
     finish(d, r);
 }
@@ -685,6 +742,8 @@ struct Driver {
     topics: Vec<String>,
     /// How many badges and notes its last `badges` line had.
     badges: Option<usize>,
+    /// The permissions the fixture grants (the actions need theirs).
+    grants: Vec<String>,
 }
 
 /// What the fake Pitwall side answers call `c` with: the fixture's
@@ -752,7 +811,7 @@ impl Driver {
                 t.drain(..over);
             }
         });
-        let mut d = Driver { proc, stdin: Some(pipes.stdin), rx, stderr, bad: Vec::new(), protocol: 0, answers: Map::new(), called: Vec::new(), topics: Vec::new(), badges: None };
+        let mut d = Driver { proc, stdin: Some(pipes.stdin), rx, stderr, bad: Vec::new(), protocol: 0, answers: Map::new(), called: Vec::new(), topics: Vec::new(), badges: None, grants: Vec::new() };
         d.send(hello)?;
         Ok(d)
     }
@@ -766,7 +825,12 @@ impl Driver {
             if method == "events.subscribe" {
                 self.topics.extend(params["topics"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string));
             }
-            fake_answer(&self.answers, &method, &params)
+            match super::permissions::action_needs(&method).filter(|p| !self.grants.iter().any(|g| g == p)) {
+                // An action without its grant: refused as Pitwall does,
+                // whatever the fixture answers.
+                Some(p) => Err(CallError::new("denied", format!("Not allowed: the extension isn't granted {p}."))),
+                None => fake_answer(&self.answers, &method, &params),
+            }
         };
         self.called.push(method);
         self.send(&ToAdapter::Reply { id, result })

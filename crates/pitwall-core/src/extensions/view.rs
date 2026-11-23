@@ -81,13 +81,51 @@ pub struct Badge {
     pub tone: Tone,
 }
 
-/// A button: pressing it sends `action` back to the adapter.
+/// A button: pressing it sends `action` back to the adapter, or, with
+/// `run`, Pitwall does what it says itself (through its method table, as
+/// the extension, so the same permission decides).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Action {
     pub id: String,
     pub label: String,
     /// The item's main action (Enter on the item).
     pub primary: bool,
+    /// What Pitwall does itself when it is pressed (the adapter isn't
+    /// told).
+    pub run: Option<Run>,
+    /// A permission it needs (the adapter acts with it when told): without
+    /// the grant the button is drawn disabled, saying why.
+    pub needs: Option<String>,
+}
+
+impl Action {
+    /// The permission it needs to be pressed: what it runs needs, else
+    /// what it says it needs.
+    pub fn needs(&self) -> Option<&str> {
+        self.run.as_ref().map(Run::needs).or(self.needs.as_deref())
+    }
+}
+
+/// What an action has Pitwall do itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Run {
+    /// Show a file (at a line) in an agent's file viewer, as agents'
+    /// `show_files` does (`show`). `agent`: whose; none, the item's.
+    File { file: String, line: Option<u32>, agent: Option<String> },
+    /// Show a page in an agent's page tile, as `show_web` does (`show`).
+    Url { url: String, agent: Option<String> },
+    /// Focus an agent's tile while Pitwall is in front (`agents.focus`).
+    Focus(String),
+}
+
+impl Run {
+    /// The permission it needs.
+    pub fn needs(&self) -> &'static str {
+        match self {
+            Run::File { .. } | Run::Url { .. } => super::permissions::SHOW,
+            Run::Focus(_) => super::permissions::AGENTS_FOCUS,
+        }
+    }
 }
 
 /// A row of a list.
@@ -103,6 +141,9 @@ pub struct Item {
     /// When (ISO 8601, as the adapter says), drawn as "5m".
     pub time: String,
     pub actions: Vec<Action>,
+    /// The agent it is about, by Pitwall's id: its name is shown (with
+    /// `agents.read`) and a click focuses it (with `agents.focus`).
+    pub agent: Option<String>,
 }
 
 /// A titled group of items.
@@ -189,8 +230,13 @@ pub enum Root {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     pub id: String,
+    /// A right-panel section's: the agent it is for.
+    pub agent_id: Option<String>,
     pub root: Result<Root, String>,
 }
+
+/// The most rows a right-panel section draws (the rest are counted).
+pub const PANEL_ROWS: usize = 8;
 
 /// What a badge, a note or a notification opens when clicked.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,6 +313,56 @@ pub fn link(s: &str) -> Option<String> {
     ok.then(|| s.to_string())
 }
 
+/// An address a web view may open: `https://` anywhere, or `http://` on
+/// this computer only (`localhost`, `127.0.0.1`, `[::1]`, any port), with
+/// no user or password in it, at most 2000 characters.
+pub fn web_view_url(s: &str) -> Result<String, String> {
+    if s.len() > 2000 || s.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("an address is one line, at most 2000 characters".into());
+    }
+    let (https, rest) = match (s.strip_prefix("https://"), s.strip_prefix("http://")) {
+        (Some(r), _) => (true, r),
+        (None, Some(r)) => (false, r),
+        _ => return Err(format!("“{s}” isn't an https address (or http on this computer)")),
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty() || authority.contains('@') {
+        return Err(format!("“{s}” has no host, or a user or password in it"));
+    }
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or_default(),
+        None => authority.split(':').next().unwrap_or_default(),
+    };
+    if !https && !matches!(host.to_ascii_lowercase().as_str(), "localhost" | "127.0.0.1" | "::1") {
+        return Err(format!("“{s}” is http to another computer: only https, or http on this one (localhost)"));
+    }
+    Ok(s.to_string())
+}
+
+/// A path to show: one line, at most 4096 characters.
+fn path_of(v: &Value, key: &str) -> Option<String> {
+    let s = v.get(key)?.as_str()?;
+    (!s.trim().is_empty() && s.chars().count() <= 4096 && !s.chars().any(char::is_control)).then(|| s.to_string())
+}
+
+/// What an action has Pitwall do: `"open": {"file", "line", "agentId"}`,
+/// `"open": {"url", "agentId"}` or `"focus": "<agent id>"`; an unusable one
+/// is none (the action isn't drawn).
+fn run_of(a: &Value) -> Option<Result<Run, ()>> {
+    if let Some(f) = a.get("focus") {
+        let id = f.as_str().map(String::from).or_else(|| id_of(f, "agentId"));
+        return Some(id.filter(|i| i.chars().count() <= MAX_ID && !i.is_empty()).map(Run::Focus).ok_or(()));
+    }
+    let o = a.get("open")?;
+    let agent = id_of(o, "agentId");
+    if let Some(url) = o.get("url").and_then(Value::as_str) {
+        return Some(link(url).map(|url| Run::Url { url, agent }).ok_or(()));
+    }
+    let file = path_of(o, "file");
+    let line = o.get("line").and_then(Value::as_u64).filter(|l| *l >= 1 && *l <= u64::from(u32::MAX)).map(|l| l as u32);
+    Some(file.map(|file| Run::File { file, line, agent }).ok_or(()))
+}
+
 fn actions(v: &Value, max: usize) -> Vec<Action> {
     let mut out: Vec<Action> = Vec::new();
     for a in list(v, "actions") {
@@ -275,7 +371,15 @@ fn actions(v: &Value, max: usize) -> Vec<Action> {
             continue;
         }
         let label = text(a, "label", 40);
-        out.push(Action { label: if label.is_empty() { id.clone() } else { label }, id, primary: a.get("primary").and_then(Value::as_bool).unwrap_or(false) });
+        let run = match run_of(a) {
+            None => None,
+            Some(Ok(r)) => Some(r),
+            // An `open` or `focus` Pitwall can't use: not drawn, rather
+            // than sent to the adapter as if it were its own.
+            Some(Err(())) => continue,
+        };
+        let needs = a.get("needs").and_then(Value::as_str).filter(|n| !n.is_empty() && n.len() <= 40 && n.chars().all(|c| c.is_ascii_lowercase() || c == '.')).map(String::from);
+        out.push(Action { label: if label.is_empty() { id.clone() } else { label }, id, primary: a.get("primary").and_then(Value::as_bool).unwrap_or(false), run, needs });
         if out.len() == max {
             break;
         }
@@ -300,6 +404,7 @@ fn item(v: &Value) -> Option<Item> {
         badges: list(v, "badges").iter().filter_map(|b| Some(Badge { text: text(b, "text", 24), tone: Tone::of(b) }).filter(|b| !b.text.is_empty())).take(MAX_ITEM_BADGES).collect(),
         time: text(v, "time", 40),
         actions: actions(v, MAX_ACTIONS),
+        agent: v.get("agent").and_then(|a| id_of(a, "agentId")),
     })
 }
 
@@ -389,7 +494,15 @@ pub fn root(v: &Value) -> Result<Root, String> {
 /// A `view` line: `Err` when it names no usable view (it is dropped).
 pub fn parse_view(v: &Value) -> Result<View, String> {
     let id = v.get("view").and_then(Value::as_str).filter(|s| super::check_word("view", s).is_ok()).ok_or("a view without a usable \"view\" id")?;
-    Ok(View { id: id.to_string(), root: v.get("root").map_or_else(|| Err("It sent a view without a \"root\".".to_string()), root) })
+    Ok(View { id: id.to_string(), agent_id: id_of(v, "agentId"), root: v.get("root").map_or_else(|| Err("It sent a view without a \"root\".".to_string()), root) })
+}
+
+/// A `webView` line: which web view, and the address it gives (or why it
+/// can't be opened: [`web_view_url`]).
+pub fn parse_web_view(v: &Value) -> Result<(String, Result<String, String>), String> {
+    let id = v.get("view").and_then(Value::as_str).filter(|s| super::check_word("view", s).is_ok()).ok_or("a webView without a usable \"view\" id")?;
+    let url = v.get("url").and_then(Value::as_str).ok_or_else(|| "It sent a webView without a \"url\".".to_string()).and_then(web_view_url);
+    Ok((id.to_string(), url))
 }
 
 /// What `open` names, when it is usable.
@@ -513,6 +626,43 @@ mod tests {
         // view says so.
         assert!(parse_view(&json!({"type": "view", "view": "Runs"})).is_err());
         assert!(parse_view(&json!({"type": "view", "view": "runs"})).unwrap().root.unwrap_err().contains("without a \"root\""));
+    }
+
+    /// Phase 5: an item's agent, actions Pitwall runs itself (each with the
+    /// permission it needs) and `needs`; one Pitwall can't use isn't drawn.
+    #[test]
+    fn actions_pitwall_runs_and_agent_links() {
+        let r = root(&json!({"kind": "list", "sections": [{"items": [{"id": "r1", "agent": {"agentId": "a1"}, "actions": [
+            {"id": "log", "label": "Open log", "open": {"file": "logs/ci.txt", "line": 12}},
+            {"id": "page", "label": "Open run", "open": {"url": "https://ci.example.com/r1", "agentId": "a2"}},
+            {"id": "go", "label": "Go to agent", "focus": "a1"},
+            {"id": "send", "label": "Send failure", "needs": "agents.queue"},
+            {"id": "bad", "open": {"url": "javascript:alert(1)"}}]}]}]}))
+        .unwrap();
+        let Root::List { list, .. } = r else { panic!() };
+        let i = list.item("r1").unwrap();
+        assert_eq!(i.agent.as_deref(), Some("a1"));
+        let a: Vec<(&str, Option<&str>)> = i.actions.iter().map(|a| (a.id.as_str(), a.needs())).collect();
+        assert_eq!(a, [("log", Some("show")), ("page", Some("show")), ("go", Some("agents.focus")), ("send", Some("agents.queue"))], "a link Pitwall can't open is dropped");
+        assert_eq!(i.actions[0].run, Some(Run::File { file: "logs/ci.txt".into(), line: Some(12), agent: None }));
+        assert_eq!(i.actions[1].run, Some(Run::Url { url: "https://ci.example.com/r1".into(), agent: Some("a2".into()) }));
+        assert_eq!(i.actions[2].run, Some(Run::Focus("a1".into())));
+        let v = parse_view(&json!({"type": "view", "view": "ci", "agentId": "a1", "root": {"kind": "markdown", "text": "x"}})).unwrap();
+        assert_eq!(v.agent_id.as_deref(), Some("a1"));
+    }
+
+    /// A web view opens https anywhere, or http on this computer only.
+    #[test]
+    fn web_view_addresses() {
+        for ok in ["https://ci.example.com/dash", "http://localhost:3000/", "http://127.0.0.1:43123/x?y=1", "http://[::1]:8080/", "http://LOCALHOST"] {
+            assert!(web_view_url(ok).is_ok(), "{ok}");
+        }
+        for bad in ["http://ci.example.com", "http://localhost.evil.com/", "file:///etc/passwd", "javascript:alert(1)", "https://user:pw@example.com/", "https://", "https://a b"] {
+            assert!(web_view_url(bad).is_err(), "{bad}");
+        }
+        let (id, url) = parse_web_view(&json!({"type": "webView", "view": "dash", "url": "http://10.0.0.2/"})).unwrap();
+        assert_eq!(id, "dash");
+        assert!(url.unwrap_err().contains("only https"));
     }
 
     #[test]
