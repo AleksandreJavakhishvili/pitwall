@@ -8,7 +8,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 
 ## How it works
 
-- **It talks to the running app** over a local socket: `$PITWALL_CLI_SOCKET` when set, else `~/.pitwall/run/pitwalld.sock` (`--socket` overrides both). Only `settings` also works while Pitwall is closed: it edits `~/.pitwall/ui.json` (safe settings only). `peers` always works on `~/.pitwall/peers/` directly.
+- **It talks to the running app** over a local socket: `$PITWALL_CLI_SOCKET` when set, else `~/.pitwall/run/pitwalld.sock` (`--socket` overrides both). Only `settings` also works while Pitwall is closed: it edits `~/.pitwall/ui.json` (safe settings only). `peers` always works on `~/.pitwall/peers/` directly. `extension` works on the folder you name, offline.
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{"error":{"code":"…","message":"…"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
@@ -91,6 +91,7 @@ These work with every command.
 - [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`
 - [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder` and `show_web` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
+- [`extension`](#extension): For extension authors: check a folder, run its tests, or start a new one. Works on the folder, offline, without the app (exit status 1 when a check fails)
 
 ## agent
 
@@ -1248,5 +1249,60 @@ pitwall events [OPTIONS]
 ```bash
 pitwall events --human
 pitwall events --topics attention | jq -r 'select(.data.reason == "blocked") | .data.name'
+```
+
+
+## extension
+
+For extension authors: check a folder, run its tests, or start a new one. Works on the folder, offline, without the app (exit status 1 when a check fails).
+
+### extension check
+
+Read an extension's folder without running anything: its manifest and limits, the files it names, and what it would run and set, in plain words.
+
+```bash
+pitwall extension check [OPTIONS] <FOLDER>
+```
+
+| Argument | |
+|---|---|
+| `FOLDER` | The extension's folder (the one with extension.json). |
+
+### extension test
+
+Run what the folder's test/pitwall.json expects: its actions' command lines, the variables it sets, its adapter's run and its agreement with its fake server (skipped when the adapter's program, such as node, isn't installed).
+
+```bash
+pitwall extension test [OPTIONS] <FOLDER>
+```
+
+| Argument | |
+|---|---|
+| `FOLDER` | The extension's folder. |
+
+```bash
+pitwall extension test . --human        # in CI: exit status 1 when a check fails
+```
+
+### extension new
+
+Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name.
+
+```bash
+pitwall extension new [OPTIONS] <FOLDER>
+```
+
+| Argument | |
+|---|---|
+| `FOLDER` | The folder to make (absent or empty), named like my-extension. |
+
+| Option | |
+|---|---|
+| `--name <NAME>` | What Pitwall calls it (default: from the folder's name). |
+
+```bash
+pitwall extension new ~/code/my-inbox --name "My inbox"
+pitwall extension check ~/code/my-inbox --human
+pitwall extension test ~/code/my-inbox --human
 ```
 

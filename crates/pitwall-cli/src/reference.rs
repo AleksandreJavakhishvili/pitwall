@@ -22,7 +22,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 
 ## How it works
 
-- **It talks to the running app** over a local socket: `$PITWALL_CLI_SOCKET` when set, else `~/.pitwall/run/pitwalld.sock` (`--socket` overrides both). Only `settings` also works while Pitwall is closed: it edits `~/.pitwall/ui.json` (safe settings only). `peers` always works on `~/.pitwall/peers/` directly.
+- **It talks to the running app** over a local socket: `$PITWALL_CLI_SOCKET` when set, else `~/.pitwall/run/pitwalld.sock` (`--socket` overrides both). Only `settings` also works while Pitwall is closed: it edits `~/.pitwall/ui.json` (safe settings only). `peers` always works on `~/.pitwall/peers/` directly. `extension` works on the folder you name, offline.
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{\"error\":{\"code\":\"…\",\"message\":\"…\"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
@@ -102,6 +102,8 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("review changes", "pitwall review changes api --human"),
     ("wait", "pitwall queue add api \"run the tests\"\npitwall wait api --for done,blocked --fresh --timeout 900"),
     ("peers pair", "pitwall peers set --show on          # here\npitwall peers set --share on         # on studio\npitwall peers discover --human\npitwall peers pair studio\npitwall peers watch studio --human"),
+    ("extension new", "pitwall extension new ~/code/my-inbox --name \"My inbox\"\npitwall extension check ~/code/my-inbox --human\npitwall extension test ~/code/my-inbox --human"),
+    ("extension test", "pitwall extension test . --human        # in CI: exit status 1 when a check fails"),
     ("events", "pitwall events --human\npitwall events --topics attention | jq -r 'select(.data.reason == \"blocked\") | .data.name'"),
 ];
 
