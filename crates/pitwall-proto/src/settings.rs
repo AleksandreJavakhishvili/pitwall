@@ -154,6 +154,9 @@ pub const THEMES: &[&str] = &["system", "dark", "light"];
 pub const LOOKS: &[&str] = &["flat", "glass"];
 pub const DENSITIES: &[&str] = &["comfortable", "compact", "dense"];
 pub const SIDEBAR_GROUPS: &[&str] = &["project", "account"];
+/// What Pitwall does with agents that started before an extension's update
+/// (`extensions.restartAfterUpdate`).
+pub const RESTARTS_AFTER_UPDATE: &[&str] = &["ask", "whenIdle", "never"];
 /// The Race Engineer's first prompt, by default (`engineer.greeting`).
 pub const ENGINEER_GREETING: &str =
     "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, set up an extension, tune settings.";
@@ -331,6 +334,16 @@ pub const SETTINGS: &[Setting] = &[
         page: Page::Agents,
         sensitivity: Sensitivity::Safe,
         stored: Stored::Ui { key: "engineerGreeting", invert: false },
+        only_on: false,
+    },
+    Setting {
+        key: "extensions.restartAfterUpdate",
+        kind: Kind::Choice(RESTARTS_AFTER_UPDATE),
+        default: DefaultValue::Str("ask"),
+        description: "After an extension's update, what Pitwall does with running agents that use its previous setup (docs/extensions/updates.md): ask (restart nothing; their rows say so, with Restart), whenIdle (restart each once it has waited for you for 30 s, one at a time, continuing its conversation; never one that is working, waiting on an approval or can't continue its conversation) or never. An extension's card can override it.",
+        page: Page::Extensions,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "extensionsRestartAfterUpdate", invert: false },
         only_on: false,
     },
     Setting {
@@ -659,6 +672,19 @@ pub fn json_schema() -> Value {
                             "confirmed": { "type": "object", "properties": { "digest": { "type": "string", "description": "A digest of its commands as the user confirmed them." }, "at": { "type": "integer", "description": "When, in Unix seconds." } }, "required": ["digest"], "description": "The commands the user confirmed. Pitwall starts it only while its commands are these: an update that changes them stops it and asks again." },
                             "fresh": { "type": "boolean", "default": false, "description": "Its data folder was empty when Pitwall started it and its first run (a first sign-in) hasn't succeeded since: the first run is offered." },
                             "stopped": { "type": "boolean", "default": false, "description": "The user stopped it: it isn't started until they press Start." }
+                        },
+                        "additionalProperties": true
+                    },
+                    "restartAfterUpdate": { "type": "string", "enum": RESTARTS_AFTER_UPDATE, "description": "Overrides `extensionsRestartAfterUpdate` for this extension: what Pitwall does with running agents that use its previous setup after an update." },
+                    "lastUpdate": {
+                        "type": "object",
+                        "description": "Its last update (docs/extensions/updates.md): Go back offers to put back the data backup taken then.",
+                        "properties": {
+                            "from": { "type": "string", "description": "The version it was updated from." },
+                            "to": { "type": "string", "description": "The version it was updated to." },
+                            "at": { "type": "integer", "description": "When, in Unix seconds." },
+                            "backup": { "type": "string", "description": "The backup folder of its service's data taken before it (under extension-backups/<id>/)." },
+                            "confirmed": { "type": "string", "description": "A digest of its service's commands as confirmed before the update: Go back confirms them again." }
                         },
                         "additionalProperties": true
                     }

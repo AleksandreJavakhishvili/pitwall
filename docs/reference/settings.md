@@ -157,6 +157,17 @@ The prompt queued for a new Race Engineer when it first opens (empty: none).
 - **Stored in:** `ui.json` → `engineerGreeting`
 - **When an agent changes it:** applies directly
 
+## Extensions
+
+### `extensions.restartAfterUpdate`
+
+After an extension's update, what Pitwall does with running agents that use its previous setup (docs/extensions/updates.md): ask (restart nothing; their rows say so, with Restart), whenIdle (restart each once it has waited for you for 30 s, one at a time, continuing its conversation; never one that is working, waiting on an approval or can't continue its conversation) or never. An extension's card can override it.
+
+- **Values:** one of ask, whenIdle, never
+- **Default:** `ask`
+- **Stored in:** `ui.json` → `extensionsRestartAfterUpdate`
+- **When an agent changes it:** applies directly
+
 ## Rules & skills
 
 ### `rules.allowNpx`
