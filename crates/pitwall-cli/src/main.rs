@@ -161,7 +161,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             out(&list, render::sessions(&list))
         }
         Command::Settings(_) | Command::Peers(_) => unreachable!("handled above"),
-        Command::Extension(_) => unreachable!("run by main (extension::run)"),
+        Command::Extension(e) => extension::setup(e, &mut c)?,
         Command::Events(_) => unreachable!("streamed by main (events::follow)"),
         Command::Mcp => unreachable!("served by main (mcp::serve)"),
         Command::Open(a) if a.settings.is_some() => {
@@ -276,7 +276,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    if let Command::Extension(e) = &cli.command {
+    if let Some(e) = cli.command.offline_extension() {
         // On a folder, offline: no socket.
         return match extension::run(e) {
             Ok((o, passed)) => {

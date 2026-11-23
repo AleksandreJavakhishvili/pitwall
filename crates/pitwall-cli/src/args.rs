@@ -97,9 +97,11 @@ pub enum Command {
     /// list and count come first. Prints one JSON event per line until
     /// stopped (or --count).
     Events(EventsArgs),
-    /// For extension authors: check a folder, run its tests, or start a
-    /// new one. Works on the folder, offline, without the app (exit status
-    /// 1 when a check fails).
+    /// The user's extensions: see how each stands and set one up, each
+    /// step approved by the user in Pitwall (list, status, log, install,
+    /// on, setup, service, first-run, set, secret, connection…). For
+    /// authors, check, test and new work on a folder, offline, without the
+    /// app (exit status 1 when a check fails).
     #[command(subcommand)]
     Extension(ExtensionCmd),
 }
@@ -154,6 +156,137 @@ pub enum ExtensionCmd {
         /// is on: the extension's service (format 2, protocol 1).
         #[arg(long, conflicts_with_all = ["protocol", "view", "panel"])]
         service: bool,
+    },
+    /// The installed extensions (id, name, version, on or off, where it
+    /// came from, an update already known) and those Pitwall ships that
+    /// aren't installed. Fetches nothing.
+    List,
+    /// One extension's setup as data: its checklist (each step done, to do
+    /// or blocked, and why), connections (secrets only as set or not), the
+    /// adapter's state, the service's, permissions, accounts not set up
+    /// yet, and `next`: the one step to take, by you or by the user.
+    Status {
+        id: String,
+        /// The connection to show (name or id; default: the one Settings
+        /// shows).
+        #[arg(long)]
+        connection: Option<String>,
+    },
+    /// Its card's Log: protocol lines, stderr and its service's output,
+    /// secrets already taken out.
+    Log {
+        id: String,
+        /// The newest this many lines (at most 500).
+        #[arg(long, default_value_t = 100)]
+        lines: usize,
+    },
+    /// Install one Pitwall ships. It stays off. Asks the user.
+    Install { id: String },
+    /// Turn it on, granting what its permission screen grants by default
+    /// (reading; nothing that acts). The approval shows what it runs, sets
+    /// and adds. Asks the user.
+    On { id: String },
+    /// Turn it off. Asks the user.
+    Off { id: String },
+    /// Look at its source for a newer release, as "Check for updates"
+    /// does. Installs nothing.
+    CheckUpdates { id: String },
+    /// Update it to the release found (check-updates first). The approval
+    /// lists what changes. Asks the user.
+    Update { id: String },
+    /// Remove it: its settings and secrets go, its service's data stays.
+    /// Asks the user.
+    Remove { id: String },
+    /// Run a setup action (default: the first not done). The approval lists
+    /// each command line, per account. Asks the user.
+    Setup {
+        id: String,
+        /// The action's id (see `status`).
+        #[arg(long)]
+        action: Option<String>,
+        /// The connection whose settings it uses (name or id).
+        #[arg(long)]
+        connection: Option<String>,
+    },
+    /// Its local service: confirm its commands (and start it), start, stop,
+    /// restart (or look again), or update (its install action, then
+    /// started again). Never one running elsewhere. Asks the user.
+    Service {
+        id: String,
+        #[arg(value_enum)]
+        what: ServiceWhat,
+    },
+    /// Its service's first run (a first sign-in): the link it prints opens
+    /// in the user's browser; you only hear that it did. Asks the user.
+    FirstRun { id: String },
+    /// Set a plain setting (never a secret). Asks the user.
+    Set {
+        id: String,
+        key: String,
+        value: String,
+        /// The connection (name or id; default: the one Settings shows).
+        #[arg(long)]
+        connection: Option<String>,
+    },
+    /// Show the user a secret setting's field in Pitwall, next to your
+    /// terminal. Its value never comes or goes here: wait for the user and
+    /// read `status` to see it set.
+    Secret {
+        id: String,
+        key: String,
+        #[arg(long)]
+        connection: Option<String>,
+        /// The agent whose terminal Settings opens beside (default: the one
+        /// running this, from PITWALL_AGENT_ID).
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Its connections (several sets of settings): add, rename, remove.
+    /// Asks the user.
+    #[command(subcommand)]
+    Connection(ConnectionCmd),
+}
+
+impl Command {
+    /// `extension check|test|new`: on a folder, without the app.
+    pub fn offline_extension(&self) -> Option<&ExtensionCmd> {
+        match self {
+            Command::Extension(e) if e.offline() => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl ExtensionCmd {
+    /// Works on a folder, without the app.
+    pub fn offline(&self) -> bool {
+        matches!(self, ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. })
+    }
+}
+
+/// `pitwall extension service <id> <what>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ServiceWhat {
+    Confirm,
+    Start,
+    Stop,
+    Restart,
+    Update,
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum ConnectionCmd {
+    /// Add a connection (another server or key).
+    Add { id: String, name: String },
+    /// Rename connection CONNECTION (name or id).
+    Rename { id: String, connection: String, name: String },
+    /// Remove connection CONNECTION with its settings and secrets.
+    Remove {
+        id: String,
+        connection: String,
+        /// When it is the default: the connection that becomes the default.
+        #[arg(long)]
+        default: Option<String>,
     },
 }
 

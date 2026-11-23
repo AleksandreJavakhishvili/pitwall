@@ -2,13 +2,16 @@
 //! extension's author, on a folder, offline: no socket, no running app.
 //! The work is `pitwall_core::extensions::{check, starter}`; Pitwall's own
 //! tests run the same checks on the extensions in its repository.
+//!
+//! The rest ([`setup`]) is the user's extensions in the running Pitwall,
+//! over `extension.*`: reading is free, every change asks the user there.
 
 use pitwall_client::Error;
 use pitwall_core::extensions::{check, starter};
 use pitwall_proto::{code, ErrorBody};
 use serde_json::json;
 
-use crate::args::ExtensionCmd;
+use crate::args::{ConnectionCmd, ExtensionCmd, ServiceWhat};
 use crate::Output;
 
 /// Run `cmd`: its output and whether every check passed.
@@ -34,6 +37,7 @@ pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
             let files: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
             (Output { json: json!({ "folder": folder, "id": m.id, "name": m.name, "files": files }), human }, true)
         }
+        _ => unreachable!("run against Pitwall (setup)"),
     })
 }
 
@@ -42,6 +46,66 @@ fn report(r: check::Report) -> (Output, bool) {
     let mut json = serde_json::to_value(&r).unwrap_or_default();
     json["passed"] = json!(passed);
     (Output { json, human: r.text() }, passed)
+}
+
+/// `pitwall extension list|status|log|…` against the running Pitwall.
+pub fn setup(cmd: &ExtensionCmd, c: &mut pitwall_client::Client) -> Result<Output, Error> {
+    use pitwall_proto::extensions::*;
+    use pitwall_proto::{caps, method};
+    let id_ref = |id: &str, connection: &Option<String>| ExtRef { id: id.to_string(), connection: connection.clone() };
+    let act = |c: &mut pitwall_client::Client, id: &str, op: ExtOp| -> Result<Output, Error> {
+        let done: ExtActed = c.call_cap(caps::EXTENSIONS, method::EXTENSION_ACT, ExtAct { id: id.to_string(), op })?;
+        let human = acted_text(&done);
+        Ok(crate::out(&done, human))
+    };
+    match cmd {
+        ExtensionCmd::List => {
+            let l: ExtList = c.call_cap(caps::EXTENSIONS, method::EXTENSION_LIST, ExtRef::default())?;
+            Ok(crate::out(&l, list_text(&l)))
+        }
+        ExtensionCmd::Status { id, connection } => {
+            let s: ExtStatus = c.call_cap(caps::EXTENSIONS, method::EXTENSION_STATUS, id_ref(id, connection))?;
+            Ok(crate::out(&s, status_text(&s)))
+        }
+        ExtensionCmd::Log { id, lines } => {
+            let l: ExtLog = c.call_cap(caps::EXTENSIONS, method::EXTENSION_LOG, ExtLogRequest { id: id.clone(), lines: Some(*lines) })?;
+            Ok(crate::out(&l, log_text(&l)))
+        }
+        ExtensionCmd::CheckUpdates { id } => {
+            let a: ExtActed = c.call_cap(caps::EXTENSIONS, method::EXTENSION_CHECK_UPDATES, id_ref(id, &None))?;
+            Ok(crate::out(&a, acted_text(&a)))
+        }
+        ExtensionCmd::Secret { id, key, connection, agent } => {
+            let req = ExtSecret { id: id.clone(), key: key.clone(), connection: connection.clone(), agent_id: agent.clone().or_else(crate::open::env_agent) };
+            let a: ExtActed = c.call_cap(caps::EXTENSIONS, method::EXTENSION_SECRET, req)?;
+            Ok(crate::out(&a, acted_text(&a)))
+        }
+        ExtensionCmd::Install { id } => act(c, id, ExtOp::Install),
+        ExtensionCmd::On { id } => act(c, id, ExtOp::On),
+        ExtensionCmd::Off { id } => act(c, id, ExtOp::Off),
+        ExtensionCmd::Update { id } => act(c, id, ExtOp::Update),
+        ExtensionCmd::Remove { id } => act(c, id, ExtOp::Remove),
+        ExtensionCmd::Setup { id, action, connection } => act(c, id, ExtOp::Setup { action: action.clone(), connection: connection.clone() }),
+        ExtensionCmd::Service { id, what } => act(c, id, ExtOp::Service { what: service_op(*what) }),
+        ExtensionCmd::FirstRun { id } => act(c, id, ExtOp::FirstRun),
+        ExtensionCmd::Set { id, key, value, connection } => act(c, id, ExtOp::Set { key: key.clone(), value: value.clone(), connection: connection.clone() }),
+        ExtensionCmd::Connection(ConnectionCmd::Add { id, name }) => act(c, id, ExtOp::ConnectionAdd { name: name.clone() }),
+        ExtensionCmd::Connection(ConnectionCmd::Rename { id, connection, name }) => act(c, id, ExtOp::ConnectionRename { connection: connection.clone(), name: name.clone() }),
+        ExtensionCmd::Connection(ConnectionCmd::Remove { id, connection, default }) => act(c, id, ExtOp::ConnectionRemove { connection: connection.clone(), default: default.clone() }),
+        ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } => unreachable!("offline (run)"),
+    }
+}
+
+/// The service step asked for, as the protocol says it.
+pub fn service_op(w: ServiceWhat) -> pitwall_proto::extensions::ServiceOp {
+    use pitwall_proto::extensions::ServiceOp;
+    match w {
+        ServiceWhat::Confirm => ServiceOp::Confirm,
+        ServiceWhat::Start => ServiceOp::Start,
+        ServiceWhat::Stop => ServiceOp::Stop,
+        ServiceWhat::Restart => ServiceOp::Restart,
+        ServiceWhat::Update => ServiceOp::Update,
+    }
 }
 
 #[cfg(test)]
