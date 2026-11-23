@@ -193,7 +193,7 @@ pub fn settings_open(s: &Server, caller: &Caller, r: SettingsOpen) -> Res {
 
 /// Settings shown to the user: the setting checked, the page checked, the
 /// agent resolved; what comes back says where, never what Settings holds.
-fn settings(s: &Server, caller: &Caller, r: SettingsOpen) -> Result<SettingsOpened, ErrorBody> {
+pub(crate) fn settings(s: &Server, caller: &Caller, r: SettingsOpen) -> Result<SettingsOpened, ErrorBody> {
     let Some(backend) = s.viewer.as_deref() else {
         return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to show its Settings in"));
     };
@@ -213,6 +213,8 @@ fn settings(s: &Server, caller: &Caller, r: SettingsOpen) -> Result<SettingsOpen
         ),
     };
     let extension = r.extension.as_deref().map(str::trim).filter(|e| !e.is_empty()).map(String::from);
+    let secret = r.secret.as_deref().map(str::trim).filter(|e| !e.is_empty() && extension.is_some()).map(String::from);
+    let connection = r.connection.as_deref().map(str::trim).filter(|e| !e.is_empty() && extension.is_some()).map(String::from);
     let key = r
         .agent_id
         .clone()
@@ -228,7 +230,7 @@ fn settings(s: &Server, caller: &Caller, r: SettingsOpen) -> Result<SettingsOpen
             return Err(e);
         }
     };
-    let shown = backend.show_settings(&SettingsShow { agent_id: agent.id.clone(), page, extension })?;
+    let shown = backend.show_settings(&SettingsShow { agent_id: agent.id.clone(), page, extension, secret, connection })?;
     let mut o = SettingsOpened {
         proto: SETTINGS_PROTO,
         agent_id: agent.id,

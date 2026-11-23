@@ -117,6 +117,7 @@ impl Host {
             viewer: Some(workspace.clone()),
             events: Some(hub),
             extensions: Some(extensions),
+            ext_backend: None,
         };
         let api = pitwall_daemon::build(engine.clone(), approvals.clone(), identify, cfg);
         let server = match pitwall_daemon::listen(api.clone(), paths.cli_socket()) {

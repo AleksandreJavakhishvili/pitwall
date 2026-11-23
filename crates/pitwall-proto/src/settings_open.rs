@@ -32,6 +32,13 @@ pub struct SettingsOpen {
     /// page then defaults to Extensions).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<String>,
+    /// With `extension`: its secret setting (key) the user is asked to
+    /// enter, marked on the card. Its value never passes here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+    /// With `extension`: the connection (name or id) the card shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proto: Option<u32>,
 }
@@ -71,6 +78,12 @@ pub struct SettingsShow {
     pub page: Option<String>,
     #[serde(default)]
     pub extension: Option<String>,
+    /// The secret setting to mark on the extension's card.
+    #[serde(default)]
+    pub secret: Option<String>,
+    /// The connection the card shows (name or id).
+    #[serde(default)]
+    pub connection: Option<String>,
 }
 
 /// Where the app showed a [`SettingsShow`].

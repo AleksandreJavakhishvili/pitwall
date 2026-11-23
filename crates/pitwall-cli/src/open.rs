@@ -54,6 +54,8 @@ pub fn settings_request(a: &OpenArgs) -> Option<SettingsOpen> {
         agent_id: a.agent.clone().or_else(env_agent),
         page: Some(page.trim().to_string()).filter(|p| !p.is_empty()),
         extension: a.extension.clone().filter(|e| !e.trim().is_empty()),
+        secret: None,
+        connection: None,
         proto: Some(SETTINGS_PROTO),
     })
 }

@@ -87,7 +87,7 @@ fn world(approval_timeout: Duration) -> World {
     let callers = Arc::new(Callers::default());
     let extensions = Registry::new();
     let socket = short_socket();
-    let cfg = Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, viewer: None, events: Some(hub.clone()), extensions: Some(extensions.clone()) };
+    let cfg = Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, viewer: None, events: Some(hub.clone()), extensions: Some(extensions.clone()), ext_backend: None };
     let server = serve(engine.clone(), approvals.clone(), callers.clone(), cfg).expect("listen on a temp socket");
     World { engine, vm, approvals, callers, hub, extensions, server: Some(server), socket, _dir: dir }
 }
@@ -168,7 +168,7 @@ fn the_socket_is_private_and_removed_on_stop() {
         assert_eq!(mode, 0o600);
     }
     // A second server on the same socket refuses to start.
-    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None, viewer: None, events: None, extensions: None });
+    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None, viewer: None, events: None, extensions: None, ext_backend: None });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
     w.server.take().unwrap().stop();
     assert!(!w.socket.exists());
@@ -890,7 +890,7 @@ fn an_extensions_events_follow_its_grant() {
 /// The same server as the socket's, for an adapter's stdio calls and the
 /// buttons Pitwall runs for a view (`Server::call_as`).
 fn in_process(w: &World) -> Arc<pitwall_daemon::Server> {
-    let cfg = Config { socket: w.socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, viewer: None, events: None, extensions: Some(w.extensions.clone()) };
+    let cfg = Config { socket: w.socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, viewer: None, events: None, extensions: Some(w.extensions.clone()), ext_backend: None };
     pitwall_daemon::build(w.engine.clone(), w.approvals.clone(), w.callers.clone(), cfg)
 }
 

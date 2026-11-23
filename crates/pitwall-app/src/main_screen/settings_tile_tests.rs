@@ -346,7 +346,7 @@ fn an_agent_shows_settings_without_taking_anything(cx: &mut TestAppContext) {
     frames(cx);
     let focus_before = main_view(cx).update(cx, |_, window, cx| window.focused(cx)).unwrap();
     let front_before = cx.update(|cx| cx.active_window().map(|w| w.window_id()));
-    let ask = |page: Option<&str>, ext: Option<&str>| SettingsShow { agent_id: "api".into(), page: page.map(String::from), extension: ext.map(String::from) };
+    let ask = |page: Option<&str>, ext: Option<&str>| SettingsShow { agent_id: "api".into(), page: page.map(String::from), extension: ext.map(String::from), secret: None, connection: None };
 
     let r = cx.update(|cx| super::settings_tile::show_for_agent(&ask(Some("agents"), None), cx)).expect("shown");
     frames(cx);

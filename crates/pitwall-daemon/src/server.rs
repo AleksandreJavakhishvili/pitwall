@@ -44,6 +44,9 @@ pub struct Config {
     /// The extensions that are on, as callers (`None`: a registry of its
     /// own, empty).
     pub extensions: Option<Arc<crate::extensions::Registry>>,
+    /// Where `extension.*` reads and sets up extensions (`None`: not
+    /// offered).
+    pub ext_backend: Option<Arc<dyn crate::ExtensionsBackend>>,
 }
 
 /// What every connection shares.
@@ -56,6 +59,9 @@ pub struct Server {
     pub viewer: Option<Arc<dyn crate::ViewerBackend>>,
     pub events: Option<Arc<Hub>>,
     pub extensions: Arc<crate::extensions::Registry>,
+    pub ext_backend: Option<Arc<dyn crate::ExtensionsBackend>>,
+    /// The extensions an `extension.act` waits for (one at a time each).
+    pub ext_waiting: crate::extension_setup::Waiting,
     caps: Vec<&'static str>,
     instance: String,
     version: String,
@@ -123,6 +129,9 @@ pub fn build(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
         offered.push(caps::WEB);
         offered.push(caps::SHOW_SETTINGS);
     }
+    if cfg.ext_backend.is_some() {
+        offered.push(caps::EXTENSIONS);
+    }
     Arc::new(Server {
         engine,
         approvals,
@@ -132,6 +141,8 @@ pub fn build(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
         viewer: cfg.viewer,
         events: cfg.events,
         extensions: cfg.extensions.unwrap_or_default(),
+        ext_backend: cfg.ext_backend,
+        ext_waiting: Default::default(),
         caps: offered,
         instance: uuid::Uuid::new_v4().to_string(),
         version: cfg.version,

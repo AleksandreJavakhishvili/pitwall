@@ -17,6 +17,8 @@
 //! - [`web`]: agents showing web pages to the user (`web.open`).
 //! - [`settings_open`]: agents showing the user Pitwall's Settings
 //!   (`settings.open`).
+//! - [`extensions`]: an agent setting up the user's extensions
+//!   (`extension.*`): their state, and actions the user approves.
 //! - [`profiles`]: accounts, extension connections, profiles and what
 //!   projects pick (`accounts.list`, `profile.*`, `project.accounts|pick|profile`).
 //!
@@ -25,6 +27,7 @@
 pub mod api;
 pub mod create;
 pub mod explorer;
+pub mod extensions;
 pub mod frame;
 pub mod manage;
 pub mod mcp;

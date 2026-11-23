@@ -10,6 +10,8 @@
 //!   (`events.subscribe`), never blocking the engine.
 //! - [`identity`]: who is calling (peer pid → the agent it runs in, or the
 //!   extension whose adapter started it).
+//! - [`extension_setup`]: `extension.*`, an agent setting up the user's
+//!   extensions over the host's [`ExtensionsBackend`], each act approved.
 //! - [`extensions`]: extensions as callers: their grants, adapters, call
 //!   budget and activity.
 //! - [`settings`]: `settings.*` over the host's [`SettingsBackend`].
@@ -25,6 +27,7 @@
 pub mod actions;
 pub mod approvals;
 pub mod events;
+pub mod extension_setup;
 pub mod extensions;
 pub mod identity;
 pub mod manage;
@@ -39,6 +42,7 @@ pub mod workspace;
 pub use approvals::{Approvals, Decision};
 pub use events::Hub;
 pub use identity::{Caller, Identify, ProcessIdentity};
+pub use extension_setup::ExtensionsBackend;
 pub use extensions::Registry;
 pub use server::{build, listen, serve, Config, Handle, Server};
 pub use settings::SettingsBackend;

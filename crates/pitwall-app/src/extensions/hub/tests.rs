@@ -434,7 +434,7 @@ fn setup_m(cx: &mut TestAppContext, t: &TempDir, m: Manifest) -> Entity<Hub> {
     });
     let reg = pitwall_daemon::Registry::new();
     let identify = pitwall_daemon::ProcessIdentity::with_extensions(engine.clone(), reg.clone());
-    let cfg = pitwall_daemon::Config { socket: t.path().join("unused.sock"), version: "test".into(), settings: None, workspace: None, viewer: None, events: Some(events), extensions: Some(reg) };
+    let cfg = pitwall_daemon::Config { socket: t.path().join("unused.sock"), version: "test".into(), settings: None, workspace: None, viewer: None, events: Some(events), extensions: Some(reg), ext_backend: None };
     let server = pitwall_daemon::build(engine, pitwall_daemon::Approvals::new(Duration::from_secs(5)), identify, cfg);
     let paths = Paths::new(t.path().join("pw"));
     cx.update(|cx| {
