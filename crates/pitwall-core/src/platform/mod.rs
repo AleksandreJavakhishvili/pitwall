@@ -10,7 +10,12 @@
 //!   `xdg.rs` — both pure enough to be tested on any Unix);
 //! - `windows.rs` + `windows_procs.rs`: `%APPDATA%\Pitwall`, PowerShell,
 //!   the registry's PATH, the `pitwall-hook` relay binary, per-user named
-//!   pipes, Toolhelp32 process facts.
+//!   pipes, Toolhelp32 process facts;
+//! - `group.rs` (each OS in it): a program started in a process group or
+//!   job of its own, stopped with everything it started (adapters).
+
+mod group;
+pub(crate) use group::*;
 
 #[cfg(unix)]
 mod unix;

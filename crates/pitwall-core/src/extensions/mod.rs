@@ -14,8 +14,13 @@
 //! this one; a manifest asking for a newer format (`v`) is refused with a
 //! word on why.
 
+pub mod check;
 pub mod install;
+pub mod log;
+pub mod plan;
+pub mod process;
 pub mod protocol;
+pub mod starter;
 
 use std::path::Path;
 
@@ -560,16 +565,22 @@ fn check_args_template(what: &str, a: &str, settings: &[SettingDef]) -> Result<(
     Ok(())
 }
 
-/// Read and check the manifest in folder `dir` (named `folder`): its id
-/// must be the folder's name.
-pub fn read(dir: &Path, folder: &str) -> Result<Manifest, String> {
+/// Read and check the manifest in folder `dir`, whatever the folder is
+/// called (a development folder is used where it is: `read_dev`).
+pub fn read_in_place(dir: &Path) -> Result<Manifest, String> {
     let file = dir.join(MANIFEST);
     let meta = std::fs::metadata(&file).map_err(|_| format!("there is no {MANIFEST} in it"))?;
     if meta.len() > MAX_BYTES {
         return Err(format!("{MANIFEST} is bigger than {} KiB", MAX_BYTES / 1024));
     }
     let text = std::fs::read_to_string(&file).map_err(|e| format!("{MANIFEST} can't be read: {e}"))?;
-    let m = parse(&text)?;
+    parse(&text)
+}
+
+/// Read and check the manifest in folder `dir` (named `folder`): its id
+/// must be the folder's name.
+pub fn read(dir: &Path, folder: &str) -> Result<Manifest, String> {
+    let m = read_in_place(dir)?;
     if m.id != folder {
         return Err(format!("its folder must be named after its id (“{}”), not “{folder}”", m.id));
     }
@@ -597,6 +608,18 @@ pub fn discover(extensions_dir: &Path) -> Vec<Found> {
         .collect();
     found.sort_by(|a, b| a.folder.cmp(&b.folder));
     found
+}
+
+/// A development folder loaded in place (docs/spec/extensions.md, "Dev
+/// mode") as extension `id`, the id it was loaded as: its manifest, or why
+/// it can't be used (its id must still be `id`).
+pub fn read_dev(dir: &Path, id: &str) -> Found {
+    let manifest = if dir.is_dir() {
+        read_in_place(dir).and_then(|m| if m.id == id { Ok(m) } else { Err(format!("its id is now “{}”, not “{id}”: remove it from the list and load the folder again", m.id)) })
+    } else {
+        Err(format!("its folder {} isn't there any more", dir.display()))
+    };
+    Found { folder: id.to_string(), manifest }
 }
 
 #[cfg(test)]

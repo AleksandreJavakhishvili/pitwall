@@ -4269,6 +4269,7 @@ name = "pitwall-core"
 version = "0.8.0"
 dependencies = [
  "interprocess",
+ "libc",
  "notify",
  "pitwall-detect",
  "pitwall-proto",
