@@ -265,6 +265,8 @@ fn service_view(m: &Manifest, cx: &App) -> Option<ExtService> {
         }
         State::UserStopped => (ServiceState::StoppedByUser, "Stopped by the user: it isn't started until Start.".into()),
         State::Checking => (ServiceState::Checking, "Looking before it starts.".into()),
+        // Held for the extension's update: it starts again by itself.
+        State::Updating => (ServiceState::Checking, "Stopped for the extension's update: it starts again when the update ends.".into()),
         State::NeedsSetting(l) => (ServiceState::NeedsSetting, format!("Set {l} first.")),
         State::BadAddress(why) => (ServiceState::BadAddress, why),
         State::NotInstalled(p) => (ServiceState::NotInstalled, format!("“{p}” isn't installed for the user's login shell.")),
@@ -825,6 +827,7 @@ fn state_word(s: &State) -> String {
         State::NeedsConfirm { .. } => "waiting for its commands to be confirmed".into(),
         State::UserStopped => "stopped by the user".into(),
         State::Checking => "being looked at".into(),
+        State::Updating => "stopped for the extension's update".into(),
         State::NeedsSetting(l) => format!("waiting for {l}"),
         State::BadAddress(_) => "not started: a bad address".into(),
         State::NotInstalled(_) => "not installed".into(),
