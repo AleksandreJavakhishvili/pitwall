@@ -335,6 +335,12 @@ impl MainView {
             }
             return;
         }
+        // `float …`: the floating "needs you" control (`float::bench`).
+        if let Some(what) = cmd.strip_prefix("float ") {
+            let what = what.trim().to_string();
+            cx.defer(move |cx| crate::float::bench(&what, cx));
+            return;
+        }
         // `inbox …`: an extension's inbox tile (`MainScreen::debug_inbox`).
         if let Some(what) = cmd.strip_prefix("inbox ") {
             if let Some(s) = &self.screen {

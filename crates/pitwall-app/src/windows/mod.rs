@@ -553,6 +553,31 @@ pub fn show_agent(agent: &str, cx: &mut App) {
     });
 }
 
+/// Bring Pitwall forward on extension `ext`'s inbox at `thread` (the
+/// floating control's "Open in inbox"): where the inbox is, else placed in
+/// the main window as ⌘I places it.
+pub fn show_inbox(ext: &str, thread: &str, cx: &mut App) {
+    let (ext, thread) = (ext.to_string(), thread.to_string());
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(MAIN, cx) else {
+            return;
+        };
+        // (A bench instance never comes forward.)
+        if !crate::bench::enabled() {
+            cx.activate(true);
+        }
+        let _ = handle.update(cx, |view, window, cx| {
+            if !crate::bench::enabled() {
+                crate::platform::unhide(window);
+                window.activate_window();
+            }
+            if let Some(screen) = view.screen.clone() {
+                screen.update(cx, |s, cx| s.open_inbox(Some(&ext), Some(&thread), window, cx));
+            }
+        });
+    });
+}
+
 /// An agent was shown in window `from`; when it lives in another window,
 /// that window comes forward and focuses it (`focusRequest` + `focus_window`).
 fn route_agent(from: &str, agent: &str, cx: &mut App) {

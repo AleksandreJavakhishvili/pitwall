@@ -180,6 +180,7 @@ pub fn run() {
                 }),
                 std::sync::Arc::new(move |id, keys| pitwall_core::engine::input::write_input_bytes(&e, id, keys)),
                 std::sync::Arc::new(windows::show_agent),
+                std::sync::Arc::new(windows::show_inbox),
                 cx,
             );
             float::debug_hook(cx);

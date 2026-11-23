@@ -48,13 +48,15 @@ pub fn ns_app_active() -> bool {
 
 /// Resize a window to `width` × `height` points, keeping its bottom right
 /// corner where it is, so it opens upward and to the left: the floating
-/// control, which starts in the screen's bottom right corner. A window
+/// control, which starts in the screen's bottom right corner; that corner
+/// moved by `shift` points first (right and down positive: the control
+/// resized by its right or bottom edge). A window
 /// that would then leave its screen's usable area at the top or the left
 /// is moved back into it. Done once the caller has returned: AppKit tells
 /// GPUI about the new size while it is set, and GPUI can't hear it during
 /// an update of that window (GPUI's own `resize` waits the same way).
 #[cfg_attr(test, allow(dead_code))]
-pub fn resize_from_bottom_right(window: &gpui::Window, width: f32, height: f32, cx: &mut gpui::App) {
+pub fn resize_from_bottom_right(window: &gpui::Window, width: f32, height: f32, shift: (f32, f32), cx: &mut gpui::App) {
     use objc2::msg_send;
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
@@ -68,8 +70,10 @@ pub fn resize_from_bottom_right(window: &gpui::Window, width: f32, height: f32, 
     let Some(w) = view.and_then(|v| v.window()) else { return };
     cx.spawn(async move |_| {
         let mut frame = w.frame();
-        // AppKit measures from the bottom left: the bottom stays, the left moves.
-        frame.origin.x += frame.size.width - width as f64;
+        // AppKit measures from the bottom left, y up: the bottom stays
+        // (but for the shift), the left moves.
+        frame.origin.x += frame.size.width - width as f64 + shift.0 as f64;
+        frame.origin.y -= shift.1 as f64;
         frame.size.width = width as f64;
         frame.size.height = height as f64;
         // SAFETY: `screen` and `visibleFrame` are NSWindow / NSScreen
@@ -383,6 +387,7 @@ pub fn set_cursor(kind: super::FloatCursor) {
         // AppKit's own window corner cursor (GPUI uses it too); it has no
         // public name, so it is asked whether it has it.
         FloatCursor::ResizeDiagonal => sel!(_windowResizeNorthWestSouthEastCursor),
+        FloatCursor::ResizeDiagonalUp => sel!(_windowResizeNorthEastSouthWestCursor),
     };
     // SAFETY: NSCursor class methods returning a shared cursor (checked
     // to exist first), and its `set`, on the main thread.

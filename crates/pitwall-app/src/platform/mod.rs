@@ -209,17 +209,29 @@ pub fn keep_on_top(window: &Window, on: bool) {
 }
 
 /// Give the floating control a new size, keeping the corner it sits on:
-/// its bottom right on macOS (it opens upward and to the left), its top
-/// left elsewhere (the caller opens it again when its width changes).
-pub fn resize_float(window: &mut Window, size: gpui::Size<gpui::Pixels>, cx: &mut App) {
+/// its bottom right on macOS (it opens upward and to the left), moved by
+/// `shift` points (right and down positive: a resize by the edges it sits
+/// on); its top left elsewhere (the caller opens it again when its width
+/// or that corner changes).
+pub fn resize_float(window: &mut Window, size: gpui::Size<gpui::Pixels>, shift: (f32, f32), cx: &mut App) {
     // Test windows have no native view (their handle panics).
     #[cfg(all(target_os = "macos", not(test)))]
-    macos::resize_from_bottom_right(window, size.width.into(), size.height.into(), cx);
+    macos::resize_from_bottom_right(window, size.width.into(), size.height.into(), shift, cx);
     #[cfg(any(not(target_os = "macos"), test))]
     {
-        let _ = cx;
+        let _ = (cx, shift);
         window.resize(size);
     }
+    // (Tests: added up, since a test window can't be moved.)
+    #[cfg(test)]
+    FLOAT_SHIFT.with(|s| s.set((s.get().0 + shift.0, s.get().1 + shift.1)));
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How far [`resize_float`] was asked to move the floating control's
+    /// corner, in all (tests).
+    pub static FLOAT_SHIFT: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((0., 0.)) };
 }
 
 /// The floating control draws its own shadow (none from the system) and
@@ -536,11 +548,13 @@ pub enum FloatCursor {
     /// Over what takes a click.
     Pointing,
     /// Over an edge that resizes: its left or right, its top or bottom,
-    /// and the corner (on macOS the top left, where the diagonal runs from
-    /// top left to bottom right).
+    /// a corner whose diagonal runs from top left to bottom right (the top
+    /// left and bottom right ones), and one whose diagonal runs from bottom
+    /// left to top right.
     ResizeLeftRight,
     ResizeUpDown,
     ResizeDiagonal,
+    ResizeDiagonalUp,
 }
 
 /// The pointer over the floating control. macOS only: the control shows
