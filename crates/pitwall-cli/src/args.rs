@@ -129,6 +129,9 @@ pub enum ExtensionCmd {
     /// a note on your agents' rows. With --panel it draws a section in the
     /// right panel for the focused agent, with buttons Pitwall runs (open a
     /// file, focus an agent) behind the show and agents.focus permissions.
+    /// With --service it adds a tiny local server (server.mjs) that Pitwall
+    /// keeps running while the extension is on, once the user confirms its
+    /// command.
     New {
         /// The folder to make (absent or empty), named like my-extension.
         folder: PathBuf,
@@ -147,6 +150,10 @@ pub enum ExtensionCmd {
         /// Pitwall runs itself (format 2, protocol 2).
         #[arg(long, conflicts_with_all = ["protocol", "view"])]
         panel: bool,
+        /// An inbox and a small local server Pitwall keeps running while it
+        /// is on: the extension's service (format 2, protocol 1).
+        #[arg(long, conflicts_with_all = ["protocol", "view", "panel"])]
+        service: bool,
     },
 }
 
