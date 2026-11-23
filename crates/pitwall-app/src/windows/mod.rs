@@ -553,6 +553,31 @@ pub fn show_agent(agent: &str, cx: &mut App) {
     });
 }
 
+/// Focus agent `agent`'s tile in the frontmost window that shows it, as a
+/// click on its row does (an extension's `agent.focus`): only while
+/// Pitwall is the app in front. It never brings Pitwall or a window
+/// forward, never opens one and never moves the agent; when it can't, it
+/// says why and does nothing.
+pub fn focus_in_front(agent: &str, cx: &mut App) -> pitwall_proto::AgentFocused {
+    let not = |note: &str| pitwall_proto::AgentFocused { agent_id: agent.to_string(), focused: false, note: Some(note.to_string()) };
+    if !crate::platform::app_in_front(cx) {
+        return not("Pitwall isn't the app in front: nothing was focused (an extension never brings it forward).");
+    }
+    let Some((_, handle)) = showing(agent, cx) else {
+        return not("No open Pitwall window shows this agent: nothing was focused.");
+    };
+    let id = agent.to_string();
+    let done = handle.update(cx, |view, window, cx| {
+        if let Some(screen) = view.screen.clone() {
+            screen.update(cx, |s, cx| s.show_agent(&id, window, cx));
+        }
+    });
+    if done.is_err() {
+        return not("Its window is closing: nothing was focused.");
+    }
+    pitwall_proto::AgentFocused { agent_id: agent.to_string(), focused: true, note: None }
+}
+
 /// Bring Pitwall forward on extension `ext`'s inbox at `thread` (the
 /// floating control's "Open in inbox"): where the inbox is, else placed in
 /// the main window as ⌘I places it.

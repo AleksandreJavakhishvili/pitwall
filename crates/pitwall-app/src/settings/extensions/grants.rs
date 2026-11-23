@@ -139,8 +139,60 @@ impl SettingsView {
             .child(div().text_size(px(12.)).text_color(ui.t.text_2).child(format!("Its reason: “{reason}”")));
         if let Some(p) = known {
             col = col.child(crate::kit::hint(p.detail, &ui.t));
+            // One that acts on agents says, in plain words, what can go
+            // wrong.
+            if let Some(note) = p.risk_note.filter(|_| p.available) {
+                let sel = format!("extension-permission-risk-{name}");
+                col = col.child(
+                    div()
+                        .debug_selector(move || sel)
+                        .mt(px(4.))
+                        .flex()
+                        .gap(px(6.))
+                        .items_start()
+                        .px(px(8.))
+                        .py(px(6.))
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(ui.t.amber.opacity(0.35))
+                        .bg(ui.t.amber.opacity(0.08))
+                        .child(div().flex_none().mt(px(1.)).child(crate::kit::icon("alert", 12., ui.t.amber)))
+                        .child(div().flex_1().min_w_0().text_size(px(12.)).line_height(gpui::relative(1.4)).text_color(ui.t.text_2).child(note)),
+                );
+            }
         }
         col
+    }
+
+    /// The "send without asking" switch of an extension granted
+    /// `agents.queue`: off unless the user turns it on, with a warning.
+    fn send_without_asking(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Div {
+        let on = crate::ui_state::get(cx).extension(&m.id).send_without_asking.is_some_and(|d| d.granted);
+        let id = m.id.clone();
+        div()
+            .flex()
+            .gap(px(12.))
+            .items_start()
+            .pl(px(14.))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.t.text).child(format!("Send what {} queues without asking", m.name)))
+                    .child(crate::kit::hint(
+                        if on {
+                            "On: Auto-send sends its text to the agent like your own, without you reading it first."
+                        } else {
+                            "Off: its text waits in Next up, marked with its name, until you press Send."
+                        },
+                        &ui.t,
+                    ))
+                    .child(div().text_size(px(12.)).text_color(ui.t.amber).child("Turn on only if you trust it and the service behind it with what your agents do: no one reads its text before the agent acts on it.")),
+            )
+            .child(div().flex_none().mt(px(2.)).child(switch(format!("extension-send-without-asking-{}", m.id), on, ui).tooltip(crate::kit::tooltip(if on { "On: press to make its text wait for Send" } else { "Off: press to let it send without asking" })).on_click(cx.listener(move |_, _, _, cx| calls::set_send_without_asking(&id, !on, cx)))))
     }
 
     /// The permission screen, in `m`'s card while it is being turned on.
@@ -206,7 +258,7 @@ impl SettingsView {
     /// alone.
     pub(super) fn contributions(ui: &Ui, m: &Manifest) -> Option<Div> {
         let c = &m.contributes;
-        if c.views.is_empty() && c.commands.is_empty() && !c.badges && !c.notifications {
+        if c.views.is_empty() && c.commands.is_empty() && !c.badges && !c.notifications && c.panels.is_empty() && c.web_views.is_empty() {
             return None;
         }
         let sel = format!("extension-adds-{}", m.id);
@@ -261,6 +313,9 @@ impl SettingsView {
             };
             row = row.child(div().flex_none().mt(px(1.)).child(right));
             col = col.child(row);
+            if p.name == permissions::AGENTS_QUEUE && decisions.get(&p.name).is_some_and(|d| d.granted) {
+                col = col.child(self.send_without_asking(ui, m, cx));
+            }
         }
         Some(col)
     }
@@ -334,11 +389,17 @@ impl SettingsView {
                 Via::Adapter => "adapter",
                 Via::Socket => "socket",
                 Via::Pitwall => "Pitwall",
+                Via::View => "button",
             };
             let (word, color) = match &e.outcome {
                 Outcome::Ok => ("ok".to_string(), ui.t.green),
                 Outcome::Refused { message, .. } => (format!("refused: {message}"), ui.t.amber),
                 Outcome::Failed { message, .. } => (format!("failed: {message}"), ui.t.text_2),
+            };
+            // What a call that acts asked for (the agent, the text queued).
+            let word = match &e.detail {
+                Some(d) => format!("{word} · {d}"),
+                None => word,
             };
             let row = div()
                 .flex()

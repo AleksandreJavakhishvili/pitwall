@@ -43,6 +43,11 @@ pub struct WebTile {
     /// `None`: Default). Not for a Preview (its project's own store).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// An extension's web view: that extension's id. Its cookies and
+    /// storage are the extension's own (never a profile's), and the page
+    /// has no way to reach Pitwall.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext: Option<String>,
 }
 
 /// A fresh web tile id.

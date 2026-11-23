@@ -480,7 +480,7 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
     let hello = sent(&h, &end, cx);
     assert_eq!(hello[0]["protocols"], json!([1, 2]));
     assert_eq!(hello[0]["grants"], json!(["agents.read"]), "only what was granted");
-    assert_eq!(hello[0]["offers"], json!(["inbox", "views", "commands", "badges", "notify", "call", "events"]));
+    assert_eq!(hello[0]["offers"], json!(["inbox", "views", "commands", "badges", "notify", "panels", "webViews", "call", "events"]));
     assert_eq!(hello[0]["connection"]["name"], json!("Work"));
     say(&h, &end, json!({"type": "hello", "protocol": 2, "uses": ["call"]}), cx);
     assert_eq!(run(&h, cx), Run::Running);
@@ -491,7 +491,10 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
     assert_eq!(reply(&h, &end, "c2", cx)["error"]["code"], json!("denied"), "refused by the user");
     say(&h, &end, json!({"type": "call", "id": "c3", "method": "agent.create", "params": {}}), cx);
     let no = reply(&h, &end, "c3", cx);
-    assert!(no["error"]["message"].as_str().unwrap().contains("agent.create"), "an action is refused, saying which: {no}");
+    assert_eq!(no["error"]["code"], json!("denied"), "{no}");
+    assert!(no["error"]["message"].as_str().unwrap().contains("isn't granted agents.start"), "an action without its grant is refused, saying which: {no}");
+    say(&h, &end, json!({"type": "call", "id": "c3b", "method": "queue.send", "params": {"agentId": "a1"}}), cx);
+    assert_eq!(reply(&h, &end, "c3b", cx)["error"]["code"], json!("unsupported"), "sending is never an extension's");
     say(&h, &end, json!({"type": "call", "id": "c4", "method": "agent.kill"}), cx);
     assert!(reply(&h, &end, "c4", cx).get("error").is_some());
 
@@ -505,7 +508,7 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
 
     let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
     let methods: Vec<(&str, bool)> = log.iter().map(|e| (e.method.as_str(), e.refused())).collect();
-    assert_eq!(methods, [("agent.list", false), ("project.list", true), ("agent.create", true), ("agent.kill", true), ("agent.list", true)]);
+    assert_eq!(methods, [("agent.list", false), ("project.list", true), ("agent.create", true), ("queue.send", true), ("agent.kill", true), ("agent.list", true)]);
 }
 
 /// An adapter that answers protocol 1 runs as before: calls are refused
@@ -735,4 +738,70 @@ fn notifications_are_limited(cx: &mut TestAppContext) {
     cx.executor().advance_clock(Duration::from_secs(61));
     say(&h, &end, json!({"type": "notify", "id": "n9", "title": "Late"}), cx);
     assert_eq!(*got.borrow(), 3);
+}
+
+/// A right-panel section is a view keyed by its agent: shown, its adapter
+/// is told which agent; what it sends for that agent is kept; a button
+/// Pitwall runs itself goes through the method table as the extension
+/// (from a view), so without its grant it is refused, said in the
+/// section and in the activity; a web view's address from the adapter is
+/// kept, one that isn't https or local refused.
+#[gpui::test]
+fn a_panel_section_and_its_buttons_go_through_the_grants(cx: &mut TestAppContext) {
+    use pitwall_core::extensions::permissions::Decision;
+    use pitwall_core::extensions::view::{Action, Run as Does};
+    use pitwall_core::extensions::{Contributes, PanelDef, PermissionAsk, WebViewDef};
+    let t = TempDir::new("hub-panels");
+    let m = Manifest {
+        format: 2,
+        permissions: vec![PermissionAsk { name: "agents.read".into(), reason: "To show".into() }, PermissionAsk { name: "agents.focus".into(), reason: "To jump".into() }],
+        contributes: Contributes {
+            panels: vec![PanelDef { id: "about".into(), title: "About".into(), icon: None, more: None }],
+            web_views: vec![WebViewDef { id: "site".into(), title: "Site".into(), icon: None, url: None }],
+            ..Default::default()
+        },
+        ..manifest()
+    };
+    let h = setup_m(cx, &t, m);
+    cx.update(|cx| {
+        crate::ui_state::update(cx, |u| {
+            *u = std::mem::take(u).with_extension("inbox", |e| {
+                e.enabled = true;
+                e.grants.insert("agents.read".into(), Decision { granted: true, at: 1 });
+                // Asked for, not granted.
+                e.grants.insert("agents.focus".into(), Decision { granted: false, at: 1 });
+            })
+        })
+    });
+    let id = connection("Work", "https://x.example", cx);
+    cx.run_until_parked();
+    let end = format!("inbox/{id}");
+    say(&h, &end, json!({"type": "hello", "protocol": 2}), cx);
+    let key = panel_key("about", "a1");
+    h.update(cx, |h, cx| h.show_view("inbox", &key, cx));
+    cx.run_until_parked();
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "show", "view": "about", "agentId": "a1"})));
+    say(&h, &end, json!({"type": "view", "view": "about", "agentId": "a1", "root": {"kind": "markdown", "text": "hi"}}), cx);
+    assert!(h.read_with(cx, |h, _| h.get("inbox").unwrap().views.get(&key).is_some_and(|v| v.is_ok())), "kept for that agent");
+    // Pressed without agents.focus: refused by the daemon, not sent on.
+    let before = sent(&h, &end, cx).len();
+    let focus = Action { id: "jump".into(), label: "Jump".into(), primary: false, run: Some(Does::Focus("a1".into())), needs: None };
+    h.update(cx, |h, cx| h.press("inbox", &key, None, Some("a1"), &focus, cx)).unwrap();
+    cx.run_until_parked();
+    let note = h.read_with(cx, |h, _| h.get("inbox").unwrap().view_notes.get(&key).cloned());
+    assert!(note.as_deref().is_some_and(|n| n.contains("agents.focus")), "{note:?}");
+    assert_eq!(sent(&h, &end, cx).len(), before, "the adapter isn't told");
+    let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
+    assert!(log.iter().any(|e| e.method == "agent.focus" && e.via == pitwall_core::extensions::activity::Via::View && e.refused()), "{log:?}");
+    // One its adapter acts on, needing what it isn't granted: not sent.
+    let needs = Action { id: "go".into(), label: "Go".into(), primary: false, run: None, needs: Some("agents.queue".into()) };
+    assert!(h.update(cx, |h, cx| h.press("inbox", &key, None, Some("a1"), &needs, cx)).is_err());
+    assert_eq!(sent(&h, &end, cx).len(), before);
+    // Web view addresses.
+    say(&h, &end, json!({"type": "webView", "view": "site", "url": "https://x.example/app"}), cx);
+    assert_eq!(h.read_with(cx, |h, _| h.get("inbox").unwrap().web_urls.get("site").cloned()), Some(Ok("https://x.example/app".into())));
+    say(&h, &end, json!({"type": "webView", "view": "site", "url": "http://x.example/app"}), cx);
+    assert!(h.read_with(cx, |h, _| h.get("inbox").unwrap().web_urls.get("site").cloned()).is_some_and(|r| r.is_err()));
+    h.update(cx, |h, _| h.hide_view("inbox", &key));
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "hide", "view": "about", "agentId": "a1"})));
 }

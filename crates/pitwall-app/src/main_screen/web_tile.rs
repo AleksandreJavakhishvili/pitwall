@@ -105,6 +105,27 @@ impl MainScreen {
         self.web_address(&id, window, cx);
     }
 
+    /// Open web view `view` of extension `ext` in a new web tile (the
+    /// palette's "Open <title> (<extension>)"): a plain page in the
+    /// extension's own browser store; it can't reach Pitwall.
+    pub fn open_ext_web(&mut self, ext: &str, view: &str, cx: &mut Context<Self>) {
+        if !enabled(cx) {
+            self.toast(Toast::info("Web pages are off", Some("Turn them on in Settings → General.".into())), cx);
+            return;
+        }
+        let Some(m) = crate::extensions::manifest_of(ext, cx) else { return };
+        let url = match crate::extensions::web_view_address(&m, view, cx) {
+            Ok(u) => u,
+            Err(why) => {
+                self.toast(Toast::info("Can't open the extension's page", Some(format!("{}: {why}", m.name))), cx);
+                return;
+            }
+        };
+        let id = super::workspace::new_web_id();
+        let tile = WebTile { url, ext: Some(ext.to_string()), ..Default::default() };
+        self.place_web(&id, tile, None, cx);
+    }
+
     /// The browser account of a page the user opens here: that of the
     /// project of the agent whose tile has the focus, else Default.
     pub(super) fn new_page_profile(&self, cx: &mut Context<Self>) -> Option<String> {

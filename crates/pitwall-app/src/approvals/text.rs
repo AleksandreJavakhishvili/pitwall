@@ -15,7 +15,7 @@ pub fn requester_line(a: &ApprovalView) -> String {
     let who = match r.kind {
         RequesterKind::Agent => format!("agent “{}” in Pitwall", r.name),
         RequesterKind::Outside => "a process outside Pitwall's agents".to_string(),
-        RequesterKind::Extension => format!("extension “{}” (a process its adapter started)", r.name),
+        RequesterKind::Extension => format!("extension “{}” (its adapter, or a program it started)", r.name),
     };
     let proc: Vec<String> = [r.process.clone(), r.pid.map(|p| format!("pid {p}"))]
         .into_iter()

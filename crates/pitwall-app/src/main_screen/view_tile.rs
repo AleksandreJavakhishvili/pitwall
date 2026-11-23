@@ -11,7 +11,12 @@
 //! time) with the selected row's detail beside it, a detail (fields and
 //! Markdown), Markdown, or a status (empty, loading, error). Its buttons
 //! send an `action` to the adapter; the adapter answers and sends the view
-//! again. A view it can't draw (too big, a form or a table) says why in
+//! again. A button Pitwall runs itself (open a file or a page, focus an
+//! agent) is called as the extension, behind its permission
+//! ([`hub::Hub::press`]); one whose permission isn't granted is drawn
+//! disabled, saying which. A row about an agent names it (with
+//! `agents.read`); a click on the name focuses it (with `agents.focus`).
+//! A view it can't draw (too big, a form or a table) says why in
 //! the tile. Keys while the tile has the keyboard: ↑↓ or J K, Enter (the
 //! selected row's main button).
 
@@ -80,8 +85,49 @@ fn tone(tone: Tone, t: &Theme) -> Hsla {
 }
 
 /// An icon the adapter named, if this Pitwall has it.
-fn icon_or(name: Option<&str>, fallback: &str) -> String {
+pub(crate) fn icon_or(name: Option<&str>, fallback: &str) -> String {
     name.filter(|n| kit::has_icon(n)).unwrap_or(fallback).to_string()
+}
+
+/// The buttons a press on `item` (none: the view's own) can be of, each
+/// with the agent its row is about.
+pub(crate) fn buttons_of(root: &Root, item: Option<&str>) -> Vec<(Action, Option<String>)> {
+    let mut out = Vec::new();
+    match root {
+        Root::List { list, detail } => {
+            if let Some(i) = item.and_then(|id| list.item(id)) {
+                out.extend(i.actions.iter().map(|a| (a.clone(), i.agent.clone())));
+            }
+            let agent = item.and_then(|id| list.item(id)).and_then(|i| i.agent.clone());
+            match detail {
+                Some(Pane::Detail(d)) => out.extend(d.actions.iter().map(|a| (a.clone(), agent.clone()))),
+                Some(Pane::Status(s)) => out.extend(s.actions.iter().map(|a| (a.clone(), agent.clone()))),
+                _ => {}
+            }
+        }
+        Root::Pane(Pane::Detail(d)) => out.extend(d.actions.iter().map(|a| (a.clone(), None))),
+        Root::Pane(Pane::Status(s)) => out.extend(s.actions.iter().map(|a| (a.clone(), None))),
+        Root::Pane(Pane::Markdown(_)) => {}
+    }
+    out
+}
+
+/// Why button `a` of extension `ext` can't be pressed now: the
+/// permission it needs and isn't granted.
+pub(crate) fn blocked(ext: &str, a: &Action, cx: &App) -> Option<String> {
+    let need = a.needs()?;
+    let reg = cx.try_global::<crate::extensions::calls::Api>()?.registry.clone();
+    (!reg.allows(ext, need)).then(|| format!("Needs the {need} permission (Settings → Extensions)"))
+}
+
+/// The name of agent `id` (with `agents.read`): what a row about it shows.
+pub(crate) fn agent_name(ext: &str, id: &str, cx: &App) -> Option<String> {
+    let reg = cx.try_global::<crate::extensions::calls::Api>()?.registry.clone();
+    if !reg.allows(ext, pitwall_core::extensions::permissions::AGENTS_READ) {
+        return None;
+    }
+    let engine = cx.try_global::<super::EngineHandle>()?.0.clone();
+    engine.views().into_iter().find(|v| v.id == id).map(|v| v.name)
 }
 
 impl ViewTile {
@@ -176,8 +222,16 @@ impl ViewTile {
 
     /// Button `action` pressed (on row `item`, or the view's own).
     pub fn act(&mut self, item: Option<&str>, action: &str, cx: &mut Context<Self>) {
+        // The button as drawn: the row's, else the view's own.
+        let found = match self.data(cx).1 {
+            Some(Ok(root)) => buttons_of(&root, item).into_iter().find(|(a, _)| a.id == action),
+            _ => None,
+        };
         let (ext, view) = (self.ext.clone(), self.view.clone());
-        let res = hub::hub(cx).update(cx, |h, cx| h.view_action(&ext, &view, item, action, cx));
+        let res = match found {
+            Some((a, agent)) => hub::hub(cx).update(cx, |h, cx| h.press(&ext, &view, item, agent.as_deref(), &a, cx)),
+            None => hub::hub(cx).update(cx, |h, cx| h.view_action(&ext, &view, item, action, cx).map(|_| ())),
+        };
         self.error = res.err();
         cx.notify();
     }
@@ -245,6 +299,36 @@ impl ViewTile {
 }
 
 // ── drawing ──────────────────────────────────────────────────────────────
+
+/// The agent a row is about, by name (with `agents.read`): a click focuses
+/// it, called as extension `ext` (with `agents.focus`; else it is plain
+/// text).
+pub(crate) fn agent_chip(ext: &str, item: &str, agent: &str, t: &Theme, cx: &mut App) -> Option<AnyElement> {
+    let name = agent_name(ext, agent, cx)?;
+    let focus = pitwall_core::extensions::view::Action { id: "focus".into(), label: name.clone(), primary: false, run: Some(pitwall_core::extensions::view::Run::Focus(agent.to_string())), needs: None };
+    let may = blocked(ext, &focus, cx).is_none();
+    let sel = format!("view-agent-{item}");
+    let (ext, agent) = (ext.to_string(), agent.to_string());
+    Some(
+        div()
+            .id(SharedString::from(sel.clone()))
+            .debug_selector(move || sel.clone())
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .text_size(px(11.5))
+            .text_color(if may { t.focus } else { t.text_3 })
+            .child(kit::icon("terminal", 11., if may { t.focus } else { t.text_4 }))
+            .child(kit::one_line(name))
+            .when(may, |d| {
+                d.cursor_pointer().tooltip(kit::tooltip("Focus this agent")).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = hub::hub(cx).update(cx, |h, cx| h.press(&ext, "", None, Some(&agent), &focus, cx));
+                })
+            })
+            .into_any_element(),
+    )
+}
 
 impl ViewTile {
     fn title(&self, m: &Manifest) -> String {
@@ -404,13 +488,17 @@ impl ViewTile {
                 let id = format!("view-action-{}-{}", item.unwrap_or(""), a.id);
                 let (item, action) = (item.map(String::from), a.id.clone());
                 let kind = if a.primary { kit::BtnKind::Primary } else { kit::BtnKind::Ghost };
-                kit::text_button(SharedString::from(format!("{id}-{n}")), a.label.clone(), kind, busy, t)
+                let why = blocked(&self.ext, a, cx);
+                kit::text_button(SharedString::from(format!("{id}-{n}")), a.label.clone(), kind, busy || why.is_some(), t)
                     .debug_selector(move || id.clone())
+                    .when_some(why.clone(), |d, why| d.tooltip(kit::tooltip(why)))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |v, _, _, cx| {
-                        cx.stop_propagation();
-                        v.act(item.as_deref(), &action, cx);
-                    }))
+                    .when(why.is_none(), |d| {
+                        d.on_click(cx.listener(move |v, _, _, cx| {
+                            cx.stop_propagation();
+                            v.act(item.as_deref(), &action, cx);
+                        }))
+                    })
             }))
             .into_any_element()
     }
@@ -457,6 +545,7 @@ impl ViewTile {
                             .when_some(time, |d, s| d.child(div().flex_none().text_size(px(11.)).text_color(t.text_3).child(s))),
                     )
                     .when(!i.subtitle.is_empty(), |d| d.child(div().ellipsis().text_size(px(12.)).text_color(t.text_3).child(kit::one_line(i.subtitle.clone()))))
+                    .children(i.agent.as_deref().and_then(|a| agent_chip(&self.ext, &i.id, a, t, cx)))
                     .when(selected && !i.actions.is_empty(), |d| d.child(div().pt(px(4.)).child(self.buttons(Some(&i.id), &i.actions, busy, t, cx)))),
             )
             .into_any_element()

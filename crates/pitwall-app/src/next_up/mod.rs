@@ -9,6 +9,11 @@
 //! agent for the window's session. The engine sends the next item by
 //! itself when Auto-send is on and the agent is free.
 //!
+//! An item an extension put there (`agents.queue`) is drawn apart: a
+//! tinted border, "From <name>" with its icon, and, unless the user lets
+//! that extension send without asking, "Waits for you: press Send"
+//! (Auto-send skips it). The user sends or removes it like any other.
+//!
 //! One view of each per window, following the window's focused agent.
 
 mod last_sent;
@@ -289,6 +294,16 @@ impl NextUp {
     }
 
     fn queue(&self, a: &AgentView, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let senders = crate::extensions::calls::auto_senders(cx);
+        let icons: HashMap<String, String> = a
+            .queue
+            .iter()
+            .filter_map(|q| q.origin.as_ref())
+            .map(|o| {
+                let icon = crate::extensions::manifest_of(&o.extension, cx).map(|m| crate::extensions::icon_of(&m).to_string()).unwrap_or_else(|| crate::extensions::DEFAULT_ICON.into());
+                (o.extension.clone(), icon)
+            })
+            .collect();
         div()
             .mx(px(8.))
             .mb(px(8.))
@@ -300,6 +315,24 @@ impl NextUp {
                 let (send_id, rm_id) = (q.id.clone(), q.id.clone());
                 let (agent_send, agent_rm) = (a.id.clone(), a.id.clone());
                 let running = a.running;
+                // An extension's item: whose, and whether it waits for Send.
+                let from = q.origin.as_ref().map(|o| {
+                    let waits = !senders.contains(&o.extension);
+                    let icon = icons.get(&o.extension).cloned().unwrap_or_default();
+                    let sel = format!("queue-from-{i}");
+                    div()
+                        .debug_selector(move || sel)
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .mb(px(3.))
+                        .text_size(px(11.))
+                        .line_height(px(14.))
+                        .child(crate::kit::icon(&icon, 11., t.focus))
+                        .child(div().text_color(t.focus).font_weight(FontWeight::MEDIUM).child(format!("From {}", o.name)))
+                        .child(div().text_color(if waits { t.text_3 } else { t.amber }).child(if waits { "· waits for you: press Send" } else { "· sends without asking" }))
+                });
+                let ext = q.origin.is_some();
                 div()
                     .id(("queue-item", i))
                     .group(group.clone())
@@ -312,6 +345,7 @@ impl NextUp {
                     .pr(px(6.))
                     .rounded(RADIUS)
                     .bg(t.surface_2)
+                    .when(ext, |d| d.border_1().border_color(t.focus.opacity(0.45)).bg(t.focus.opacity(0.06)))
                     .child(
                         div()
                             .mt(px(1.))
@@ -325,11 +359,17 @@ impl NextUp {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(12.5))
-                            .line_height(px(18.))
-                            .text_color(t.text)
-                            .line_clamp(4)
-                            .child(q.text.clone()),
+                            .flex()
+                            .flex_col()
+                            .children(from)
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .line_height(px(18.))
+                                    .text_color(t.text)
+                                    .line_clamp(4)
+                                    .child(q.text.clone()),
+                            ),
                     )
                     .child(
                         div()

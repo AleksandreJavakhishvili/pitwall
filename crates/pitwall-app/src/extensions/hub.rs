@@ -151,6 +151,23 @@ pub struct ExtState {
     badges_wait: Option<Vec<RowBadge>>,
     /// What its activity last said about badges it may not draw.
     badges_note: String,
+    /// Merged: the address each web view's adapter last gave (or why it
+    /// can't be opened).
+    pub web_urls: HashMap<String, Result<String, String>>,
+}
+
+/// A right-panel section's key among an extension's views: the section's
+/// id and the agent it is shown for.
+pub fn panel_key(panel: &str, agent: &str) -> String {
+    format!("{panel}@{agent}")
+}
+
+/// A view key's view id and, for a right-panel section, its agent.
+pub fn split_view(key: &str) -> (&str, Option<&str>) {
+    match key.split_once('@') {
+        Some((v, a)) => (v, Some(a)),
+        None => (key, None),
+    }
 }
 
 impl ExtState {
@@ -535,6 +552,9 @@ impl Hub {
                 out.view_notes.entry(v.clone()).or_insert_with(|| n.clone());
             }
             out.view_busy.extend(st.view_busy.iter().map(|(v, i)| (v.clone(), if i.is_empty() { String::new() } else { thread_id(c, i) })));
+            for (w, u) in &st.web_urls {
+                out.web_urls.entry(w.clone()).or_insert_with(|| u.clone());
+            }
         }
         let parts: Vec<(&str, &str, &HashMap<String, views::ViewData>)> = order.iter().filter_map(|(c, name)| self.runs.get(&(ext.to_string(), c.clone())).filter(|st| st.run == Run::Running).map(|st| (c.as_str(), name.as_str(), &st.raw_views))).collect();
         out.views = views::merge(&parts);
@@ -790,7 +810,8 @@ impl Hub {
                     }
                     for view in self.shown.get(&key.0).into_iter().flat_map(|s| s.keys()) {
                         if let Some(l) = &st.link {
-                            l.send(&ToAdapter::Show { view: view.clone() });
+                            let (view, agent) = split_view(view);
+                            l.send(&ToAdapter::Show { view: view.to_string(), agent_id: agent.map(String::from) });
                         }
                     }
                 }
@@ -855,18 +876,43 @@ impl Hub {
             }
             Event::Msg(FromAdapter::View(v)) => {
                 let m = super::manifest_of(&key.0, cx);
-                let declared = m.as_ref().is_some_and(|m| m.contributes.view(&v.id).is_some());
-                let shown = self.shown.get(&key.0).is_some_and(|s| s.contains_key(&v.id));
+                // A section is sent for an agent; a view never is.
+                let declared = m.as_ref().is_some_and(|m| match &v.agent_id {
+                    Some(_) => m.contributes.panel(&v.id).is_some(),
+                    None => m.contributes.view(&v.id).is_some(),
+                });
+                let id = match &v.agent_id {
+                    Some(a) => panel_key(&v.id, a),
+                    None => v.id.clone(),
+                };
+                let shown = self.shown.get(&key.0).is_some_and(|s| s.contains_key(&id));
                 let st = self.runs.get_mut(key).expect("it is there");
                 if !declared {
-                    let e = CallError::new("unknown", format!("It sent view “{}”, which its manifest doesn't contribute.", v.id));
+                    let what = if v.agent_id.is_some() { "a section" } else { "view" };
+                    let e = CallError::new("unknown", format!("It sent {what} “{}”, which its manifest doesn't contribute.", v.id));
                     if let Some(reg) = &st.reg {
                         calls::refused(reg, &key.0, "view", &e);
                     }
                 } else if shown {
-                    // Only views in a tile are kept (a hidden one is sent
-                    // again when shown).
-                    st.raw_views.insert(v.id, v.root);
+                    // Only views in a tile (sections in the panel, for the
+                    // agent shown) are kept; a hidden one is sent again
+                    // when shown.
+                    st.raw_views.insert(id, v.root);
+                }
+            }
+            Event::Msg(FromAdapter::WebView { view, url }) => {
+                let declared = super::manifest_of(&key.0, cx).is_some_and(|m| m.contributes.web_view(&view).is_some());
+                let st = self.runs.get_mut(key).expect("it is there");
+                if !declared {
+                    let e = CallError::new("unknown", format!("It sent web view “{view}”, which its manifest doesn't contribute."));
+                    if let Some(reg) = &st.reg {
+                        calls::refused(reg, &key.0, "webView", &e);
+                    }
+                } else {
+                    if let (Err(why), Some(reg)) = (&url, &st.reg) {
+                        calls::refused(reg, &key.0, "webView", &CallError::new("bad_params", why.clone()));
+                    }
+                    st.web_urls.insert(view, url);
                 }
             }
             Event::Msg(FromAdapter::Badges(list)) => self.badges(key, list, cx),
@@ -989,9 +1035,10 @@ impl Hub {
         let n = self.shown.entry(ext.to_string()).or_default().entry(view.to_string()).or_default();
         *n += 1;
         if *n == 1 {
+            let (id, agent) = split_view(view);
             for (_, st) in self.runs.iter().filter(|(k, st)| k.0 == ext && st.hello) {
                 if let Some(l) = &st.link {
-                    l.send(&ToAdapter::Show { view: view.to_string() });
+                    l.send(&ToAdapter::Show { view: id.to_string(), agent_id: agent.map(String::from) });
                 }
             }
         }
@@ -1007,11 +1054,12 @@ impl Hub {
             return;
         }
         shown.remove(view);
+        let (id, agent) = split_view(view);
         for (_, st) in self.runs.iter_mut().filter(|(k, _)| k.0 == ext) {
             st.raw_views.remove(view);
             st.view_notes.remove(view);
             if let (true, Some(l)) = (st.hello, &st.link) {
-                l.send(&ToAdapter::Hide { view: view.to_string() });
+                l.send(&ToAdapter::Hide { view: id.to_string(), agent_id: agent.map(String::from) });
             }
         }
         self.merge(ext);
@@ -1045,7 +1093,8 @@ impl Hub {
         let req = self.next_req;
         let st = self.runs.get_mut(&key).ok_or("The extension isn't running.")?;
         let link = st.link.as_ref().filter(|_| st.hello).ok_or("The extension isn't running.")?;
-        if !link.send(&ToAdapter::Action { req, view: view.to_string(), item: inner.clone(), action: action.to_string() }) {
+        let (id, agent) = split_view(view);
+        if !link.send(&ToAdapter::Action { req, view: id.to_string(), item: inner.clone(), action: action.to_string(), agent_id: agent.map(String::from) }) {
             return Err("The extension isn't running.".into());
         }
         self.next_req += 1;
@@ -1059,6 +1108,71 @@ impl Hub {
         self.merge(ext);
         cx.notify();
         Ok(req)
+    }
+
+    /// Button `a` was pressed in view `view` (on `item`, whose agent is
+    /// `agent`; a section's: its agent): one Pitwall runs itself (open a
+    /// file or a page, focus an agent) is called as the extension, through
+    /// the method table, so its permission decides and it is in its
+    /// activity; one that needs a permission it isn't granted isn't sent;
+    /// anything else goes to the adapter ([`Hub::view_action`]).
+    pub fn press(&mut self, ext: &str, view: &str, item: Option<&str>, agent: Option<&str>, a: &pitwall_core::extensions::view::Action, cx: &mut Context<Self>) -> Result<(), String> {
+        use pitwall_core::extensions::view::Run as Does;
+        let Some(run) = &a.run else {
+            if let Some(need) = &a.needs {
+                if !calls::api(cx).registry.allows(ext, need) {
+                    return Err(format!("“{}” needs the {need} permission (Settings → Extensions).", a.label));
+                }
+            }
+            return self.view_action(ext, view, item, &a.id, cx).map(|_| ());
+        };
+        let section = split_view(view).1;
+        let whose = |own: &Option<String>| own.clone().or(agent.map(String::from)).or(section.map(String::from));
+        let (method, params) = match run {
+            Does::File { file, line, agent: own } => {
+                let spec = match line {
+                    Some(l) => format!("{file}:{l}"),
+                    None => file.clone(),
+                };
+                (pitwall_proto::method::VIEWER_OPEN, serde_json::json!({"agentId": whose(own), "files": [spec], "proto": pitwall_proto::VIEWER_PROTO}))
+            }
+            Does::Url { url, agent: own } => (pitwall_proto::method::WEB_OPEN, serde_json::json!({"agentId": whose(own), "url": url})),
+            Does::Focus(id) => (pitwall_proto::method::AGENT_FOCUS, serde_json::json!({"agentId": id})),
+        };
+        let api = calls::api(cx);
+        let server = api.server.clone().ok_or("This Pitwall can't run it.")?;
+        let caller = server.extension_caller(ext).ok_or("The extension is off.")?;
+        let (ext, view) = (ext.to_string(), view.to_string());
+        if let Some(st) = self.merged.get_mut(&ext) {
+            st.view_notes.remove(&view);
+        }
+        // Off the UI thread: showing waits for the UI thread to open it.
+        let task = cx.background_executor().spawn(async move { server.call_as(&caller, method, params, pitwall_core::extensions::activity::Via::View) });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            let _ = this.update(cx, |h, cx| {
+                let note = match res {
+                    Err(e) => Some(e.message),
+                    // Not in front: focusing did nothing, and says why.
+                    Ok(v) if v.get("focused") == Some(&serde_json::Value::Bool(false)) => v.get("note").and_then(|n| n.as_str()).map(String::from),
+                    Ok(_) => None,
+                };
+                for (_, st) in h.runs.iter_mut().filter(|(k, _)| k.0 == ext) {
+                    match &note {
+                        Some(n) => {
+                            st.view_notes.insert(view.clone(), n.clone());
+                        }
+                        None => {
+                            st.view_notes.remove(&view);
+                        }
+                    }
+                }
+                h.merge(&ext);
+                cx.notify();
+            });
+        })
+        .detach();
+        Ok(())
     }
 
     /// Command `command` (titled `title`) was picked in the palette, with

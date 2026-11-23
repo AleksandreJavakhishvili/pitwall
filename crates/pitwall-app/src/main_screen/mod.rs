@@ -195,6 +195,8 @@ pub enum PanelSlot {
     Top,
     /// Below Changes (Last sent).
     Bottom,
+    /// Below Last sent: extensions' sections for the focused agent.
+    Extensions,
 }
 
 #[derive(Default)]

@@ -67,6 +67,23 @@ fn drafts_stay_with_their_agent(cx: &mut TestAppContext) {
     });
 }
 
+/// An extension's item says whose it is and that it waits for Send; the
+/// user's own item says nothing of the kind.
+#[gpui::test]
+fn an_extensions_item_is_marked(cx: &mut TestAppContext) {
+    let (view, cx) = next_up(cx);
+    let mut a = agent("a", "/work/alpha", "idle", 1, true);
+    a.queue = vec![
+        pitwall_proto::QueueItem { id: "q1".into(), text: "mine".into(), origin: None },
+        pitwall_proto::QueueItem { id: "q2".into(), text: "fix the failing test".into(), origin: Some(pitwall_proto::QueueOrigin { extension: "ci".into(), name: "CI".into() }) },
+    ];
+    view.update(cx, |v, cx| v.set_agent(&a, cx));
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("queue-from-1").is_some(), "the extension's item is marked");
+    assert!(cx.debug_bounds("queue-from-0").is_none(), "the user's isn't");
+}
+
 #[gpui::test]
 fn queueing_without_an_engine_keeps_nothing_back(cx: &mut TestAppContext) {
     let (view, cx) = next_up(cx);
