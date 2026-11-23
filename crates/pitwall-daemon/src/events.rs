@@ -233,6 +233,11 @@ impl Queue {
     }
 }
 
+/// The topic event `name` is of.
+pub fn topic_of_event(name: &str) -> Option<&'static str> {
+    Some(topic_of(name)).filter(|t| !t.is_empty())
+}
+
 fn topic_of(name: &str) -> &'static str {
     match name {
         event::AGENTS_CHANGED => topic::AGENTS,
@@ -308,7 +313,7 @@ mod tests {
 
     #[test]
     fn who_gets_which_topics() {
-        let agent = Caller { pid: Some(1), agent: Some(("a1".into(), "api".into())), process: None, ui: false };
+        let agent = Caller { pid: Some(1), agent: Some(("a1".into(), "api".into())), process: None, ui: false, extension: None };
         let ui = Caller { ui: true, ..Caller::outside() };
         let ask = |t: &[&str]| EventsSubscribe { topics: t.iter().map(|s| s.to_string()).collect() };
         assert_eq!(topics(&agent, &ask(&[])).unwrap(), topic::DEFAULT);

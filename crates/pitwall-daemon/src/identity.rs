@@ -10,6 +10,7 @@ use std::sync::Arc;
 use pitwall_core::Shared;
 use pitwall_proto::{Requester, RequesterKind};
 
+use crate::extensions::Registry;
 use crate::platform;
 
 /// A connection's caller, as the server established it.
@@ -23,16 +24,22 @@ pub struct Caller {
     pub process: Option<String>,
     /// Pitwall's own UI: may answer approvals.
     pub ui: bool,
+    /// The extension (id, name) whose adapter it is or descends from: its
+    /// permissions apply ([`crate::extensions`]).
+    pub extension: Option<(String, String)>,
 }
 
 impl Caller {
     /// Someone outside Pitwall's agents (pid unknown).
     pub fn outside() -> Caller {
-        Caller { pid: None, agent: None, process: None, ui: false }
+        Caller { pid: None, agent: None, process: None, ui: false, extension: None }
     }
 
     /// How the approval dialog names it.
     pub fn requester(&self) -> Requester {
+        if let Some((_, name)) = &self.extension {
+            return Requester { kind: RequesterKind::Extension, agent_id: None, name: name.clone(), pid: self.pid, process: self.process.clone() };
+        }
         match &self.agent {
             Some((id, name)) => Requester {
                 kind: RequesterKind::Agent,
@@ -54,6 +61,9 @@ impl Caller {
     /// Remembered approvals are kept per key: each agent is its own caller;
     /// everything outside Pitwall's agents is one.
     pub fn key(&self) -> String {
+        if let Some((id, _)) = &self.extension {
+            return format!("ext:{id}");
+        }
         match &self.agent {
             Some((id, _)) => format!("agent:{id}"),
             None => "outside".into(),
@@ -95,14 +105,39 @@ pub fn agent_of(chain: &[u32], agents: &[(String, String, u32)]) -> Option<(Stri
     chain.iter().find_map(|pid| agents.iter().find(|(_, _, p)| p == pid).map(|(id, name, _)| (id.clone(), name.clone())))
 }
 
-/// The real thing: the process table and the engine's agents.
+/// An id and its name.
+pub type Named = (String, String);
+
+/// Who `chain` (a process and its parents, nearest first) is: the agent
+/// and the extension whose process is nearest in it. A process an
+/// extension's adapter started inside an agent is the extension's; an
+/// adapter's process is never an agent's.
+pub fn attribute(chain: &[u32], agents: &[(String, String, u32)], extensions: Option<&Registry>) -> (Option<Named>, Option<Named>) {
+    let agent_at = chain.iter().position(|pid| agents.iter().any(|(_, _, p)| p == pid));
+    let ext = extensions.and_then(|r| r.of_chain(chain));
+    match (agent_at, ext) {
+        (Some(a), Some((e, x))) if e <= a => (None, Some(x)),
+        (None, Some((_, x))) => (None, Some(x)),
+        _ => (agent_of(chain, agents), None),
+    }
+}
+
+/// The real thing: the process table, the engine's agents and the
+/// extensions' adapters.
 pub struct ProcessIdentity {
     engine: Shared,
+    extensions: Option<Arc<Registry>>,
 }
 
 impl ProcessIdentity {
     pub fn new(engine: Shared) -> Arc<ProcessIdentity> {
-        Arc::new(ProcessIdentity { engine })
+        Arc::new(ProcessIdentity { engine, extensions: None })
+    }
+
+    /// [`ProcessIdentity::new`] that also tells processes of extensions'
+    /// adapters (`extensions`).
+    pub fn with_extensions(engine: Shared, extensions: Arc<Registry>) -> Arc<ProcessIdentity> {
+        Arc::new(ProcessIdentity { engine, extensions: Some(extensions) })
     }
 }
 
@@ -111,12 +146,12 @@ impl Identify for ProcessIdentity {
         let Some(pid) = pid else { return Caller::outside() };
         let table = platform::process_table().unwrap_or_default();
         let chain = ancestors(pid, &table);
-        let agent = agent_of(&chain, &self.engine.agent_pids());
+        let (agent, extension) = attribute(&chain, &self.engine.agent_pids(), self.extensions.as_deref());
         let process = table.get(&pid).map(|p| p.name.clone());
         // In-process server: only this very process is Pitwall's UI. (A
         // standalone daemon will check the signed app's path instead.)
-        let ui = pid == std::process::id() && agent.is_none();
-        Caller { pid: Some(pid), agent, process, ui }
+        let ui = pid == std::process::id() && agent.is_none() && extension.is_none();
+        Caller { pid: Some(pid), agent, process, ui, extension }
     }
 }
 
@@ -152,9 +187,37 @@ mod tests {
         assert_eq!(ancestors(5, &looped), [5, 6]);
     }
 
+    /// Decision 5: a process whose parent chain reaches an adapter Pitwall
+    /// started is that extension's caller; the user's own terminal stays
+    /// outside; a detached process (reparented to launchd) is outside too.
+    #[test]
+    fn a_process_an_adapter_started_is_its_extensions() {
+        // launchd(1) → pitwall(10) → adapter(20) → node(21) → pitwall-cli(22)
+        //            → terminal(30) → shell(31) → pitwall-cli(32)
+        //            → detached(40), started by the adapter, now under launchd
+        let t = table(&[(10, 1), (20, 10), (21, 20), (22, 21), (30, 1), (31, 30), (32, 31), (40, 1), (50, 10), (51, 50), (52, 51)]);
+        let reg = Registry::new();
+        reg.set("ci", "CI", vec!["agents.read".into()], None);
+        reg.adapter_started("ci", 20);
+        let agents = vec![("a1".to_string(), "api".to_string(), 50)];
+        let who = |pid| attribute(&ancestors(pid, &t), &agents, Some(&reg));
+        assert_eq!(who(22), (None, Some(("ci".into(), "CI".into()))));
+        assert_eq!(who(20).1.unwrap().0, "ci", "the adapter itself");
+        assert_eq!(who(32), (None, None), "the user's own terminal");
+        assert_eq!(who(40), (None, None), "detached: not stopped by this");
+        assert_eq!(who(52), (Some(("a1".into(), "api".into())), None), "an agent's process stays the agent's");
+        // An adapter started inside an agent: its processes are the
+        // extension's (the nearest wins).
+        reg.adapter_started("ci", 51);
+        assert_eq!(who(52).1.unwrap().0, "ci");
+        assert_eq!(attribute(&ancestors(22, &t), &agents, None), (None, None), "no registry: as before");
+        let c = Caller { extension: Some(("ci".into(), "CI".into())), pid: Some(22), ..Caller::outside() };
+        assert_eq!((c.key(), c.requester().kind, c.requester().name), ("ext:ci".to_string(), RequesterKind::Extension, "CI".to_string()));
+    }
+
     #[test]
     fn callers_are_named_for_the_dialog() {
-        let c = Caller { pid: Some(7), agent: Some(("a1".into(), "api".into())), process: Some("pitwall".into()), ui: false };
+        let c = Caller { pid: Some(7), agent: Some(("a1".into(), "api".into())), process: Some("pitwall".into()), ui: false, extension: None };
         let r = c.requester();
         assert_eq!((r.kind, r.name.as_str(), r.agent_id.as_deref()), (RequesterKind::Agent, "api", Some("a1")));
         assert_eq!(c.key(), "agent:a1");

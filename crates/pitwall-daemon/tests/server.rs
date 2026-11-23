@@ -15,7 +15,7 @@ use pitwall_core::paths::Paths;
 use pitwall_core::provider::ProviderCaps;
 use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink, TempDir};
 use pitwall_core::{Deps, Engine, Shared};
-use pitwall_daemon::{serve, Approvals, Caller, Config, Handle, Hub, Identify, ProcessIdentity};
+use pitwall_daemon::{serve, Approvals, Caller, Config, Handle, Hub, Identify, ProcessIdentity, Registry};
 use pitwall_proto::frame::{self, Frame};
 use pitwall_proto::{code, AgentCreate, ApprovalAnswer, FormRequest, RequesterKind, Risk, Role, SessionAdd, SessionFilter};
 use serde_json::{json, Value};
@@ -31,11 +31,11 @@ impl Identify for Callers {
 }
 
 fn agent_caller(id: &str, name: &str) -> Caller {
-    Caller { pid: Some(4242), agent: Some((id.into(), name.into())), process: Some("pitwall-cli".into()), ui: false }
+    Caller { pid: Some(4242), agent: Some((id.into(), name.into())), process: Some("pitwall-cli".into()), ui: false, extension: None }
 }
 
 fn ui_caller() -> Caller {
-    Caller { pid: Some(std::process::id()), agent: None, process: Some("pitwall".into()), ui: true }
+    Caller { pid: Some(std::process::id()), agent: None, process: Some("pitwall".into()), ui: true, extension: None }
 }
 
 struct World {
@@ -45,6 +45,8 @@ struct World {
     callers: Arc<Callers>,
     /// The engine's event sink (tests emit through it as the engine would).
     hub: Arc<Hub>,
+    /// The extensions that are on, as callers.
+    extensions: Arc<Registry>,
     server: Option<Handle>,
     socket: PathBuf,
     _dir: TempDir,
@@ -83,10 +85,11 @@ fn world(approval_timeout: Duration) -> World {
     });
     let approvals = Approvals::new(approval_timeout);
     let callers = Arc::new(Callers::default());
+    let extensions = Registry::new();
     let socket = short_socket();
-    let cfg = Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, viewer: None, events: Some(hub.clone()) };
+    let cfg = Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, viewer: None, events: Some(hub.clone()), extensions: Some(extensions.clone()) };
     let server = serve(engine.clone(), approvals.clone(), callers.clone(), cfg).expect("listen on a temp socket");
-    World { engine, vm, approvals, callers, hub, server: Some(server), socket, _dir: dir }
+    World { engine, vm, approvals, callers, hub, extensions, server: Some(server), socket, _dir: dir }
 }
 
 impl World {
@@ -165,7 +168,7 @@ fn the_socket_is_private_and_removed_on_stop() {
         assert_eq!(mode, 0o600);
     }
     // A second server on the same socket refuses to start.
-    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None, viewer: None, events: None });
+    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None, viewer: None, events: None, extensions: None });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
     w.server.take().unwrap().stop();
     assert!(!w.socket.exists());
@@ -808,4 +811,101 @@ fn profiles_and_picks_ask_before_deciding_what_agents_launch_with() {
     let v: pitwall_proto::ProjectAccounts = serde_json::from_value(c.call("project.accounts", json!({"path": "/code/api"})).unwrap()).unwrap();
     let claude = v.slots.iter().find(|s| s.slot == "claude").unwrap();
     assert_eq!((v.profile, claude.name.as_str(), claude.from.as_str()), (None, "Work", "project"));
+}
+
+// ------------------------------------------------------------ extensions
+
+fn ext_caller(id: &str, name: &str) -> Caller {
+    Caller { pid: Some(5150), agent: None, process: Some("node".into()), ui: false, extension: Some((id.into(), name.into())) }
+}
+
+/// A process an extension's adapter started, on the socket: it reads
+/// what it is granted, is refused the rest in plain words, a revoke
+/// applies at its next call, and every call is in its activity log.
+#[test]
+fn an_extensions_process_gets_only_what_it_is_granted() {
+    let w = world(Duration::from_secs(5));
+    let log: pitwall_core::extensions::activity::Shared = Arc::default();
+    w.extensions.set("ci", "CI", vec!["agents.read".into()], Some(log.clone()));
+    let mut c = w.client_as(ext_caller("ci", "CI"));
+    assert_eq!(c.call("agent.list", json!({})).unwrap(), json!([]));
+    let e = server_error(c.call("project.list", json!({})).unwrap_err());
+    assert_eq!(e.code, code::DENIED);
+    assert!(e.message.contains("CI isn't granted projects.read"), "{}", e.message);
+    let e = server_error(c.call("queue.add", json!({"agentId": "a1", "text": "hi"})).unwrap_err());
+    assert_eq!(e.code, code::UNSUPPORTED);
+    assert!(e.message.contains("isn't available to extensions yet"), "{}", e.message);
+    let e = server_error(c.call("agent.stop", json!({"agentId": "a1"})).unwrap_err());
+    assert_eq!(e.code, code::UNSUPPORTED, "no approval is even asked");
+    assert!(w.approvals.pending().is_empty());
+    // Revoked in Settings: the next call is refused.
+    w.extensions.set("ci", "CI", vec![], Some(log.clone()));
+    assert_eq!(server_error(c.call("agent.list", json!({})).unwrap_err()).code, code::DENIED);
+    let entries = log.lock().unwrap().entries();
+    let seen: Vec<(&str, bool)> = entries.iter().map(|e| (e.method.as_str(), e.refused())).collect();
+    assert_eq!(seen, [("agent.list", false), ("project.list", true), ("queue.add", true), ("agent.stop", true), ("agent.list", true)]);
+    assert!(entries.iter().all(|e| e.via == pitwall_core::extensions::activity::Via::Socket));
+    // The user's own terminal is as it was.
+    let mut me = w.client();
+    assert!(me.call("project.list", json!({})).is_ok());
+}
+
+/// Its calls are counted: past the budget they are `busy`.
+#[test]
+fn an_extension_past_its_call_budget_is_busy() {
+    let w = world(Duration::from_secs(5));
+    w.extensions.set("ci", "CI", vec!["agents.read".into()], None);
+    let mut c = w.client_as(ext_caller("ci", "CI"));
+    let mut busy = 0;
+    for _ in 0..pitwall_daemon::extensions::MAX_CALLS + 5 {
+        if let Err(e) = c.call("agent.list", json!({})) {
+            assert_eq!(server_error(e).code, "busy");
+            busy += 1;
+        }
+    }
+    assert!(busy >= 5, "{busy}");
+}
+
+/// Its events need the permission, and stop when it is revoked.
+#[test]
+fn an_extensions_events_follow_its_grant() {
+    let w = world(Duration::from_secs(5));
+    w.extensions.set("ci", "CI", vec![], None);
+    let mut c = w.client_as(ext_caller("ci", "CI"));
+    assert_eq!(server_error(c.subscribe(&["agents".into()]).unwrap_err()).code, code::DENIED);
+    assert_eq!(w.hub.subscribers(), 0);
+    w.extensions.set("ci", "CI", vec!["agents.read".into()], None);
+    assert_eq!(c.subscribe(&["agents".into(), "blocked".into()]).unwrap().topics, ["agents", "blocked"]);
+    assert_eq!(next(&mut c).event, "agents.changed");
+    assert_eq!(next(&mut c).event, "blocked.changed");
+    w.extensions.set("ci", "CI", vec![], None);
+    w.hub.emit(Event::BlockedCount(3));
+    // Granted again, the next one arrives; the one while revoked didn't.
+    std::thread::sleep(Duration::from_millis(100));
+    w.extensions.set("ci", "CI", vec!["agents.read".into()], None);
+    w.hub.emit(Event::BlockedCount(4));
+    assert_eq!(next(&mut c).data, json!({"count": 4}));
+}
+
+/// The real identity: a process whose parent is an adapter Pitwall
+/// started is the extension's; this test's own process (no adapter in its
+/// chain) stays outside.
+#[test]
+fn the_parent_chain_names_the_extension() {
+    let w = world(Duration::from_secs(5));
+    let id = ProcessIdentity::with_extensions(w.engine.clone(), w.extensions.clone());
+    let me = std::process::id();
+    assert_eq!(id.identify(Some(me)).extension, None);
+    w.extensions.set("ci", "CI", vec![], None);
+    // This process stands in for an adapter: a child of it is the
+    // extension's.
+    w.extensions.adapter_started("ci", me);
+    let (program, args): (&str, &[&str]) = if cfg!(windows) { ("cmd", &["/C", "ping", "-n", "3", "127.0.0.1"]) } else { ("sleep", &["2"]) };
+    let mut child = std::process::Command::new(program).args(args).spawn().unwrap();
+    let c = id.identify(Some(child.id()));
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(c.extension, Some(("ci".into(), "CI".into())));
+    assert_eq!(c.requester().kind, RequesterKind::Extension);
+    assert!(!c.ui);
 }
