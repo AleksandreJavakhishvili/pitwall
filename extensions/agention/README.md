@@ -151,3 +151,21 @@ the inbox there.
 
 The adapter's own tests: `cd adapter && node --test test/*.test.js` (they use a fake
 server, never a real one).
+
+## Releasing a new version of this extension
+
+Pitwall updates this extension from this repository (`source` in
+`extension.json`), without waiting for a Pitwall release. To release one:
+
+1. Change what it needs (an adapter fix, the pinned Agention version in
+   the setup action and the server action), and raise `version` in
+   `extension.json` (say to `1.2.0`). Commit it to `main`.
+2. Tag that commit `agention-v<version>`, the same version as in
+   `extension.json`, and push the tag:
+   `git tag agention-v1.2.0 && git push origin agention-v1.2.0`.
+
+A tag is never moved once pushed: Pitwall records the commit a tag
+pointed at and refuses a tag that moved. Pitwall finds the new tag when it
+checks (at start, once a day, or with "Check for updates" on the card),
+shows what changes on the computer, and installs it only when the user
+presses Update. A changed setup action asks the user to run it again.

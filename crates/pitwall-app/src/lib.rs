@@ -156,6 +156,8 @@ pub fn run() {
         extensions::init(root.clone(), cx);
         if cx.global::<AppState>().host.is_some() {
             extensions::start(root.as_deref(), engine.clone(), cx);
+            extensions::actions::seal_steps(cx);
+            extensions::catalog::watch_updates(cx);
         }
         windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine.clone(), root);

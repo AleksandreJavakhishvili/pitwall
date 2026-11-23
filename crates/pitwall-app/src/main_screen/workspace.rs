@@ -422,6 +422,12 @@ pub struct ExtensionPrefs {
     /// steps stay ticked).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
     pub actions_done: Vec<String>,
+    /// A digest of the steps each recorded run ran
+    /// (`pitwall_core::extensions::steps_digest`), by what the run is kept
+    /// under (`<action>`, or `<action>@<connection>`): a run whose steps
+    /// changed since (an update moved a pin) no longer counts as done.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub action_steps: BTreeMap<String, String>,
     /// Its inbox is in a window of its own (not in a layout): it opens in
     /// one again at the next start.
     #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
@@ -441,7 +447,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && !self.window && self.connection.is_none() && self.dev_path.is_none() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.connection.is_none() && self.dev_path.is_none() && self.rest.is_empty()
     }
 }
 
