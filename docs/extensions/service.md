@@ -56,6 +56,7 @@ tiny Node server ([the starter](starter.md#pitwall-extension-new-folder---servic
 | `ready` | How Pitwall tells it's up: `{ "listen": "<address>" }`, an address on this computer it listens on, or `{ "line": "<pattern>" }`, a line it prints. Without `ready`, it's up once it has run for a second. |
 | `env` | Optional, at most 8 variables: `{ "name", "value" }` (placeholders allowed) or `{ "name", "secret": "<a secret setting>" }`. A secret is read from the system's secure store when the service starts and is shown on the confirm card by name. Its value is taken out of the Log. |
 | `firstRun` | Optional. A command that runs only when the user presses its button: `label`, `run`, `opens` and `again`. With `opens: true`, Pitwall opens the first `https` link the command prints in the user's browser. `again` says what running it again does; the card asks before it runs again. |
+| `backup` | Optional. How its data is backed up before an update: `{ "run": [...], "replaces": [...] }`, a command with `{backup}` (a new, private folder) and the files in `{data}` the backup stands for. Without it, Pitwall copies the data folder itself, up to 2 GiB. See [Updates](updates.md#backups). |
 
 ### Placeholders
 
@@ -101,9 +102,13 @@ say that it runs a local program continuously.
 ## How Pitwall runs it
 
 - **Only with consent.** Nothing starts before the user confirms the
-  commands. If an update changes any of them, the service is stopped and
-  the card asks again; Review lists the service's changes with what a
-  service can do.
+  commands. Review lists an update's changes to them with what a service
+  can do, and pressing Update confirms the new ones in place of the ones
+  confirmed before. Commands changed any other way (a folder edited by
+  hand, Reload) stop the service and the card asks again.
+- **Updated in order.** An update stops it, backs up its data, installs
+  the new files, starts the new service and checks it, and puts all of it
+  back when that fails ([Updates](updates.md)).
 - **In its own group, with little else.** It runs in its own process
   group (a job object on Windows), in the extension's folder, with stdin
   closed. Its environment is only the login PATH, home, user, language,

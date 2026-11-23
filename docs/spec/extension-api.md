@@ -409,6 +409,30 @@ What it doesn't change: it runs as the user, unsandboxed, like an adapter
 still `setsid` out of its group. It runs only while Pitwall runs. Not
 built: starting at login, HTTPS, more than one service.
 
+**Updates as one step.** The first extension's update moved its files,
+its server and the plugin in its users' agents apart: running agents kept
+the old plugin, the server was replaced by a build that couldn't read
+the data, and the data didn't carry over. So an update is one ordered
+step ([docs/extensions/updates.md](../extensions/updates.md)): stop the
+service and back up its data (`service.backup`, a command the author
+names, or a copy), install, update the server's program if needed, start
+it and check it and the adapter, then the agents' setup. Before the setup,
+a failure puts the files, the data and the previous service back by
+itself. Why this shape:
+- **The order is declared, not guessed.** `update.order` says which side
+  must accept the other (`serviceFirst`: new servers accept old clients).
+  `update.agents` says whether agents started before keep working.
+- **Agents aren't restarted behind the user's back.** Pitwall knows what
+  each agent started with (a digest of the setup and variables) and shows
+  which use a previous one. Restarting is the user's setting: ask, when
+  idle (only on the agent's own idle status, after 30 s, one at a time,
+  resuming its conversation), or never.
+- **Backups are the author's to make consistent.** A database needs its
+  own backup command; Pitwall can put it back only when the manifest
+  names the files it stands for, and never deletes what it replaces.
+- **One confirmation.** The review lists every command the update will
+  run, so pressing Update confirms them; nothing asks again halfway.
+
 ---
 
 ## What Pitwall gives an extension [built, phase 3]

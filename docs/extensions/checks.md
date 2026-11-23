@@ -160,7 +160,8 @@ what it would do in each case. Nothing is started.
   "expect": {
     "run": "inbox serve --data {data} --origin https://example.com --listen 127.0.0.1:8787",
     "version": "inbox version",
-    "firstRun": "inbox link --data {data}"
+    "firstRun": "inbox link --data {data}",
+    "backup": "inbox backup --data {data} {backup}/inbox.db"
   },
   "cases": [
     { "version": "inbox 0.6.0", "verdict": "starts (The inbox server 0.6.0)" },
@@ -179,6 +180,39 @@ what it would do in each case. Nothing is started.
   version command prints; `portTaken`: something else listens on its
   address; `values`: settings changed for this case only. `verdict` is
   what Pitwall then does, in the words `test` prints.
+
+### `update`
+
+The steps an [update](updates.md) to this manifest takes, in order, with
+their commands, as the review lists them. Nothing runs.
+
+```json
+"update": {
+  "from": "test/previous-extension.json",
+  "values": { "server": "https://example.com" },
+  "setUp": ["setup"],
+  "agents": 2,
+  "expect": [
+    ["Stops The inbox server and backs up its data first:", "inbox backup --data {data} {backup}/inbox.db"],
+    ["Installs Inbox 1.3.0 (the installed 1.2.0 is kept for Go back)."],
+    ["Starts The inbox server and waits until it is up (at most 60 s)."],
+    ["Checks that The inbox server is up and Inbox connects as before (within 30 s). If not, it puts back Inbox 1.2.0, its data and its service, and says what failed."]
+  ],
+  "agentsSay": [
+    "2 running agents keep the previous setup until restarted.",
+    "After the update: Pitwall restarts nothing by itself: their rows and this card say so, with Restart."
+  ]
+}
+```
+
+- `from`: the manifest updated from, a file in the folder (default: this
+  one). The update is planned with the extension on, its service run by
+  Pitwall and its data folder not empty.
+- `setUp`: the setup actions set up before; one whose steps changed runs
+  again for every account.
+- `agents`: how many running agents use its setup now.
+- `expect`: each step, its title then its lines (`{data}` and `{backup}`
+  left as is). `agentsSay`: what the review says about those agents.
 
 ### `agreement`
 

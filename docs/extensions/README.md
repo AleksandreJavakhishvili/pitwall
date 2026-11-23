@@ -49,6 +49,9 @@ folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
 - [A service](service.md): a program, such as a local server, that
   Pitwall keeps running while the extension is on, once the user
   confirms its commands.
+- [Updates](updates.md): an update as one ordered step (backup, files,
+  server, check, agents' setup), rolled back when it fails; agents that
+  started before; backups and Go back.
 - [Actions](actions.md): showing files and pages, focusing, queueing
   text for an agent and asking to start one, each behind its permission.
 - [Permissions](permissions.md): what an extension may read and do, what

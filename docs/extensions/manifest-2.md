@@ -114,6 +114,17 @@ such as a first sign-in. The user confirms its exact commands once.
 [A service](service.md) has the keys and the rules. A format 1 manifest
 ignores `service`.
 
+## `update`
+
+How an update of it goes: `"update": { "order": "serviceFirst", "agents":
+"compatible" }`. `order` (`serviceFirst`, the default, or `agentsFirst`)
+says whether the new service starts before or after the agents' setup
+runs again; `agents` (`compatible`, the default, or `restart`) says
+whether agents started before an update keep working with what they
+started with. With a service's `backup`,
+[Updates](updates.md) has the steps, the backups and what happens when a
+step fails. A format 1 manifest ignores `update`.
+
 ## Checking it
 
 `pitwall extension check <folder> --human` prints the format, each
