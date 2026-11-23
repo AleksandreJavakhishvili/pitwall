@@ -156,6 +156,40 @@ fn manifest(folder: &Path, r: &mut Report) -> Option<Manifest> {
     }
 }
 
+/// An extension published on npm as `package`: its `package.json` (what
+/// `npm publish` reads) names that package at the manifest's `version`,
+/// and nothing in it expects npm to act at install: Pitwall installs no
+/// dependencies and runs no scripts.
+fn check_package_json(folder: &Path, package: &str, version: Option<&str>, r: &mut Report) {
+    let Ok(text) = std::fs::read_to_string(folder.join("package.json")) else {
+        r.add(Level::Warn, format!("there is no package.json: npm needs one to publish it (\"name\": \"{package}\", \"version\" as in {MANIFEST})"));
+        return;
+    };
+    let Ok(p) = serde_json::from_str::<Value>(&text) else {
+        r.add(Level::Fail, "its package.json isn't JSON");
+        return;
+    };
+    match p["name"].as_str() {
+        Some(n) if n == package => r.add(Level::Ok, format!("its package.json names {package}")),
+        other => r.add(Level::Fail, format!("its package.json names “{}”, not {package}: the source wouldn't find this release", other.unwrap_or("nothing"))),
+    }
+    match (p["version"].as_str(), version) {
+        (Some(pv), Some(v)) if pv == v => {}
+        (pv, v) => r.add(Level::Fail, format!("its package.json's version is {}, not {}: Pitwall refuses a release whose {MANIFEST} says another version than the package", pv.unwrap_or("none"), v.unwrap_or("none"))),
+    }
+    let deps: Vec<String> = ["dependencies", "peerDependencies", "optionalDependencies"].iter().filter_map(|k| p[*k].as_object()).flat_map(|o| o.keys().cloned()).collect();
+    if !deps.is_empty() {
+        r.add(Level::Warn, format!("its package.json lists dependencies ({}): Pitwall never installs them; bundle or vendor what the adapter needs into the package", deps.join(", ")));
+    }
+    let hooks: Vec<&str> = ["preinstall", "install", "postinstall", "prepare"].into_iter().filter(|k| p["scripts"].get(*k).is_some()).collect();
+    if !hooks.is_empty() {
+        r.add(Level::Warn, format!("its package.json has install scripts ({}): Pitwall never runs them", hooks.join(", ")));
+    }
+    if p["files"].as_array().is_some_and(|f| !f.iter().any(|x| x.as_str().is_some_and(|s| s.trim_start_matches("./") == MANIFEST))) {
+        r.add(Level::Warn, format!("its package.json's \"files\" doesn't name {MANIFEST}: check that npm packs it (`npm pack --dry-run`)"));
+    }
+}
+
 /// Arguments of an adapter's command that name a file in its folder: not
 /// an option, and with a `/` or a file extension.
 fn file_args(command: &[String]) -> Vec<&str> {
@@ -221,9 +255,13 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
     }
     if let Some(s) = &m.source {
         let at = super::install::source_line(s);
-        match &m.version {
-            Some(v) => r.add(Level::Ok, format!("its updates come from {at}: this version's release is the tag {}", s.tags.replace(super::VERSION_PLACEHOLDER, v))),
-            None => r.add(Level::Fail, format!("its updates come from {at}, but without a \"version\" no release tag can be told newer")),
+        match (&m.version, s) {
+            (Some(v), super::Source::Git { tags, .. }) => r.add(Level::Ok, format!("its updates come from {at}: this version's release is the tag {}", tags.replace(super::VERSION_PLACEHOLDER, v))),
+            (Some(v), super::Source::Npm { package, .. }) => r.add(Level::Ok, format!("its updates come from {at}: this version's release is version {v} of {package}, its extension.json at the package's root")),
+            (None, _) => r.add(Level::Fail, format!("its updates come from {at}, but without a \"version\" no release can be told newer")),
+        }
+        if let super::Source::Npm { package, .. } = s {
+            check_package_json(folder, package, m.version.as_deref(), &mut r);
         }
     }
     if let Some(a) = &m.adapter {
@@ -1203,8 +1241,40 @@ mod tests {
         assert!(text.contains("Its updates come from") && text.contains("example.com/r (exts/x), tags x-v{version}"), "{text}");
         std::fs::write(d.join(MANIFEST), format!(r#"{{"id": "x", "name": "X", {source}}}"#)).unwrap();
         let r = check(&d, Some(""));
-        assert!(!r.passed() && r.text().contains("no release tag can be told newer"), "{}", r.text());
+        assert!(!r.passed() && r.text().contains("no release can be told newer"), "{}", r.text());
         std::fs::write(d.join(MANIFEST), r#"{"id": "x", "name": "X", "version": "1.0.0", "source": {"git": "http://example.com/r", "tags": "v{version}"}}"#).unwrap();
+        assert!(!check(&d, Some("")).passed());
+    }
+
+    /// An npm source: its package checked by npm's rules, the release this
+    /// version is, and a package.json that names the package at the same
+    /// version, with what Pitwall won't do (dependencies, install scripts)
+    /// said.
+    #[test]
+    fn check_validates_an_npm_source() {
+        let t = crate::testing::TempDir::new("check-npm");
+        let d = folder(&t, "x", r#"{"id": "x", "name": "X", "version": "1.2.0", "source": {"npm": "@me/x"}}"#);
+        std::fs::write(d.join("README.md"), "").unwrap();
+        let r = check(&d, Some(""));
+        let text = r.text();
+        assert!(r.passed(), "{text}");
+        assert!(text.contains("its updates come from npm: @me/x, its versions: this version's release is version 1.2.0 of @me/x"), "{text}");
+        assert!(text.contains("there is no package.json"), "{text}");
+        std::fs::write(d.join("package.json"), r#"{"name": "@me/x", "version": "1.2.0", "files": ["extension.json", "adapter.mjs"]}"#).unwrap();
+        let r = check(&d, Some(""));
+        assert!(r.passed() && r.text().contains("its package.json names @me/x") && !r.text().contains("Pitwall never"), "{}", r.text());
+        std::fs::write(d.join("package.json"), r#"{"name": "@me/x", "version": "1.2.0", "dependencies": {"ws": "^8"}, "scripts": {"postinstall": "node x.js"}, "files": ["adapter.mjs"]}"#).unwrap();
+        let text = check(&d, Some("")).text();
+        assert!(text.contains("lists dependencies (ws): Pitwall never installs them"), "{text}");
+        assert!(text.contains("install scripts (postinstall): Pitwall never runs them"), "{text}");
+        assert!(text.contains("doesn't name extension.json"), "{text}");
+        std::fs::write(d.join("package.json"), r#"{"name": "@me/y", "version": "1.1.0"}"#).unwrap();
+        let r = check(&d, Some(""));
+        assert!(!r.passed() && r.text().contains("names “@me/y”, not @me/x") && r.text().contains("version is 1.1.0, not 1.2.0"), "{}", r.text());
+        std::fs::write(d.join(MANIFEST), r#"{"id": "x", "name": "X", "version": "1.2.0", "source": {"npm": "@me/x@1.2.0"}}"#).unwrap();
+        let r = check(&d, Some(""));
+        assert!(!r.passed() && r.text().contains("isn't an npm package name"), "{}", r.text());
+        std::fs::write(d.join(MANIFEST), r#"{"id": "x", "name": "X", "version": "1.2.0", "source": {"npm": "@me/x", "registry": "http://registry.example.com"}}"#).unwrap();
         assert!(!check(&d, Some("")).passed());
     }
 

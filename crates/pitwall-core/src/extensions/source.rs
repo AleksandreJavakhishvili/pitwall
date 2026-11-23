@@ -165,7 +165,7 @@ pub struct Fetched {
 
 /// A hidden folder in `work` (hidden folders aren't listed as
 /// extensions).
-fn hidden(work: &Path, what: &str) -> PathBuf {
+pub(crate) fn hidden(work: &Path, what: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or_default();
     work.join(format!(".{what}-{}-{nanos}", std::process::id()))
 }
@@ -209,29 +209,35 @@ pub fn fetch(url: &str, tag: &Tag, dir: &str, id: Option<&str>, work: &Path) -> 
     })();
     let _ = std::fs::remove_dir_all(&clone); // our own fresh clone
     let staged = res?;
-    let manifest = (|| {
-        let file = staged.join(MANIFEST);
-        let meta = std::fs::metadata(&file).map_err(|_| format!("The {} tag has no {MANIFEST} in {}.", tag.name, if dir.is_empty() { "its root" } else { dir }))?;
-        if meta.len() > 64 * 1024 {
-            return Err(format!("Its {MANIFEST} is bigger than 64 KiB."));
-        }
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("Its {MANIFEST} can't be read: {e}"))?;
-        let m = parse(&text).map_err(|e| format!("It can't be used: {e}."))?;
-        if let Some(id) = id.filter(|id| *id != m.id) {
-            return Err(format!("The {} tag holds extension “{}”, not “{id}”. Not installed.", tag.name, m.id));
-        }
-        if m.version.as_deref().is_none_or(|v| compare_versions(v, &tag.version) != std::cmp::Ordering::Equal) {
-            return Err(format!("The {} tag's {MANIFEST} says version {}, not {}. Not installed.", tag.name, m.version.as_deref().unwrap_or("none"), tag.version));
-        }
-        Ok(m)
-    })();
-    match manifest {
+    let what = format!("The {} tag", tag.name);
+    match fetched_manifest(&staged, &what, if dir.is_empty() { "its root" } else { dir }, id, &tag.version) {
         Ok(manifest) => Ok(Fetched { folder: staged, manifest, tag: tag.clone() }),
         Err(e) => {
             let _ = std::fs::remove_dir_all(&staged);
             Err(e)
         }
     }
+}
+
+/// The manifest of fetched folder `staged` (`what`: the release, as a
+/// sentence starts, "The x-v1.0.0 tag"; `place`: where in it the manifest
+/// was looked for), which must be extension `id` (any when `None`) at
+/// `version`.
+pub(crate) fn fetched_manifest(staged: &Path, what: &str, place: &str, id: Option<&str>, version: &str) -> Result<Manifest, String> {
+    let file = staged.join(MANIFEST);
+    let meta = std::fs::symlink_metadata(&file).ok().filter(|m| m.is_file()).ok_or_else(|| format!("{what} has no {MANIFEST} in {place}."))?;
+    if meta.len() > 64 * 1024 {
+        return Err(format!("Its {MANIFEST} is bigger than 64 KiB."));
+    }
+    let text = std::fs::read_to_string(&file).map_err(|e| format!("Its {MANIFEST} can't be read: {e}"))?;
+    let m = parse(&text).map_err(|e| format!("It can't be used: {e}."))?;
+    if let Some(id) = id.filter(|id| *id != m.id) {
+        return Err(format!("{what} holds extension “{}”, not “{id}”. Not installed.", m.id));
+    }
+    if m.version.as_deref().is_none_or(|v| compare_versions(v, version) != std::cmp::Ordering::Equal) {
+        return Err(format!("{what}'s {MANIFEST} says version {}, not {version}. Not installed.", m.version.as_deref().unwrap_or("none")));
+    }
+    Ok(m)
 }
 
 /// Where link `link` (in `root`) points, `None` when it points outside
