@@ -26,6 +26,11 @@ similar = "2"
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
 
+[target.'cfg(unix)'.dependencies]
+# An adapter's process group stopped as one (platform/group.rs); already in
+# the tree.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 # Local sockets as named pipes (hooks, the CLI socket), per-user only.
 interprocess = "2"
@@ -37,6 +42,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security_Authorization",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
     "Win32_System_Pipes",
     "Win32_System_Registry",
     "Win32_System_Threading",
