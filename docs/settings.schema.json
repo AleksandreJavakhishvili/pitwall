@@ -13,6 +13,11 @@
       "description": "`agents.showFiles`: Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server per launch where the tool has a way (Claude Code, Codex, Copilot CLI, Qwen Code, Amp, opencode; your own config files are never edited), Aider gets a rule to run `pitwall-cli open`, and `pitwall open` does the same from a shell. Gemini CLI and Cursor Agent only read their own MCP files: see agents.showFilesGemini and agents.showFilesCursor. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.",
       "type": "boolean"
     },
+    "agentsShowSettings": {
+      "default": true,
+      "description": "`agents.showSettings`: Agents can show you Pitwall's Settings at a page when you ask them to (\"where do I turn that on\", \"show me that extension's permissions\"): the `show_settings` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --settings` from a shell. Settings opens in its tile next to the agent's terminal, or wherever you keep that tile; it never takes the keyboard or brings Pitwall forward. The agent gets nothing back about what Settings holds and can't change, click or type anything in it. false: the tool is gone from the agents' list and `pitwall open --settings` refuses.",
+      "type": "boolean"
+    },
     "agentsShowWeb": {
       "default": true,
       "description": "`agents.showWeb`: Agents can show you a web page in Pitwall when you ask them to (\"open the docs on the left\", \"open a browser window\"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in the project's browser account in Pitwall, where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses.",

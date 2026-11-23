@@ -373,11 +373,14 @@ fn aider_is_told_to_run_pitwall_open_while_showing_files_is_on() {
     let text = std::fs::read_to_string(&rule).unwrap();
     assert!(text.contains("/h/bin/pitwall-cli open <file>"), "{text}");
     assert!(text.contains("/h/bin/pitwall-cli open --web <address>"), "and web pages: {text}");
+    assert!(text.contains("/h/bin/pitwall-cli open --settings [page]"), "and Settings: {text}");
     // Only what is on is said.
-    let files_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: true, web: false });
-    assert!(files_only.contains("open <file>") && !files_only.contains("--web"));
-    let web_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: true });
+    let files_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: true, web: false, settings: false });
+    assert!(files_only.contains("open <file>") && !files_only.contains("--web") && !files_only.contains("--settings"));
+    let web_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: true, settings: false });
     assert!(!web_only.contains("open <file>") && web_only.contains("--web"));
+    let settings_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: false, settings: true });
+    assert!(!settings_only.contains("open <file>") && !settings_only.contains("--web") && settings_only.contains("--settings"), "{settings_only}");
     // No rules of its own: Pitwall's copy, read at launch.
     assert_eq!(show_files_args(&f.dirs, aider, "agent-1"), vec!["--read".to_string(), rule.to_string_lossy().into_owned()]);
     // Kinds with an MCP way don't get it.

@@ -147,6 +147,10 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     // Only shows the user a web page (http/https) in Pitwall; nothing of it
     // comes back (viewer.rs).
     (method::WEB_OPEN, Access::Open, Ext::Grant(SHOW)),
+    // Only shows the user Pitwall's Settings at a page; nothing of it comes
+    // back and nothing in it changes (viewer.rs). Not an extension's: its
+    // `show` permission is for files and pages.
+    (method::SETTINGS_OPEN, Access::Open, Ext::Never),
     // What agent.list shows, as it changes; `approvals` only for the UI
     // (events.rs). Answered per connection (server.rs).
     (method::EVENTS_SUBSCRIBE, Access::Open, Ext::Grant(AGENTS_READ)),
@@ -361,6 +365,10 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
             let r = crate::viewer::web_params(p)?;
             beside_only(caller, r.place)?;
             crate::viewer::web_open(s, caller, r)
+        }
+        method::SETTINGS_OPEN => {
+            let r = crate::viewer::settings_params(p)?;
+            crate::viewer::settings_open(s, caller, r)
         }
         method::MCP_CALL => crate::viewer::mcp_call(s, caller, required(p)?),
         // Needs the connection: server.rs answers it before dispatching.
@@ -626,7 +634,7 @@ mod tests {
         assert!(matches!(access(method::RULES_LIBRARY_NEW), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::RULES_PROJECT_UPDATES), Some(Access::Open));
         // Read-only methods never ask.
-        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST, method::VIEWER_OPEN, method::MCP_TOOLS, method::MCP_CALL, method::WEB_OPEN] {
+        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST, method::VIEWER_OPEN, method::MCP_TOOLS, method::MCP_CALL, method::WEB_OPEN, method::SETTINGS_OPEN] {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
         assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
@@ -661,6 +669,9 @@ mod tests {
             }
             assert!(!matches!(e, Ext::Later(_)), "{m}: nothing is left for later");
         }
+        // Showing Settings isn't the `show` permission's (files and pages).
+        assert_eq!(ext_access(method::SETTINGS_OPEN), Some(Ext::Never));
+        assert_eq!(ext_allowed(method::SETTINGS_OPEN, &("ci".to_string(), "CI".to_string()), |_| true).unwrap_err().code, code::UNSUPPORTED);
         for m in [method::AGENT_STOP, method::SETTINGS_SET, method::SETTINGS_RESET, method::APPROVAL_ANSWER, method::APPROVAL_LIST, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD, method::QUEUE_SEND, method::QUEUE_REMOVE, method::SESSION_ADD, method::AGENT_RESTART, method::AGENT_REMOVE] {
             assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
         }

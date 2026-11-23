@@ -121,6 +121,7 @@ pub fn build(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
         offered.push(caps::VIEWER);
         offered.push(caps::MCP);
         offered.push(caps::WEB);
+        offered.push(caps::SHOW_SETTINGS);
     }
     Arc::new(Server {
         engine,

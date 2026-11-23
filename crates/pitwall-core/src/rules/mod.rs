@@ -273,10 +273,12 @@ pub struct ShowWhat {
     pub files: bool,
     /// Web pages (`agents.showWeb` and `general.webPages`).
     pub web: bool,
+    /// Pitwall's Settings (`agents.showSettings`).
+    pub settings: bool,
 }
 
 impl ShowWhat {
-    pub const ALL: ShowWhat = ShowWhat { files: true, web: true };
+    pub const ALL: ShowWhat = ShowWhat { files: true, web: true, settings: true };
 }
 
 /// The built-in rule for agents that can only show files (and web pages)
@@ -300,6 +302,13 @@ When the user asks to open a web page, a site, a local dev server or a browser i
     {cli} open --web <address> [--where right|left|above|below|replace|window] [--of <agent>]\n```\n\n\
 `--web` alone opens an empty page for the user to type an address in. Only http and https addresses. It only shows the page to the user: you get nothing back from it and can't click or type in it.\n",
             if what.files { "\n" } else { "" }
+        ));
+    }
+    if what.settings {
+        s.push_str(&format!(
+            "{}# Showing Pitwall's Settings\n\n\
+When the user asks where one of Pitwall's own settings is, or to see one (\"where do I turn that on\", \"show me that extension's permissions\"), run `{cli} open --settings [page]` (`--extension <id>` unfolds that extension's card): it only shows Settings to the user, you get nothing back from it and can't change anything in it.\n",
+            if what.files || what.web { "\n" } else { "" }
         ));
     }
     s

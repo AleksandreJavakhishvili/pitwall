@@ -1,5 +1,6 @@
-//! Agents showing files to the user (`agents.showFiles`, `viewer.open`)
-//! and web pages (`agents.showWeb`, `web.open`): whether each is on, the
+//! Agents showing files to the user (`agents.showFiles`, `viewer.open`),
+//! web pages (`agents.showWeb`, `web.open`) and Pitwall's Settings
+//! (`agents.showSettings`, `settings.open`): whether each is on, the
 //! MCP server the agents Pitwall starts are given (while either is),
 //! and turning what an agent asked for (`src/a.rs:42`, a folder, a
 //! worktree's name) into full paths on the agent's machine that exist.
@@ -26,13 +27,15 @@ pub(crate) struct State {
     web: AtomicBool,
     /// `general.webPages`.
     web_pages: AtomicBool,
+    /// `agents.showSettings`.
+    settings: AtomicBool,
     cli: RwLock<Option<PathBuf>>,
 }
 
 impl Default for State {
     fn default() -> State {
         // On by default, as the settings.
-        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), cli: RwLock::new(None) }
+        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), settings: AtomicBool::new(true), cli: RwLock::new(None) }
     }
 }
 
@@ -55,10 +58,24 @@ impl Engine {
         }
     }
 
+    /// `agents.showSettings`, as the host follows it.
+    pub fn set_show_settings(&self, on: bool) {
+        let was = self.show_settings_on();
+        self.show.settings.store(on, Ordering::Relaxed);
+        if was != on {
+            self.sync_show_rule();
+        }
+    }
+
+    /// Agents may show the user Pitwall's Settings (`agents.showSettings`).
+    pub fn show_settings_on(&self) -> bool {
+        self.show.settings.load(Ordering::Relaxed)
+    }
+
     /// The built-in rule for agents without an MCP way, in step.
     fn sync_show_rule(&self) {
         let cli = self.show_files_wiring().map(|m| m.command);
-        let what = crate::rules::ShowWhat { files: self.show_files_on(), web: self.show_web_on() };
+        let what = crate::rules::ShowWhat { files: self.show_files_on(), web: self.show_web_on(), settings: self.show_settings_on() };
         crate::rules::sync_show_files_rule(&crate::rules::Dirs::of(self.paths()), cli.as_deref(), what);
     }
 
