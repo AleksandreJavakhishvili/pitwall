@@ -7,7 +7,9 @@
 //! ticked as it is done, with its field or button right there; a setup
 //! action shows its steps live while it runs. "What this extension does on
 //! your computer" says what it runs and sets, folded. Available: the
-//! extensions Pitwall ships that aren't installed, each with Install.
+//! extensions Pitwall ships that aren't installed, each with Install, and
+//! "Add from Git…". Where each came from, its source's checks, updates
+//! looked at before they are installed and Go back: [`updates`].
 //!
 //! **Connections** (docs/spec/profiles.md): an extension with settings
 //! can have several, each its own settings, secrets and setup actions.
@@ -23,7 +25,7 @@
 use std::collections::{HashMap, HashSet};
 
 use gpui::{div, prelude::*, px, AnyElement, Context, Div, Entity, FontWeight, SharedString, Stateful, Subscription};
-use pitwall_core::extensions::install::Status;
+use pitwall_core::extensions::install::{Origin, Status};
 use pitwall_core::extensions::protocol::ConnState;
 use pitwall_core::extensions::{Action, Manifest, SettingDef, SettingKind};
 
@@ -31,12 +33,14 @@ use super::pages::{head, section};
 use super::view::{Part, SettingsView};
 use super::widgets::Ui;
 use crate::extensions::actions::{self, Outcome, Planned, RunState, StepState};
-use crate::extensions::catalog::{self, Shipped};
+use crate::extensions::catalog::{self, Prepared, Shipped};
 use crate::extensions::hub::{self, Run};
 use crate::extensions::connections;
 use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
 use crate::main_screen::workspace::ExtensionPrefs;
 use pitwall_core::accounts::Account;
+
+mod updates;
 
 /// The page's own state.
 #[derive(Default)]
@@ -78,7 +82,31 @@ pub struct Section {
     remove_conn: Option<(String, String, Option<String>)>,
     /// Development folders and logs.
     pub(super) dev: super::extensions_dev::Dev,
+    /// Where each installed extension came from and the version Go back
+    /// returns to; read again when the folder is.
+    origins: Option<(usize, Origins)>,
+    /// Updates being fetched to look at.
+    preparing: HashSet<String>,
+    /// Updates looked at: what each changes, waiting for Update.
+    prepared: HashMap<String, Prepared>,
+    /// "Add from Git…" open.
+    add_git: Option<AddGit>,
+    /// Go back of a folder changed by hand asked to confirm.
+    confirm_back: Option<String>,
     _subs: Vec<Subscription>,
+}
+
+/// By extension: where it came from, and the version Go back returns to.
+type Origins = HashMap<String, (Option<Origin>, Option<String>)>;
+
+/// "Add from Git…": the repository's address and the folder in it, then
+/// what its newest release changes on this computer.
+pub(super) struct AddGit {
+    url: Entity<TextInput>,
+    dir: Entity<TextInput>,
+    busy: bool,
+    note: Option<String>,
+    prepared: Option<Prepared>,
 }
 
 /// What a `url` field's text is saved as: nothing when empty, else the
@@ -277,6 +305,8 @@ impl SettingsView {
             self.exts._subs.push(cx.observe(&h, |_, _, cx| cx.notify()));
             let runs = actions::runs(cx);
             self.exts._subs.push(cx.observe(&runs, |_, _, cx| cx.notify()));
+            let updates = catalog::updates(cx);
+            self.exts._subs.push(cx.observe(&updates, |_, _, cx| cx.notify()));
         }
         let folder = crate::extensions::dir(cx).map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()));
         let load = self.dev_load_button(ui, cx);
@@ -807,28 +837,8 @@ impl SettingsView {
     /// Below the top row: Update when a newer copy ships, "changed
     /// locally", what failed, and the Remove or Replace question.
     fn installed_notes(&mut self, ui: &Ui, m: &Manifest, shipped: Option<&Shipped>, changed: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let mut out = Vec::new();
-        let working = self.exts.working.contains(&m.id);
-        if let Some(Status::Newer(v)) = shipped.map(|s| &s.status) {
-            let id = m.id.clone();
-            let mut line = div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(8.))
-                .px(px(10.))
-                .py(px(6.))
-                .rounded(px(8.))
-                .bg(ui.t.surface_2)
-                .child(div().flex_1().min_w(px(160.)).text_size(px(12.)).text_color(ui.t.text_2).child(format!("Version {v} is available. Its settings and secrets stay.")));
-            if changed {
-                line = line.child(div().id(SharedString::from(format!("extension-changed-{}", m.id))).tooltip(crate::kit::tooltip("Its folder isn't as Pitwall installed it: Update asks before replacing it.")).child(crate::kit::chip_tone("changed locally", Tone::Warn, &ui.t)));
-            }
-            line = line.child(
-                crate::kit::text_button(SharedString::from(format!("extension-update-{}", m.id)), if working { "Updating…".to_string() } else { "Update".to_string() }, BtnKind::Small, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, false, cx))),
-            );
-            out.push(line.into_any_element());
-        }
+        // Where it came from, an update offered and what it changes.
+        let mut out = self.update_notes(ui, m, shipped, changed, cx);
         if let Some(why) = self.exts.failed.get(&m.id) {
             out.push(div().text_size(px(12.)).text_color(ui.t.amber).child(why.clone()).into_any_element());
         }
@@ -872,16 +882,20 @@ impl SettingsView {
         out
     }
 
-    /// The card's last row: what it does on this computer (folded), its
-    /// docs, and Remove.
+    /// The card's last row: what it does on this computer (folded), then
+    /// its buttons (docs, Log, Go back, Remove…) together on the right, the
+    /// whole group under it when they don't fit beside it.
     fn card_footer(&mut self, ui: &Ui, m: &Manifest, folder: &str, cx: &mut Context<Self>) -> Div {
         let shown = self.exts.disclosed.contains(&m.id);
         let id = m.id.clone();
+        let what = format!("extension-what-{}", m.id);
         let toggle = div()
-            .id(SharedString::from(format!("extension-what-{}", m.id)))
+            .id(SharedString::from(what.clone()))
+            .debug_selector(move || what)
             .flex()
             .items_center()
             .gap(px(4.))
+            .flex_none()
             .cursor_pointer()
             .text_size(px(12.))
             .text_color(ui.t.text_3)
@@ -894,7 +908,7 @@ impl SettingsView {
                 }
                 cx.notify();
             }));
-        let mut row = div().flex().flex_wrap().items_center().gap(px(10.)).child(toggle).child(div().flex_1());
+        let mut row = div().flex().flex_none().items_center().gap(px(10.));
         // Another connection: only once there is one and it is on.
         let on = crate::ui_state::get(cx).extension_on(&m.id);
         if on && !m.settings.is_empty() && !connections::list(&m.id, cx).is_empty() {
@@ -909,6 +923,10 @@ impl SettingsView {
             row = row.child(crate::kit::text_button(SharedString::from(format!("extension-docs-{}", m.id)), "Docs", BtnKind::Link, false, &ui.t).tooltip(crate::kit::tooltip(url.clone())).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &url)));
         }
         let (mut row, dev) = self.dev_buttons(ui, m, row, cx);
+        // A development folder is the author's: nothing to go back to.
+        if !dev {
+            row = row.children(self.go_back_button(ui, m, cx));
+        }
         let working = self.exts.working.contains(&m.id);
         let id = m.id.clone();
         if !dev {
@@ -918,7 +936,9 @@ impl SettingsView {
                 cx.notify();
             })));
         }
-        let mut col = div().flex().flex_col().gap(px(8.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(row);
+        let sel = format!("extension-footer-{}", m.id);
+        let line = div().flex().flex_wrap().items_center().justify_end().gap(px(10.)).child(toggle).child(div().flex_1()).child(row.debug_selector(move || sel));
+        let mut col = div().flex().flex_col().gap(px(8.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(line);
         if shown {
             col = col.child(self.disclosure(ui, m, folder, cx));
         }
@@ -963,11 +983,11 @@ impl SettingsView {
         let found = crate::extensions::found(cx);
         let listed = |id: &str| found.iter().any(|f| f.key() == id);
         let available: Vec<Manifest> = shipped.iter().filter(|s| s.status == Status::Available && !listed(&s.offer.manifest.id)).map(|s| s.offer.manifest.clone()).collect();
-        let mut d = div().flex().flex_col().gap(px(8.));
+        // The heading with "Add from Git…", and its form.
+        let d = self.add_git_view(ui, cx);
         if available.is_empty() {
             return d;
         }
-        d = d.child(div().pt(px(8.)).child(crate::kit::label("Available", ui.t.text_3, 11.)));
         let mut grid = div().flex().flex_wrap().gap(px(10.));
         for m in &available {
             grid = grid.child(self.available_tile(ui, m, cx));
@@ -1005,9 +1025,21 @@ impl SettingsView {
         self.exts.confirm_replace = None;
         cx.notify();
         let (me, id2) = (cx.entity().downgrade(), id.to_string());
-        catalog::update_one(id, replace_changed, cx, move |o, cx| {
-            let _ = me.update(cx, |v, cx| v.ext_done(&id2, o, cx));
-        });
+        let done = move |o: catalog::Outcome, cx: &mut gpui::App| {
+            let _ = me.update(cx, |v, cx| {
+                // Installed (or failed): what was looked at is done with.
+                if o != catalog::Outcome::ChangedLocally {
+                    v.exts.prepared.remove(&id2);
+                }
+                v.ext_done(&id2, o, cx);
+            });
+        };
+        // An update looked at (from a source or Pitwall's copy), else
+        // Pitwall's copy.
+        match self.exts.prepared.get(id).cloned() {
+            Some(p) => catalog::apply(&p, replace_changed, cx, done),
+            None => catalog::update_one(id, replace_changed, cx, done),
+        }
     }
 
     fn start_remove(&mut self, m: &Manifest, cx: &mut Context<Self>) {

@@ -1,7 +1,8 @@
 # Extensions
 
 Status: built, unreleased. Finding extensions, the manifest (settings,
-adapter, agent variables, agent matching, setup actions), the adapter
+adapter, agent variables, agent matching, setup actions, source),
+updates from a git source, the adapter
 protocol (version 1), the adapter's lifecycle, settings and secrets, the
 inbox tile, agents' ask badges and notifications, and questions in the
 floating control; for authors, dev mode (a folder loaded in place), the
@@ -64,13 +65,102 @@ Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
   version counts as older). Its settings and secrets stay. An extension
   that is on is turned off for the swap (its adapter stops) and on again
   after. The new folder is staged, the old one moved aside, the new one
-  moved in (the old one back if that fails), the old one deleted. A
-  folder changed locally asks first: "Replace", and those changes are
-  lost.
+  moved in (the old one back if that fails), the old one kept for Go
+  back ("Updates from a git source" below). A folder changed locally
+  asks first: "Replace", and those changes are lost. Review… shows what
+  the update changes on this computer first.
 - **Remove** asks first. It turns the extension off (its adapter stops),
   forgets its settings and recorded setup actions in `ui.json`, deletes
-  its secrets from the system's secure store and deletes its folder.
+  its secrets from the system's secure store and deletes its folder (and
+  the copy kept for Go back).
 - Not on the command line yet ("Later").
+
+## Updates from a git source
+Status: built, unreleased. An extension updates from its own releases,
+without waiting for a Pitwall release. Code:
+`pitwall_core::extensions::source` (listing and fetching),
+`pitwall_core::extensions::install` (origins, the marker, Go back, what
+changes), `crate::extensions::catalog` (checks, offers, Add from Git),
+`settings/extensions/updates.rs` (the card).
+- **A source** is the manifest's `source` ("The manifest" below): a git
+  repository (`https://` only), the folder in it holding
+  `extension.json`, and a tag pattern with `{version}`
+  (`agention-v{version}`). A tag that matches gives a version; a
+  pre-release (`1.2.0-beta`) is offered only to an installed pre-release.
+- **Checking** lists the repository's tags (`git ls-remote --tags`: no
+  clone, nothing written), at start, once a day while Pitwall runs, and
+  with "Check for updates" on the card; off the UI thread. Git runs with
+  no terminal prompt, no askpass program and no credential manager
+  window (`GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=`, `GCM_INTERACTIVE=never`):
+  a private repository works through the user's own credential helper,
+  or the check says it can't be read. Without git, or offline, the check
+  fails quietly with a plain line on the card ("Couldn't check …: this
+  computer seems to be offline"), and the card says when it last checked.
+- **Offered:** the newest of the shipped copy and the source's newest
+  release whose version is above the installed one; never a downgrade or
+  the same version. Between two of the same version, the one from where
+  it was installed, else the shipped copy.
+- **Looked at before it is installed.** "Review…" on the update line
+  fetches the release (below) and lists what changes on this computer
+  compared to the installed copy: where it comes from (repository,
+  folder, tag, commit), the program it runs while on, the variables it
+  sets on agents (added and removed), each setup action whose commands
+  changed (its new command lines; a `setup` one says its step will be
+  unticked), actions added or gone, settings it asks for or no longer
+  asks for, and where its updates come from when that moved. With
+  nothing else, "Nothing else changes on this computer: only its files."
+  Only "Update to 1.1.0" installs it; Cancel deletes what was fetched.
+  The shipped copy is looked at the same way (nothing to fetch).
+- **Fetching** a tag: a shallow clone of exactly that tag into a hidden
+  folder of `<data>/extensions/` (git's hooks pointed at a folder that
+  doesn't exist, no large-file download), its commit checked to be the
+  one the listing named, then only the extension's folder copied out
+  (without `.git`, `node_modules`, `.DS_Store`) and the clone deleted.
+  Refused, leaving nothing: another commit than listed, no such folder,
+  a link pointing outside the folder or to a folder (a link to a file
+  inside is copied as that file), more than 50 MiB or 5 000 files, a
+  manifest that can't be used, of another extension, or of another
+  version than its tag. Nothing from the fetched files runs; Pitwall
+  never runs a package manager or a build step (a release holds what
+  runs).
+- **The marker** of a copy installed from a source records it:
+  `"source": {"git": …, "dir": …}`, `"tag"` and `"commit"` (a shipped
+  copy: `"source": "bundled"`; a marker from before sources counts as
+  shipped). The card shows it: "From github.com/… (extensions/agention),
+  tag agention-v1.1.0, commit 1a2b3c4 · checked 5 min ago".
+- **A moved tag is refused:** a tag that now points at another commit
+  than the one the installed copy came from, or than an earlier check
+  saw since Pitwall started ("The agention-v1.1.0 tag moved: it pointed
+  at 1a2b3c4 and now points at 9f8e7d6. Not installed."), isn't offered.
+- **Updating** works as for a shipped copy (an extension that is on is
+  stopped for the swap and started again; settings and secrets stay; a
+  folder changed locally asks first). It runs nothing by itself.
+- **Go back:** an update keeps the installed copy as
+  `<data>/extensions/.<id>.previous` (hidden, one step back; an older one
+  goes). "Go back to 1.0.0" in the card's footer puts it back in place
+  (stopped and started again when on; a folder changed locally asks
+  first); there is then nothing more to go back to, and the newer one is
+  offered again.
+- **Add from Git…** under Available: a repository's https address and,
+  optionally, the folder in it. Pitwall lists its tags and takes the
+  newest release by the usual patterns (`<folder>-v1.0.0`,
+  `<folder>-1.0.0`, `v1.0.0`, `1.0.0`; `<folder>` is the folder's last
+  part), fetches it as above, and shows the extension (icon, name,
+  version), "Comes from … Not reviewed by Pitwall" and everything it
+  does on this computer, then Install (Replace when the same id is
+  installed: the installed copy is kept for Go back). It stays off.
+- **A development folder** ("For authors" below) is the author's own:
+  its source is never checked, no update is offered, its card has no
+  source line and no Go back, and neither an update nor Add from Git
+  replaces it ("“x” is loaded from a development folder, which Pitwall
+  never replaces: remove it from the list first."). An installed copy
+  with its id is hidden while the folder is listed, and comes back with
+  its updates and Go back once the folder is removed from the list.
+- Folders a fetch left behind (Pitwall quit midway) are deleted at the
+  next start.
+- Not yet: a per-extension switch to install by itself when nothing in
+  "what changes" changed, permissions, signed release feeds, the command
+  line.
 
 ## The manifest (`extension.json`, format 1)
 ```json
@@ -143,6 +233,15 @@ Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
   never a secret. Optional `for`: the agent kind it is for (`claude`,
   `codex`, …). Optional `optional: true`: its failure doesn't stop the
   steps after it.
+- `source` (optional): where its updates come from ("Updates from a git
+  source" above): `git`, an `https://` address of at most 300
+  characters without a user or password; `dir` (optional), the folder in
+  the repository holding `extension.json` (relative, no `.` or `..`
+  parts); `tags`, a pattern holding `{version}` once, with letters,
+  digits and `._/-` around it. An older Pitwall ignores it.
+  ```json
+  "source": { "git": "https://github.com/AleksandreJavakhishvili/pitwall", "dir": "extensions/agention", "tags": "agention-v{version}" }
+  ```
 - **Templates** use `{project}` (the last part of the agent's project
   folder), `{agent}` (its name when it starts; it can change) and
   `{agent_id}` (Pitwall's id for it, kept across restarts); other text is
@@ -277,10 +376,16 @@ A tab of its own (after Accounts). Code: `settings/extensions.rs`.
   the command its adapter runs while on, the variables it sets on agents
   (with its settings put in), each action's command lines, its folder.
   Then Docs (the manifest's `docs`) and Remove.
-- **Update / changed locally / failures** show as a line under the top
-  row; Remove and Replace confirm in a card there.
+- **Under the top row:** where it came from ("Comes with Pitwall", or
+  its source's repository, tag and commit) and, for one with a source,
+  when it was last checked, with "Check for updates"; a failed check or
+  a moved tag in amber; an update offered ("Version 1.1.0 is available
+  from …") with Review…, then what it changes and Update ("Updates from
+  a git source"); changed locally; failures. Remove, Replace and Go back
+  of a changed folder confirm in a card there. The footer has "Go back
+  to 1.0.0" after an update.
 - **Available:** compact cards (icon, name, version, description,
-  Install), wrapping to the width.
+  Install), wrapping to the width; "Add from Git…" beside the heading.
 
 ## Connections
 Status: built below the screens (docs/spec/profiles.md has the design).
@@ -528,8 +633,17 @@ as installing a tool's plugin in the user's agents. Code:
   the rest. "Run again" after it ends.
 - The run belongs to the app, not to Settings (`actions::Runs`):
   closing Settings and opening it again mid-run shows it as it is.
-- Nothing runs when an extension is found, turned on, at startup, or at
-  an adapter's request: only from the button, after the confirmation.
+- Nothing runs when an extension is found, turned on, installed,
+  updated, at startup, or at an adapter's request: only from the button,
+  after the confirmation.
+- **A tick is for the steps that ran.** A recorded run keeps a digest of
+  its action's steps (programs, arguments, `for`, `optional`;
+  `extensions.<id>.actionSteps` in `ui.json`, by action, or
+  `<action>@<connection>` for one kept per connection). When the steps
+  change (an update moved a version pin), the step is unticked and asks
+  to be run again; going back to the steps that ran ticks it again. A
+  record from before digests is sealed with the steps its action has
+  when Pitwall starts.
 
 ## For authors
 The author's guide is [`docs/extensions/`](../extensions/README.md).
@@ -545,7 +659,8 @@ plan, process, starter}`, `pitwall_core::platform::group`.
   folder or id changed later shows as a problem card with why.
 - Its card is marked **development** (the folder in its tooltip, and a
   line under its name: "loaded from …, never copied or updated"). It has
-  no Update and no Remove; it has **Reload** (its manifest read again
+  no Update, no Go back, no source checks and no Remove (Add from Git
+  refuses its id too); it has **Reload** (its manifest read again
   and, while it is on, its adapter started again) and **Remove from
   list** (turned off and no longer listed; its settings and secrets
   stay, its folder is untouched, so it asks nothing).
@@ -604,6 +719,5 @@ plan, process, starter}`, `pitwall_core::platform::group`.
   list of archived threads.
 - `pitwall extension list|install|remove` on the command line (it needs
   the app's socket protocol to reach the running app's state).
-- Installing from a link; watching a development folder for changes
-  (Reload is by hand).
+- Watching a development folder for changes (Reload is by hand).
 - View kinds besides the inbox.

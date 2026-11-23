@@ -4,6 +4,11 @@
   "name": "Agention",
   "version": "1.1.0",
   "docs": "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/extensions/agention",
+  "source": {
+    "git": "https://github.com/AleksandreJavakhishvili/pitwall",
+    "dir": "extensions/agention",
+    "tags": "agention-v{version}"
+  },
   "icon": "inbox",
   "description": "Questions your agents ask you, from your own Agention server",
   "settings": [

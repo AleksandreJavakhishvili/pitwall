@@ -81,6 +81,10 @@ pub fn prefs_for(m: &Manifest, c: Option<&Account>, cx: &App) -> ExtensionPrefs 
             p.secrets_set.clear();
         }
     }
+    // A run whose steps changed since (an update) isn't done any more.
+    let steps = std::mem::take(&mut p.action_steps);
+    p.actions_done.retain(|a| steps_current(m, a, c.map(|c| c.id.as_str()), &steps));
+    p.action_steps = steps;
     p
 }
 
@@ -174,7 +178,24 @@ pub fn set_secret(id: &str, key: &str, secret: Option<String>, cx: &mut App, don
 /// failure): for connection `conn` when it uses a setting, else for the
 /// extension.
 pub fn record_action(m: &Manifest, a: &str, conn: Option<&str>, ok: bool, cx: &mut App) {
-    let per_conn = m.actions.iter().find(|x| x.id == a).is_some_and(uses_setting);
+    let action = m.actions.iter().find(|x| x.id == a);
+    let per_conn = action.is_some_and(uses_setting);
+    // The steps that ran, kept with the record: changed steps untick it.
+    let steps = action.map(pitwall_core::extensions::steps_digest).filter(|_| ok);
+    let key = match conn.filter(|_| per_conn) {
+        Some(c) => format!("{a}@{c}"),
+        None => a.to_string(),
+    };
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(&m.id, |e| match steps {
+            Some(d) => {
+                e.action_steps.insert(key, d);
+            }
+            None => {
+                e.action_steps.remove(&key);
+            }
+        });
+    });
     if let (true, Some(conn)) = (per_conn, conn) {
         let model = crate::accounts::model(cx);
         if model.update(cx, |m, cx| m.set_connection_action(conn, a, ok, cx)).is_ok() {
@@ -189,6 +210,18 @@ pub fn record_action(m: &Manifest, a: &str, conn: Option<&str>, ok: bool, cx: &m
             }
         });
     });
+}
+
+/// Whether the recorded run of `m`'s action `a` (for connection `conn`)
+/// ran the steps it has now: a record without a digest (from before
+/// digests, sealed at start) counts.
+pub fn steps_current(m: &Manifest, a: &str, conn: Option<&str>, steps: &BTreeMap<String, String>) -> bool {
+    let Some(action) = m.actions.iter().find(|x| x.id == a) else { return true };
+    let key = match conn.filter(|_| uses_setting(action)) {
+        Some(c) => format!("{a}@{c}"),
+        None => a.to_string(),
+    };
+    steps.get(&key).is_none_or(|d| *d == pitwall_core::extensions::steps_digest(action))
 }
 
 /// Remove connection `id`: its secrets leave the secure store, and the

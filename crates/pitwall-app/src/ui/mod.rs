@@ -367,6 +367,48 @@ impl MainView {
             }
             return;
         }
+        // `ext-check <ext>`, `ext-review <ext>`: in the open Settings, that
+        // extension's source checked, or its update fetched and what it
+        // changes listed, as their buttons do (nothing is installed).
+        if let Some(ext) = cmd.strip_prefix("ext-check ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_check(ext.trim(), cx));
+            }
+            return;
+        }
+        if let Some(ext) = cmd.strip_prefix("ext-review ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_review(ext.trim(), cx));
+            }
+            return;
+        }
+        // `ext-update <ext>`, `ext-add-git-install`: the update looked at,
+        // or the release Add from Git looked at, installed, as their
+        // buttons do (installing runs nothing).
+        if let Some(ext) = cmd.strip_prefix("ext-update ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_update(ext.trim(), cx));
+            }
+            return;
+        }
+        if cmd == "ext-add-git-install" {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_add_git_install(cx));
+            }
+            return;
+        }
+        // `ext-add-git <url> [folder]` (`ext-add-git-form …`: only typed in):
+        // in the open Settings, "Add from Git…" with these, looked at as
+        // Look does (fetched; nothing is installed).
+        if let Some(what) = cmd.strip_prefix("ext-add-git ").map(|w| (w, true)).or_else(|| cmd.strip_prefix("ext-add-git-form ").map(|w| (w, false))) {
+            let (what, look) = what;
+            let mut w = what.split_whitespace();
+            if let (Some(url), Some(v)) = (w.next(), self.layer.read(cx).settings_view()) {
+                let sub = w.next().unwrap_or_default().to_string();
+                v.update(cx, |v, cx| v.debug_add_git(url, &sub, look, window, cx));
+            }
+            return;
+        }
         // `ext-secret <ext> <key> <value>`: that secret set (a bench
         // instance keeps secrets in memory).
         if let Some(what) = cmd.strip_prefix("ext-secret ") {

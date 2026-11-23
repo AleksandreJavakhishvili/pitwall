@@ -6,7 +6,7 @@
 //! runs (so a run goes on, and shows, after Settings is closed and opened
 //! again) and lets one be cancelled. Nothing runs at any other time.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -219,6 +219,35 @@ fn run_one(p: &Planned, cwd: &Path, timeout: Duration, live: &Live) -> Outcome {
             Outcome::Failed(if tail.is_empty() { why } else { format!("{why}:\n{tail}") })
         }
         None => Outcome::Failed(format!("it took longer than {} s and was stopped", timeout.as_secs())),
+    }
+}
+
+/// Each recorded run without a digest of its steps (from a Pitwall before
+/// digests) gets the digest of the steps its action has now, so an update
+/// that changes them later unticks it (`connections::steps_current`).
+/// Called at start, before anything can be updated.
+pub fn seal_steps(cx: &mut gpui::App) {
+    let ui = crate::ui_state::get(cx);
+    let found = super::found(cx);
+    let accounts = crate::accounts::list(cx).cloned().unwrap_or_default();
+    for m in found.iter().filter_map(|f| f.manifest.as_ref().ok()) {
+        let prefs = ui.extension(&m.id);
+        let mut add: BTreeMap<String, String> = BTreeMap::new();
+        for a in &m.actions {
+            let keys: Vec<String> = if super::connections::uses_setting(a) {
+                accounts.connections(&m.id).filter(|c| c.actions_done.contains(&a.id)).map(|c| format!("{}@{}", a.id, c.id)).collect()
+            } else if prefs.actions_done.contains(&a.id) {
+                vec![a.id.clone()]
+            } else {
+                vec![]
+            };
+            for k in keys.into_iter().filter(|k| !prefs.action_steps.contains_key(k)) {
+                add.insert(k, pitwall_core::extensions::steps_digest(a));
+            }
+        }
+        if !add.is_empty() {
+            crate::ui_state::update(cx, |u| *u = std::mem::take(u).with_extension(&m.id, |e| e.action_steps.extend(add)));
+        }
     }
 }
 
@@ -511,6 +540,35 @@ mod tests {
             let st = runs(cx).read(cx).get("x", "setup").unwrap();
             assert_eq!(st.summary().as_deref(), Some("All set"));
             assert_eq!(crate::ui_state::get(cx).extension("x").actions_done, ["setup"]);
+        });
+    }
+
+    /// A setup run recorded before digests keeps its tick, sealed with the
+    /// steps its action has at start; steps changed after that (an update
+    /// moved a pin) untick it, until it runs again.
+    #[gpui::test]
+    fn a_recorded_run_counts_only_for_the_steps_that_ran(cx: &mut gpui::TestAppContext) {
+        let with = |pin: &str| pitwall_core::extensions::parse(&format!(r#"{{"id": "x", "name": "X", "actions": [{{"id": "setup", "setup": true, "label": "Set up", "description": "d", "steps": [{{"run": ["tool", "add", "x#{pin}"]}}]}}]}}"#)).unwrap();
+        let found = |m: &Manifest| vec![pitwall_core::extensions::Found { folder: "x".into(), manifest: Ok(m.clone()) }];
+        let (old, new) = (with("v1"), with("v2"));
+        cx.update(|cx| {
+            crate::ui_state::store(cx);
+            crate::extensions::set_found(found(&old), cx);
+            // As an older Pitwall left it: ticked, no digest.
+            crate::ui_state::update(cx, |u| *u = std::mem::take(u).with_extension("x", |e| e.actions_done.push("setup".into())));
+            seal_steps(cx);
+            let prefs = crate::ui_state::get(cx).extension("x");
+            assert_eq!(prefs.action_steps.get("setup"), Some(&pitwall_core::extensions::steps_digest(&old.actions[0])));
+            let done = |m: &Manifest, cx: &gpui::App| crate::extensions::connections::prefs_for(m, None, cx).actions_done;
+            assert_eq!(done(&old, cx), ["setup"]);
+            assert!(done(&new, cx).is_empty(), "the pin moved: asked again");
+            // Run again with the new steps: ticked again.
+            crate::extensions::set_found(found(&new), cx);
+            crate::extensions::connections::record_action(&new, "setup", None, true, cx);
+            assert_eq!(done(&new, cx), ["setup"]);
+            // A failed run forgets the digest with the tick.
+            crate::extensions::connections::record_action(&new, "setup", None, false, cx);
+            assert!(crate::ui_state::get(cx).extension("x").action_steps.is_empty());
         });
     }
 
