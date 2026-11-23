@@ -24,7 +24,9 @@ Reads the folder and runs nothing:
 
 Then it says, in plain words, what the extension would do: the settings
 the user fills in (with their types, options, ranges and defaults), the
-permissions it asks for with its reasons, what it contributes, the
+permissions it asks for with its reasons (and a warning for
+`agents.queue` and `agents.start`, saying what the user sees and the
+limits: [actions](actions.md)), what it contributes, the
 command it runs while on, the variables it sets on agents, how its
 threads match agents, and each setup action's exact commands.
 
@@ -228,5 +230,16 @@ what the adapter draws.
 - `action` (on `item`, of view `show`) and `command` are answered ok.
 - At least `badges` badges or notes are sent.
 - `grants`, `answers`, `settings` and `secrets` are as in `calls`.
+- A [right-panel section](views.md#right-panel-sections): `show` names
+  the panel and `"agentId"` the agent it is shown for (required). A list
+  of more than 8 items is a warning: the panel draws 8.
+- Each button Pitwall runs itself (`open`, `focus`) is listed with the
+  permission it needs. One whose permission the manifest doesn't ask for
+  is a warning: it is always drawn disabled.
+
+In `calls` and `views`, the fake Pitwall refuses `queue.add`,
+`agent.create`, `agent.focus`, `viewer.open` and `web.open` with
+`denied` unless `grants` has their permission, as Pitwall does. Each
+action called is reported.
 
 Each key is optional; give the ones your extension does.
