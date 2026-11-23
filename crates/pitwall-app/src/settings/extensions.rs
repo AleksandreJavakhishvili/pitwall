@@ -393,6 +393,7 @@ impl SettingsView {
 
     /// Whether `ext`'s secret `key` is marked as asked for (tests).
     #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn secret_asked(&self, ext: &str, key: &str) -> bool {
         self.exts.asked.contains(&(ext.to_string(), key.to_string()))
     }
