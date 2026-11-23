@@ -40,6 +40,12 @@ pitwall-client = { path = "../pitwall-client" }
 # Tailnet peers (docs/spec/tailnet-peers.md): the agents of the user's other
 # machines, read-only, and sharing this Mac's with them.
 pitwall-peer = { path = "../pitwall-peer" }
+# Extensions from an npm package (extensions/https.rs): the registry's
+# metadata and a version's tarball over https, no credentials, no proxy.
+# ureq is MIT OR Apache-2.0 and new in the tree, with rustls (Apache-2.0
+# OR ISC OR MIT) on ring (already in the tree via pitwall-peer) and
+# Mozilla's roots (webpki-roots, CDLA-Permissive-2.0).
+ureq = "2.12"
 # Review and the read-only code/diff view (src/code_view, src/review); every
 # crate and grammar below is MIT or Apache-2.0 (docs/spec/gpui/licensing.md).
 similar = "2"

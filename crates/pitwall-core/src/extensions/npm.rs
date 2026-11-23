@@ -10,7 +10,9 @@
 //! Pitwall does all of it itself: it never runs npm, node or a package's
 //! scripts, and never installs dependencies (a package must hold what it
 //! runs). Requests go over https with no credentials (no `.npmrc`, no
-//! token, no cookie), no prompt, timeouts and size limits.
+//! token, no cookie), no prompt, timeouts and size limits, through the
+//! host's client ([`Http`]: the app's uses ureq), so this crate holds no
+//! TLS of its own.
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -100,8 +102,9 @@ pub fn sha512_of(sri: &str) -> Option<String> {
 
 /// The integrity of `bytes`: `sha512-<base64>`.
 pub fn integrity_of(bytes: &[u8]) -> String {
-    let d = ring::digest::digest(&ring::digest::SHA512, bytes);
-    format!("sha512-{}", base64::engine::general_purpose::STANDARD.encode(d.as_ref()))
+    use sha2::Digest as _;
+    let d = sha2::Sha512::digest(bytes);
+    format!("sha512-{}", base64::engine::general_purpose::STANDARD.encode(d))
 }
 
 /// The versions in metadata document `text` of package `package`, newest
@@ -167,55 +170,64 @@ fn check_tarball_url(url: &str) -> Result<(), String> {
     super::check_npm_registry(url).map_err(|e| format!("Its download address can't be used: {e}."))
 }
 
-/// `url` read with the Accept header `accept`: at most `limit` bytes
-/// (`too_big` said otherwise), within `timeout`, with no credentials and
-/// nothing asked. https only (a loopback http address is a test's
-/// stand-in for the registry: [`routed`]).
-fn get(url: &str, accept: &str, limit: u64, timeout: Duration, too_big: &str) -> Result<Vec<u8>, String> {
-    let loopback = ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"].iter().any(|p| url.starts_with(p));
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(CONNECT_TIMEOUT)
-        .timeout(timeout)
-        .redirects(5)
-        .https_only(!loopback)
-        .user_agent(concat!("pitwall/", env!("CARGO_PKG_VERSION")))
-        .build();
-    let resp = match agent.get(url).set("Accept", accept).call() {
-        Ok(r) => r,
-        Err(ureq::Error::Status(code, _)) => {
-            return Err(match code {
-                404 => "The registry has no such package or version (a private one needs a sign-in, and Pitwall sends none).".into(),
-                401 | 403 => "The registry refused: it is private, and Pitwall sends no credentials.".into(),
-                _ => format!("The registry answered {code}."),
-            })
-        }
-        Err(ureq::Error::Transport(t)) => {
-            return Err(match t.kind() {
-                ureq::ErrorKind::Dns | ureq::ErrorKind::ConnectionFailed | ureq::ErrorKind::Io | ureq::ErrorKind::ProxyConnect => "Couldn't reach it: this computer seems to be offline, or the registry is down.".into(),
-                ureq::ErrorKind::InsecureRequestHttpsOnly => "The registry sent Pitwall to an address that isn't https. Not fetched.".into(),
-                _ => format!("Couldn't fetch it: {}", t.to_string().chars().take(200).collect::<String>()),
-            })
-        }
-    };
-    if resp.header("Content-Length").and_then(|l| l.trim().parse::<u64>().ok()).is_some_and(|l| l > limit) {
-        return Err(too_big.to_string());
+/// Why a request didn't give a body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GetError {
+    /// More than the limit (by its Content-Length or as read).
+    TooBig,
+    /// Why, in plain words ([`status_text`], [`OFFLINE`]).
+    Failed(String),
+}
+
+/// How Pitwall reads an address: the host's https client (the app's), or
+/// a test's. One GET of `url` with Accept header `accept`: at most `limit`
+/// bytes, within `connect` to connect and `timeout` in all; no
+/// credentials, no cookies, no proxy, nothing asked; redirects only to
+/// https. An `http://` address only for a loopback one (a test's stand-in
+/// for a registry, [`routed`]): every address Pitwall itself makes is
+/// checked https first.
+pub trait Http: Sync {
+    fn get(&self, url: &str, accept: &str, limit: u64, connect: Duration, timeout: Duration) -> Result<Vec<u8>, GetError>;
+}
+
+/// What a request failed with, offline or the server unreachable.
+pub const OFFLINE: &str = "Couldn't reach it: this computer seems to be offline, or the registry is down.";
+
+/// What answer `code` (not 2xx) means, in plain words.
+pub fn status_text(code: u16) -> String {
+    match code {
+        404 => "The registry has no such package or version (a private one needs a sign-in, and Pitwall sends none).".into(),
+        401 | 403 => "The registry refused: it is private, and Pitwall sends no credentials.".into(),
+        _ => format!("The registry answered {code}."),
     }
-    let mut buf = Vec::new();
-    resp.into_reader().take(limit + 1).read_to_end(&mut buf).map_err(|_| "Couldn't reach it: the download stopped (offline, or too slow).".to_string())?;
-    if buf.len() as u64 > limit {
-        return Err(too_big.to_string());
+}
+
+/// Whether `url` is a loopback http address (a test's stand-in).
+pub fn is_loopback(url: &str) -> bool {
+    ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"].iter().any(|p| url.starts_with(p))
+}
+
+/// `http.get`, with `too_big` said for a body over `limit`.
+fn get(http: &dyn Http, url: &str, accept: &str, limit: u64, timeout: Duration, too_big: &str) -> Result<Vec<u8>, String> {
+    if !url.starts_with("https://") && !is_loopback(url) {
+        return Err("Pitwall fetches only https addresses. Not fetched.".into());
     }
-    Ok(buf)
+    match http.get(url, accept, limit, CONNECT_TIMEOUT, timeout) {
+        Ok(b) if b.len() as u64 > limit => Err(too_big.to_string()),
+        Ok(b) => Ok(b),
+        Err(GetError::TooBig) => Err(too_big.to_string()),
+        Err(GetError::Failed(why)) => Err(why),
+    }
 }
 
 /// The versions of package `package` in `registry`, newest first
 /// (blocking: call it off the UI thread; nothing is written). `via`:
 /// [`routed`].
-pub fn releases(registry: &str, package: &str, via: &[(String, String)]) -> Result<Vec<Release>, String> {
+pub fn releases(registry: &str, package: &str, via: &[(String, String)], http: &dyn Http) -> Result<Vec<Release>, String> {
     super::check_npm_package(package).map_err(|e| format!("{e}."))?;
     super::check_npm_registry(registry).map_err(|e| format!("That registry can't be used: {e}."))?;
     let url = routed(&metadata_url(registry, package), via);
-    let text = get(&url, ACCEPT, MAX_METADATA, METADATA_TIMEOUT, &format!("The registry's metadata of {package} is bigger than {} MiB. Not installed.", MAX_METADATA / 1024 / 1024))?;
+    let text = get(http, &url, ACCEPT, MAX_METADATA, METADATA_TIMEOUT, &format!("The registry's metadata of {package} is bigger than {} MiB. Not installed.", MAX_METADATA / 1024 / 1024))?;
     parse_releases(&text, package)
 }
 
@@ -239,8 +251,9 @@ pub struct Fetched {
 /// [`MAX_FILES`] files) unpacked, or holds anything but files and folders
 /// under `package/` ([`unpack`]); no `extension.json` at the package's
 /// root, one that can't be used, of another extension or another version.
-pub fn fetch(registry: &str, package: &str, version: &str, integrity: Option<&str>, id: Option<&str>, work: &Path, via: &[(String, String)]) -> Result<Fetched, String> {
-    let list = releases(registry, package, via)?;
+#[allow(clippy::too_many_arguments)]
+pub fn fetch(registry: &str, package: &str, version: &str, integrity: Option<&str>, id: Option<&str>, work: &Path, via: &[(String, String)], http: &dyn Http) -> Result<Fetched, String> {
+    let list = releases(registry, package, via, http)?;
     let r = list.into_iter().find(|r| r.version == version).ok_or_else(|| format!("Version {version} of {package} isn't on the registry."))?;
     let Some(sri) = r.integrity.clone() else {
         return Err(refusal(package, &r, None, None).unwrap_or_default());
@@ -249,7 +262,7 @@ pub fn fetch(registry: &str, package: &str, version: &str, integrity: Option<&st
         return Err(changed_text(package, version, was, &sri));
     }
     check_tarball_url(&r.tarball)?;
-    let bytes = get(&routed(&r.tarball, via), "application/octet-stream", MAX_BYTES, TARBALL_TIMEOUT, &format!("It is bigger than {} MiB. Not installed.", MAX_BYTES / 1024 / 1024))?;
+    let bytes = get(http, &routed(&r.tarball, via), "application/octet-stream", MAX_BYTES, TARBALL_TIMEOUT, &format!("It is bigger than {} MiB. Not installed.", MAX_BYTES / 1024 / 1024))?;
     if integrity_of(&bytes) != sri {
         return Err(format!("The download of {package} {version} doesn't match the integrity the registry gives for it ({}). Not installed.", short(&sri)));
     }

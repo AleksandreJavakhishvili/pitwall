@@ -23,14 +23,11 @@ notify = "8"
 regex = "1"
 # Unified diffs of library rules against projects' copies (rules::project); already in the tree via the app.
 similar = "2"
-# Extensions from an npm package (extensions::npm): Pitwall fetches the
-# registry's metadata and the version's tarball itself over https, with no
-# credentials and no prompts, and never runs npm or node. ureq (MIT OR
-# Apache-2.0) is new in the tree, with rustls and Mozilla's roots
-# (webpki-roots) on ring; ring, flate2 (the .tgz), base64 (the SRI
-# integrity) were already in it.
-ureq = "2.12"
-ring = "0.17.14"
+# Extensions from an npm package (extensions::npm): the tarball's sha512
+# integrity (sha2), its base64 (base64) and its gzip (flate2); all pure
+# Rust, MIT OR Apache-2.0, already in the tree. The https requests are the
+# host's (`npm::Http`; the app's uses ureq), so this crate builds no C.
+sha2 = "0.10"
 flate2 = "1"
 base64 = "0.22"
 pitwall-detect = { path = "../pitwall-detect" }

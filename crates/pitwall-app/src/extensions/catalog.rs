@@ -226,7 +226,7 @@ pub fn check_one(id: &str, cx: &mut App) {
         }
         Source::Npm { package, registry } => {
             let (package, registry, via) = (package.clone(), registry.clone(), npm_via(cx));
-            cx.background_executor().spawn(async move { (install::local(&folder).origin, Listed::Npm(npm::releases(&registry, &package, &via))) })
+            cx.background_executor().spawn(async move { (install::local(&folder).origin, Listed::Npm(npm::releases(&registry, &package, &via, &super::https::Https))) })
         }
     };
     let (id, version) = (id.to_string(), m.version.clone());
@@ -329,7 +329,7 @@ pub fn prepare(id: &str, offer: Offer, cx: &mut App, done: impl FnOnce(Result<Pr
         Origin::Npm { package, registry, version, integrity } => {
             let (via, id) = (npm_via(cx), id.to_string());
             cx.background_executor().spawn(async move {
-                let f = npm::fetch(&registry, &package, &version, Some(&integrity), Some(&id), &data, &via)?;
+                let f = npm::fetch(&registry, &package, &version, Some(&integrity), Some(&id), &data, &via, &super::https::Https)?;
                 Ok(Offer { manifest: f.manifest, folder: f.folder, origin: Origin::Npm { package, registry, version, integrity } })
             })
         }
@@ -433,7 +433,7 @@ pub fn prepare_from_npm(package: &str, registry: &str, cx: &mut App, done: impl 
     };
     let via = npm_via(cx);
     let job = cx.background_executor().spawn(async move {
-        let list = npm::releases(&registry, &package, &via)?;
+        let list = npm::releases(&registry, &package, &via, &super::https::Https)?;
         // The newest stable version (a pre-release when there is no
         // other).
         let Some(r) = npm::newest(&list, false).or_else(|| npm::newest(&list, true)) else {
@@ -443,7 +443,7 @@ pub fn prepare_from_npm(package: &str, registry: &str, cx: &mut App, done: impl 
             return Err(why);
         }
         let integrity = r.integrity.clone().unwrap_or_default();
-        let f = npm::fetch(&registry, &package, &r.version, Some(&integrity), None, &data, &via)?;
+        let f = npm::fetch(&registry, &package, &r.version, Some(&integrity), None, &data, &via, &super::https::Https)?;
         let origin = install::local(&data.join(&f.manifest.id)).origin;
         Ok((Offer { manifest: f.manifest, folder: f.folder, origin: Origin::Npm { package, registry, version: f.release.version, integrity } }, origin))
     });

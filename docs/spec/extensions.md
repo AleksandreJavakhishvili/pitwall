@@ -169,7 +169,7 @@ Status: built, unreleased. The same updates as from a git source, from
 an npm package's versions. Code: `pitwall_core::extensions::npm`
 (metadata, versions, download, integrity, unpacking),
 `pitwall_core::extensions::install` (the npm origin and its marker),
-`crate::extensions::catalog` (checks, offers, Add from npm),
+`crate::extensions::catalog` (checks, offers, Add from npm), `crate::extensions::https` (the https client),
 `settings/extensions/updates.rs`.
 - **A source** naming a package: `"source": {"npm": "@me/x"}`, optionally
   with `"registry"` (`https://` only, no user or password; default
@@ -187,7 +187,7 @@ an npm package's versions. Code: `pitwall_core::extensions::npm`
   left out, as from a git release.
 - **Checking** reads the registry's metadata of the package
   (`<registry>/<package>`, a scoped name's `/` as `%2f`, asking for npm's
-  abbreviated install format), Pitwall's own request over https (ureq,
+  abbreviated install format), Pitwall's own request over https (`npm::Http`; the app's is ureq,
   rustls with Mozilla's roots): no credentials (no `.npmrc`, token or
   cookie), no proxy, no prompt; 15 s to connect, 30 s for the metadata, at
   most 5 MiB of it. At start, once a day and with "Check for updates",
