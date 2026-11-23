@@ -90,6 +90,13 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// Make folder `dir` readable and writable by this user only (mode 700):
+/// an extension service's data.
+pub fn make_private(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
 /// Set a file's permission bits (tests).
 #[cfg(test)]
 pub fn set_mode(file: &Path, mode: u32) -> io::Result<()> {

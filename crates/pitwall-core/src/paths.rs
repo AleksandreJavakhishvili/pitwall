@@ -83,6 +83,13 @@ impl Paths {
         self.root.join("extensions")
     }
 
+    /// The private data of extension `id`'s service (its `{data}`):
+    /// outside its installed folder, so an update or Go back never
+    /// touches it (docs/spec/extensions.md, "A service").
+    pub fn extension_data_dir(&self, id: &str) -> PathBuf {
+        self.root.join("extension-data").join(id)
+    }
+
     /// Where versions before 0.1 made agent worktrees. Pitwall no longer creates
     /// any; agents still working in one keep their stored path.
     pub fn legacy_worktrees_dir(&self) -> PathBuf {

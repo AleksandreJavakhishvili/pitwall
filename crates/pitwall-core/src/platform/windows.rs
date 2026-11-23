@@ -156,6 +156,12 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     }
 }
 
+/// Make folder `dir` this user's only: under the user's own profile
+/// (`%APPDATA%`) it already is, by its inherited access list.
+pub fn make_private(_dir: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 /// Set a file's permission bits (tests): Windows has none.
 #[cfg(test)]
 pub fn set_mode(_file: &Path, _mode: u32) -> io::Result<()> {

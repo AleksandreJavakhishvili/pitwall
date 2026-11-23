@@ -30,6 +30,29 @@ pub(crate) fn spawn_grouped(program: &Path, args: &[String], dir: &Path, path: O
     if let Some(p) = path {
         cmd.env("PATH", p);
     }
+    let (g, stdin, stdout, stderr) = spawn_in_group(cmd)?;
+    let Some(stdin) = stdin else {
+        let mut g = g;
+        g.kill_group();
+        return Err(io::Error::other("no pipes"));
+    };
+    Ok((g, stdin, stdout, stderr))
+}
+
+/// Start `program` with `args` in `dir` with exactly the variables `env`
+/// (nothing else of this process's environment) and no stdin, in a group
+/// of its own, its stdout and stderr piped (an extension's service).
+pub(crate) fn spawn_grouped_env(program: &Path, args: &[String], dir: &Path, env: &[(String, String)]) -> io::Result<(Grouped, ChildStdout, ChildStderr)> {
+    let mut cmd = Command::new(program);
+    cmd.args(args).current_dir(dir).env_clear().envs(env.iter().map(|(k, v)| (k, v))).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let (g, stdin, stdout, stderr) = spawn_in_group(cmd)?;
+    drop(stdin);
+    Ok((g, stdout, stderr))
+}
+
+/// Spawn `cmd` in a group (a job) of its own; a pipe it has none of is
+/// one to nothing.
+fn spawn_in_group(mut cmd: Command) -> io::Result<(Grouped, Option<ChildStdin>, ChildStdout, ChildStderr)> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -42,7 +65,8 @@ pub(crate) fn spawn_grouped(program: &Path, args: &[String], dir: &Path, path: O
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     let mut child = cmd.spawn()?;
-    let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
+    let stdin = child.stdin.take();
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         let _ = child.kill();
         let _ = child.wait();
         return Err(io::Error::other("no pipes"));
@@ -66,6 +90,31 @@ impl Grouped {
             Ok(Some(status)) => Some(status.code()),
             Ok(None) => None,
             Err(_) => Some(None),
+        }
+    }
+
+    /// Ask it and everything in its group to stop (Unix: `SIGTERM` to the
+    /// group), without waiting; false where there is no such asking
+    /// (Windows: a job is only terminated), or once it was killed.
+    pub(crate) fn term_group(&mut self) -> bool {
+        if self.killed {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            let pgid = self.child.id() as libc::pid_t;
+            if pgid > 0 {
+                // SAFETY: a plain syscall on a group this process made.
+                unsafe {
+                    libc::kill(-pgid, libc::SIGTERM);
+                }
+                return true;
+            }
+            false
+        }
+        #[cfg(not(unix))]
+        {
+            false
         }
     }
 
@@ -181,5 +230,35 @@ mod tests {
         }
         assert!(!alive(child), "its child stopped with it");
         assert!(g.exited().is_some());
+    }
+
+    /// A service gets exactly the variables given (none of this
+    /// process's, such as cargo's), and asked to stop, its whole group
+    /// gets `SIGTERM` (its trap runs; what it started stops too).
+    #[test]
+    fn a_service_gets_only_its_environment_and_is_asked_to_stop() {
+        let t = crate::testing::TempDir::new("group-env");
+        let script = "trap 'echo bye; exit 0' TERM\necho \"$HOME|${CARGO_PKG_NAME:-none}|$PATH\"\nsleep 30 &\necho $!\nwait\n";
+        let env = [("HOME".to_string(), "/h".to_string()), ("PATH".to_string(), "/usr/bin:/bin".to_string())];
+        let (mut g, stdout, _err) = spawn_grouped_env(Path::new("/bin/sh"), &["-c".into(), script.into()], t.path(), &env).unwrap();
+        let mut out = BufReader::new(stdout);
+        let mut line = String::new();
+        out.read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "/h|none|/usr/bin:/bin");
+        line.clear();
+        out.read_line(&mut line).unwrap();
+        let child: i32 = line.trim().parse().unwrap();
+        // Its child is `sleep` by now (a fork not yet exec'd still has the
+        // shell's trap).
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(g.term_group());
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while (g.exited().is_none() || alive(child)) && std::time::Instant::now() < end {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(g.exited(), Some(Some(0)), "it stopped by itself, asked");
+        assert!(!alive(child), "what it started stopped too");
+        g.kill_group();
+        assert!(!g.term_group(), "nothing to ask once killed");
     }
 }
