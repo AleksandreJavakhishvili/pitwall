@@ -252,6 +252,12 @@ pub fn main_window(label: &str, cx: &mut App) -> Option<WindowHandle<MainView>> 
     state(cx).handle(label).filter(|h| live.contains(&h.window_id()))
 }
 
+/// Every open Pitwall window (main included).
+pub fn main_windows(cx: &mut App) -> Vec<WindowHandle<MainView>> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    state(cx).open.iter().map(|(_, h)| *h).filter(|h| live.contains(&h.window_id())).collect()
+}
+
 /// The open Pitwall windows front to back, with their frames (only those
 /// that can take a drop: shown, on this Space).
 pub fn frames_front_to_back(cx: &mut App) -> Vec<(String, WindowHandle<MainView>, Bounds<Pixels>)> {

@@ -309,6 +309,10 @@ pub struct UiState {
     /// An inbox window's place and size, as `files_window`.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub inbox_window: Option<[f64; 4]>,
+    /// Settings is in a window of its own (opened in one again at the next
+    /// start; `main_screen::settings_tile`).
+    #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
+    pub settings_window: bool,
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
@@ -390,6 +394,7 @@ impl Default for UiState {
             files_window: None,
             web_window: None,
             inbox_window: None,
+            settings_window: false,
             docked_files: BTreeMap::new(),
             files_windows: BTreeMap::new(),
             web_tiles: BTreeMap::new(),
@@ -522,11 +527,16 @@ impl UiState {
         match s {
             Surface::Inbox(_) => e.is_some_and(|e| e.window),
             Surface::View(_, v) => e.is_some_and(|e| e.view_windows.contains(v)),
+            Surface::Settings => self.settings_window,
         }
     }
 
     /// `s` kept in a window of its own, or not.
-    fn surface_window(self, s: &Surface, on: bool) -> UiState {
+    fn surface_window(mut self, s: &Surface, on: bool) -> UiState {
+        if *s == Surface::Settings {
+            self.settings_window = on;
+            return self;
+        }
         self.with_extension(s.ext(), |e| match s {
             Surface::Inbox(_) => e.window = on,
             Surface::View(_, v) => {
@@ -535,6 +545,7 @@ impl UiState {
                     e.view_windows.push(v.clone());
                 }
             }
+            Surface::Settings => {}
         })
     }
 

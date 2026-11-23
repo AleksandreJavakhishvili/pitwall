@@ -7,6 +7,12 @@
 //!
 //! The pages themselves are in [`super::pages`].
 //!
+//! The same view is also drawn in a tile of the layout, or a window of its
+//! own (`crate::main_screen::settings_tile`, docs/spec/layout.md "The
+//! Settings tile"): without its header (the tile's bar stands in), at the
+//! tile's full size, and in a narrow tile with the page list as a row of
+//! pages over the page instead of a column beside it.
+//!
 //! A page is drawn as a list of [`Part`]s (its sections, and the rows of
 //! a long one) by `gpui::list`, in a view of its own ([`PageBody`]): a
 //! scroll step notifies that view and builds, lays out and paints only the
@@ -14,12 +20,13 @@
 //! Every part is measured again when Settings or what it shows changes.
 
 use std::collections::hash_map::DefaultHasher;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, prelude::*, px, AnyElement, App, Context, Entity, EventEmitter, FocusHandle,
+    actions, canvas, div, prelude::*, px, AnyElement, App, Context, Entity, EventEmitter, FocusHandle,
     Focusable, KeyBinding, ListAlignment, ListState, Subscription, Task, WeakEntity, Window,
 };
 
@@ -51,6 +58,8 @@ pub const WIDTH: f32 = 720.;
 pub const HEIGHT: f32 = 540.;
 /// The page list's width.
 pub const NAV_WIDTH: f32 = 164.;
+/// In a tile narrower than this, the page list is a row over the page.
+pub const NARROW: f32 = 560.;
 
 /// What builds one part of a page.
 pub(super) type Build = Rc<dyn Fn(&mut SettingsView, &Ui, &mut Window, &mut Context<SettingsView>) -> AnyElement>;
@@ -120,6 +129,9 @@ pub enum SettingsEvent {
     Started(Box<pitwall_proto::AgentView>),
     /// "Scan again" (opens the rescan screen in place of Settings).
     ScanAgain,
+    /// The dialog's "Open as a tile": this same view (its unsaved fields
+    /// with it) goes into a tile of the layout and the dialog closes.
+    ToTile,
 }
 
 pub struct SettingsView {
@@ -165,6 +177,10 @@ pub struct SettingsView {
     /// Each item's focus handle: a field in a part keeps it drawn while it
     /// has focus, scrolled out of view or not (a field not drawn loses it).
     part_focus: HashMap<u64, FocusHandle>,
+    /// Drawn in a tile or a window of its own (no header, its full size).
+    tiled: bool,
+    /// Its width as last drawn (`-1`: not yet), for a narrow tile.
+    width: Rc<Cell<f32>>,
     /// Parts built (tests).
     #[cfg(test)]
     pub(super) built: usize,
@@ -293,6 +309,8 @@ impl SettingsView {
             shown: None,
             changed: true,
             part_focus: HashMap::new(),
+            tiled: false,
+            width: Rc::new(Cell::new(-1.)),
             #[cfg(test)]
             built: 0,
             _tasks: tasks,
@@ -429,6 +447,31 @@ impl SettingsView {
         .detach();
     }
 
+    /// Drawn in a tile (or a window of its own), or in the dialog.
+    pub fn set_tiled(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.tiled != on {
+            self.tiled = on;
+            self.width.set(-1.);
+            cx.notify();
+        }
+    }
+
+    pub fn tiled(&self) -> bool {
+        self.tiled
+    }
+
+    /// In a tile too narrow for the page list beside the page.
+    pub fn narrow(&self) -> bool {
+        self.tiled && (0. ..NARROW).contains(&self.width.get())
+    }
+
+    /// Extension `id`'s card unfolded on the Extensions page (an agent's
+    /// `show_settings` naming it).
+    pub fn open_extension(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.exts_open(id);
+        cx.notify();
+    }
+
     pub(super) fn go_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         self.go(page, window, cx);
     }
@@ -563,7 +606,9 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn nav(&self, ui: &Ui, page: Page, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+    /// The page list: a column beside the page, or (`row`: a narrow tile)
+    /// the pages wrapped in rows over it.
+    fn nav(&self, ui: &Ui, page: Page, row: bool, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let t = &ui.t;
         let (hover_bg, on_bg) = if t.is_glass() {
             (t.g.surface_2, t.g.surface_3)
@@ -572,19 +617,18 @@ impl SettingsView {
         };
         div()
             .id("settings-nav")
+            .debug_selector(|| "settings-nav".into())
             .track_focus(&self.focus)
             .key_context(NAV_CONTEXT)
             .on_action(cx.listener(Self::prev_page))
             .on_action(cx.listener(Self::next_page))
-            .w(px(NAV_WIDTH))
             .flex_none()
             .flex()
-            .flex_col()
             .gap(px(1.))
             .px(px(8.))
             .py(px(8.))
-            .border_r_1()
             .border_color(t.line)
+            .map(|d| if row { d.w_full().flex_row().flex_wrap().border_b_1() } else { d.w(px(NAV_WIDTH)).flex_col().border_r_1() })
             .children(shown_pages(cx).into_iter().enumerate().map(|(i, p)| {
                 let on = p == page;
                 div()
@@ -599,6 +643,8 @@ impl SettingsView {
                     .text_color(if on { t.text } else { t.text_2 })
                     .when(on, |d| d.bg(on_bg).font_weight(crate::kit::WEIGHT_550))
                     .when(!on, |d| d.hover_text(t.text, |s| s.bg(hover_bg)))
+                    // (After the hover: a test build's probe names it too.)
+                    .debug_selector(move || format!("settings-page-{}", p.id()))
                     .on_click(cx.listener(move |v, _, window, cx| v.go(p, window, cx)))
                     .child(p.label())
             }))
@@ -610,6 +656,12 @@ impl Render for SettingsView {
         let ui = Ui::new(crate::kit::pop::theme_in(window, cx));
         let t = ui.t.clone();
         let page = data::page(cx);
+        // "Open as a tile": only where there is a layout (an engine runs).
+        let to_tile = self.live.then(|| {
+            crate::kit::icon_btn("settings-to-tile", "grid", "Open as a tile in the layout", true, &ui.t)
+                .debug_selector(|| "settings-to-tile".into())
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ToTile)))
+        });
         let head = div()
             .flex()
             .flex_none()
@@ -624,13 +676,21 @@ impl Render for SettingsView {
             // `.label-lg`: Barlow Condensed 600, 15 px, 0.08em.
             .child(crate::kit::label_t("Settings", t.text, 15., 0.08))
             .child(
-                crate::kit::glyph_btn("settings-close", "✕", &ui.t)
-                    .tooltip(tooltip("Close (esc)"))
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .children(to_tile)
+                    .child(
+                        crate::kit::glyph_btn("settings-close", "✕", &ui.t)
+                            .tooltip(tooltip("Close (esc)"))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
+                    ),
             );
         self.sync(page, window, cx);
         let body = div()
             .id("settings-page-body")
+            .debug_selector(|| "settings-page-body".into())
             .flex_1()
             .min_w_0()
             .min_h_0()
@@ -640,6 +700,46 @@ impl Render for SettingsView {
             .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
             .child(self.body.clone());
+        if self.tiled {
+            // Its full size, measured: a narrow tile has the page list
+            // over the page.
+            let width = self.width.clone();
+            let me = cx.entity().downgrade();
+            let measure = canvas(
+                move |b, _, cx| {
+                    let w = f32::from(b.size.width);
+                    if (width.get() - w).abs() > 0.5 {
+                        let was = (0. ..NARROW).contains(&width.get());
+                        width.set(w);
+                        if was != (w < NARROW) {
+                            // Drawn again at its width (a view is redrawn
+                            // only when it says so).
+                            let me = me.clone();
+                            cx.defer(move |cx| {
+                                let _ = me.update(cx, |_, cx| cx.notify());
+                            });
+                        }
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full();
+            let narrow = self.narrow();
+            return div()
+                .id("settings-tiled")
+                .debug_selector(|| "settings-tiled".into())
+                .relative()
+                .size_full()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .when(narrow, |d| d.flex_col())
+                .child(measure)
+                .child(self.nav(&ui, page, narrow, cx))
+                .child(body)
+                .into_any_element();
+        }
         div()
             .flex()
             .flex_col()
@@ -652,9 +752,10 @@ impl Render for SettingsView {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(self.nav(&ui, page, cx))
+                    .child(self.nav(&ui, page, false, cx))
                     .child(body),
             )
+            .into_any_element()
     }
 }
 

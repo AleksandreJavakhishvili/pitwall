@@ -206,6 +206,17 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         .keys("⌘L")
         .rank(rank::TERMINALS),
     );
+    out.push(
+        Command::new(
+            "settings-tile",
+            "Open Settings as a tile",
+            "open settings as a tile preferences pane slot",
+            on_screen(pc, |s, w, cx| s.open_settings_tile(None, w, cx)),
+        )
+        .icon("gear")
+        .query_only()
+        .rank(rank::TERMINALS),
+    );
     // Each extension's inbox (the first one on ⌘I).
     for (i, m) in crate::extensions::inboxes(cx).into_iter().enumerate() {
         let id = m.id.clone();

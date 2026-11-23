@@ -5,7 +5,9 @@
 //! `web`, the tile's id in `ui.json` `webTiles`, which holds its address),
 //! or an extension's inbox (an inbox tile: `inbox`, the extension's id; one
 //! per extension), or one of an extension's views (a view tile: `view`,
-//! `<extension>/<view>`; one per view; an older Pitwall shows it empty).
+//! `<extension>/<view>`; one per view; an older Pitwall shows it empty),
+//! or Pitwall's Settings (a Settings tile: `settings: true`; one at most,
+//! its page is `ui.json`'s `settingsPage`).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -53,6 +55,9 @@ pub enum Node {
         /// A view tile: `<extension>/<view>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         view: Option<String>,
+        /// The Settings tile.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        settings: bool,
     },
     Split {
         id: String,
@@ -76,12 +81,14 @@ pub struct Pane {
     pub inbox: Option<String>,
     /// A view tile: `<extension>/<view>`.
     pub view: Option<String>,
+    /// The Settings tile.
+    pub settings: bool,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none()
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings
     }
 
     /// What a tile that isn't a terminal shows (a files or web tile).
@@ -91,6 +98,7 @@ impl Pane {
             (None, Some(w), _, _) => Some(Content::Web(w.clone())),
             (None, None, Some(x), _) => Some(Content::Inbox(x.clone())),
             (None, None, None, Some(v)) => Some(Content::View(v.clone())),
+            _ if self.settings => Some(Content::Settings),
             _ => None,
         }
     }
@@ -107,22 +115,30 @@ pub enum Content {
     Inbox(String),
     /// One of an extension's views (`<extension>/<view>`).
     View(String),
+    /// Pitwall's Settings (one at most).
+    Settings,
 }
 
-/// What an extension draws in a tile or a window of its own: its inbox,
-/// or one of its views. Kept as a key (`<extension>`, or
-/// `<extension>/<view>`: ids never have a `/`).
+/// What is drawn in a tile or a window of its own by one view wherever
+/// it is: an extension's inbox, one of its views, or Settings. Kept as a
+/// key (`<extension>`, `<extension>/<view>`, or [`SETTINGS_KEY`]: ids
+/// never have a `/` nor an `@`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Surface {
     Inbox(String),
     View(String, String),
+    Settings,
 }
 
+/// Settings' surface key.
+pub const SETTINGS_KEY: &str = "@settings";
+
 impl Surface {
-    /// The extension it is of.
+    /// The extension it is of (none: Settings).
     pub fn ext(&self) -> &str {
         match self {
             Surface::Inbox(e) | Surface::View(e, _) => e,
+            Surface::Settings => "",
         }
     }
 
@@ -131,11 +147,15 @@ impl Surface {
         match self {
             Surface::Inbox(e) => e.clone(),
             Surface::View(e, v) => format!("{e}/{v}"),
+            Surface::Settings => SETTINGS_KEY.to_string(),
         }
     }
 
     /// The surface key `key` is of.
     pub fn parse(key: &str) -> Surface {
+        if key == SETTINGS_KEY {
+            return Surface::Settings;
+        }
         match key.split_once('/') {
             Some((e, v)) => Surface::View(e.to_string(), v.to_string()),
             None => Surface::Inbox(key.to_string()),
@@ -147,14 +167,16 @@ impl Surface {
         match self {
             Surface::Inbox(e) => Content::Inbox(e.clone()),
             Surface::View(..) => Content::View(self.key()),
+            Surface::Settings => Content::Settings,
         }
     }
 
-    /// The surface a tile's content is, if it is an extension's.
+    /// The surface a tile's content is, if it is one.
     pub fn of(c: &Content) -> Option<Surface> {
         match c {
             Content::Inbox(e) => Some(Surface::Inbox(e.clone())),
             Content::View(k) => Some(Surface::parse(k)),
+            Content::Settings => Some(Surface::Settings),
             _ => None,
         }
     }
@@ -283,6 +305,7 @@ impl Node {
             web: None,
             inbox: None,
             view: None,
+            settings: false,
         }
     }
 
@@ -293,7 +316,7 @@ impl Node {
 
     /// A tile showing `c`.
     pub fn content_pane(c: &Content) -> Node {
-        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None }.showing(c)
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false }.showing(c)
     }
 
     /// This pane showing `c` instead (its id kept); a split is unchanged.
@@ -305,8 +328,10 @@ impl Node {
                     Content::Web(w) => (None, Some(w.clone()), None, None),
                     Content::Inbox(x) => (None, None, Some(x.clone()), None),
                     Content::View(v) => (None, None, None, Some(v.clone())),
+                    Content::Settings => (None, None, None, None),
                 };
-                Node::Pane { id, agent_id: None, files, web, inbox, view }
+                let settings = *c == Content::Settings;
+                Node::Pane { id, agent_id: None, files, web, inbox, view, settings }
             }
             n => n,
         }
@@ -352,13 +377,14 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
                 web: web.clone(),
                 inbox: inbox.clone(),
                 view: view.clone(),
+                settings: *settings,
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -395,15 +421,17 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view } => {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings } => {
                 let agent_id = f(id, agent_id);
-                // An agent put in a files, web, inbox or view tile takes it.
+                // An agent put in a files, web, inbox, view or Settings tile
+                // takes it.
                 let taken = agent_id.is_some();
                 let files = if taken { None } else { files.clone() };
                 let web = if taken { None } else { web.clone() };
                 let inbox = if taken { None } else { inbox.clone() };
                 let view = if taken { None } else { view.clone() };
-                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view }
+                let settings = !taken && *settings;
+                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings }
             }
             Node::Split {
                 id,

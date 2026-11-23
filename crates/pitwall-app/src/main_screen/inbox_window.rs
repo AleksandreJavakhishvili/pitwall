@@ -17,7 +17,9 @@
 //! An extension's views ([`super::view_tile`]) move the same way: each
 //! function here takes a surface's key ([`Surface::key`]: the extension's
 //! id for its inbox, `<extension>/<view>` for a view), and a view in a
-//! window is kept in `extensions.<id>.viewWindows`.
+//! window is kept in `extensions.<id>.viewWindows`. So does the Settings
+//! tile ([`super::settings_tile`], key [`super::tree::SETTINGS_KEY`]), kept in a window
+//! with `settingsWindow`.
 
 use std::time::Duration;
 
@@ -43,11 +45,15 @@ pub struct InboxWindow {
 /// view's title.
 pub fn title(key: &str, cx: &App) -> String {
     let s = Surface::parse(key);
+    if s == Surface::Settings {
+        return "Settings".into();
+    }
     let m = crate::extensions::manifest_of(s.ext(), cx);
     let name = m.as_ref().map(|m| m.name.clone()).unwrap_or_else(|| s.ext().to_string());
     match &s {
         Surface::Inbox(_) => format!("{name} — Inbox"),
         Surface::View(_, v) => format!("{name} — {}", m.as_ref().and_then(|m| m.contributes.view(v)).map_or(v.as_str(), |d| d.title.as_str())),
+        Surface::Settings => "Settings".into(),
     }
 }
 
@@ -74,6 +80,7 @@ impl InboxWindow {
                 cx.defer(move |cx| match Surface::parse(&ext) {
                     Surface::Inbox(e) => inbox_tile::close(&e, cx),
                     Surface::View(..) => super::view_tile::close(&ext, cx),
+                    Surface::Settings => super::settings_tile::close(cx),
                 });
             }
             true
@@ -149,6 +156,12 @@ fn held(key: &str, cx: &mut App) -> (gpui::AnyView, FocusHandle) {
             let f = gpui::Focusable::focus_handle(v.read(cx), cx);
             (v.into(), f)
         }
+        Surface::Settings => {
+            let v = super::settings_tile::view(cx);
+            v.update(cx, |v, cx| v.held(true, cx));
+            let f = gpui::Focusable::focus_handle(v.read(cx), cx);
+            (v.into(), f)
+        }
     }
 }
 
@@ -192,6 +205,9 @@ pub fn restore(cx: &mut App) {
         }
         kept.extend(e.view_windows.iter().map(|v| Surface::View(id.clone(), v.clone())));
     }
+    if ui.surface_in_window(&Surface::Settings) {
+        kept.push(Surface::Settings);
+    }
     for s in kept {
         // An extension no longer found, or a view its manifest no longer
         // has: forgotten.
@@ -199,6 +215,7 @@ pub fn restore(cx: &mut App) {
         let there = match &s {
             Surface::Inbox(_) => m.is_some(),
             Surface::View(_, v) => m.is_some_and(|m| m.contributes.view(v).is_some()),
+            Surface::Settings => true,
         };
         if !there {
             crate::ui_state::update(cx, |ui| *ui = ui.clone().close_surface(&s));
@@ -280,6 +297,7 @@ pub fn described(ext: &str, cx: &mut App) -> String {
     let tile = match &s {
         Surface::Inbox(_) => "the inbox tile".to_string(),
         Surface::View(_, v) => format!("the view tile “{v}”"),
+        Surface::Settings => "the Settings tile".to_string(),
     };
     format!("{tile} in space {} (window {}), {at}", sp.name, ui.window_of_space(&space))
 }
