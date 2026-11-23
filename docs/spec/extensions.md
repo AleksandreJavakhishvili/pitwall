@@ -299,8 +299,9 @@ an npm package's versions. Code: `pitwall_core::extensions::npm`
   is a name looked up on the login shell's PATH, not a path or a
   placeholder; arguments may use `{setting:KEY}` of a plain setting,
   never a secret. Optional `for`: the agent kind it is for (`claude`,
-  `codex`, …). Optional `optional: true`: its failure doesn't stop the
-  steps after it.
+  `codex`, …): it runs for that tool's default folder and for each of
+  Pitwall's accounts of it ("Setup actions" below). Optional
+  `optional: true`: its failure doesn't stop the steps after it.
 - `source` (optional): where its updates come from ("Updates from a git
   source" above): `git`, an `https://` address of at most 300
   characters without a user or password; `dir` (optional), the folder in
@@ -618,7 +619,8 @@ Status: built below the screens (docs/spec/profiles.md has the design).
   settings` key (the registry has fixed keys; these are the extensions'
   ids); editing `ui.json` applies live, as for other settings.
 - It is turned off in Settings only. Extensions have no place in the
-  sidebar.
+  sidebar. Turning it off uninstalls nothing its setup actions installed
+  (a "remove" action does, when pressed).
 
 ## The inbox tile
 An extension with an adapter has an inbox: a tile of the space's layout,
@@ -940,12 +942,25 @@ as installing a tool's plugin in the user's agents. Code:
 `pitwall_core::extensions::Action`, `crate::extensions::actions`.
 - Settings shows each action of an extension that is on as a button
   with its label, its description beside it.
+- **Every place a tool's agents run from.** A step `for` a kind runs
+  once per place that kind's agents can run from on this computer: the
+  tool's default config folder, then each of Pitwall's accounts of that
+  kind (`accounts.json`, local accounts only), each with exactly the
+  environment Pitwall launches that account's agents with
+  (`pitwall_core::accounts::env`: the kind's `account_env` set to the
+  account's folder; the default folder gets the app's own environment).
+  Consecutive steps for one kind run as a block for each place in turn
+  (default, then the accounts in their order). A step without `for` runs
+  once. Code: `pitwall_core::extensions::plan::plan_for`.
 - **Pressing it runs nothing.** It opens a confirmation listing each
   command exactly as it will run, one per line (arguments with spaces
   quoted for reading; no shell is involved), and each step that will be
   skipped with why: its program isn't installed ("Codex isn't
   installed", for a step `for` a kind), or a setting it uses isn't set
-  ("set Server address first"). Run and Cancel.
+  ("set Server address first"). With accounts, the commands are grouped
+  under where they run ("Claude Code, default", "Claude Code, account
+  Work"; "Once" for steps for no tool), so nothing runs that wasn't
+  shown. Run and Cancel.
 - After Run: the steps run in order, off the UI thread, in the user's
   home folder, each with a 3-minute timeout and its output kept short.
   The step list shows from the moment Run is pressed, each step with its
@@ -954,8 +969,11 @@ as installing a tool's plugin in the user's agents. Code:
   five lines), done, failed (why: the exit code and the last lines of
   output, or that it took too long and was stopped) or skipped (why). A
   failed step that isn't `optional` skips the later steps for the same
-  kind (or every later step when it is for none). At the end: "All set"
-  or "2 of 6 steps failed" ("Cancelled").
+  kind and account (or every later step when it is for none): a failure
+  for one account never hides another's result. With accounts, each
+  place's steps show under its name with how they stand (done, failed,
+  running). At the end: "All set" or "2 of 6 steps failed"
+  ("Cancelled").
 - **Cancel** while it runs stops the running step's program and skips
   the rest. "Run again" after it ends.
 - The run belongs to the app, not to Settings (`actions::Runs`):
@@ -971,6 +989,37 @@ as installing a tool's plugin in the user's agents. Code:
   to be run again; going back to the steps that ran ticks it again. A
   record from before digests is sealed with the steps its action has
   when Pitwall starts.
+- **A tick is for every account.** A run ticks its step when the steps
+  for the default folders (and for no tool) ran without a failure (an
+  `optional` step's failure doesn't count) and one was done; it keeps the
+  accounts it went through without a failure
+  (`extensions.<id>.actionAccounts`, by the same keys as `actionSteps`).
+  The step is ticked only while that covers every current account of the
+  kinds the action has steps for; otherwise it stays unticked with "Not
+  yet set up for: Claude Code, account Home" under it, and its button
+  plans the missing accounts only. A record without accounts (from
+  before they were kept) covers none: someone with accounts sees the
+  step unticked until those are covered.
+- **Accounts added later are covered by themselves.** Confirming a
+  `setup: true` action keeps a digest of the steps confirmed and when
+  (`extensions.<id>.actionConfirmed`). When an account of a targeted kind
+  is added, the extension is turned on, or Pitwall starts, Pitwall runs
+  that action by itself for the accounts its record doesn't cover (only
+  them, each with its environment) when the extension is on, its run is
+  recorded as done, and its steps' digest is the one confirmed. A record
+  from before confirmations were kept stands for one with its
+  `actionSteps` digest (the steps the user ran), except for a
+  development folder's extension. Steps changed since (an update) never
+  run by themselves: the step unticks and asks. The run shows on the card
+  like a pressed one, under "Set up for Claude Code, account Home, as you
+  confirmed on 23 Nov 2026", and its start and end go in the extension's
+  activity log. Each account is tried once per session: a failure shows
+  (on the card and as the unticked step with Run again) and isn't
+  retried until the user runs it. An account counts as covered only when
+  a step was done for it. Code: `crate::extensions::actions::auto_setup`.
+- Only `setup: true` actions run by themselves; others (installing a
+  server, a "remove" action) always need a press. Turning an extension
+  off removes nothing it installed.
 
 ## For authors
 The author's guide is [`docs/extensions/`](../extensions/README.md).

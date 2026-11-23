@@ -119,9 +119,15 @@ Plans setup actions and runs nothing:
 ```
 
 - `installed`: the programs taken as installed.
+- `accounts` (optional): per tool, the names of Pitwall accounts of it to
+  plan with, such as `{"claude": ["Work", "Home"]}`. A step `for` that
+  tool is planned for its default folder and then once for each, as
+  Settings would run it, so `lines` lists every command.
 - `expect`, for each action id: its `label`, and for each step its exact
-  command line (`lines`), why it would be skipped (`skips`, or `null`) and
-  whether it is `optional`.
+  command line (`lines`), why it would be skipped (`skips`, or `null`),
+  whether it is `optional`, and optionally where it runs (`for`: "Claude
+  Code, default", "Claude Code, account Work", or `null` for a step for
+  no tool).
 
 ### `env`
 

@@ -138,7 +138,13 @@ runs until the user presses one and confirms the exact commands listed.
     name looked up on PATH. Arguments may use `{setting:KEY}` of a plain
     setting.
   - `for`: optional, the agent kind it is for (`claude`, `codex`, …). The
-    step is skipped when that agent isn't installed.
+    step is skipped when that agent isn't installed. It runs once for the
+    tool's own config folder and once more for each Pitwall account of
+    that tool, with the environment Pitwall gives that account's agents
+    (Claude Code's `CLAUDE_CONFIG_DIR`, Codex's `CODEX_HOME`, …), so write
+    steps that work in any of them and can run again. Consecutive steps
+    for the same tool run together for each account. A step without
+    `for` runs once.
   - `optional: true`: its failure doesn't stop the steps after it.
 
 Check them with an [`actions` test](checks.md#actions).
@@ -146,6 +152,12 @@ Check them with an [`actions` test](checks.md#actions).
 When a release changes an action's steps (a new version pin, say), a
 user who ran it is asked to run it again: Pitwall remembers the steps
 each tick was for.
+
+A `setup: true` action the user confirmed also covers accounts added
+later: Pitwall runs the same steps for a new account of the tool by
+itself, while the extension is on and only while the steps are exactly
+the ones confirmed. Other actions always wait for a press, and nothing is
+removed when the extension is turned off.
 
 ## Releases from git
 
