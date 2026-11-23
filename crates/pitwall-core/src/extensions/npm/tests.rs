@@ -3,7 +3,7 @@
 //! this machine.
 
 use super::*;
-use crate::testing::npm::{gzip, tar, tgz, NpmRegistry, TarItem};
+use crate::testing::npm::{gzip, tar, tgz, LoopbackHttp, NpmRegistry, TarItem};
 use crate::testing::{npm_extension, TempDir};
 
 const REGISTRY: &str = "https://registry.example.com";
@@ -90,12 +90,12 @@ fn a_version_is_listed_and_fetched() {
     let reg = NpmRegistry::start(REGISTRY);
     let i1 = reg.publish(PKG, "1.0.0", &npm_extension(PKG, REGISTRY, "inbox", "1.0.0", "// 1", "[]"));
     reg.publish(PKG, "1.1.0", &npm_extension(PKG, REGISTRY, "inbox", "1.1.0", "// 2", "[]"));
-    let list = releases(REGISTRY, PKG, &reg.via()).unwrap();
+    let list = releases(REGISTRY, PKG, &reg.via(), &LoopbackHttp).unwrap();
     assert_eq!(list.iter().map(|r| r.version.as_str()).collect::<Vec<_>>(), ["1.1.0", "1.0.0"]);
     assert_eq!(list[1].integrity.as_deref(), Some(i1.as_str()));
     let t = TempDir::new("npm-fetch");
     let work = t.path().join("data/extensions");
-    let f = fetch(REGISTRY, PKG, "1.1.0", list[0].integrity.as_deref(), Some("inbox"), &work, &reg.via()).unwrap();
+    let f = fetch(REGISTRY, PKG, "1.1.0", list[0].integrity.as_deref(), Some("inbox"), &work, &reg.via(), &LoopbackHttp).unwrap();
     assert_eq!(f.manifest.version.as_deref(), Some("1.1.0"));
     assert_eq!(std::fs::read_to_string(f.folder.join("adapter/main.mjs")).unwrap(), "// 2");
     assert_eq!(names(&f.folder), ["adapter", "bin", "extension.json", "package.json"]);
@@ -113,7 +113,7 @@ fn a_version_is_listed_and_fetched() {
     assert!(reg.requests()[0].starts_with("GET /@me%2finbox ") && reg.requests()[0].contains("application/vnd.npm.install-v1+json"), "{:?}", reg.requests());
     // The older one, with any id.
     std::fs::remove_dir_all(&f.folder).unwrap();
-    let f = fetch(REGISTRY, PKG, "1.0.0", None, None, &work, &reg.via()).unwrap();
+    let f = fetch(REGISTRY, PKG, "1.0.0", None, None, &work, &reg.via(), &LoopbackHttp).unwrap();
     assert_eq!(std::fs::read_to_string(f.folder.join("adapter/main.mjs")).unwrap(), "// 1");
 }
 
@@ -124,7 +124,7 @@ fn a_fetch_refuses_what_doesnt_match() {
     let reg = NpmRegistry::start(REGISTRY);
     let t = TempDir::new("npm-refuse");
     let work = t.path().join("work");
-    let get = |v: &str, i: Option<&str>, id: Option<&str>| fetch(REGISTRY, PKG, v, i, id, &work, &reg.via()).map(|f| f.folder);
+    let get = |v: &str, i: Option<&str>, id: Option<&str>| fetch(REGISTRY, PKG, v, i, id, &work, &reg.via(), &LoopbackHttp).map(|f| f.folder);
     // A download that doesn't match the integrity the metadata gives.
     reg.publish_with(PKG, "1.0.0", &npm_extension(PKG, REGISTRY, "inbox", "1.0.0", "// 1", "[]"), Some(&integrity_of(b"something else")));
     assert!(get("1.0.0", None, None).unwrap_err().contains("doesn't match the integrity the registry gives"));
@@ -152,16 +152,16 @@ fn a_fetch_refuses_what_doesnt_match() {
 #[test]
 fn bad_names_registries_and_offline_are_refused() {
     let reg = NpmRegistry::start(REGISTRY);
-    assert!(releases(REGISTRY, "../etc/passwd", &reg.via()).unwrap_err().contains("isn't an npm package name"));
-    assert!(releases(REGISTRY, "x@1.0.0", &reg.via()).unwrap_err().contains("isn't an npm package name"));
-    assert!(releases("http://registry.example.com", PKG, &reg.via()).unwrap_err().contains("https://"));
-    assert!(releases("https://me:pw@registry.example.com", PKG, &reg.via()).unwrap_err().contains("user or password"));
+    assert!(releases(REGISTRY, "../etc/passwd", &reg.via(), &LoopbackHttp).unwrap_err().contains("isn't an npm package name"));
+    assert!(releases(REGISTRY, "x@1.0.0", &reg.via(), &LoopbackHttp).unwrap_err().contains("isn't an npm package name"));
+    assert!(releases("http://registry.example.com", PKG, &reg.via(), &LoopbackHttp).unwrap_err().contains("https://"));
+    assert!(releases("https://me:pw@registry.example.com", PKG, &reg.via(), &LoopbackHttp).unwrap_err().contains("user or password"));
     assert!(reg.requests().is_empty(), "nothing asked");
-    assert!(releases(REGISTRY, "@me/nothing", &reg.via()).unwrap_err().contains("has no such package"));
+    assert!(releases(REGISTRY, "@me/nothing", &reg.via(), &LoopbackHttp).unwrap_err().contains("has no such package"));
     // A port nothing listens on (taken and let go).
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let gone = vec![(REGISTRY.to_string(), format!("http://127.0.0.1:{port}"))];
-    assert!(releases(REGISTRY, PKG, &gone).unwrap_err().contains("Couldn't reach it"));
+    assert!(releases(REGISTRY, PKG, &gone, &LoopbackHttp).unwrap_err().contains("Couldn't reach it"));
 }
 
 /// Metadata over 5 MiB, a tarball over 50 MiB, and a tarball holding more
@@ -172,7 +172,7 @@ fn the_limits_hold() {
     let t = TempDir::new("npm-limits");
     let work = t.path().join("work");
     reg.serve_raw("/@me%2fbig", vec![b' '; MAX_METADATA as usize + 1]);
-    assert!(releases(REGISTRY, "@me/big", &reg.via()).unwrap_err().contains("metadata of @me/big is bigger than 5 MiB"));
+    assert!(releases(REGISTRY, "@me/big", &reg.via(), &LoopbackHttp).unwrap_err().contains("metadata of @me/big is bigger than 5 MiB"));
     // Random bytes don't compress: a download over the limit.
     let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
     let big: Vec<u8> = (0..MAX_BYTES + 1024)
@@ -184,16 +184,16 @@ fn the_limits_hold() {
         })
         .collect();
     reg.publish(PKG, "1.0.0", &big);
-    assert_eq!(fetch(REGISTRY, PKG, "1.0.0", None, None, &work, &reg.via()).unwrap_err(), "It is bigger than 50 MiB. Not installed.");
+    assert_eq!(fetch(REGISTRY, PKG, "1.0.0", None, None, &work, &reg.via(), &LoopbackHttp).unwrap_err(), "It is bigger than 50 MiB. Not installed.");
     drop(big);
     // Small compressed, too big unpacked.
     let zeros = tgz(&[TarItem::file("package/extension.json", "{}"), TarItem::file("package/zeros", vec![0u8; MAX_BYTES as usize + 1])]);
     assert!(zeros.len() < 1024 * 1024);
     reg.publish(PKG, "1.0.1", &zeros);
-    assert!(fetch(REGISTRY, PKG, "1.0.1", None, None, &work, &reg.via()).unwrap_err().contains("bigger than 50 MiB unpacked"));
+    assert!(fetch(REGISTRY, PKG, "1.0.1", None, None, &work, &reg.via(), &LoopbackHttp).unwrap_err().contains("bigger than 50 MiB unpacked"));
     let many: Vec<TarItem> = (0..=MAX_FILES).map(|i| TarItem::file(&format!("package/f{i}"), "x")).collect();
     reg.publish(PKG, "1.0.2", &tgz(&many));
-    assert!(fetch(REGISTRY, PKG, "1.0.2", None, None, &work, &reg.via()).unwrap_err().contains("more than 5000 files"));
+    assert!(fetch(REGISTRY, PKG, "1.0.2", None, None, &work, &reg.via(), &LoopbackHttp).unwrap_err().contains("more than 5000 files"));
     assert!(names(&work).is_empty(), "nothing left behind");
 }
 

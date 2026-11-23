@@ -787,7 +787,7 @@ Each phase ships on its own.
 - **Built later: npm sources** (docs/spec/extensions.md, "Updates from
   an npm package"). `mod.rs`: `Source` is `Git { git, dir, tags }` or
   `Npm { package, registry }`. New `pitwall-core/src/extensions/npm.rs`:
-  `releases` (the registry's metadata over https, ureq, no
+  `releases` (the registry's metadata over https through the host's `Http`, the app's ureq; no
   credentials), `newest`, `refusal` (no sha512, or an integrity that
   changed), `fetch` (the tarball, its integrity, then `unpack`, Pitwall's
   own tar reader). `install.rs`: `Origin::Npm { package, registry,

@@ -249,6 +249,41 @@ impl Drop for NpmRegistry {
     }
 }
 
+/// An [`crate::extensions::npm::Http`] for this crate's tests: plain
+/// HTTP/1.1 to a loopback address only (an [`NpmRegistry`]), with the
+/// limit and wording the app's https client has. Anything else fails, so
+/// a test never reaches a real host.
+pub struct LoopbackHttp;
+
+impl crate::extensions::npm::Http for LoopbackHttp {
+    fn get(&self, url: &str, accept: &str, limit: u64, connect: Duration, timeout: Duration) -> Result<Vec<u8>, crate::extensions::npm::GetError> {
+        use crate::extensions::npm::{status_text, GetError, OFFLINE};
+        let rest = url.strip_prefix("http://127.0.0.1:").ok_or_else(|| GetError::Failed(format!("not a loopback address: {url}")))?;
+        let (port, path) = rest.split_once('/').map(|(p, r)| (p, format!("/{r}"))).unwrap_or((rest, "/".into()));
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().map_err(|_| GetError::Failed(OFFLINE.into()))?;
+        let mut c = TcpStream::connect_timeout(&addr, connect).map_err(|_| GetError::Failed(OFFLINE.into()))?;
+        let _ = c.set_read_timeout(Some(timeout));
+        write!(c, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: {accept}\r\nUser-Agent: pitwall-test\r\nConnection: close\r\n\r\n").map_err(|_| GetError::Failed(OFFLINE.into()))?;
+        let mut all = Vec::new();
+        c.take(limit + 64 * 1024).read_to_end(&mut all).map_err(|_| GetError::Failed(OFFLINE.into()))?;
+        let end = all.windows(4).position(|w| w == b"\r\n\r\n").ok_or_else(|| GetError::Failed(OFFLINE.into()))?;
+        let head = String::from_utf8_lossy(&all[..end]).into_owned();
+        let code: u16 = head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+        if !(200..300).contains(&code) {
+            return Err(GetError::Failed(status_text(code)));
+        }
+        let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<u64>().ok()));
+        if length.is_some_and(|l| l > limit) {
+            return Err(GetError::TooBig);
+        }
+        let body = all[end + 4..].to_vec();
+        if body.len() as u64 > limit {
+            return Err(GetError::TooBig);
+        }
+        Ok(body)
+    }
+}
+
 /// Answer one connection: a metadata document, a file, or 404.
 fn serve(mut c: TcpStream, st: &Mutex<State>) {
     let _ = c.set_read_timeout(Some(Duration::from_secs(10)));

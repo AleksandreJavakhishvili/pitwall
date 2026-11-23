@@ -19,6 +19,7 @@ pub mod calls;
 pub mod catalog;
 pub mod connections;
 pub mod hub;
+pub mod https;
 pub mod panels;
 
 use std::collections::BTreeMap;
