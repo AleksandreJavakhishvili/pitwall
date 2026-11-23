@@ -641,7 +641,7 @@ fn a_view_goes_both_ways(cx: &mut TestAppContext) {
     say(&h, &end, list, cx);
     let Some(Ok(Root::List { list, detail })) = view_of(&h, cx) else { panic!("drawn") };
     let item = format!("{conn}:r1");
-    assert_eq!(list.items().map(|i| i.id.clone()).collect::<Vec<_>>(), [item.clone()]);
+    assert_eq!(list.items().map(|i| i.id.clone()).collect::<Vec<_>>(), std::slice::from_ref(&item));
     assert!(detail.is_some());
     h.update(cx, |h, _| h.select("inbox", "runs", &item));
     assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "select", "view": "runs", "item": "r1"})));
