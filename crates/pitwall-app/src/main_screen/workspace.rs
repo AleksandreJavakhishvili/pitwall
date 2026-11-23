@@ -476,6 +476,13 @@ pub struct ExtensionPrefs {
     /// (its first run offered), whether the user stopped it.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "ServicePrefs::is_empty")]
     pub service: ServicePrefs,
+    /// What Pitwall does with agents that use its previous setup after
+    /// an update (`ask`, `whenIdle`, `never`), over the global setting.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub restart_after_update: Option<String>,
+    /// Its last update: Go back offers to put back the backup taken then.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub last_update: Option<LastUpdate>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -500,6 +507,25 @@ pub struct ServicePrefs {
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
+}
+
+/// An extension's last update (`extensions.<id>.lastUpdate`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default)]
+    pub at: u64,
+    /// Its service's data backup taken before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<String>,
+    /// The digest of its service's commands confirmed before it: Go back
+    /// confirms them again (they are the ones it puts back).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<String>,
 }
 
 /// A service's commands the user confirmed: their digest and when.
@@ -537,7 +563,7 @@ impl Confirmed {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.rest.is_empty()
     }
 }
 

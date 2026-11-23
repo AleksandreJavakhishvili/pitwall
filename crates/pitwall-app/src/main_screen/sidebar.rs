@@ -1012,6 +1012,8 @@ impl MainScreen {
                             .children(self.agent_ask_badge(a, t, cx))
                             // Extensions' badges and notes (view_tile.rs).
                             .children(self.agent_marks(a, t, cx))
+                            // Started before an extension was updated.
+                            .children(crate::extensions::stale::chip_view("row-stale", a, t, cx))
                             .when(a.engineer, |d| d.child(chip("engineer", t)))
                             .when_some(account, |d, n| d.child(chip(n, t)))
                             // Another machine's Pitwall: watched, not driven.

@@ -22,7 +22,9 @@ pub mod connections;
 pub mod hub;
 pub mod https;
 pub mod panels;
+pub mod safe_update;
 pub mod service;
+pub mod stale;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -132,6 +134,17 @@ struct Engine(pitwall_core::engine::Shared);
 
 impl Global for Engine {}
 
+/// Tests: the engine agents are launched by.
+#[cfg(test)]
+pub fn set_engine(e: pitwall_core::engine::Shared, cx: &mut App) {
+    cx.set_global(Engine(e));
+}
+
+/// The engine agents are launched by, when there is one.
+pub(crate) fn engine(cx: &App) -> Option<pitwall_core::engine::Shared> {
+    cx.try_global::<Engine>().map(|e| e.0.clone())
+}
+
 /// The extensions that are on and set variables on agents: launches fill
 /// them from each agent's connection (`Engine::extension_env`).
 pub fn env_sources(cx: &App) -> Vec<Manifest> {
@@ -161,6 +174,8 @@ pub fn follow(cx: &mut App) {
             e.set_extension_env(env_sources(cx));
             calls::sync_queue(&e, cx);
         }
+        // Which setup agents start under now: the ones before are stale.
+        stale::sync(cx);
         // A tool's account added, an extension turned on, or start: the
         // setup the user confirmed covers the accounts it doesn't yet.
         actions::auto_setup_if_changed(cx);
