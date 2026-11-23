@@ -16,8 +16,8 @@ pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
     Ok(match cmd {
         ExtensionCmd::Check { folder } => report(check::check(folder, None)),
         ExtensionCmd::Test { folder } => report(check::test(folder, None)),
-        ExtensionCmd::New { folder, name, protocol } => {
-            let files = starter::write(folder, name.as_deref(), *protocol).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
+        ExtensionCmd::New { folder, name, protocol, view } => {
+            let files = starter::write(folder, name.as_deref(), *protocol, *view).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
             let m = pitwall_core::extensions::read_in_place(folder).map_err(|e| Error::Server(ErrorBody::new("failed", e)))?;
             let shown = folder.display();
             let mut human = format!("Made {} ({}) in {shown}:\n", m.name, m.id);
@@ -47,7 +47,7 @@ mod tests {
     fn new_then_check_and_test() {
         let t = pitwall_core::testing::TempDir::new("cli-ext");
         let folder = t.path().join("hello-ext");
-        let (o, ok) = run(&ExtensionCmd::New { folder: folder.clone(), name: Some("Hello".into()), protocol: 1 }).unwrap();
+        let (o, ok) = run(&ExtensionCmd::New { folder: folder.clone(), name: Some("Hello".into()), protocol: 1, view: false }).unwrap();
         assert!(ok);
         assert_eq!((o.json["id"].as_str(), o.json["name"].as_str()), (Some("hello-ext"), Some("Hello")));
         assert!(o.human.contains("pitwall extension check"));
@@ -58,7 +58,7 @@ mod tests {
         let (o, ok) = run(&ExtensionCmd::Test { folder: folder.clone() }).unwrap();
         assert!(ok, "{}", o.human);
         // Made again on the same folder: refused, as bad arguments.
-        let Err(Error::Server(e)) = run(&ExtensionCmd::New { folder, name: None, protocol: 1 }) else { panic!("made twice") };
+        let Err(Error::Server(e)) = run(&ExtensionCmd::New { folder, name: None, protocol: 1, view: false }) else { panic!("made twice") };
         assert_eq!(e.code, code::BAD_PARAMS);
         // A folder that isn't an extension fails, with exit status 1.
         let (o, ok) = run(&ExtensionCmd::Check { folder: t.path().join("nope") }).unwrap();
