@@ -90,6 +90,19 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// A symlink at `to` pointing where symlink `from` points (copying a
+/// service's data folder keeps its links as links).
+pub fn copy_symlink(from: &Path, to: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(std::fs::read_link(from)?, to)
+}
+
+/// Make file `file` readable and writable by this user only (mode 600):
+/// a service's data put back from a backup.
+pub fn make_private_file(file: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600))
+}
+
 /// Make folder `dir` readable and writable by this user only (mode 700):
 /// an extension service's data.
 pub fn make_private(dir: &Path) -> io::Result<()> {

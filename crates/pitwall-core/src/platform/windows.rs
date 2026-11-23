@@ -156,6 +156,24 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     }
 }
 
+/// A symlink at `to` pointing where symlink `from` points (copying a
+/// service's data folder; needs Developer Mode or admin, else it fails and
+/// says so).
+pub fn copy_symlink(from: &Path, to: &Path) -> io::Result<()> {
+    let target = std::fs::read_link(from)?;
+    if from.is_dir() {
+        std::os::windows::fs::symlink_dir(target, to)
+    } else {
+        std::os::windows::fs::symlink_file(target, to)
+    }
+}
+
+/// Make file `file` this user's only: under the user's own profile it
+/// already is, by its inherited access list.
+pub fn make_private_file(_file: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 /// Make folder `dir` this user's only: under the user's own profile
 /// (`%APPDATA%`) it already is, by its inherited access list.
 pub fn make_private(_dir: &Path) -> io::Result<()> {

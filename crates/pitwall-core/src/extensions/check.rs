@@ -36,8 +36,14 @@
 //!   (`expect`: `run`, `version`, `firstRun`, `{data}` standing for its
 //!   data folder), and for each of `cases` (its program `installed` or
 //!   not, what its version command prints as `version`, its address
-//!   `portTaken`) what Pitwall does with it (`verdict`). Planned only:
-//!   nothing runs.
+//!   `portTaken`) what Pitwall does with it (`verdict`); `expect.backup`,
+//!   its backup command (`{backup}` standing for the backup's folder).
+//!   Planned only: nothing runs.
+//! - `update`: the steps an update to it takes, in order, with their
+//!   commands (`from`: an earlier manifest in the folder; `setUp`, the
+//!   setup actions set up before; `agents`, running agents; `expect`, each
+//!   step's title and lines; `agentsSay`, what the review says about the
+//!   agents). Planned only.
 //!
 //! An adapter's program that isn't installed (Node, say) skips the runs,
 //! saying so; it doesn't fail them.
@@ -220,7 +226,7 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
     r.add(Level::Ok, format!("{MANIFEST} is valid and within Pitwall's limits (format {})", m.format));
     if m.format < 2 {
         let raw: Value = std::fs::read_to_string(folder.join(MANIFEST)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        for k in ["pitwall", "permissions", "contributes", "service"] {
+        for k in ["pitwall", "permissions", "contributes", "service", "update"] {
             if !raw[k].is_null() {
                 r.add(Level::Warn, format!("it has \"{k}\", which format 1 ignores: add \"v\": 2 to use it"));
             }
@@ -326,6 +332,16 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
         if s.first_run.as_ref().is_some_and(|f| f.opens) {
             r.add(Level::Ok, "its first run's link is opened in the browser and never logged or shown");
         }
+        match &s.backup {
+            Some(b) if b.replaces.is_empty() => r.add(Level::Warn, format!("before an update its data is backed up with {}, but Pitwall can't put that back by itself: add \"replaces\" (the files in its data folder the backup stands for)", line(&b.run))),
+            Some(b) => r.add(Level::Ok, format!("before an update it is stopped and its data backed up with {}; going back replaces {} in its data folder with the backup", line(&b.run), b.replaces.join(", "))),
+            None => r.add(Level::Warn, format!("its service has no \"backup\": before an update Pitwall stops it and copies its data folder itself (up to {}); a \"backup\" command makes a consistent copy of a database", super::update::size_words(super::update::COPY_CAP))),
+        }
+    }
+    if m.format >= 2 && (m.service.is_some() || !m.agent_env.is_empty() || m.actions.iter().any(|a| a.setup)) {
+        for w in m.update.words() {
+            r.add(Level::Ok, format!("update: {w}"));
+        }
     }
     if folder.join("README.md").is_file() {
         r.add(Level::Ok, "README.md is there");
@@ -423,6 +439,9 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
     if let Some(s) = &m.source {
         push("Its updates come from (a newer release tag, looked at and installed only when the user presses Update):".to_string(), vec![super::install::source_line(s)]);
     }
+    if m.format >= 2 && (m.service.is_some() || !m.agent_env.is_empty() || m.actions.iter().any(|a| a.setup)) {
+        push("How an update goes (one ordered step, rolled back when its service or adapter doesn't come back):".to_string(), m.update.words());
+    }
     out
 }
 
@@ -452,6 +471,7 @@ pub fn test(folder: &Path, path: Option<&str>) -> Report {
     actions(&m, &fixture["actions"], &mut r);
     env(&m, &fixture["env"], &mut r);
     service(&m, &fixture["service"], &mut r);
+    update(folder, &m, &fixture["update"], path, &mut r);
     if !fixture["run"].is_null() {
         run(folder, &m, &fixture["run"], path, &mut r);
     }
@@ -465,7 +485,7 @@ pub fn test(folder: &Path, path: Option<&str>) -> Report {
         views(folder, &m, &fixture["views"], path, &mut r);
     }
     if r.findings.len() == before {
-        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, service, run, agreement, calls or views)"));
+        r.add(Level::Warn, format!("{FIXTURE} expects nothing (actions, env, service, update, run, agreement, calls or views)"));
     }
     r
 }
@@ -809,6 +829,8 @@ fn service(m: &Manifest, v: &Value, r: &mut Report) {
     check_line("run", Some(line(&c.run)));
     check_line("version", c.version.as_deref().map(line));
     check_line("firstRun", c.first_run.as_deref().map(line));
+    let backup = s.backup.as_ref().and_then(|b| super::service::backup_command(m, b, &values, "PITWALL_SERVICE_DATA", "PITWALL_BACKUP").ok());
+    check_line("backup", backup.map(|b| line(&b).replace("PITWALL_BACKUP", super::service::BACKUP_PLACEHOLDER)));
     if wrong.is_empty() {
         r.add(Level::Ok, "service: its commands are the ones expected");
     } else {
@@ -825,6 +847,51 @@ fn service(m: &Manifest, v: &Value, r: &mut Report) {
             Some(want) if want == got => r.add(Level::Ok, format!("service, case {}: it {got}", i + 1)),
             Some(want) => r.add(Level::Fail, format!("service, case {}: it {got}, not “{want}”", i + 1)),
             None => r.add(Level::Fail, format!("service, case {}: give its \"verdict\" (it {got})", i + 1)),
+        }
+    }
+}
+
+/// `update`: the steps updating to this manifest takes (from `from`, an
+/// earlier `extension.json` in the folder; else from the same manifest),
+/// with it on, its service run by Pitwall, data in its data folder, the
+/// setup actions `setUp` set up before and `agents` running agents, each
+/// step `[title, its lines…]` (`{data}` and `{backup}` standing for the
+/// folders); `agents` lines too when given. Planned only: nothing runs.
+fn update(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Report) {
+    use super::update::{agents_lines, plan, PlanInput, Restart};
+    if v.is_null() {
+        return;
+    }
+    let old = match v["from"].as_str() {
+        Some(f) => match std::fs::read_to_string(folder.join(f)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
+            Ok(o) => o,
+            Err(e) => {
+                r.add(Level::Fail, format!("update: “from” ({f}) can't be read: {e}"));
+                return;
+            }
+        },
+        None => m.clone(),
+    };
+    let values: BTreeMap<String, String> = v["values"].as_object().into_iter().flatten().map(|(k, x)| (k.clone(), x.as_str().unwrap_or_default().to_string())).collect();
+    let set_up: Vec<String> = v["setUp"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
+    let n = v["agents"].as_u64().unwrap_or(0) as usize;
+    let restart = v["restart"].as_str().and_then(Restart::parse).unwrap_or_default();
+    let input = PlanInput { on: true, service_here: true, has_data: true, data: "PITWALL_SERVICE_DATA", backup: "PITWALL_BACKUP", path, set_up: &set_up, agents: n, restart, values, ..Default::default() };
+    let shown = |t: &str| t.replace("PITWALL_SERVICE_DATA", super::service::DATA_PLACEHOLDER).replace("PITWALL_BACKUP", super::service::BACKUP_PLACEHOLDER);
+    let got: Vec<Vec<String>> = plan(&old, m, &input).into_iter().map(|p| std::iter::once(shown(&p.title)).chain(p.lines.iter().map(|l| shown(l))).collect()).collect();
+    let want: Option<Vec<Vec<String>>> = v["expect"].as_array().map(|a| a.iter().map(|s| s.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect()).collect());
+    match want {
+        Some(w) if w == got => r.add(Level::Ok, format!("update: its {} steps are the ones expected", got.len())),
+        Some(_) => r.add(Level::Fail, format!("update: its steps are {}", serde_json::to_string(&got).unwrap_or_default())),
+        None => r.add(Level::Fail, format!("update: give its \"expect\" (its steps are {})", serde_json::to_string(&got).unwrap_or_default())),
+    }
+    if let Some(w) = v["agentsSay"].as_array() {
+        let w: Vec<&str> = w.iter().filter_map(Value::as_str).collect();
+        let got = agents_lines(m, n, restart);
+        if got == w {
+            r.add(Level::Ok, "update: what it says about running agents is the one expected");
+        } else {
+            r.add(Level::Fail, format!("update: about running agents it says {got:?}"));
         }
     }
 }

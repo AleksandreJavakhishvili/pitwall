@@ -11,7 +11,8 @@
 //!   "version": { "run": ["inbox", "version"], "match": "(\\d+\\.\\d+\\.\\d+)", "requires": ">=0.6.0" },
 //!   "ready": { "listen": "{setting:listen}" },
 //!   "env": [{ "name": "INBOX_KEY", "secret": "apiKey" }],
-//!   "firstRun": { "label": "Sign in for the first time", "run": ["inbox", "link", "--data", "{data}"], "opens": true }
+//!   "firstRun": { "label": "Sign in for the first time", "run": ["inbox", "link", "--data", "{data}"], "opens": true },
+//!   "backup": { "run": ["inbox", "backup", "--data", "{data}", "{backup}/inbox.db"], "replaces": ["inbox.db"] }
 //! }
 //! ```
 //!
@@ -36,6 +37,13 @@ use super::{array, line, opt_str, reserved_env, setting_keys, Action, Manifest, 
 /// The placeholder for the service's private data folder.
 pub const DATA_PLACEHOLDER: &str = "{data}";
 
+/// The placeholder for the folder an update's backup goes in
+/// (`service.backup`): new, empty and private to the user.
+pub const BACKUP_PLACEHOLDER: &str = "{backup}";
+
+/// The most files a backup says it replaces.
+pub const MAX_REPLACES: usize = 16;
+
 /// The most variables a service is given besides the minimal environment.
 pub const MAX_ENV: usize = 8;
 
@@ -56,6 +64,23 @@ pub struct Service {
     pub env: Vec<ServiceEnv>,
     /// A command for a fresh service, run on a press (a first sign-in).
     pub first_run: Option<FirstRun>,
+    /// How its data is backed up before an update (`None`: Pitwall copies
+    /// its data folder itself while it is stopped).
+    pub backup: Option<Backup>,
+}
+
+/// The service's own backup of its data, run by Pitwall before an update
+/// while the service is stopped (docs/extensions/updates.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Backup {
+    /// The program and its arguments, with `{data}` and `{backup}` (a new
+    /// folder Pitwall makes for it, mode 700).
+    pub run: Vec<String>,
+    /// The files in `{data}` the backup stands for: putting it back moves
+    /// these out of the data folder and copies the backup's files in (mode
+    /// 600). Empty: Pitwall can't put it back by itself (it says where it
+    /// is).
+    pub replaces: Vec<String>,
 }
 
 /// A command whose output holds the program's version.
@@ -196,7 +221,45 @@ pub(super) fn parse(v: &Value, settings: &[SettingDef], actions: &[Action]) -> R
         }
         Some(_) => return Err("\"service.firstRun\" must be an object".into()),
     };
-    Ok(Service { label, run, install, version, ready, env, first_run })
+    let backup = match o.get("backup") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(a)) => Some(Backup { run: backup_argv(a, settings)?, replaces: vec![] }),
+        Some(Value::Object(b)) => {
+            let Some(Value::Array(a)) = b.get("run") else { return Err("\"service.backup\" needs \"run\": the program and its arguments, a list".into()) };
+            let run = backup_argv(a, settings)?;
+            let mut replaces: Vec<String> = Vec::new();
+            for f in array(b.get("replaces"), "service.backup.replaces", MAX_REPLACES)? {
+                let Value::String(f) = f else { return Err("\"service.backup.replaces\" must be file names".into()) };
+                if !plain_file_name(f) || replaces.contains(f) {
+                    return Err(format!("\"service.backup.replaces\": “{f}” must be the name of a file in its data folder, once (no folders, no placeholders)"));
+                }
+                replaces.push(f.clone());
+            }
+            Some(Backup { run, replaces })
+        }
+        Some(_) => return Err("\"service.backup\" must be an object: \"run\" and \"replaces\"".into()),
+    };
+    Ok(Service { label, run, install, version, ready, env, first_run, backup })
+}
+
+/// A file's name, without a folder or a placeholder.
+fn plain_file_name(f: &str) -> bool {
+    !f.is_empty() && f.len() <= 200 && f != "." && f != ".." && !f.contains(['/', '\\', '{', '}']) && !f.chars().any(char::is_control)
+}
+
+/// `service.backup.run`: a command like the others that also uses
+/// `{backup}`, where its copy goes (at least once).
+fn backup_argv(list: &[Value], settings: &[SettingDef]) -> Result<Vec<String>, String> {
+    const WHAT: &str = "service.backup.run";
+    // Checked as any command with `{backup}` standing for a plain word.
+    let checked: Vec<Value> = list.iter().map(|x| x.as_str().map_or(x.clone(), |s| Value::String(s.replace(BACKUP_PLACEHOLDER, "backup")))).collect();
+    argv(WHAT, Some(&Value::Array(checked)), settings)?;
+    let run: Vec<String> = list.iter().filter_map(|x| x.as_str().map(str::to_string)).collect();
+    check_word_program(WHAT, &run[0])?;
+    if !run.iter().any(|a| a.contains(BACKUP_PLACEHOLDER)) {
+        return Err(format!("\"{WHAT}\" must say where the copy goes with {BACKUP_PLACEHOLDER}"));
+    }
+    Ok(run)
 }
 
 /// `>=X.Y.Z` → `X.Y.Z`.
@@ -295,6 +358,11 @@ pub fn digest(s: &Service) -> String {
         list("first", &f.run, &mut eat);
         eat(&[f.opens as u8]);
     }
+    // Only when there is one: a confirmation from before backups stands.
+    if let Some(b) = &s.backup {
+        list("backup", &b.run, &mut eat);
+        list("replaces", &b.replaces, &mut eat);
+    }
     format!("{h:016x}")
 }
 
@@ -376,7 +444,37 @@ pub fn lines(m: &Manifest, s: &Service, values: &BTreeMap<String, String>, data:
         out.push(("With these variables (and only your PATH, home and language besides):".to_string(), c.env));
     }
     out.push(("Its data is kept in (private to you; updates never touch it):".to_string(), vec![data.to_string()]));
+    out.push(backup_lines(m, s, values, data, &backup_shown(data)));
     out
+}
+
+/// Where an update's backup of data folder `data` goes, as shown before
+/// there is one: `<data folder>/extension-backups/<id>/<time>`.
+pub fn backup_shown(data: &str) -> String {
+    let p = Path::new(data);
+    match (p.parent().and_then(Path::parent), p.file_name()) {
+        (Some(root), Some(id)) => root.join(super::update::BACKUPS_DIR).join(id).join("<time of the update>").to_string_lossy().into_owned(),
+        _ => format!("{data}-backup"),
+    }
+}
+
+/// Backup `b`'s command with `values`, `data` and `backup` (the folder
+/// made for it) put in; `Err(label)` naming a setting that isn't set.
+pub fn backup_command(m: &Manifest, b: &Backup, values: &BTreeMap<String, String>, data: &str, backup: &str) -> Result<Vec<String>, String> {
+    Ok(expand(&b.run, m, values, data)?.into_iter().map(|a| a.replace(BACKUP_PLACEHOLDER, backup)).collect())
+}
+
+/// How an update backs up `s`'s data, in plain words (`backup`: the
+/// folder it goes in, as shown).
+pub fn backup_lines(m: &Manifest, s: &Service, values: &BTreeMap<String, String>, data: &str, backup: &str) -> (String, Vec<String>) {
+    match &s.backup {
+        Some(b) => {
+            let cmd = backup_command(m, b, values, data, backup).unwrap_or_else(|_| b.run.iter().map(|a| a.replace(DATA_PLACEHOLDER, data).replace(BACKUP_PLACEHOLDER, backup)).collect());
+            let back = if b.replaces.is_empty() { " (Pitwall can't put it back by itself: it says where it is)".to_string() } else { format!(" (putting it back replaces {})", b.replaces.join(", ")) };
+            (format!("Before an update, it is stopped and its data backed up with{back}:"), vec![super::plan::line(&cmd)])
+        }
+        None => ("Before an update, it is stopped and Pitwall copies its data folder (up to 2 GiB) to:".to_string(), vec![backup.to_string()]),
+    }
 }
 
 /// The version in `output`, by `pattern`'s group.
@@ -605,6 +703,33 @@ mod tests {
         // Format 1 ignores it, as it ignores every format 2 key.
         let m = super::super::parse(r#"{"id": "x", "name": "X", "service": {"run": "anything"}}"#).unwrap();
         assert!(m.service.is_none());
+    }
+
+    #[test]
+    fn a_backup_is_read_and_checked() {
+        let with = |b: &str| manifest(&format!(r#"{{"label": "S", "run": ["srv", "serve"], "backup": {b}}}"#));
+        let s = with(r#"{"run": ["srv", "backup", "--data", "{data}", "{backup}/srv.db"], "replaces": ["srv.db", "srv.db-wal"]}"#).unwrap().service.unwrap();
+        let b = s.backup.as_ref().unwrap();
+        assert_eq!(b.replaces, ["srv.db", "srv.db-wal"]);
+        let m = with(r#"["srv", "dump", "{backup}"]"#).unwrap();
+        assert!(m.service.as_ref().unwrap().backup.as_ref().unwrap().replaces.is_empty(), "a plain command: Pitwall can't put it back");
+        let values = BTreeMap::from([("listen".to_string(), "127.0.0.1:1".to_string())]);
+        assert_eq!(backup_command(&m, m.service.as_ref().unwrap().backup.as_ref().unwrap(), &values, "/d", "/b/1").unwrap(), ["srv", "dump", "/b/1"]);
+        assert!(with(r#"{"run": ["srv", "backup", "--data", "{data}"]}"#).unwrap_err().contains("with {backup}"));
+        assert!(with(r#"{"run": ["{backup}/srv"]}"#).unwrap_err().contains("not a path or a placeholder"));
+        assert!(with(r#"{"run": ["srv", "{backup}", "{project}"]}"#).unwrap_err().contains("may only use"));
+        assert!(with(r#"{"run": ["srv", "{backup}"], "replaces": ["../srv.db"]}"#).unwrap_err().contains("name of a file"));
+        assert!(with(r#"{"run": ["srv", "{backup}"], "replaces": ["a", "a"]}"#).unwrap_err().contains("once"));
+        assert!(with(r#""srv backup""#).unwrap_err().contains("must be an object"));
+        // Part of what the user confirms; none keeps an earlier digest.
+        let plain = manifest(GOOD).unwrap().service.unwrap();
+        let mut backed = plain.clone();
+        backed.backup = Some(b.clone());
+        assert_ne!(digest(&plain), digest(&backed));
+        let shown = lines(&manifest(GOOD).unwrap(), &backed, &values, "/pw/extension-data/x");
+        let last = shown.last().unwrap();
+        assert!(last.0.contains("putting it back replaces srv.db, srv.db-wal"), "{last:?}");
+        assert_eq!(last.1, ["srv backup --data /pw/extension-data/x '/pw/extension-backups/x/<time of the update>/srv.db'"]);
     }
 
     #[test]
