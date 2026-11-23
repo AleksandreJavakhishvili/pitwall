@@ -37,6 +37,23 @@
       "AGENTWORKS_SESSION={agent_id}"
     ]
   },
+  "service": {
+    "values": { "server": "https://agention.example.ts.net" },
+    "expect": {
+      "run": "agention serve --data {data} --origin https://agention.example.ts.net --listen 127.0.0.1:8787",
+      "version": "agention version",
+      "firstRun": "agention passkey-link --data {data} --origin https://agention.example.ts.net"
+    },
+    "cases": [
+      { "version": "agention 0.6.0", "verdict": "starts (Agention's server 0.6.0)" },
+      { "version": "0.5.0", "verdict": "Agention's server 0.5.0; this extension needs 0.6.0 or later: its install action is offered" },
+      { "installed": false, "verdict": "“agention” isn't installed: its install action is offered" },
+      { "portTaken": true, "verdict": "something else is already listening on 127.0.0.1:8787: that one is used, nothing is started" },
+      { "installed": false, "portTaken": true, "verdict": "something else is already listening on 127.0.0.1:8787: that one is used, nothing is started" },
+      { "values": { "server": "" }, "verdict": "waits for Server address to be set" },
+      { "values": { "server": "https://agention.example.ts.net", "listen": "0.0.0.0:8787" }, "verdict": "isn't started: “0.0.0.0:8787” isn't on this computer only: use 127.0.0.1 and a port" }
+    ]
+  },
   "agreement": {
     "fake": ["node", "adapter/test/serve-fake.mjs"],
     "settings": { "server": "{url}" },
