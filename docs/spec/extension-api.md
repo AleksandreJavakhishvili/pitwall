@@ -391,7 +391,7 @@ permission an extension needs. No second API to drift.
 | `projects.read` | `project.list`, events `projects` | Low–medium: folder paths. |
 | `worktrees.read` | the worktree list (read-only) | Low–medium. |
 | `profiles.read` | profile and connection *names*, and which this extension's connection a project uses | Low. Never another extension's settings, never secrets, never tool logins. |
-| `show` | `viewer.open`, `web.open` | Low: shows the user a file or page, as agents' `show_files` / `show_web` [today]. Can put a misleading page in front of the user; the tile is labelled with the extension. |
+| `show` | `viewer.open`, `web.open` | Low: shows the user a file or page, as agents' `show_files` / `show_web` [today]; not Settings (`settings.open`, agents' `show_settings`, is never an extension's). Can put a misleading page in front of the user; the tile is labelled with the extension. |
 | `agents.focus` | focus an agent's tile | Low; it can steal attention, so only in answer to the user's click on the extension's item, never unprompted. |
 | `agents.queue` | `queue.add` | **High.** Text reaching an agent becomes action: the agent runs it with its own permissions in the user's repository (edit files, run commands, push). A hostile or compromised service could inject instructions. |
 | `agents.start` | `agent.create` | **High.** Starts a process as the user in a project, with the project's profile; combined with `agents.queue` it is an autonomous action. |

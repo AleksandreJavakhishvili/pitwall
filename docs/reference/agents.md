@@ -112,7 +112,7 @@ Both hook modes are tied to the Claude Code and Codex hook formats. A kind of yo
 
 ## Showing files
 
-With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), agents Pitwall starts on this computer can open files, folders and images in Pitwall's file viewer when you ask them to ("open that file for me"). Pitwall's MCP server, `pitwall-cli mcp`, has two tools for this, `show_files` and `show_folder`, and a third for web pages, `show_web` ([below](#showing-web-pages)); `pitwall open` does the same from a shell. Every kind gets all three the same way. Each kind gets it the best way its tool has, in this order, and Settings → Agents lists which:
+With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), agents Pitwall starts on this computer can open files, folders and images in Pitwall's file viewer when you ask them to ("open that file for me"). Pitwall's MCP server, `pitwall-cli mcp`, has two tools for this, `show_files` and `show_folder`, a third for web pages, `show_web` ([below](#showing-web-pages)), and a fourth for Pitwall's own Settings, `show_settings` ([below](#showing-settings)); `pitwall open` does the same from a shell. Every kind gets all four the same way. Each kind gets it the best way its tool has, in this order, and Settings → Agents lists which:
 
 1. **MCP at launch** (`mcp`): added in the tool's own documented launch-time way, which adds to your own servers, so your config files are never edited.
 2. **MCP via its config** (`mcp_file`): the tool only reads servers from its own file. Pitwall adds its entry there only when you ask, and takes it out again the same way.
@@ -123,10 +123,10 @@ Files are shown from the folder the agent works in **now**: the `root` it gives,
 
 | `mcp` | What it does |
 |---|---|
-| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and its tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`, `mcp__pitwall__show_web`) in the `--settings` Pitwall passes, so they don't ask each time. |
+| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and its tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`, `mcp__pitwall__show_web`, `mcp__pitwall__show_settings`) in the `--settings` Pitwall passes, so they don't ask each time. |
 | `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them (`show_web` too: it shows you a page and changes nothing where the agent works). |
 | `copilot-config` | `copilot --additional-mcp-config '{"mcpServers":{"pitwall":{…,"type":"local","tools":["*"]}}}' --allow-tool pitwall`: augments `~/.copilot/mcp-config.json` for this run, and the server's tools are allowed. |
-| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web`: merged with your and the project's servers. |
+| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web --allowed-tools mcp__pitwall__show_settings`: merged with your and the project's servers. |
 | `amp-config` | `amp --mcp-config '{"pitwall":…}'`: merged with your servers; Amp doesn't ask to approve servers given this way. |
 | `opencode-env` | `OPENCODE_CONFIG_CONTENT='{"mcp":{"pitwall":{"type":"local","command":[…],"enabled":true}},"permission":{"pitwall_*":"allow"}}'` in the agent's environment: opencode's inline config, merged with your and the project's. |
 | `none` | No server at launch (the default). |
@@ -177,6 +177,15 @@ With **Agents can show you web pages** on (Settings → Agents, `agents.showWeb`
 - It never takes the keyboard or brings Pitwall forward.
 - One page per agent: its next call goes to the page it opened before, wherever you moved it (to the new address, when it gives one); naming a place moves it. Close it and the next call opens a new one. It stays when the agent goes.
 - Off (either setting), the tool isn't listed (running agents are told), and `pitwall open --web` refuses. Like `agents.showFiles`, both can be changed with `pitwall settings set` without asking.
+
+### Showing Settings
+
+With **Agents can show you Settings** on (Settings → Agents, `agents.showSettings`, on by default), the same server has `show_settings`, and `pitwall open --settings [<page>]` does it from a shell. Ask an agent where a setting is ("where do I turn off web pages?", "show me the Agention extension's settings") and it opens Pitwall's Settings at that page in the Settings tile: right of its terminal, or wherever the tile already is (another place in the layout, a window of its own), switched to that page. The pages are `general`, `agents`, `profiles`, `accounts`, `extensions`, `rules`, `appearance`, `folderAccess`, `peers` and `about`; without one, the page shown last. With `extension` (`--extension <id>`) that extension's card is unfolded on the Extensions page.
+
+- **It only shows you Settings.** The agent gets nothing back from it (the answer says where it opened and which page, never a value), and it can't change, click or type anything there; it is Settings as you'd open it yourself, so changing something is up to you.
+- It never takes the keyboard or brings Pitwall forward.
+- Off, the tool isn't listed (running agents are told), and `pitwall open --settings` refuses. It can be changed with `pitwall settings set` without asking.
+- Extensions can't use it: their "Show you files and pages" permission doesn't cover Settings.
 
 ## Accounts
 

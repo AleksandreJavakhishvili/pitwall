@@ -198,6 +198,23 @@ to the page you opened before, wherever the user moved it. It never takes the
 keyboard or brings Pitwall forward. MCP: `show_web`. Off with
 `agents.showWeb false` or `general.webPages false`.
 
+## Showing the user Pitwall's Settings
+
+```bash
+pitwall open --settings extensions --agent api   # Settings at its Extensions page, in the Settings tile
+pitwall open --settings extensions --extension my-inbox --agent api   # with that extension's card unfolded
+pitwall open --settings --agent api              # the page shown last
+```
+
+When the user asks where a Pitwall setting is. Pages: general, agents,
+profiles, accounts, extensions, rules, appearance, folderAccess, peers,
+about. It only shows Settings: you get nothing back from it (no values) and
+can't change, click or type anything in it; to change a setting, the user
+does it there (or you run `pitwall settings set`, when they ask you to). The
+Settings tile opens right of your terminal, or stays where the user keeps
+it and switches page. It never takes the keyboard or brings Pitwall
+forward. MCP: `show_settings`. Off with `agents.showSettings false`.
+
 Without `--root`, files come from the folder the agent works in now (where
 its hooks last said it was, so a worktree it entered mid-session), shown in
 the git worktree that holds it, with that worktree's branch and status. When
