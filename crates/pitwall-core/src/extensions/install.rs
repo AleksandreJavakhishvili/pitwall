@@ -826,17 +826,17 @@ mod tests {
     #[test]
     fn permissions_are_part_of_what_changes() {
         let m = |perms: &str| super::super::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "version": "1.0.0", "permissions": {{{perms}}}}}"#)).unwrap();
-        let old = m(r#""agents.read": "To match runs", "agents.queue": "To tell it""#);
+        let old = m(r#""agents.read": "To match runs", "agents.start": "To start one""#);
         let new = m(r#""agents.read": "To match runs", "projects.read": "To list projects""#);
         let offer = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
         let fresh = changes(None, &offer);
         let p = fresh.iter().find(|c| c.title.starts_with("Asks for these permissions")).unwrap();
-        assert_eq!(p.lines, ["agents.queue: To tell it (not available in this Pitwall yet)", "Read your agents (agents.read): To match runs"]);
+        assert_eq!(p.lines, ["Read your agents (agents.read): To match runs", "agents.start: To start one (not available in this Pitwall yet)"]);
         let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer });
         let more = up.iter().find(|c| c.title.starts_with("It asks for more permissions")).unwrap();
         assert_eq!(more.lines, ["Read your projects (projects.read): To list projects"]);
         assert!(more.title.contains("not granted until you allow them"));
-        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.queue"]);
+        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.start"]);
     }
 
     /// What it adds to Pitwall (views, commands, badges, notifications):
