@@ -4,7 +4,8 @@
 //! it shows; one per agent across every space), or a web page (a web tile:
 //! `web`, the tile's id in `ui.json` `webTiles`, which holds its address),
 //! or an extension's inbox (an inbox tile: `inbox`, the extension's id; one
-//! per extension).
+//! per extension), or one of an extension's views (a view tile: `view`,
+//! `<extension>/<view>`; one per view; an older Pitwall shows it empty).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -49,6 +50,9 @@ pub enum Node {
         /// An inbox tile: its extension's id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         inbox: Option<String>,
+        /// A view tile: `<extension>/<view>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        view: Option<String>,
     },
     Split {
         id: String,
@@ -70,20 +74,23 @@ pub struct Pane {
     pub web: Option<String>,
     /// An inbox tile: its extension's id.
     pub inbox: Option<String>,
+    /// A view tile: `<extension>/<view>`.
+    pub view: Option<String>,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none()
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none()
     }
 
     /// What a tile that isn't a terminal shows (a files or web tile).
     pub fn content(&self) -> Option<Content> {
-        match (&self.files, &self.web, &self.inbox) {
-            (Some(o), _, _) => Some(Content::Files(o.clone())),
-            (None, Some(w), _) => Some(Content::Web(w.clone())),
-            (None, None, Some(x)) => Some(Content::Inbox(x.clone())),
+        match (&self.files, &self.web, &self.inbox, &self.view) {
+            (Some(o), _, _, _) => Some(Content::Files(o.clone())),
+            (None, Some(w), _, _) => Some(Content::Web(w.clone())),
+            (None, None, Some(x), _) => Some(Content::Inbox(x.clone())),
+            (None, None, None, Some(v)) => Some(Content::View(v.clone())),
             _ => None,
         }
     }
@@ -98,6 +105,59 @@ pub enum Content {
     Web(String),
     /// An extension's inbox (its id).
     Inbox(String),
+    /// One of an extension's views (`<extension>/<view>`).
+    View(String),
+}
+
+/// What an extension draws in a tile or a window of its own: its inbox,
+/// or one of its views. Kept as a key (`<extension>`, or
+/// `<extension>/<view>`: ids never have a `/`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Surface {
+    Inbox(String),
+    View(String, String),
+}
+
+impl Surface {
+    /// The extension it is of.
+    pub fn ext(&self) -> &str {
+        match self {
+            Surface::Inbox(e) | Surface::View(e, _) => e,
+        }
+    }
+
+    /// Its key (windows are kept by it).
+    pub fn key(&self) -> String {
+        match self {
+            Surface::Inbox(e) => e.clone(),
+            Surface::View(e, v) => format!("{e}/{v}"),
+        }
+    }
+
+    /// The surface key `key` is of.
+    pub fn parse(key: &str) -> Surface {
+        match key.split_once('/') {
+            Some((e, v)) => Surface::View(e.to_string(), v.to_string()),
+            None => Surface::Inbox(key.to_string()),
+        }
+    }
+
+    /// What its tile shows.
+    pub fn content(&self) -> Content {
+        match self {
+            Surface::Inbox(e) => Content::Inbox(e.clone()),
+            Surface::View(..) => Content::View(self.key()),
+        }
+    }
+
+    /// The surface a tile's content is, if it is an extension's.
+    pub fn of(c: &Content) -> Option<Surface> {
+        match c {
+            Content::Inbox(e) => Some(Surface::Inbox(e.clone())),
+            Content::View(k) => Some(Surface::parse(k)),
+            _ => None,
+        }
+    }
 }
 
 /// Fixed tilings ("3" is 1 big + 2 stacked; "CxR" is C columns × R rows) and
@@ -222,6 +282,7 @@ impl Node {
             files: None,
             web: None,
             inbox: None,
+            view: None,
         }
     }
 
@@ -232,19 +293,20 @@ impl Node {
 
     /// A tile showing `c`.
     pub fn content_pane(c: &Content) -> Node {
-        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None }.showing(c)
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None }.showing(c)
     }
 
     /// This pane showing `c` instead (its id kept); a split is unchanged.
     pub fn showing(self, c: &Content) -> Node {
         match self {
             Node::Pane { id, .. } => {
-                let (files, web, inbox) = match c {
-                    Content::Files(o) => (Some(o.clone()), None, None),
-                    Content::Web(w) => (None, Some(w.clone()), None),
-                    Content::Inbox(x) => (None, None, Some(x.clone())),
+                let (files, web, inbox, view) = match c {
+                    Content::Files(o) => (Some(o.clone()), None, None, None),
+                    Content::Web(w) => (None, Some(w.clone()), None, None),
+                    Content::Inbox(x) => (None, None, Some(x.clone()), None),
+                    Content::View(v) => (None, None, None, Some(v.clone())),
                 };
-                Node::Pane { id, agent_id: None, files, web, inbox }
+                Node::Pane { id, agent_id: None, files, web, inbox, view }
             }
             n => n,
         }
@@ -290,12 +352,13 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web, inbox, view } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
                 web: web.clone(),
                 inbox: inbox.clone(),
+                view: view.clone(),
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -332,14 +395,15 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox } => {
+            Node::Pane { id, agent_id, files, web, inbox, view } => {
                 let agent_id = f(id, agent_id);
-                // An agent put in a files, web or inbox tile takes it.
+                // An agent put in a files, web, inbox or view tile takes it.
                 let taken = agent_id.is_some();
                 let files = if taken { None } else { files.clone() };
                 let web = if taken { None } else { web.clone() };
                 let inbox = if taken { None } else { inbox.clone() };
-                Node::Pane { id: id.clone(), agent_id, files, web, inbox }
+                let view = if taken { None } else { view.clone() };
+                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view }
             }
             Node::Split {
                 id,

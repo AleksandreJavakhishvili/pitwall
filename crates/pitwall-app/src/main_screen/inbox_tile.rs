@@ -648,7 +648,7 @@ fn bar(w: f32, t: &Theme) -> gpui::Div {
 }
 
 /// A calm message filling the tile, with what to do.
-fn calm(icon: &str, title: &str, body: String, t: &Theme) -> gpui::Div {
+pub(super) fn calm(icon: &str, title: &str, body: String, t: &Theme) -> gpui::Div {
     div()
         .flex_1()
         .min_h_0()
@@ -1492,7 +1492,7 @@ pub fn said_already(d: &ThreadDetail, msg: &Message) -> bool {
 }
 
 /// The last lines an adapter printed, as it printed them.
-fn output_tail(said: &str, t: &Theme) -> AnyElement {
+pub(super) fn output_tail(said: &str, t: &Theme) -> AnyElement {
     let lines: Vec<&str> = said.lines().collect();
     let tail = lines[lines.len().saturating_sub(8)..].join("\n");
     div()
@@ -2030,7 +2030,7 @@ impl MainScreen {
 }
 
 /// Settings opens next at its Extensions page.
-fn to_extensions_page(cx: &mut gpui::App) {
+pub(super) fn to_extensions_page(cx: &mut gpui::App) {
     crate::settings::data::set_page(cx, pitwall_proto::settings::Page::Extensions);
 }
 

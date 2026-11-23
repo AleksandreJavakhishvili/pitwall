@@ -13,18 +13,23 @@
 //! opens in one again at the next start, behind the rest, without the
 //! keyboard; its place and size (`inboxWindow`) are kept for the next one.
 //! Closing the window closes the inbox; quitting doesn't.
+//!
+//! An extension's views ([`super::view_tile`]) move the same way: each
+//! function here takes a surface's key ([`Surface::key`]: the extension's
+//! id for its inbox, `<extension>/<view>` for a view), and a view in a
+//! window is kept in `extensions.<id>.viewWindows`.
 
 use std::time::Duration;
 
 use gpui::{div, prelude::*, px, App, AppContext, Context, FocusHandle, Pixels, Point, Task, Window, WindowHandle};
 
 use super::inbox_tile;
-use super::tree::Content;
+use super::tree::Surface;
 use super::workspace::{whereabouts, FilesSpot};
 use crate::explorer::dock::FilesPlace;
 
 pub struct InboxWindow {
-    /// The extension's id.
+    /// What it shows: its surface's key.
     ext: String,
     focus: FocusHandle,
     save: Option<Task<()>>,
@@ -34,10 +39,16 @@ pub struct InboxWindow {
     _subs: Vec<gpui::Subscription>,
 }
 
-/// What a window title says: the extension's name and "Inbox".
-pub fn title(ext: &str, cx: &App) -> String {
-    let name = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).map(|m| m.name.clone()).unwrap_or_else(|| ext.to_string());
-    format!("{name} — Inbox")
+/// What a window title says: the extension's name and "Inbox", or the
+/// view's title.
+pub fn title(key: &str, cx: &App) -> String {
+    let s = Surface::parse(key);
+    let m = crate::extensions::manifest_of(s.ext(), cx);
+    let name = m.as_ref().map(|m| m.name.clone()).unwrap_or_else(|| s.ext().to_string());
+    match &s {
+        Surface::Inbox(_) => format!("{name} — Inbox"),
+        Surface::View(_, v) => format!("{name} — {}", m.as_ref().and_then(|m| m.contributes.view(v)).map_or(v.as_str(), |d| d.title.as_str())),
+    }
 }
 
 impl InboxWindow {
@@ -60,7 +71,10 @@ impl InboxWindow {
             let Some(w) = me.upgrade() else { return true };
             let (leaving, ext) = (w.read(cx).leaving, w.read(cx).ext.clone());
             if !leaving && !crate::windows::quitting(cx) {
-                cx.defer(move |cx| inbox_tile::close(&ext, cx));
+                cx.defer(move |cx| match Surface::parse(&ext) {
+                    Surface::Inbox(e) => inbox_tile::close(&e, cx),
+                    Surface::View(..) => super::view_tile::close(&ext, cx),
+                });
             }
             true
         });
@@ -90,19 +104,14 @@ impl InboxWindow {
 impl Render for InboxWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme::theme(cx).clone();
-        let body = (!self.leaving).then(|| {
-            let v = inbox_tile::view(&self.ext, cx);
-            let agents = crate::web::pages::agents(cx);
-            v.update(cx, |v, cx| v.held(true, agents, cx));
-            v
-        });
-        // Nothing has the keyboard in it: the inbox takes it.
-        if let Some(v) = &body {
+        let body = (!self.leaving).then(|| held(&self.ext, cx));
+        // Nothing has the keyboard in it: the inbox (or view) takes it.
+        if let Some((_, f)) = &body {
             if window.focused(cx).is_none() && window.is_window_active() {
-                let f = gpui::Focusable::focus_handle(v.read(cx), cx);
-                window.focus(&f, cx);
+                window.focus(f, cx);
             }
         }
+        let body = body.map(|(v, _)| v);
         let root = div()
             .id("inbox-window")
             .track_focus(&self.focus)
@@ -120,6 +129,26 @@ impl Render for InboxWindow {
                 None => div().flex_1().into_any_element(),
             });
         crate::platform::decorations::frame(root, window, cx)
+    }
+}
+
+/// The inbox or view of surface `key`, held by a window of its own: what
+/// is drawn, and what takes the keyboard.
+fn held(key: &str, cx: &mut App) -> (gpui::AnyView, FocusHandle) {
+    let agents = crate::web::pages::agents(cx);
+    match Surface::parse(key) {
+        Surface::Inbox(e) => {
+            let v = inbox_tile::view(&e, cx);
+            v.update(cx, |v, cx| v.held(true, agents, cx));
+            let f = gpui::Focusable::focus_handle(v.read(cx), cx);
+            (v.into(), f)
+        }
+        Surface::View(..) => {
+            let v = super::view_tile::view(key, cx);
+            v.update(cx, |v, cx| v.held(true, cx));
+            let f = gpui::Focusable::focus_handle(v.read(cx), cx);
+            (v.into(), f)
+        }
     }
 }
 
@@ -145,11 +174,8 @@ pub fn open(ext: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) -> 
         .map_err(|e| e.to_string())?;
     crate::windows::add_inbox_window(ext, handle, cx);
     if focus {
-        let v = inbox_tile::view(ext, cx);
-        let _ = handle.update(cx, |_, window, cx| {
-            let f = gpui::Focusable::focus_handle(v.read(cx), cx);
-            window.focus(&f, cx);
-        });
+        let (_, f) = held(ext, cx);
+        let _ = handle.update(cx, |_, window, cx| window.focus(&f, cx));
     }
     Ok(handle)
 }
@@ -158,15 +184,28 @@ pub fn open(ext: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) -> 
 /// behind whatever is in front (those of extensions no longer found are
 /// forgotten).
 pub fn restore(cx: &mut App) {
-    let found: Vec<String> = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).map(|m| m.id.clone()).collect();
-    let ids: Vec<String> = crate::ui_state::get(cx).extensions.iter().filter(|(_, e)| e.window).map(|(id, _)| id.clone()).collect();
-    for ext in ids {
-        if !found.contains(&ext) {
-            crate::ui_state::update(cx, |ui| *ui = ui.clone().close_inbox(&ext));
+    let ui = crate::ui_state::get(cx);
+    let mut kept: Vec<Surface> = Vec::new();
+    for (id, e) in &ui.extensions {
+        if e.window {
+            kept.push(Surface::Inbox(id.clone()));
+        }
+        kept.extend(e.view_windows.iter().map(|v| Surface::View(id.clone(), v.clone())));
+    }
+    for s in kept {
+        // An extension no longer found, or a view its manifest no longer
+        // has: forgotten.
+        let m = crate::extensions::manifest_of(s.ext(), cx);
+        let there = match &s {
+            Surface::Inbox(_) => m.is_some(),
+            Surface::View(_, v) => m.is_some_and(|m| m.contributes.view(v).is_some()),
+        };
+        if !there {
+            crate::ui_state::update(cx, |ui| *ui = ui.clone().close_surface(&s));
             continue;
         }
-        if let Err(e) = open(&ext, None, false, cx) {
-            eprintln!("pitwall: could not open the inbox's window again: {e}");
+        if let Err(e) = open(&s.key(), None, false, cx) {
+            eprintln!("pitwall: could not open the extension's window again: {e}");
         }
     }
 }
@@ -189,7 +228,7 @@ pub fn close_for_move(ext: &str, cx: &mut App) {
 /// `at` on screen, else where the last one was): the same inbox. The
 /// window takes the keyboard only with `focus`.
 pub fn pop_out(ext: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) -> Result<WindowHandle<InboxWindow>, String> {
-    crate::ui_state::update(cx, |ui| *ui = ui.clone().inbox_to_window(ext));
+    crate::ui_state::update(cx, |ui| *ui = ui.clone().surface_to_window(&Surface::parse(ext)));
     open(ext, at, focus, cx)
 }
 
@@ -197,8 +236,8 @@ pub fn pop_out(ext: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) 
 /// window `label`): its tile moved there, or its window's inbox moved in
 /// (the window closes).
 pub fn dock(ext: &str, label: &str, space: &str, spot: &FilesSpot, cx: &mut App) -> Result<(), String> {
-    let e = ext.to_string();
-    crate::web::place::land(&Content::Inbox(ext.to_string()), label, space, cx, |ui, fit| ui.inbox_to_layout(space, &e, spot, fit))?;
+    let s = Surface::parse(ext);
+    crate::web::place::land(&s.content(), label, space, cx, |ui, fit| ui.surface_to_layout(space, &s, spot, fit))?;
     close_for_move(ext, cx);
     Ok(())
 }
@@ -213,7 +252,7 @@ pub fn place(ext: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> Re
         }
         return Ok("a window of its own".into());
     }
-    let what = Content::Inbox(ext.to_string());
+    let what = Surface::parse(ext).content();
     let (label, space, spot) = crate::web::place::spot_near(&what, place, of.map(String::from), cx)?;
     let gone = crate::explorer::dock::replaced_by(&space, &spot, cx);
     dock(ext, &label, &space, &spot, cx)?;
@@ -223,7 +262,7 @@ pub fn place(ext: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> Re
 /// The agents whose terminals extension `ext`'s inbox could take the place
 /// of (`(id, name)`).
 pub fn replaceable(ext: &str, cx: &mut App) -> Vec<(String, String)> {
-    crate::web::place::replaceable_near(&Content::Inbox(ext.to_string()), None, cx)
+    crate::web::place::replaceable_near(&Surface::parse(ext).content(), None, cx)
 }
 
 /// Where extension `ext`'s inbox is, in words ("the inbox tile in space
@@ -232,12 +271,17 @@ pub fn replaceable(ext: &str, cx: &mut App) -> Vec<(String, String)> {
 pub fn described(ext: &str, cx: &mut App) -> String {
     let ui = crate::ui_state::get(cx);
     // (Its tile first: a window it just left closes after this.)
-    let Some((space, pane)) = ui.tile_of(&Content::Inbox(ext.to_string())) else {
+    let s = Surface::parse(ext);
+    let Some((space, pane)) = ui.tile_of(&s.content()) else {
         return if crate::windows::inbox_window(ext, cx).is_some() { "a window of its own" } else { "nowhere" }.into();
     };
     let Some(sp) = ui.space(&space) else { return "nowhere".into() };
     let at = whereabouts(&sp.layout, &pane, None).words(&|a: &str| crate::explorer::dock::agent_name(a, cx));
-    format!("the inbox tile in space {} (window {}), {at}", sp.name, ui.window_of_space(&space))
+    let tile = match &s {
+        Surface::Inbox(_) => "the inbox tile".to_string(),
+        Surface::View(_, v) => format!("the view tile “{v}”"),
+    };
+    format!("{tile} in space {} (window {}), {at}", sp.name, ui.window_of_space(&space))
 }
 
 /// The grip of an inbox in a window of its own was pressed: it is dragged
@@ -245,5 +289,5 @@ pub fn described(ext: &str, cx: &mut App) -> String {
 /// is let go over ([`crate::explorer::drag`], as files and web pages).
 pub fn drag_start(ext: &str, window: &mut Window, cx: &mut App) {
     let from = crate::explorer::drag::From::Window(window.window_handle());
-    crate::explorer::drag::start_what(Content::Inbox(ext.to_string()), from, window, cx);
+    crate::explorer::drag::start_what(Surface::parse(ext).content(), from, window, cx);
 }

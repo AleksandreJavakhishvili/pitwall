@@ -348,6 +348,13 @@ impl MainView {
             }
             return;
         }
+        // `view …`: an extension's view tile (`MainScreen::debug_view`).
+        if let Some(what) = cmd.strip_prefix("view ") {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.debug_view(what.trim(), window, cx));
+            }
+            return;
+        }
         // `ext-action <ext> <action>`: in the open Settings, that setup
         // action's confirmation (nothing runs).
         if let Some(what) = cmd.strip_prefix("ext-action ") {

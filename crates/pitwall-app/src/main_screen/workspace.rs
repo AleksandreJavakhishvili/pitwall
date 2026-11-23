@@ -15,7 +15,7 @@ use pitwall_proto::AgentView;
 
 use super::tree::{
     self, build_grid, build_preset, fit_layout, pane_rects, preset_for, remove_pane, split_pane,
-    Content, MinSize, Node, Preset, Rect, Side,
+    MinSize, Node, Preset, Rect, Side, Surface,
 };
 
 mod files;
@@ -432,6 +432,10 @@ pub struct ExtensionPrefs {
     /// one again at the next start.
     #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
     pub window: bool,
+    /// Its views in windows of their own (their ids): each opens in one
+    /// again at the next start.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub view_windows: Vec<String>,
     /// The connection its inbox lists (absent: all of them), kept across
     /// restarts; one gone, or a single connection left, lists all.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
@@ -452,7 +456,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.rest.is_empty()
     }
 }
 
@@ -492,23 +496,63 @@ impl UiState {
     /// Extension `id`'s inbox out of the layout into a window of its own
     /// (kept for the next start).
     pub fn inbox_to_window(self, id: &str) -> UiState {
-        self.undock(&Content::Inbox(id.to_string())).with_extension(id, |e| e.window = true)
+        self.surface_to_window(&Surface::Inbox(id.to_string()))
     }
 
     /// Extension `id`'s inbox put at `spot` of space `space_id`, as
     /// [`UiState::dock`] (it isn't in a window any more when placed).
     pub fn inbox_to_layout(self, space_id: &str, id: &str, spot: &FilesSpot, fit: Option<Fit>) -> (UiState, Option<String>) {
-        let (next, placed) = self.dock(space_id, &Content::Inbox(id.to_string()), spot, WEB_SHARE, fit);
-        match placed {
-            Some(_) => (next.with_extension(id, |e| e.window = false), placed),
-            None => (next, None),
-        }
+        self.surface_to_layout(space_id, &Surface::Inbox(id.to_string()), spot, fit)
     }
 
     /// Extension `id`'s inbox closed: out of every layout and not in a
     /// window.
     pub fn close_inbox(self, id: &str) -> UiState {
-        self.undock(&Content::Inbox(id.to_string())).with_extension(id, |e| e.window = false)
+        self.close_surface(&Surface::Inbox(id.to_string()))
+    }
+
+    /// Whether `s` is kept in a window of its own.
+    pub fn surface_in_window(&self, s: &Surface) -> bool {
+        let e = self.extensions.get(s.ext());
+        match s {
+            Surface::Inbox(_) => e.is_some_and(|e| e.window),
+            Surface::View(_, v) => e.is_some_and(|e| e.view_windows.contains(v)),
+        }
+    }
+
+    /// `s` kept in a window of its own, or not.
+    fn surface_window(self, s: &Surface, on: bool) -> UiState {
+        self.with_extension(s.ext(), |e| match s {
+            Surface::Inbox(_) => e.window = on,
+            Surface::View(_, v) => {
+                e.view_windows.retain(|x| x != v);
+                if on {
+                    e.view_windows.push(v.clone());
+                }
+            }
+        })
+    }
+
+    /// An extension's inbox or view out of the layout into a window of its
+    /// own (kept for the next start).
+    pub fn surface_to_window(self, s: &Surface) -> UiState {
+        self.undock(&s.content()).surface_window(s, true)
+    }
+
+    /// An extension's inbox or view put at `spot` of space `space_id`, as
+    /// [`UiState::dock`] (it isn't in a window any more when placed).
+    pub fn surface_to_layout(self, space_id: &str, s: &Surface, spot: &FilesSpot, fit: Option<Fit>) -> (UiState, Option<String>) {
+        let (next, placed) = self.dock(space_id, &s.content(), spot, WEB_SHARE, fit);
+        match placed {
+            Some(_) => (next.surface_window(s, false), placed),
+            None => (next, None),
+        }
+    }
+
+    /// An extension's inbox or view closed: out of every layout and not in
+    /// a window.
+    pub fn close_surface(self, s: &Surface) -> UiState {
+        self.undock(&s.content()).surface_window(s, false)
     }
 }
 
