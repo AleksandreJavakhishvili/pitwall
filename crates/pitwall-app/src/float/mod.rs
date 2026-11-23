@@ -497,9 +497,12 @@ fn resize_to(dx: f32, dy: f32, cx: &mut App) {
     let f = cx.global::<Float>();
     let (mut width, mut rows) = (f.width, f.rows);
     if r.edge.resizes_width() {
-        let most = room.map_or(model::MAX_WIDTH, |(w, _)| w.min(model::MAX_WIDTH));
         // Its left edge wider to the left, its right edge to the right.
-        let w = (r.width + dx * r.edge.x as f32).min(most).max(model::MIN_WIDTH).round();
+        let want = r.width + dx * r.edge.x as f32;
+        // No wider than the screen has room for; without room, a drag
+        // outward keeps the width it had, never narrower.
+        let most = room.map_or(model::MAX_WIDTH, |(w, _)| w.min(model::MAX_WIDTH)).max(r.width.min(want));
+        let w = want.min(most).max(model::MIN_WIDTH).round();
         if w != r.width || width.is_some() {
             width = Some(w);
         }
@@ -511,12 +514,16 @@ fn resize_to(dx: f32, dy: f32, cx: &mut App) {
         if by != 0 || rows.is_some() {
             let per = (r.per_card as isize + by).clamp(model::MIN_ROWS as isize, model::MAX_ROWS as isize) as usize;
             let mut alone = model::alone_for(r.count, per).clamp(model::MIN_ROWS, model::MAX_ROWS);
-            // No taller than the screen has room for.
+            // No taller than the screen has room for; without room (the
+            // panel already reaches past that edge), a drag outward keeps
+            // the rows it had, never fewer.
+            let had = model::alone_for(r.count, r.per_card).clamp(model::MIN_ROWS, model::MAX_ROWS);
+            let least = had.min(alone).max(model::MIN_ROWS);
             let fits = |alone: usize| {
                 let s = Shape { width: width.unwrap_or(model::WIDTH), rows: Some(alone) };
                 room.is_none_or(|(_, room)| content_height(&list, &asks, s, f) <= room)
             };
-            while alone > model::MIN_ROWS && !fits(alone) {
+            while alone > least && !fits(alone) {
                 alone -= 1;
             }
             rows = Some(alone);
