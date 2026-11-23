@@ -173,8 +173,11 @@ pub struct Float {
     /// How far a resize by the edges it is anchored on moved that corner
     /// (right and down positive), not yet given to the window.
     shift: (f32, f32),
-    /// A bench instance shows it (`float show`), off the screen.
+    /// A bench instance shows it (`float preview`): its view drawn in the
+    /// main window ([`bench_preview`]), never in a window of its own.
     bench_shown: bool,
+    /// That view, made in the main window on its first draw.
+    preview: Option<Entity<FloatView>>,
 }
 
 impl Global for Float {}
@@ -339,6 +342,7 @@ pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Op
         opened: HashSet::new(),
         shift: (0., 0.),
         bench_shown: false,
+        preview: None,
     });
     cx.observe(store, |_, cx| sync(cx)).detach();
     let ui = crate::ui_state::store(cx);
@@ -823,6 +827,10 @@ pub fn sync(cx: &mut App) {
     let new = model::size(&list, &hs, f.expanded, shape(f), &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied());
     let old = std::mem::replace(&mut f.size, new);
     let shift = std::mem::take(&mut f.shift);
+    if let Some(v) = f.preview.clone() {
+        v.update(cx, |_, cx| cx.notify());
+        return;
+    }
     match f.window {
         // A window that isn't resized from the corner it sits on is opened
         // again in its new place when its width or that corner changes
@@ -899,6 +907,11 @@ fn bounds((w, h): (f32, f32), cx: &App) -> Option<Bounds<Pixels>> {
 
 fn open_window(cx: &mut App) {
     if cx.try_global::<Float>().is_none_or(|f| f.window.is_some()) || !wanted(&items(cx), &asks(cx), cx) {
+        return;
+    }
+    // A bench instance opens no window for it: its view is drawn in the
+    // main window ([`bench_preview`]).
+    if crate::bench::enabled() && !crate::bench::visible() {
         return;
     }
     let Some(bounds) = bounds(cx.global::<Float>().size, cx) else { return };
@@ -1163,15 +1176,30 @@ pub fn bench(cmd: &str, cx: &mut App) {
     let what = words.next().unwrap_or_default();
     let first = |cx: &App| asks(cx).into_iter().next();
     match what {
-        "show" => {
+        "preview" => {
             let f = cx.global_mut::<Float>();
-            f.bench_shown = true;
+            // (An anchor on no display: sizes are as asked, not fitted.)
             f.anchor = Some(point(px(crate::bench::OFF_SCREEN.0 + 3000.), px(crate::bench::OFF_SCREEN.1 + 2000.)));
+            match words.next() {
+                Some("off") => {
+                    f.bench_shown = false;
+                    f.preview = None;
+                }
+                Some("collapsed") => (f.bench_shown, f.expanded) = (true, false),
+                None => f.bench_shown = true,
+                Some(p) => {
+                    let preset = Preset::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(p));
+                    let custom = p.split_once('x').and_then(|(w, r)| Some((w.parse::<f32>().ok()?, r.parse::<usize>().ok()?)));
+                    let (width, rows) = match (preset, custom) {
+                        (Some(s), _) => s.size(),
+                        (None, Some((w, r))) => (Some(w.clamp(model::MIN_WIDTH, model::MAX_WIDTH)), Some(r.clamp(model::MIN_ROWS, model::MAX_ROWS))),
+                        _ => return eprintln!("pitwall-debug: float preview [collapsed|small|medium|large|<w>x<rows>|off]"),
+                    };
+                    (f.bench_shown, f.width, f.rows, f.expanded) = (true, width, rows, true);
+                }
+            }
             sync(cx);
-        }
-        "hide" => {
-            cx.global_mut::<Float>().bench_shown = false;
-            sync(cx);
+            cx.refresh_windows();
         }
         "expand" if !cx.global::<Float>().expanded => toggle(cx),
         "minimise" | "minimize" if cx.global::<Float>().expanded => toggle(cx),
@@ -1197,7 +1225,9 @@ pub fn bench(cmd: &str, cx: &mut App) {
         },
         "type" | "send" => {
             let Some(a) = first(cx) else { return eprintln!("pitwall-debug: float has no question") };
-            let input = cx.global::<Float>().window.and_then(|w| w.read(cx).ok()).and_then(|v| v.others.get(&a.key()).map(|(i, _)| i.clone()));
+            let f = cx.global::<Float>();
+            let view = f.window.and_then(|w| w.read(cx).ok()).or_else(|| f.preview.as_ref().map(|v| v.read(cx)));
+            let input = view.and_then(|v| v.others.get(&a.key()).map(|(i, _)| i.clone()));
             let Some(input) = input else { return eprintln!("pitwall-debug: float's question has no field drawn (expand first)") };
             if what == "type" {
                 let text = cmd.trim_start().strip_prefix("type").unwrap_or_default().trim().to_string();
@@ -1421,6 +1451,9 @@ pub struct FloatView {
     focus: FocusHandle,
     /// Each question's field for an answer of the user's own, by its key.
     others: HashMap<String, (Entity<TextInput>, gpui::Subscription)>,
+    /// Drawn in a bench instance's main window ([`bench_preview`]), not
+    /// as its own window: no glass, no keyboard taken, its size the model's.
+    preview: bool,
     _pump: Task<()>,
     _subs: [gpui::Subscription; 2],
 }
@@ -1466,6 +1499,7 @@ impl FloatView {
             tokens: 0,
             focus: cx.focus_handle(),
             others: HashMap::new(),
+            preview: false,
             _pump: pump,
             _subs: [cx.observe_global::<Theme>(|_, cx| cx.notify()), moved],
         }
@@ -2087,7 +2121,7 @@ impl Render for FloatView {
         // Liquid Glass: the control is a slab of the system's own glass
         // over whatever the user is in; nothing of ours is painted behind
         // its content (terminals stay opaque).
-        let liquid = theme::glass_regions(cx);
+        let liquid = theme::glass_regions(cx) && !self.preview;
         let mut t = theme::theme(cx).clone();
         if liquid {
             // Dim text is too dim on glass over a bright page: each step
@@ -2099,8 +2133,10 @@ impl Render for FloatView {
         // The theme's own surface, thinly, over the glass.
         let fill = liquid.then(|| t.raised.opacity(if expanded { GLASS_FILL_OPEN } else { GLASS_FILL }));
         let slab = crate::platform::glass::Slab { inset: PAD, radius, mode: t.mode };
-        crate::platform::glass::slab(window, (liquid && count > 0).then_some(slab));
-        if cx.try_global::<Float>().is_some_and(|f| f.grab) {
+        if !self.preview {
+            crate::platform::glass::slab(window, (liquid && count > 0).then_some(slab));
+        }
+        if !self.preview && cx.try_global::<Float>().is_some_and(|f| f.grab) {
             cx.global_mut::<Float>().grab = false;
             window.focus(&self.focus, cx);
             crate::platform::float_take_keys(window);
@@ -2179,15 +2215,49 @@ impl Render for FloatView {
         // The edges that resize it, over the panel's (laid out for the
         // window's size now: the panel fills it).
         let view = window.viewport_size();
-        let (w, h) = (f32::from(view.width), f32::from(view.height));
+        let (w, h) = if self.preview { f.size } else { (f32::from(view.width), f32::from(view.height)) };
         // The panel's own shadow, in the clear space around it.
         root.relative()
             .p(px(PAD))
             .child(div().size_full().rounded(px(PANEL_RADIUS)).shadow(shadow(&t, liquid)).child(drag_handle(panel)))
             .children(Edge::ALL.map(|e| edge_zone(e, w, h)))
             // Where the platform doesn't follow the pointer itself.
-            .child(canvas(|_, _, _| {}, |_, _, window, _| follow_resize(window)).absolute().size_0())
+            .children((!self.preview).then(|| canvas(|_, _, _| {}, |_, _, window, _| follow_resize(window)).absolute().size_0()))
     }
+}
+
+/// Bench (`float preview`): the control's view, as it would be drawn in
+/// its window, over the top left of the main window on a plain backdrop,
+/// to capture with the main window. No window of its own is opened.
+pub fn bench_preview(window: &mut Window, cx: &mut App) -> Option<gpui::AnyElement> {
+    if !crate::bench::enabled() || !cx.try_global::<Float>().is_some_and(|f| f.bench_shown) {
+        return None;
+    }
+    let view = match cx.global::<Float>().preview.clone() {
+        Some(v) => v,
+        None => {
+            let v = cx.new(|cx| {
+                let mut v = FloatView::new(window, cx);
+                v.preview = true;
+                v
+            });
+            cx.global_mut::<Float>().preview = Some(v.clone());
+            v
+        }
+    };
+    let (w, h) = cx.global::<Float>().size;
+    let backdrop = gpui::hsla(0., 0., 0.5, 1.);
+    Some(
+        div()
+            .id("float-preview")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .bg(backdrop)
+            .child(div().absolute().top_0().left_0().w(px(w)).h(px(h)).child(view))
+            .into_any_element(),
+    )
 }
 
 #[cfg(test)]

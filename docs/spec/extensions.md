@@ -482,9 +482,13 @@ works as before.
 - **Keys:** a press in a card's field gives the control the keyboard for
   it (Pitwall still doesn't come forward); what is typed there never goes
   to an agent's terminal.
-- **Bench commands** (`PITWALL_BENCH`): `float show` (the control up in
-  a bench instance, far off every display, to capture by its window),
-  `float hide`, `float expand`, `float minimise`, `float size
+- **Bench commands** (`PITWALL_BENCH`): `float preview
+  [collapsed|small|medium|large|<w>x<rows>|off]` (a bench instance opens
+  no window for the control: its view, the same model and drawing, is
+  drawn over the top left of the main window on a grey backdrop, at the
+  size the window would have, to capture with the main window; without
+  Liquid Glass's slab and without taking the keyboard), `float expand`,
+  `float minimise`, `float size
   small|medium|large`, `float resize <edge> <dx> <dy>`, `float pick <n>`,
   `float type <text>`, `float send`, `float decline`, `float open`,
   `float state`.
