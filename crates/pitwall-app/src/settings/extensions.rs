@@ -898,7 +898,10 @@ impl SettingsView {
         if self.exts.confirm_replace.as_deref() == Some(&m.id) {
             let text = format!("{}'s folder was changed since Pitwall installed it, or was put there by hand. Updating replaces it, and those changes are lost. Its settings and secrets stay.", m.name);
             let id = m.id.clone();
-            let yes = crate::kit::text_button(SharedString::from(format!("extension-ask-yes-{}", m.id)), "Replace", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, true, cx)));
+            let yes = crate::kit::text_button(SharedString::from(format!("extension-ask-yes-{}", m.id)), "Replace", BtnKind::Small, false, &ui.t).debug_selector({
+                let sel = format!("extension-ask-yes-{}", m.id);
+                move || sel
+            }).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, true, cx)));
             out.push(card(&m.id, text, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
         }
         out

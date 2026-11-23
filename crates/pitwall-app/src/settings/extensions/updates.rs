@@ -594,6 +594,26 @@ mod tests {
         assert!(cx.debug_bounds("extension-update-inbox").is_some(), "1.1.0 offered again");
     }
 
+    /// Update of a folder changed by hand asks first (the answer comes
+    /// back while the click is still being handled), and Replace updates.
+    #[gpui::test]
+    fn updating_a_folder_changed_by_hand_asks_first(cx: &mut TestAppContext) {
+        let t = TempDir::new("settings-ext-changed");
+        let (view, cx) = open(cx, &t);
+        let file = t.path().join("data/extensions/inbox/adapter/main.mjs");
+        std::fs::write(&file, "// mine").unwrap();
+        extension_release(&t.path().join("repo"), "inbox", "1.1.0", "// 2", &setup_action("v2"), true);
+        click(cx, "extension-check-inbox");
+        click(cx, "extension-update-inbox");
+        to_end(&view, cx);
+        click(cx, "extension-review-update-inbox");
+        assert_eq!(view.read_with(cx, |v, _| v.exts.confirm_replace.clone()).as_deref(), Some("inbox"), "asked before replacing");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "// mine", "nothing replaced yet");
+        to_end(&view, cx);
+        click(cx, "extension-ask-yes-inbox");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "// 2");
+    }
+
     /// Add from Git: the form, then what the newest release changes, and
     /// Install; nothing before the click.
     #[gpui::test]
