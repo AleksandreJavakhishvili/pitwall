@@ -120,7 +120,9 @@ pub enum ExtensionCmd {
     /// Write a starter into a new folder: a manifest, a Node adapter that
     /// speaks protocol 1 and shows one inbox thread, a README and
     /// test/pitwall.json. Its id is the folder's name. With --protocol 2 it
-    /// asks for agents.read and shows your agents in its thread.
+    /// asks for agents.read and shows your agents in its thread. With
+    /// --view it draws a list view tile instead, with a palette command and
+    /// a note on your agents' rows.
     New {
         /// The folder to make (absent or empty), named like my-extension.
         folder: PathBuf,
@@ -131,6 +133,10 @@ pub enum ExtensionCmd {
         /// (also reads Pitwall, with permissions).
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u64).range(1..=2))]
         protocol: u64,
+        /// A view tile, a palette command and sidebar notes (format 2,
+        /// protocol 2) instead of an inbox.
+        #[arg(long, conflicts_with = "protocol")]
+        view: bool,
     },
 }
 

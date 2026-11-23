@@ -1,7 +1,7 @@
 # __NAME__
 
-A Pitwall extension. It shows a thread in its inbox; make it show your
-service's data by changing `adapter.mjs`.
+A Pitwall extension. Pitwall draws what its adapter sends; make it show
+your service's data by changing `adapter.mjs`.
 
 ## What is here
 
@@ -17,7 +17,8 @@ service's data by changing `adapter.mjs`.
 
 1. In Pitwall: Settings → Extensions → **Load from folder…**, and pick this
    folder. It is used where it is, marked "development", and stays off.
-2. Turn it on. Its inbox opens with ⌘I.
+2. Turn it on. An inbox opens with ⌘I; a view opens from the command
+   palette ("Open <its title>").
 3. After a change, press **Reload** on its card: the manifest is read
    again and the adapter started again. **Log** shows the lines it sent
    and got, and what it printed on stderr (secrets taken out).
