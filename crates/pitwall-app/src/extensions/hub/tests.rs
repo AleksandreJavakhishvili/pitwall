@@ -407,3 +407,32 @@ fn a_silent_adapter_is_stopped(cx: &mut TestAppContext) {
     cx.executor().advance_clock(HELLO_WITHIN + Duration::from_secs(1));
     assert!(matches!(run(&h, cx), Run::Stopped(why) if why.contains("didn't answer within 10 seconds")));
 }
+
+/// Its log, for its author: what Pitwall sent (the secret taken out of
+/// hello), kept across a restart, forgotten when it is turned off.
+#[gpui::test]
+fn an_adapter_s_log_is_kept_while_it_is_on(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-log");
+    let h = setup(cx, &t);
+    turn_on(cx);
+    cx.update(|cx| {
+        crate::extensions::connections::set_setting_value("inbox", "server", Some("https://inbox.example.com".into()), cx).unwrap();
+        crate::extensions::set_secret("inbox", "apiKey", "s3cret".into(), cx, |err, _| assert!(err.is_none()));
+    });
+    assert_eq!(run(&h, cx), Run::Starting);
+    let conn = cx.update(|cx| crate::extensions::connections::settings_target("inbox", cx).unwrap());
+    let end = format!("inbox/{}", conn.id);
+    say(&h, &end, json!({"type": "hello", "protocol": 1}), cx);
+    h.update(cx, |h, cx| h.open("inbox", &format!("{}:t1", conn.id), cx));
+    let texts = |h: &Entity<Hub>, cx: &mut TestAppContext| h.read_with(cx, |h, _| h.log("inbox").into_iter().map(|(_, l)| l.text).collect::<Vec<_>>());
+    let log = texts(&h, cx);
+    assert!(log[0].contains("\"type\":\"hello\"") && log[0].contains("[secret]"), "{log:?}");
+    assert!(!log.iter().any(|l| l.contains("s3cret")), "{log:?}");
+    assert!(log.iter().any(|l| l.contains("\"type\":\"open\"") && l.contains("\"t1\"")), "{log:?}");
+    h.update(cx, |h, cx| h.restart("inbox", cx));
+    cx.run_until_parked();
+    assert!(texts(&h, cx).len() > log.len(), "kept across a restart");
+    cx.update(|cx| crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("inbox", false)));
+    assert_eq!(run(&h, cx), Run::Off);
+    assert!(texts(&h, cx).is_empty(), "forgotten when turned off");
+}

@@ -223,7 +223,9 @@ mod tests {
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         let mut ids: Vec<String> = std::fs::read_dir(&dest).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         ids.sort();
-        assert_eq!(ids, ["agention", "demo-inbox"]);
+        let mut want: Vec<String> = std::fs::read_dir(DEV_BUNDLE).unwrap().flatten().filter(|e| e.path().join(pitwall_core::extensions::MANIFEST).is_file()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        want.sort();
+        assert_eq!(ids, want, "every extension folder of the repo");
         let mut stack = vec![dest.clone()];
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).unwrap().flatten() {
@@ -234,9 +236,13 @@ mod tests {
                 }
             }
         }
-        assert!(dest.join("agention/adapter/main.mjs").is_file());
+        // Each as shipped still has the files its manifest names.
+        for id in &ids {
+            let r = pitwall_core::extensions::check::check(&dest.join(id), None);
+            assert!(r.passed(), "{}", r.text());
+        }
         let offers = install::bundled(&dest);
-        assert_eq!(offers.len(), 2, "each usable as bundled");
+        assert_eq!(offers.len(), ids.len(), "each usable as bundled");
         // And each installs from the bundle.
         let data = t.path().join("data");
         for o in &offers {
@@ -247,7 +253,7 @@ mod tests {
     /// The app ships the repo's extensions meant for users, the demo
     /// last, each with its version.
     #[test]
-    fn the_repo_ships_agention_then_the_demo() {
+    fn the_repo_ships_its_extensions_demos_last() {
         let list = install::bundled(Path::new(DEV_BUNDLE));
         let ids: Vec<&str> = list.iter().map(|o| o.manifest.id.as_str()).collect();
         assert_eq!(ids.last(), Some(&"demo-inbox"));

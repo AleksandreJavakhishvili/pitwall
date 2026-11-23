@@ -623,7 +623,8 @@ pub fn json_schema() -> Value {
                     "selected": { "type": "string", "description": "The thread its inbox tile shows (`<connection id>:<thread>` for an extension with connections)." },
                     "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked); one that uses a setting is kept per connection, this list copying the carried-over connection's." },
                     "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows)." },
-                    "connection": { "type": "string", "description": "The connection its inbox lists, by id (absent: all of them). One that is gone, or a single connection, lists all." }
+                    "connection": { "type": "string", "description": "The connection its inbox lists, by id (absent: all of them). One that is gone, or a single connection, lists all." },
+                    "devPath": { "type": "string", "description": "A development folder it is loaded from, where it is (Settings → Extensions → Load from folder…): used instead of an installed copy, never copied or changed by Pitwall. Removing it from the list forgets this, never the folder." }
                 },
                 "additionalProperties": true
             }

@@ -6,14 +6,13 @@
 //! runs (so a run goes on, and shows, after Settings is closed and opened
 //! again) and lets one be cancelled. Nothing runs at any other time.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pitwall_core::extensions::{expand_args, Action, Manifest};
 
 /// How long one step may take.
 pub const STEP_TIMEOUT: Duration = Duration::from_secs(180);
@@ -22,67 +21,9 @@ const KEEP: usize = 8 * 1024;
 /// The lines of output a failure shows.
 const TAIL_LINES: usize = 6;
 
-/// One step as it will run, or why it won't.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Planned {
-    /// The program and its arguments, settings put in.
-    pub argv: Vec<String>,
-    /// Where the program is (found on PATH).
-    pub program: Option<PathBuf>,
-    /// Why it won't run.
-    pub skip: Option<String>,
-    pub for_kind: Option<String>,
-    pub optional: bool,
-}
-
-impl Planned {
-    /// The command as a line to read (arguments with spaces or quotes
-    /// quoted; nothing is run through a shell).
-    pub fn line(&self) -> String {
-        self.argv.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" ")
-    }
-}
-
-fn quote(a: &str) -> String {
-    if !a.is_empty() && a.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:@#=+,%".contains(c)) {
-        a.to_string()
-    } else {
-        format!("'{}'", a.replace('\'', "'\\''"))
-    }
-}
-
-/// What an agent kind is called (`claude`: "Claude Code").
-pub fn kind_name(id: &str) -> String {
-    match id {
-        "claude" => "Claude Code".into(),
-        "codex" => "Codex".into(),
-        "gemini" => "Gemini CLI".into(),
-        "aider" => "Aider".into(),
-        other => other.to_string(),
-    }
-}
-
-/// Action `a` of extension `m`, with its plain settings `values`, its
-/// programs looked up on `path`.
-pub fn plan(m: &Manifest, a: &Action, values: &BTreeMap<String, String>, path: Option<&str>) -> Vec<Planned> {
-    a.steps
-        .iter()
-        .map(|s| {
-            let (argv, mut skip) = match expand_args(&s.run, m, values) {
-                Ok(v) => (v, None),
-                Err(label) => (s.run.clone(), Some(format!("set {label} first"))),
-            };
-            let program = super::adapter::resolve(Path::new("."), &argv[0], path).ok();
-            if program.is_none() && skip.is_none() {
-                skip = Some(match &s.for_kind {
-                    Some(k) => format!("{} isn't installed", kind_name(k)),
-                    None => format!("“{}” isn't installed", argv[0]),
-                });
-            }
-            Planned { argv, program, skip, for_kind: s.for_kind.clone(), optional: s.optional }
-        })
-        .collect()
-}
+// What a step runs, worked out without running it, is the core's: the
+// same plan `pitwall extension check` prints.
+pub use pitwall_core::extensions::plan::{kind_name, plan, Planned};
 
 /// How a step went.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -367,6 +308,8 @@ impl Runs {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use pitwall_core::extensions::Manifest;
+    use std::collections::BTreeMap;
 
     fn manifest() -> Manifest {
         let text = r#"{"id": "x", "name": "X", "settings": [{"key": "server", "type": "url", "label": "Server"}],
@@ -412,37 +355,6 @@ mod tests {
         assert_eq!(p[3].skip.as_deref(), Some("fake-b isn't installed"));
         assert!(p.iter().enumerate().all(|(i, s)| (i == 3) == s.skip.is_some()));
         assert_eq!(kind_name("claude"), "Claude Code");
-    }
-
-    /// Every extension in the repo plans each of its actions, one line per
-    /// step; one whose `test/pitwall.json` lists an action's commands plans
-    /// exactly those (planned only: nothing runs), with the programs it
-    /// names under `installed` as fakes on the PATH.
-    #[test]
-    fn each_shipped_extension_plans_its_actions() {
-        for (dir, m, fixture) in crate::extensions::shipped_all() {
-            let t = pitwall_core::testing::TempDir::new("actions-shipped");
-            let installed = fixture["actions"]["installed"].as_array().cloned().unwrap_or_default();
-            for program in installed.iter().filter_map(|p| p.as_str()) {
-                std::fs::write(t.path().join(program), "").unwrap();
-            }
-            let path = t.path().to_string_lossy().into_owned();
-            for a in &m.actions {
-                let p = plan(&m, a, &Default::default(), Some(&path));
-                assert_eq!(p.len(), a.steps.len(), "{}: {}", dir.display(), a.id);
-                let Some(want) = fixture["actions"]["expect"].get(&a.id) else { continue };
-                let strings = |v: &serde_json::Value| -> Vec<Option<String>> { v.as_array().unwrap().iter().map(|s| s.as_str().map(str::to_string)).collect() };
-                assert_eq!(want["label"].as_str(), Some(a.label.as_str()), "{}", dir.display());
-                let lines: Vec<Option<String>> = p.iter().map(|s| Some(s.line())).collect();
-                assert_eq!(lines, strings(&want["lines"]), "{}: {}", dir.display(), a.id);
-                assert_eq!(p.iter().map(|s| s.skip.clone()).collect::<Vec<_>>(), strings(&want["skips"]), "{}: {}", dir.display(), a.id);
-                let optional: Vec<bool> = want["optional"].as_array().unwrap().iter().map(|b| b.as_bool().unwrap()).collect();
-                assert_eq!(p.iter().map(|s| s.optional).collect::<Vec<_>>(), optional, "{}: {}", dir.display(), a.id);
-            }
-            if let Some(expect) = fixture["actions"]["expect"].as_object() {
-                assert!(expect.keys().all(|id| m.actions.iter().any(|a| &a.id == id)), "{}: an expected action is missing", dir.display());
-            }
-        }
     }
 
     /// A plan of fake programs in `dir`: (program, args).

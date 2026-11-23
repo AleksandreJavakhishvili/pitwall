@@ -1,19 +1,27 @@
 //! An extension's adapter process (docs/spec/extensions.md, "Adapter
-//! protocol"): started in the extension's folder with its stdin, stdout
-//! and stderr piped, talked to in JSON lines on threads of its own (never
-//! on the UI thread). What it says arrives as [`Event`]s on a channel the
-//! hub reads; a flood, a line over the limit or its end stops it with a
-//! reason in plain words.
+//! protocol"): started in the extension's folder in a process group of its
+//! own (`pitwall_core::extensions::process`), its stdin, stdout and stderr
+//! piped, talked to in JSON lines on threads of its own (never on the UI
+//! thread). What it says arrives as [`Event`]s on a channel the hub reads;
+//! a flood, a line over the limit or its end stops it with a reason in
+//! plain words. Stopping it stops what it started too (its group). Every
+//! line both ways, and its stderr, go to its log when it has one
+//! (`pitwall_core::extensions::log`: secrets taken out).
 
 use std::collections::VecDeque;
 use std::io::{BufReader, Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use pitwall_core::extensions::log::{self, Dir};
+use pitwall_core::extensions::process::{self, Process};
 use pitwall_core::extensions::protocol::{clean, parse_line, read_line, FromAdapter, LineGuard, ToAdapter};
+
+/// Where a program is: the core's lookup (a path in the extension's folder,
+/// or on the login shell's PATH).
+pub use pitwall_core::extensions::plan::resolve;
 
 /// What an adapter did.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,30 +36,41 @@ const GRACE: Duration = Duration::from_secs(2);
 /// How much of its stderr is kept.
 const STDERR_KEEP: usize = 4096;
 
-type Shared = Arc<Mutex<Option<Child>>>;
+type Shared = Arc<Mutex<Option<Process>>>;
 
 /// The way to an adapter: lines to it, and stopping it.
 pub struct Link {
     lines: Option<mpsc::Sender<String>>,
     child: Option<Shared>,
+    log: Option<log::Shared>,
+}
+
+/// Add `text` to `log`, when there is one.
+fn note(log: &Option<log::Shared>, dir: Dir, text: &str) {
+    if let Some(l) = log {
+        l.lock().unwrap_or_else(|e| e.into_inner()).push(dir, text);
+    }
 }
 
 impl Link {
     /// Send `m` (false: it is gone).
     pub fn send(&self, m: &ToAdapter) -> bool {
-        self.lines.as_ref().is_some_and(|l| l.send(m.line()).is_ok())
+        let line = m.line();
+        let sent = self.lines.as_ref().is_some_and(|l| l.send(line.clone()).is_ok());
+        if sent {
+            note(&self.log, Dir::ToAdapter, &line);
+        }
+        sent
     }
 
-    /// Close its stdin; kill it if it hasn't exited after [`GRACE`].
+    /// Close its stdin; once it has exited, or after [`GRACE`], stop its
+    /// group (what it started goes with it).
     pub fn stop(mut self) {
         self.lines = None;
         if let Some(child) = self.child.take() {
             std::thread::spawn(move || {
                 let end = Instant::now() + GRACE;
-                while Instant::now() < end {
-                    if exited(&child) {
-                        return;
-                    }
+                while Instant::now() < end && !exited(&child) {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 kill(&child);
@@ -72,62 +91,33 @@ fn exited(child: &Shared) -> bool {
     let mut c = child.lock().unwrap_or_else(|e| e.into_inner());
     match c.as_mut() {
         None => true,
-        Some(ch) => !matches!(ch.try_wait(), Ok(None)),
+        Some(ch) => ch.exited().is_some(),
     }
 }
 
+/// Stop it and its group (once: it is taken out).
 fn kill(child: &Shared) {
     if let Some(mut c) = child.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        let _ = c.kill();
-        let _ = c.wait();
+        c.stop();
     }
 }
 
-/// The program `command[0]` names: a path inside `dir` when it has a
-/// slash, else found on `path` (the login shell's PATH).
-pub fn resolve(dir: &Path, program: &str, path: Option<&str>) -> Result<PathBuf, String> {
-    if program.contains('/') || program.contains('\\') {
-        let p = dir.join(program);
-        let (Ok(full), Ok(base)) = (p.canonicalize(), dir.canonicalize()) else {
-            return Err(format!("{program} isn't in the extension's folder"));
-        };
-        if !full.starts_with(&base) {
-            return Err(format!("{program} isn't inside the extension's folder"));
-        }
-        return Ok(full);
-    }
-    let path = path.map(String::from).or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
-    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
-    for d in std::env::split_paths(&path) {
-        for e in exts {
-            let c = d.join(format!("{program}{e}"));
-            if c.is_file() {
-                return Ok(c);
-            }
-        }
-    }
-    Err(format!("“{program}” isn't installed or isn't on your PATH: install it, then restart the extension"))
-}
-
-/// Start `command` in `dir` and send it `hello` first.
-pub fn spawn(dir: &Path, command: &[String], hello: &ToAdapter) -> Result<(Link, UnboundedReceiver<Event>), String> {
-    let program = resolve(dir, &command[0], pitwall_core::shell::spawn_path().as_deref())?;
-    let mut cmd = crate::platform::background_command(&program);
-    cmd.args(&command[1..]).current_dir(dir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    if let Some(p) = pitwall_core::shell::spawn_path() {
-        cmd.env("PATH", p);
-    }
-    let mut child = cmd.spawn().map_err(|e| format!("It couldn't start: {e}"))?;
-    let (Some(mut stdin), Some(stdout), Some(mut stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
-        let _ = child.kill();
-        return Err("It couldn't start: no pipes".into());
-    };
+/// Start `command` in `dir` and send it `hello` first; `log`: where its
+/// lines go.
+pub fn spawn(dir: &Path, command: &[String], hello: &ToAdapter, log: Option<log::Shared>) -> Result<(Link, UnboundedReceiver<Event>), String> {
+    let path = pitwall_core::shell::spawn_path();
+    let program = resolve(dir, &command[0], path.as_deref())?;
+    note(&log, Dir::Note, &format!("Starting {}", pitwall_core::extensions::plan::line(command)));
+    let (child, pipes) = process::start(&program, &command[1..], dir, path.as_deref()).map_err(|e| format!("It couldn't start: {e}"))?;
+    let (mut stdin, stdout, mut stderr) = (pipes.stdin, pipes.stdout, pipes.stderr);
     let child: Shared = Arc::new(Mutex::new(Some(child)));
     let (tx, rx) = unbounded();
 
     // Lines to it, in order, on a thread that may block.
     let (lines, to) = mpsc::channel::<String>();
-    let _ = lines.send(hello.line());
+    let hello_line = hello.line();
+    note(&log, Dir::ToAdapter, &hello_line);
+    let _ = lines.send(hello_line);
     std::thread::spawn(move || {
         while let Ok(l) = to.recv() {
             if stdin.write_all(l.as_bytes()).and_then(|_| stdin.write_all(b"\n")).and_then(|_| stdin.flush()).is_err() {
@@ -136,33 +126,52 @@ pub fn spawn(dir: &Path, command: &[String], hello: &ToAdapter) -> Result<(Link,
         }
     });
 
-    // Its stderr's tail.
+    // Its stderr's tail, and its lines in the log.
     let tail: Arc<Mutex<VecDeque<u8>>> = Arc::default();
     let t = tail.clone();
+    let err_log = log.clone();
     let (err_done, err_ended) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         let _done = err_done;
         let mut buf = [0u8; 1024];
+        let mut partial: Vec<u8> = Vec::new();
         while let Ok(n) = stderr.read(&mut buf) {
             if n == 0 {
-                return;
+                break;
             }
-            let mut q = t.lock().unwrap_or_else(|e| e.into_inner());
-            q.extend(&buf[..n]);
-            while q.len() > STDERR_KEEP {
-                q.pop_front();
+            {
+                let mut q = t.lock().unwrap_or_else(|e| e.into_inner());
+                q.extend(&buf[..n]);
+                while q.len() > STDERR_KEEP {
+                    q.pop_front();
+                }
             }
+            if err_log.is_some() {
+                partial.extend_from_slice(&buf[..n]);
+                while let Some(i) = partial.iter().position(|b| *b == b'\n') {
+                    let line: Vec<u8> = partial.drain(..=i).collect();
+                    note(&err_log, Dir::Stderr, &String::from_utf8_lossy(&line));
+                }
+                if partial.len() > log::MAX_TEXT * 4 {
+                    note(&err_log, Dir::Stderr, &String::from_utf8_lossy(&partial));
+                    partial.clear();
+                }
+            }
+        }
+        if !partial.is_empty() {
+            note(&err_log, Dir::Stderr, &String::from_utf8_lossy(&partial));
         }
     });
 
     let c = child.clone();
-    std::thread::spawn(move || read_loop(BufReader::new(stdout), tx, c, (tail, err_ended)));
-    Ok((Link { lines: Some(lines), child: Some(child) }, rx))
+    let out_log = log.clone();
+    std::thread::spawn(move || read_loop(BufReader::new(stdout), tx, c, (tail, err_ended), out_log));
+    Ok((Link { lines: Some(lines), child: Some(child), log }, rx))
 }
 
 /// Read its lines until it ends, floods or sends one too long.
 /// `err` is its stderr's tail and the end of its reading.
-fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: Shared, err: (Arc<Mutex<VecDeque<u8>>>, std::sync::mpsc::Receiver<()>)) {
+fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: Shared, err: (Arc<Mutex<VecDeque<u8>>>, std::sync::mpsc::Receiver<()>), log: Option<log::Shared>) {
     let (tail, err_ended) = err;
     let start = Instant::now();
     let mut guard = LineGuard::default();
@@ -176,7 +185,9 @@ fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: 
         if let Err(e) = guard.line(start.elapsed().as_millis() as u64) {
             break Some(format!("It was stopped: {e}."));
         }
-        if let Ok(msg) = parse_line(&String::from_utf8_lossy(&buf)) {
+        let text = String::from_utf8_lossy(&buf);
+        note(&log, Dir::FromAdapter, &text);
+        if let Ok(msg) = parse_line(&text) {
             if msg != FromAdapter::Unknown && tx.unbounded_send(Event::Msg(msg)).is_err() {
                 return;
             }
@@ -193,13 +204,13 @@ fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: 
             let mut code = None;
             while Instant::now() < end {
                 let mut c = child.lock().unwrap_or_else(|e| e.into_inner());
-                match c.as_mut().map(|ch| ch.try_wait()) {
-                    Some(Ok(Some(status))) => {
-                        code = Some(status.code());
+                match c.as_mut().map(|ch| ch.exited()) {
+                    Some(Some(status)) => {
+                        code = Some(status);
                         break;
                     }
-                    Some(Ok(None)) => {}
-                    _ => break,
+                    Some(None) => {}
+                    None => break,
                 }
                 drop(c);
                 std::thread::sleep(Duration::from_millis(50));
@@ -217,6 +228,7 @@ fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: 
     let _ = err_ended.recv_timeout(Duration::from_millis(500));
     let err: Vec<u8> = tail.lock().unwrap_or_else(|e| e.into_inner()).iter().copied().collect();
     let err = clean(String::from_utf8_lossy(&err).trim(), 600, true);
+    note(&log, Dir::Note, &why);
     let why = if err.is_empty() { why } else { format!("{why} It said: {err}") };
     let _ = tx.unbounded_send(Event::Stopped(why));
 }
@@ -244,11 +256,12 @@ impl TestEnd {
 }
 
 #[cfg(test)]
-pub fn pair(hello: &ToAdapter) -> (Link, UnboundedReceiver<Event>, TestEnd) {
+pub fn pair(hello: &ToAdapter, log: Option<log::Shared>) -> (Link, UnboundedReceiver<Event>, TestEnd) {
     let (lines, to) = mpsc::channel();
+    note(&log, Dir::ToAdapter, &hello.line());
     let _ = lines.send(hello.line());
     let (tx, rx) = unbounded();
-    (Link { lines: Some(lines), child: None }, rx, TestEnd { lines: to, events: tx })
+    (Link { lines: Some(lines), child: None, log }, rx, TestEnd { lines: to, events: tx })
 }
 
 #[cfg(all(test, unix))]
@@ -284,12 +297,17 @@ mod tests {
     }
 
     /// A real process: it gets hello first, its lines arrive, its end and
-    /// its stderr are told.
+    /// its stderr are told; its log has every line both ways and its
+    /// stderr, the hello's secrets taken out.
     #[test]
     fn a_process_answers_and_its_end_is_told() {
         let t = pitwall_core::testing::TempDir::new("adapter-proc");
         let cmd = script(t.path(), "read line\ncase \"$line\" in *'\"hello\"'*) echo '{\"type\":\"hello\",\"protocol\":1}';; esac\nread line\necho \"$line\" | grep -q refresh && echo '{\"type\":\"status\",\"state\":\"ready\"}'\necho 'bye now' >&2\nexit 3\n");
-        let (link, mut rx) = spawn(t.path(), &cmd, &hello()).unwrap();
+        let log: log::Shared = Arc::default();
+        let mut secrets = serde_json::Map::new();
+        secrets.insert("apiKey".into(), "hunter22".into());
+        let hello = ToAdapter::Hello { pitwall: "test".into(), settings: Default::default(), secrets };
+        let (link, mut rx) = spawn(t.path(), &cmd, &hello, Some(log.clone())).unwrap();
         assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }));
         assert!(link.send(&ToAdapter::Refresh));
         assert!(matches!(next(&mut rx), Event::Msg(FromAdapter::Status { .. })));
@@ -298,13 +316,20 @@ mod tests {
             e => panic!("{e:?}"),
         }
         link.stop();
+        let lines = log.lock().unwrap().lines();
+        let seen: Vec<(Dir, &str)> = lines.iter().map(|l| (l.dir, l.text.as_str())).collect();
+        assert_eq!(seen[0], (Dir::Note, "Starting sh a.sh"));
+        assert!(seen[1].0 == Dir::ToAdapter && seen[1].1.contains("\"apiKey\":\"[secret]\"") && !seen[1].1.contains("hunter22"), "{seen:?}");
+        for want in [(Dir::FromAdapter, "{\"type\":\"hello\",\"protocol\":1}"), (Dir::ToAdapter, "{\"type\":\"refresh\"}"), (Dir::Stderr, "bye now"), (Dir::Note, "It exited with code 3.")] {
+            assert!(seen.contains(&want), "{want:?} in {seen:?}");
+        }
     }
 
     #[test]
     fn a_flood_is_stopped() {
         let t = pitwall_core::testing::TempDir::new("adapter-flood");
         let cmd = script(t.path(), "while :; do echo '{\"type\":\"status\",\"state\":\"ready\"}'; done\n");
-        let (link, mut rx) = spawn(t.path(), &cmd, &hello()).unwrap();
+        let (link, mut rx) = spawn(t.path(), &cmd, &hello(), None).unwrap();
         let why = loop {
             if let Event::Stopped(w) = next(&mut rx) {
                 break w;
@@ -314,12 +339,30 @@ mod tests {
         link.stop_now();
     }
 
+    /// Stopping an adapter stops what it started: its process group goes.
+    #[test]
+    fn what_an_adapter_starts_stops_with_it() {
+        let t = pitwall_core::testing::TempDir::new("adapter-group");
+        let cmd = script(t.path(), "read line\nsleep 60 &\necho \"{\\\"type\\\":\\\"hello\\\",\\\"protocol\\\":$!}\"\nwait\n");
+        let (link, mut rx) = spawn(t.path(), &cmd, &hello(), None).unwrap();
+        // The child's pid comes back as the "protocol" (a test only).
+        let Event::Msg(FromAdapter::Hello { protocol: pid }) = next(&mut rx) else { panic!("no hello") };
+        let alive = |pid: u64| std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
+        assert!(alive(pid), "its child runs");
+        link.stop();
+        let end = Instant::now() + Duration::from_secs(8);
+        while alive(pid) && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!alive(pid), "its child stopped with it");
+    }
+
     /// The extensions shipped in the repo.
-    fn shipped(id: &str) -> PathBuf {
+    fn shipped(id: &str) -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions").join(id)
     }
 
-    fn node() -> Option<PathBuf> {
+    fn node() -> Option<std::path::PathBuf> {
         let found = resolve(Path::new("."), "node", pitwall_core::shell::spawn_path().as_deref()).ok();
         if found.is_none() {
             eprintln!("node isn't installed: the real adapters aren't checked");
@@ -338,11 +381,6 @@ mod tests {
         }
     }
 
-    fn hello_with(settings: serde_json::Value, secrets: serde_json::Value) -> ToAdapter {
-        let map = |v: serde_json::Value| v.as_object().cloned().unwrap_or_default();
-        ToAdapter::Hello { pitwall: "test".into(), settings: map(settings), secrets: map(secrets) }
-    }
-
     /// The fake adapter Pitwall's tests and the docs point to speaks what
     /// Pitwall reads: list, counts, a blocking ask, an answer round trip.
     #[test]
@@ -350,7 +388,7 @@ mod tests {
         if node().is_none() {
             return;
         }
-        let (link, mut rx) = spawn(&shipped("demo-inbox"), &["node".into(), "adapter.mjs".into()], &hello()).unwrap();
+        let (link, mut rx) = spawn(&shipped("demo-inbox"), &["node".into(), "adapter.mjs".into()], &hello(), None).unwrap();
         assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }));
         let FromAdapter::Threads(list) = until(&mut rx, "threads", |m| matches!(m, FromAdapter::Threads(_))) else { unreachable!() };
         assert!(list.len() >= 4 && list.iter().any(|t| t.blocking && t.open_asks > 0 && t.unread > 0), "{list:?}");
@@ -367,72 +405,5 @@ mod tests {
         assert!(!d.messages[0].asks[0].open);
         assert_eq!(d.messages.last().unwrap().answers[0].labels, ["SQLite"]);
         link.stop();
-    }
-
-    /// Each extension in the repo whose `test/pitwall.json` names a fake
-    /// server for its adapter: the real adapter, against that fake, speaks
-    /// what Pitwall reads (skipped without Node). The fake prints one JSON
-    /// line (`thread`, and what `{field}` in the fixture's settings and
-    /// secrets stands for), and stops when its stdin closes.
-    #[test]
-    fn each_shipped_adapter_agrees_with_pitwall() {
-        let Some(_) = node() else { return };
-        for (dir, m, fixture) in crate::extensions::shipped_all() {
-            let agree = &fixture["agreement"];
-            if agree.is_null() {
-                continue;
-            }
-            let what = dir.display().to_string();
-            let fake_cmd: Vec<String> = agree["fake"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect();
-            let program = resolve(&dir, &fake_cmd[0], pitwall_core::shell::spawn_path().as_deref()).unwrap();
-            let mut server = std::process::Command::new(program).args(&fake_cmd[1..]).current_dir(&dir).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
-            let mut first = String::new();
-            std::io::BufRead::read_line(&mut BufReader::new(server.stdout.take().unwrap()), &mut first).unwrap();
-            let fake: serde_json::Value = serde_json::from_str(&first).unwrap_or_else(|e| panic!("{what}: the fake's line: {e}"));
-            let fill = |v: &serde_json::Value| -> serde_json::Value {
-                let mut out = serde_json::Map::new();
-                for (k, v) in v.as_object().cloned().unwrap_or_default() {
-                    let field = v.as_str().unwrap().trim_start_matches('{').trim_end_matches('}');
-                    out.insert(k, fake[field].clone());
-                }
-                serde_json::Value::Object(out)
-            };
-            let thread = fake["thread"].as_str().unwrap().to_string();
-            let hello = hello_with(fill(&agree["settings"]), fill(&agree["secrets"]));
-            let command = m.adapter.as_ref().unwrap_or_else(|| panic!("{what}: no adapter")).command.clone();
-            let (link, mut rx) = spawn(&dir, &command, &hello).unwrap();
-            assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }), "{what}");
-            until(&mut rx, "ready", |m| matches!(m, FromAdapter::Status { state: pitwall_core::extensions::protocol::ConnState::Ready, .. }));
-            let FromAdapter::Threads(list) = until(&mut rx, "threads", |m| matches!(m, FromAdapter::Threads(_))) else { unreachable!() };
-            let t = list.iter().find(|t| t.id == thread).expect("the fake's thread");
-            assert!(t.blocking && t.open_asks == 1 && t.unread >= 1 && t.from.is_some(), "{what}: {t:?}");
-            let FromAdapter::Counts(c) = until(&mut rx, "counts", |m| matches!(m, FromAdapter::Counts(_))) else { unreachable!() };
-            assert_eq!((c.open_asks, c.blocking), (1, 1), "{what}");
-            assert!(link.send(&ToAdapter::Open { thread: thread.clone() }));
-            let FromAdapter::Thread(d) = until(&mut rx, "the thread", |m| matches!(m, FromAdapter::Thread(_))) else { unreachable!() };
-            let ask = &d.messages[0].asks[0];
-            let answer = &agree["answer"];
-            let pick = answer["pick"].as_u64().unwrap() as u32;
-            let (label, text) = (answer["label"].as_str().unwrap(), answer["text"].as_str().unwrap());
-            assert!(ask.open && ask.blocking && ask.suggestions[pick as usize].label == label, "{what}: {ask:?}");
-            assert!(link.send(&ToAdapter::Answer { req: 3, thread: thread.clone(), ask: ask.number, picks: vec![pick], text: Some(text.into()), declined: false }));
-            assert_eq!(until(&mut rx, "the result", |m| matches!(m, FromAdapter::Result { .. })), FromAdapter::Result { req: 3, ok: true, message: String::new() }, "{what}");
-            let FromAdapter::Thread(d) = until(&mut rx, "the answered thread", |m| matches!(m, FromAdapter::Thread(d) if d.messages.len() > 1)) else { unreachable!() };
-            let answered = d.messages.iter().flat_map(|m| &m.answers).next().expect("a carried answer");
-            assert_eq!((answered.labels.as_slice(), answered.text.as_str()), (&[label.to_string()][..], text), "{what}");
-            link.stop();
-            drop(server.stdin.take());
-            let _ = server.wait();
-        }
-    }
-
-    #[test]
-    fn programs_are_found_and_kept_in_their_folder() {
-        let t = pitwall_core::testing::TempDir::new("adapter-resolve");
-        std::fs::write(t.path().join("run.sh"), "").unwrap();
-        assert!(resolve(t.path(), "./run.sh", None).is_ok());
-        assert!(resolve(t.path(), "../outside.sh", None).is_err());
-        assert!(resolve(t.path(), "sh", Some("/bin:/usr/bin")).is_ok());
-        assert!(resolve(t.path(), "no-such-program-here", Some("/bin")).unwrap_err().contains("isn't installed"));
     }
 }
