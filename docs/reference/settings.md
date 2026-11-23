@@ -31,7 +31,7 @@ How the sidebar groups agents: by project, or by account (the Claude Code or Cod
 
 ### `general.floatingPrompts`
 
-While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else.
+While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else, and the open questions in the inboxes of extensions that are on, answered right there. Resize it by any edge or corner, or pick Small, Medium or Large in its header.
 
 - **Values:** true or false
 - **Default:** `true`

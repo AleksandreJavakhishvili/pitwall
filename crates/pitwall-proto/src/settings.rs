@@ -197,7 +197,7 @@ pub const SETTINGS: &[Setting] = &[
         key: "general.floatingPrompts",
         kind: Kind::Bool,
         default: DefaultValue::Bool(true),
-        description: "While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else.",
+        description: "While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else, and the open questions in the inboxes of extensions that are on, answered right there. Resize it by any edge or corner, or pick Small, Medium or Large in its header.",
         page: Page::General,
         sensitivity: Sensitivity::Safe,
         stored: Stored::Ui { key: "floatingPrompts", invert: false },

@@ -3,7 +3,8 @@
 Status: built, unreleased. Finding extensions, the manifest (settings,
 adapter, agent variables, agent matching, setup actions), the adapter
 protocol (version 1), the adapter's lifecycle, settings and secrets, the
-inbox tile, agents' ask badges and notifications. The first example is Agention
+inbox tile, agents' ask badges and notifications, and questions in the
+floating control. The first example is Agention
 ([`extensions/agention/`](../../extensions/agention/README.md)); a fake
 adapter that speaks the protocol is in
 [`extensions/demo-inbox/`](../../extensions/demo-inbox/adapter.mjs).
@@ -438,6 +439,55 @@ a peer of the files and web tiles, or a window of its own. Code:
   agent that needs you does (`platform::notify_attention`: not while
   Pitwall's window has your attention, never from a bench instance; the
   first list after a start never notifies).
+
+## In the floating control
+The floating "needs you" control (Settings → General,
+`general.floatingPrompts`; code: `float/`) shows the open questions of
+every extension that is installed, on, has an inbox and whose adapter
+runs, after the agents' cards. Without such an extension it looks and
+works as before.
+- **Which:** each open ask (not answered, withdrawn or closed) of the
+  threads with open asks, the first 6 of each inbox in its "Needs you"
+  order (`float::model::ASK_THREADS`); blocking ones first, then in
+  the inboxes' order. Cards are at most 3 together with the agents'
+  (agents first); the rest are counted in "+N more in Pitwall", which
+  opens the first of them.
+- **Asked for only while it could show them:** while the setting is on
+  and Pitwall isn't in front, the control `open`s those threads in their
+  adapters (and `close`s them when Pitwall comes forward, the setting is
+  turned off or a thread has no open ask any more). The hub counts who
+  asked, so an inbox tile showing the same thread keeps it. Nothing is
+  marked read.
+- **A card:** the extension's icon and name (and the connection's, when
+  it has several), who asks (the Pitwall agent the thread is matched to
+  through `matchAgents`, else the name the thread gives) and the
+  thread's title, "Waiting on you" for a blocking one; the question;
+  its suggestions as buttons (rows with their descriptions when they
+  have any); a field for an answer of your own (Enter sends it with what
+  is picked), Send, Decline and Open in inbox. A click on a suggestion
+  sends it at once, or toggles it when the ask takes several (Send then
+  sends them). The card's height is what it holds; the window is sized
+  to it.
+- **One answer path, one state:** an answer goes as the inbox tile's
+  does (`inbox_tile::answer_ask`: through the extension's inbox view when
+  there is one, so the tile shows it as sent too, else straight to the
+  hub). The card says "Sending…" until the thread says the ask is
+  answered, and goes; answered in the tile, it goes from the control
+  too. A refused answer shows "Not sent: why" on the card (the thread's
+  note, as in the tile) and can be sent again.
+- **Open in inbox** brings Pitwall forward on that thread in the
+  extension's inbox (`windows::show_inbox`, as ⌘I opens it).
+- **The count** on the mark and the header's title include the
+  questions ("api and 1 question", "2 questions for you").
+- **Keys:** a press in a card's field gives the control the keyboard for
+  it (Pitwall still doesn't come forward); what is typed there never goes
+  to an agent's terminal.
+- **Bench commands** (`PITWALL_BENCH`): `float show` (the control up in
+  a bench instance, far off every display, to capture by its window),
+  `float hide`, `float expand`, `float minimise`, `float size
+  small|medium|large`, `float resize <edge> <dx> <dy>`, `float pick <n>`,
+  `float type <text>`, `float send`, `float decline`, `float open`,
+  `float state`.
 
 ## Setup actions
 What "setting up" means for an extension is the manifest's to say, such

@@ -7,6 +7,8 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 ### Highlights
 
 - Agention from its releases. The operator API Pitwall's inbox uses shipped in Agention v0.5.0, so the extension (now 1.1.0; Settings → Extensions offers Update) pins Agention's plugin to v0.6.0 and no longer needs a pre-release server. A new button, "Install Agention's server here", installs that server on this computer with npm after you confirm; starting it stays yours, since it runs apart from Pitwall. A server from a pre-release build can't be upgraded in place: start the released one with a new data folder.
+- Questions from your extensions' inboxes in the floating "needs you" control. While you're in another app, the open questions of an extension that is on (Agention, the demo inbox) are cards under your agents': who asks and in which thread, the suggestions to click, a field for your own answer, Decline and Open in inbox. It's the inbox's own question, so answering it in either place answers it in both. With no such extension on, the control is as before.
+- The floating control's size is yours. Resize it by any edge or corner, or pick Small, Medium or Large in its header; minimise it back to the small tile and a click brings it back at the same size. A double click on an edge goes back to the default, and the size is kept for the next start.
 
 ## [0.8.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.8.0) - 2026-11-22
 
