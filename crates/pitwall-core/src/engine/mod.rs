@@ -30,7 +30,7 @@ use crate::events::{Event, EventSink};
 use crate::exec::{Cmd, Exec, Out, Stat};
 use crate::hooks::{self, HookEffect};
 use crate::kind::{self, KindCatalog};
-use crate::model::{AgentRecord, AgentView, KindCaps, KindView, QueueItem};
+use crate::model::{AgentRecord, AgentView, KindCaps, KindView, QueueItem, QueueOrigin};
 use crate::onboarding::project_list::ProjectList;
 use crate::paths::Paths;
 use crate::provider::{CreateForm, Locator, Provider, Providers, TermSize};
@@ -93,6 +93,10 @@ pub struct Engine {
     extension_env: std::sync::RwLock<Vec<crate::extensions::Manifest>>,
     /// Agents showing files to the user (crate::show).
     pub(crate) show: crate::show::State,
+    /// The extensions the user lets send their Next up items without
+    /// asking (the app sets them; docs/extensions/actions.md). Auto-send
+    /// passes over any other extension's item.
+    auto_senders: std::sync::RwLock<Vec<String>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -123,6 +127,7 @@ impl Engine {
             shown: Default::default(),
             tool_updates: Default::default(),
             extension_env: Default::default(),
+            auto_senders: Default::default(),
             show: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
@@ -489,15 +494,62 @@ impl Engine {
     // ------------------------------------------------------------ queue & seen
 
     pub fn queue_add(&self, id: &str, text: String) -> Result<AgentView, String> {
+        self.queue_add_from(id, text, None)
+    }
+
+    /// Queue `text` for agent `id`, put there by `origin` (an extension;
+    /// `None`: the user).
+    pub fn queue_add_from(&self, id: &str, text: String, origin: Option<QueueOrigin>) -> Result<AgentView, String> {
         let view = self.with(id, |a| {
             a.rec.queue.push(QueueItem {
                 id: uuid::Uuid::new_v4().to_string(),
                 text,
+                origin,
             });
             a.view()
         })?;
         self.changed(true);
         Ok(view)
+    }
+
+    /// How many items extension `ext` has waiting in agent `id`'s Next up.
+    pub fn queued_by(&self, id: &str, ext: &str) -> usize {
+        self.with(id, |a| a.rec.queue.iter().filter(|q| q.origin.as_ref().is_some_and(|o| o.extension == ext)).count()).unwrap_or(0)
+    }
+
+    /// Take every item extension `ext` put in any Next up out (it was
+    /// turned off): what it queued and wasn't sent never goes.
+    pub fn queue_remove_origin(&self, ext: &str) -> usize {
+        self.queue_retain_origins(|o| o != ext)
+    }
+
+    /// Take out every extension's item but those of `keep` (the extensions
+    /// on and still granted `agents.queue`); the user's own stay.
+    pub fn queue_keep_origins(&self, keep: &[String]) -> usize {
+        self.queue_retain_origins(|o| keep.iter().any(|k| k == o))
+    }
+
+    fn queue_retain_origins(&self, keep: impl Fn(&str) -> bool) -> usize {
+        let mut gone = 0;
+        for a in self.agents().iter_mut() {
+            let before = a.rec.queue.len();
+            a.rec.queue.retain(|q| q.origin.as_ref().is_none_or(|o| keep(&o.extension)));
+            gone += before - a.rec.queue.len();
+        }
+        if gone > 0 {
+            self.changed(true);
+        }
+        gone
+    }
+
+    /// The extensions whose items Auto-send may send (the user let them
+    /// send without asking); every other extension's waits for Send.
+    pub fn set_auto_senders(&self, ids: Vec<String>) {
+        *self.auto_senders.write().unwrap_or_else(|e| e.into_inner()) = ids;
+    }
+
+    pub(crate) fn auto_senders(&self) -> Vec<String> {
+        self.auto_senders.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn queue_remove(&self, id: &str, item_id: &str) -> Result<AgentView, String> {

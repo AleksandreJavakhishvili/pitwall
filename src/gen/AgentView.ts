@@ -3,6 +3,7 @@ import type { AgentCaps } from "./AgentCaps";
 import type { AskView } from "./AskView";
 import type { MachineView } from "./MachineView";
 import type { QueueItem } from "./QueueItem";
+import type { QueueOrigin } from "./QueueOrigin";
 import type { Source } from "./Source";
 import type { Status } from "./Status";
 
@@ -68,7 +69,11 @@ ask?: AskView | null, running: boolean,
 /**
  * Current PTY size.
  */
-cols: number, rows: number, added: number, removed: number, filesChanged: number, queue: Array<QueueItem>, autoSend: boolean, lastSent: string | null, lastSentAt: number | null, createdAt: number, currentTaskId: string | null, caps: AgentCaps, 
+cols: number, rows: number, added: number, removed: number, filesChanged: number, queue: Array<QueueItem>, autoSend: boolean, lastSent: string | null, lastSentAt: number | null, 
+/**
+ * The extension whose Next up item was sent last (`None`: the user's).
+ */
+lastSentBy?: QueueOrigin, createdAt: number, currentTaskId: string | null, caps: AgentCaps, 
 /**
  * Local dev-server addresses its terminal printed while it runs, most
  * recent first ("Open preview", docs/spec/terminals.md).

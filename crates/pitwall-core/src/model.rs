@@ -7,7 +7,7 @@ use crate::kind::{AgentKind, HookMode};
 use crate::provider::{HookTransport, Locator, ProviderCaps};
 
 // The wire shapes live in pitwall-proto (architecture.md §1).
-pub use pitwall_proto::{AgentCaps, AgentView, MachineView, QueueItem, Source, Status};
+pub use pitwall_proto::{AgentCaps, AgentView, MachineView, QueueItem, QueueOrigin, Source, Status};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -255,6 +255,9 @@ pub struct AgentRecord {
     pub last_sent: Option<String>,
     #[serde(default)]
     pub last_sent_at: Option<u64>,
+    /// The extension whose item was sent last (`None`: the user's own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sent_by: Option<pitwall_proto::QueueOrigin>,
     pub created_at: u64,
     /// Per-task snapshots for the review screen (tasks.rs).
     #[serde(default)]

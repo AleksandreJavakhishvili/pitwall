@@ -140,6 +140,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
                 options,
                 cols: None,
                 rows: None,
+                prompt: None,
             })?;
             out(&view, render::agent_new(&view))
         }

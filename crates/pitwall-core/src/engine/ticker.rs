@@ -121,7 +121,15 @@ struct Folded {
 
 /// Update `a`'s status from `obs` at `now`; decide on attention and auto-send.
 /// Pure bookkeeping (under the registry lock): no I/O.
+#[cfg(test)]
 fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
+    fold_with(a, obs, now, &[])
+}
+
+/// [`fold`], Auto-send taking an extension's item only when it is one of
+/// `senders` (the user lets it send without asking): the first item that
+/// may go goes; another extension's waits for the user's Send.
+fn fold_with(a: &mut Agent, obs: Observation, now: u64, senders: &[String]) -> Folded {
     let mut out = Folded::default();
     let prev_ask = a.ask();
     if let Some((d, seq)) = obs.detection {
@@ -181,16 +189,17 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
     }
 
     // Auto-send the next queued prompt once the agent has settled.
-    if !obs.exited
-        && a.rec.auto_send
-        && !a.rec.queue.is_empty()
-        && matches!(a.status, Status::Done | Status::Idle)
-        && now.saturating_sub(a.status_since) >= AUTO_SEND_SETTLE_MS
-        && now.saturating_sub(obs.last_input) >= AUTO_SEND_QUIET_INPUT_MS
-        && now.saturating_sub(a.last_auto_send) >= AUTO_SEND_COOLDOWN_MS
-    {
-        let item = a.rec.queue.remove(0);
-        a.note_sent(&item.text, now);
+    let next = a.rec.queue.iter().position(|q| q.origin.as_ref().is_none_or(|o| senders.contains(&o.extension)));
+    if let Some(at) = next.filter(|_| {
+        !obs.exited
+            && a.rec.auto_send
+            && matches!(a.status, Status::Done | Status::Idle)
+            && now.saturating_sub(a.status_since) >= AUTO_SEND_SETTLE_MS
+            && now.saturating_sub(obs.last_input) >= AUTO_SEND_QUIET_INPUT_MS
+            && now.saturating_sub(a.last_auto_send) >= AUTO_SEND_COOLDOWN_MS
+    }) {
+        let item = a.rec.queue.remove(at);
+        a.note_sent_by(&item.text, item.origin.clone(), now);
         out.task_jobs.extend(tasks::begin(a, Some(&item.text), true));
         out.send = Some(item.text);
         out.changed = true;
@@ -247,13 +256,14 @@ fn tick(core: &Shared, badge: &mut usize) {
     let wt_probes;
     let title_jobs;
     {
+        let senders = core.auto_senders();
         let mut agents = core.agents();
         for p in probes {
             let Some(a) = agents.iter_mut().find(|a| a.rec.id == p.id) else { continue };
             if !a.host.as_ref().is_some_and(|s| Arc::ptr_eq(s, &p.session)) {
                 continue;
             }
-            let f = fold(a, p.obs, now);
+            let f = fold_with(a, p.obs, now, &senders);
             changed |= f.changed;
             persist |= f.persist;
             alerts.extend(f.alert);
@@ -494,7 +504,7 @@ mod bench;
 mod tests {
     use super::*;
     use crate::hooks::HookState;
-    use crate::model::QueueItem;
+    use crate::model::{QueueItem, QueueOrigin};
     use crate::testing::{record, Harness};
 
     fn agent() -> Agent {
@@ -591,8 +601,8 @@ mod tests {
     #[test]
     fn auto_send_waits_for_the_agent_and_the_user_to_settle() {
         let mut a = agent();
-        a.rec.queue.push(QueueItem { id: "q1".into(), text: "next please".into() });
-        a.rec.queue.push(QueueItem { id: "q2".into(), text: "and then".into() });
+        a.rec.queue.push(QueueItem { id: "q1".into(), text: "next please".into(), origin: None });
+        a.rec.queue.push(QueueItem { id: "q2".into(), text: "and then".into(), origin: None });
         a.hook = Some((HookState::Idle, None));
         // Turns idle at t=10s: not settled yet.
         assert!(fold(&mut a, live(0), 10_000).send.is_none());
@@ -611,6 +621,28 @@ mod tests {
         assert!(fold(&mut a, live(typed), t + AUTO_SEND_COOLDOWN_MS - 1).send.is_none());
         a.rec.auto_send = false;
         assert!(fold(&mut a, live(typed), t + AUTO_SEND_COOLDOWN_MS * 10).send.is_none());
+    }
+
+    /// An extension's item is never auto-sent unless the user lets that
+    /// extension send without asking; the user's own items behind it go.
+    #[test]
+    fn auto_send_skips_an_extensions_item_unless_allowed() {
+        let ci = || Some(QueueOrigin { extension: "ci".into(), name: "CI".into() });
+        let mut a = agent();
+        a.rec.queue.push(QueueItem { id: "e1".into(), text: "from CI".into(), origin: ci() });
+        a.rec.queue.push(QueueItem { id: "q1".into(), text: "mine".into(), origin: None });
+        a.hook = Some((HookState::Idle, None));
+        assert!(fold(&mut a, live(0), 10_000).send.is_none());
+        let t = 10_000 + AUTO_SEND_SETTLE_MS + AUTO_SEND_QUIET_INPUT_MS;
+        let f = fold_with(&mut a, live(0), t, &["other".into()]);
+        assert_eq!(f.send.as_deref(), Some("mine"), "CI's waits");
+        assert_eq!(a.rec.last_sent_by, None);
+        assert_eq!(a.rec.queue.iter().map(|q| q.id.as_str()).collect::<Vec<_>>(), ["e1"]);
+        let later = t + AUTO_SEND_COOLDOWN_MS;
+        assert!(fold(&mut a, live(0), later).send.is_none(), "only CI's is left: it waits for Send");
+        let f = fold_with(&mut a, live(0), later, &["ci".into()]);
+        assert_eq!(f.send.as_deref(), Some("from CI"), "allowed to send without asking");
+        assert_eq!(a.rec.last_sent_by, ci());
     }
 
     #[test]

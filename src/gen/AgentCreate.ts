@@ -40,4 +40,11 @@ resume?: string | null,
  * The login it runs with: an account's name or id, or `default`
  * (default: the project's account, else the user's own).
  */
-account?: string | null, cols?: number | null, rows?: number | null, };
+account?: string | null, 
+/**
+ * From an extension only (`agents.start`): its first prompt, shown in
+ * full in the approval and put in the new agent's Next up as the
+ * extension's item (sent as its other items are). Anyone else is
+ * refused it: they queue with `queue.add`.
+ */
+prompt?: string | null, cols?: number | null, rows?: number | null, };
