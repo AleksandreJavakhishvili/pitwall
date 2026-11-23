@@ -61,6 +61,10 @@
             "description": "The connection its inbox lists, by id (absent: all of them). One that is gone, or a single connection, lists all.",
             "type": "string"
           },
+          "devPath": {
+            "description": "A development folder it is loaded from, where it is (Settings → Extensions → Load from folder…): used instead of an installed copy, never copied or changed by Pitwall. Removing it from the list forgets this, never the folder.",
+            "type": "string"
+          },
           "enabled": {
             "default": false,
             "description": "The extension is on: its adapter runs and its inbox can be opened.",

@@ -1,0 +1,9 @@
+{
+  "about": "What `pitwall extension test` checks for this extension (and Pitwall's tests, for every folder under extensions/). The demo's adapter needs no server.",
+  "run": {
+    "settings": { "greeting": "https://example.com" },
+    "threads": 4,
+    "open": "demo/1",
+    "reply": "Thanks, looking now."
+  }
+}

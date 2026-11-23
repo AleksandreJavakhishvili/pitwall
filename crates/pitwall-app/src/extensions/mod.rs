@@ -6,6 +6,12 @@
 //! [`connections`]) while it is on; its threads show in its inbox tile
 //! (`main_screen::inbox_tile`), and an agent's open asks as a badge on the
 //! agent's row ([`asks_for`]).
+//!
+//! **Development folders** (docs/spec/extensions.md, "Dev mode"): a folder
+//! loaded from Settings ("Load from folder…") is recorded in `ui.json`
+//! (`extensions.<id>.devPath`) and used where it is, never copied; it
+//! takes the place of an installed copy with its id while it is listed
+//! ([`load_dev`], [`reload_dev`], [`forget_dev`]).
 
 pub mod actions;
 pub mod adapter;
@@ -13,12 +19,13 @@ pub mod catalog;
 pub mod connections;
 pub mod hub;
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{App, Global};
-use pitwall_core::extensions::{discover, Found, Manifest};
+use pitwall_core::extensions::{discover, read_dev, Found, Manifest};
 
 use crate::platform::secrets::SecretStore;
 
@@ -29,6 +36,8 @@ pub struct Installed {
     pub dir: Option<PathBuf>,
     pub found: Rc<Vec<Found>>,
     pub bundle: Option<PathBuf>,
+    /// The development folders `found` was read with, by id.
+    pub dev: Rc<BTreeMap<String, PathBuf>>,
 }
 
 impl Global for Installed {}
@@ -129,6 +138,12 @@ pub fn follow(cx: &mut App) {
     let ui = crate::ui_state::store(cx);
     let accounts = crate::accounts::model(cx);
     let changed = move |cx: &mut App| {
+        // A development folder added or taken out (here or in ui.json by
+        // hand): read the folders again first.
+        let dev = dev_paths(&crate::ui_state::get(cx));
+        if cx.try_global::<Installed>().is_some_and(|i| *i.dev != dev) {
+            rescan(cx);
+        }
         h.update(cx, |h, cx| h.reconcile(cx));
         if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
             e.set_extension_env(env_sources(cx));
@@ -236,18 +251,92 @@ pub fn quit(cx: &mut App) {
 /// doesn't have.
 pub const DEFAULT_ICON: &str = "extension";
 
-/// Look in `root`'s extensions folder (`None`: no data folder, none).
+/// Look in `root`'s extensions folder (`None`: no data folder, none), and
+/// the development folders in `ui.json`.
 pub fn init(root: Option<PathBuf>, cx: &mut App) {
     let dir = root.map(|r| pitwall_core::paths::Paths::new(r).extensions_dir());
-    let found = dir.as_deref().map(discover).unwrap_or_default();
-    cx.set_global(Installed { dir, found: Rc::new(found), bundle: catalog::locate() });
+    let dev = dev_paths(&crate::ui_state::get(cx));
+    let found = find_all(dir.as_deref(), &dev);
+    cx.set_global(Installed { dir, found: Rc::new(found), bundle: catalog::locate(), dev: Rc::new(dev) });
 }
 
-/// Look in the extensions folder again (Settings → "Look again").
+/// Look in the extensions folder and the development folders again
+/// (Settings → "Look again", Reload).
 pub fn rescan(cx: &mut App) {
     let mut i = cx.try_global::<Installed>().cloned().unwrap_or_default();
-    i.found = Rc::new(i.dir.as_deref().map(discover).unwrap_or_default());
+    let dev = dev_paths(&crate::ui_state::get(cx));
+    i.found = Rc::new(find_all(i.dir.as_deref(), &dev));
+    i.dev = Rc::new(dev);
     cx.set_global(i);
+}
+
+/// The development folders `ui` lists, by id.
+pub fn dev_paths(ui: &crate::ui_state::UiState) -> BTreeMap<String, PathBuf> {
+    ui.extensions.iter().filter_map(|(id, e)| Some((id.clone(), PathBuf::from(e.dev_path.as_ref()?)))).collect()
+}
+
+/// The extensions in `dir`, each development folder of `dev` in place of
+/// an installed one with its id, by folder (id) order.
+pub fn find_all(dir: Option<&std::path::Path>, dev: &BTreeMap<String, PathBuf>) -> Vec<Found> {
+    let mut found: Vec<Found> = dir.map(discover).unwrap_or_default().into_iter().filter(|f| !dev.contains_key(f.key())).collect();
+    found.extend(dev.iter().map(|(id, path)| read_dev(path, id)));
+    found.sort_by(|a, b| a.folder.cmp(&b.folder));
+    found
+}
+
+/// Extension `id`'s development folder, when it is loaded from one.
+pub fn dev_folder(id: &str, cx: &App) -> Option<PathBuf> {
+    cx.try_global::<Installed>().and_then(|i| i.dev.get(id).cloned())
+}
+
+/// The folder extension `id` runs in: its development folder, else its
+/// folder in the extensions folder.
+pub fn folder_of(id: &str, cx: &App) -> Option<PathBuf> {
+    dev_folder(id, cx).or_else(|| dir(cx).map(|d| d.join(id)))
+}
+
+/// Load the extension in `folder` in place, as a development folder: its
+/// id, or why not. It stays off (an installed copy with its id that was on
+/// is turned off too: nothing runs until the user turns it on).
+pub fn load_dev(folder: &std::path::Path, cx: &mut App) -> Result<String, String> {
+    let folder = folder.canonicalize().map_err(|_| format!("{} isn't there", folder.display()))?;
+    if !folder.is_dir() {
+        return Err(format!("{} isn't a folder", folder.display()));
+    }
+    let m = pitwall_core::extensions::read_in_place(&folder).map_err(|why| format!("It can't be used: {why}."))?;
+    if let Some(other) = dev_folder(&m.id, cx).filter(|p| *p != folder) {
+        return Err(format!("“{}” is already loaded from {}: remove that one from the list first.", m.id, pitwall_core::paths::tildify(&other.to_string_lossy())));
+    }
+    let path = folder.to_string_lossy().into_owned();
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(&m.id, |e| {
+            e.dev_path = Some(path);
+            e.enabled = false;
+        })
+    });
+    rescan(cx);
+    Ok(m.id)
+}
+
+/// Read development extension `id`'s manifest again and, when it is on,
+/// start its adapters again.
+pub fn reload_dev(id: &str, cx: &mut App) {
+    rescan(cx);
+    let h = hub::hub(cx);
+    h.update(cx, |h, cx| h.restart(id, cx));
+}
+
+/// Take development extension `id` off the list: turned off and
+/// forgotten as a development folder. Its folder is never touched; an
+/// installed copy with its id shows again.
+pub fn forget_dev(id: &str, cx: &mut App) {
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(id, |e| {
+            e.dev_path = None;
+            e.enabled = false;
+        })
+    });
+    rescan(cx);
 }
 
 /// Every extension folder found, usable or not.
@@ -274,30 +363,7 @@ pub fn icon_of(m: &Manifest) -> &str {
 #[cfg(test)]
 pub fn set_found(found: Vec<Found>, cx: &mut App) {
     let bundle = cx.try_global::<Installed>().and_then(|i| i.bundle.clone());
-    cx.set_global(Installed { dir: None, found: Rc::new(found), bundle });
-}
-
-/// Tests: every extension in the repo's `extensions/` folder, its
-/// manifest, and what its `test/pitwall.json` says Pitwall's tests expect
-/// of it (each test reads its part; an extension without one is only
-/// parsed and planned). Keeps the checks for a real extension out of the
-/// crate's source.
-#[cfg(test)]
-pub fn shipped_all() -> Vec<(PathBuf, Manifest, serde_json::Value)> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.join("extension.json").is_file()).collect();
-    dirs.sort();
-    assert!(!dirs.is_empty(), "no extensions in {}", root.display());
-    dirs.into_iter()
-        .map(|dir| {
-            let text = std::fs::read_to_string(dir.join("extension.json")).unwrap();
-            let m = pitwall_core::extensions::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
-            let fixture = std::fs::read_to_string(dir.join("test/pitwall.json"))
-                .map(|t| serde_json::from_str(&t).unwrap_or_else(|e| panic!("{}/test/pitwall.json: {e}", dir.display())))
-                .unwrap_or(serde_json::Value::Null);
-            (dir, m, fixture)
-        })
-        .collect()
+    cx.set_global(Installed { dir: None, found: Rc::new(found), bundle, dev: Rc::default() });
 }
 
 #[cfg(test)]
@@ -332,6 +398,55 @@ mod tests {
         assert_eq!(serde_json::to_value(&ui).unwrap()["extensions"]["beta"], serde_json::json!({"enabled": false, "later": 7}));
         // A value of the wrong type: off.
         assert!(!UiState::sanitize(serde_json::json!({"v": 1, "extensions": {"beta": {"enabled": "yes"}}})).extension_on("beta"));
+    }
+
+    /// Every extension in the repo passes `pitwall extension check` and
+    /// `test` (`pitwall_core::extensions::check`): its manifest and files,
+    /// and what its `test/pitwall.json` expects (its actions' exact command
+    /// lines, the variables Settings shows, its adapter's run and its
+    /// agreement with a fake server; a run is skipped without Node). Keeps
+    /// the checks for a real extension out of the crate's source.
+    #[test]
+    fn each_shipped_extension_passes_its_checks() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).filter(|p| p.join(pitwall_core::extensions::MANIFEST).is_file()).collect();
+        dirs.sort();
+        assert!(!dirs.is_empty(), "no extensions in {}", root.display());
+        let path = pitwall_core::shell::spawn_path();
+        for dir in dirs {
+            let r = pitwall_core::extensions::check::check(&dir, path.as_deref());
+            assert!(r.passed(), "{}", r.text());
+            let r = pitwall_core::extensions::check::test(&dir, path.as_deref());
+            assert!(r.passed(), "{}", r.text());
+        }
+    }
+
+    /// A development folder takes the place of an installed copy with its
+    /// id, is read where it is, and goes back to the installed one when it
+    /// is taken off the list; a folder whose id changed says so.
+    #[test]
+    fn a_development_folder_is_used_in_place() {
+        let t = pitwall_core::testing::TempDir::new("ext-dev");
+        let put = |dir: &std::path::Path, id: &str, name: &str| {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join(pitwall_core::extensions::MANIFEST), format!(r#"{{"id": "{id}", "name": "{name}"}}"#)).unwrap();
+        };
+        let installed = t.path().join("data/extensions");
+        put(&installed.join("inbox"), "inbox", "Installed");
+        put(&installed.join("other"), "other", "Other");
+        let work = t.path().join("code/my-inbox");
+        put(&work, "inbox", "Mine");
+        let names = |dev: &BTreeMap<String, PathBuf>| find_all(Some(&installed), dev).iter().map(|f| f.manifest.as_ref().map(|m| m.name.clone()).unwrap_or_else(|e| e.clone())).collect::<Vec<_>>();
+        assert_eq!(names(&BTreeMap::new()), ["Installed", "Other"]);
+        let dev = BTreeMap::from([("inbox".to_string(), work.clone())]);
+        assert_eq!(names(&dev), ["Mine", "Other"]);
+        put(&work, "renamed", "Mine");
+        assert!(names(&dev)[0].contains("its id is now “renamed”"), "{:?}", names(&dev));
+        let ui = UiState::default().with_extension("inbox", |e| e.dev_path = Some(work.to_string_lossy().into_owned()));
+        assert_eq!(dev_paths(&ui), dev);
+        assert_eq!(serde_json::to_value(&ui).unwrap()["extensions"]["inbox"]["devPath"], serde_json::json!(work.to_string_lossy()));
+        let back = UiState::sanitize(serde_json::to_value(&ui).unwrap());
+        assert_eq!(dev_paths(&back), dev, "kept in ui.json");
     }
 
     #[test]

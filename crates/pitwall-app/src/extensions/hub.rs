@@ -21,6 +21,10 @@
 //! shown ([`Run::Stopped`]) until the user restarts it from Settings or its
 //! inbox tile. A thread with an ask it didn't have is told to watchers
 //! ([`HubEvent::NewAsk`]: the notification an agent that needs you gets).
+//!
+//! Each adapter keeps a log for its author ([`Hub::log`]): the last 500
+//! lines both ways and its stderr, secrets taken out, across its restarts
+//! until its extension is turned off.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -30,6 +34,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, Global};
 use pitwall_core::extensions::protocol::{ConnState, Counts, FromAdapter, Thread, ThreadDetail, ToAdapter, MAX_REPLY, PROTOCOL};
+use pitwall_core::extensions::log::{self, Line};
 use pitwall_core::extensions::{Manifest, SettingKind};
 use serde_json::{Map, Value};
 
@@ -251,6 +256,8 @@ pub struct Hub {
     next_gen: u64,
     /// Bumped when a connection's secret is changed (it starts again).
     secrets_gen: HashMap<Key, u64>,
+    /// Each adapter's log, kept while its extension is on.
+    logs: HashMap<Key, log::Shared>,
     /// Tests: the other ends of the adapters' links, by extension id
     /// (`<ext>/<connection>` for a connection).
     #[cfg(test)]
@@ -275,6 +282,7 @@ pub fn hub(cx: &mut App) -> Entity<Hub> {
         next_req: 1,
         next_gen: 1,
         secrets_gen: HashMap::new(),
+        logs: HashMap::new(),
         #[cfg(test)]
         ends: HashMap::new(),
     });
@@ -327,6 +335,20 @@ impl Hub {
         self.runs.get(&(ext.to_string(), conn.to_string()))
     }
 
+    /// Extension `ext`'s log: each of its adapters' lines with the name of
+    /// its connection (empty without connections), oldest first.
+    pub fn log(&self, ext: &str) -> Vec<(String, Line)> {
+        let names: HashMap<&str, &str> = self.targets.get(ext).map(|t| t.iter().map(|(c, n)| (c.as_str(), n.as_str())).collect()).unwrap_or_default();
+        let several = names.len() > 1;
+        let mut out: Vec<(String, Line)> = Vec::new();
+        for (k, l) in self.logs.iter().filter(|(k, _)| k.0 == ext) {
+            let name = if several { names.get(k.1.as_str()).copied().unwrap_or("").to_string() } else { String::new() };
+            out.extend(l.lock().unwrap_or_else(|e| e.into_inner()).lines().into_iter().map(|line| (name.clone(), line)));
+        }
+        out.sort_by_key(|(_, l)| l.at);
+        out
+    }
+
     /// The adapters each enabled extension of `found` wants, with the
     /// accounts in `list`.
     fn targets_of(m: &Manifest, list: &pitwall_core::accounts::Accounts) -> Vec<Target> {
@@ -345,7 +367,6 @@ impl Hub {
     pub fn reconcile(&mut self, cx: &mut Context<Self>) {
         let found = super::found(cx);
         let ui = crate::ui_state::get(cx);
-        let dir = super::dir(cx);
         let list = crate::accounts::model(cx).read(cx).list.clone();
         let mut wanted: HashSet<Key> = HashSet::new();
         self.targets.clear();
@@ -353,8 +374,12 @@ impl Hub {
         for m in found.iter().filter_map(|f| f.manifest.as_ref().ok()) {
             if m.adapter.is_none() || !ui.extension_on(&m.id) {
                 self.idle.insert(m.id.clone(), Run::Off);
+                // Off: its log is forgotten.
+                self.logs.retain(|k, _| k.0 != m.id);
                 continue;
             }
+            // Where it runs: its development folder, else its installed one.
+            let folder = super::folder_of(&m.id, cx);
             let mut order = Vec::new();
             let mut running = 0;
             for t in Self::targets_of(m, &list) {
@@ -377,11 +402,11 @@ impl Hub {
                     Ok(()) => {
                         running += 1;
                         let mut h = std::collections::hash_map::DefaultHasher::new();
-                        (m.adapter.as_ref().map(|a| &a.command), &m.settings.iter().map(|s| (&s.key, t.values.get(&s.key))).collect::<Vec<_>>(), &t.secrets_set, &t.secrets_name, gen_now).hash(&mut h);
+                        (m.adapter.as_ref().map(|a| &a.command), &folder, &m.settings.iter().map(|s| (&s.key, t.values.get(&s.key))).collect::<Vec<_>>(), &t.secrets_set, &t.secrets_name, gen_now).hash(&mut h);
                         let fp = h.finish();
                         if st.fingerprint != Some(fp) {
                             st.fingerprint = Some(fp);
-                            self.start(m, &key, &t, dir.clone(), cx);
+                            self.start(m, &key, &t, folder.clone(), cx);
                         }
                     }
                 }
@@ -533,7 +558,7 @@ impl Hub {
         }
     }
 
-    fn start(&mut self, m: &Manifest, key: &Key, t: &Target, dir: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
+    fn start(&mut self, m: &Manifest, key: &Key, t: &Target, folder: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
         let gen = self.next_gen;
         self.next_gen += 1;
         let st = self.runs.entry(key.clone()).or_default();
@@ -555,7 +580,7 @@ impl Hub {
         let store = super::secret_store(cx);
         let accounts: Vec<(String, String)> = secret_keys.iter().map(|k| (k.clone(), super::account(&t.secrets_name, k, cx))).collect();
         let command = m.adapter.as_ref().map(|a| a.command.clone()).unwrap_or_default();
-        let folder = dir.map(|d| d.join(&m.id));
+        let log = self.logs.entry(key.clone()).or_default().clone();
         let key = key.clone();
         let started = cx.background_executor().spawn(async move {
             let mut secrets = Map::new();
@@ -568,8 +593,10 @@ impl Hub {
                     Err(e) => return Err(e),
                 }
             }
+            // Its log takes out these values wherever they show.
+            log.lock().unwrap_or_else(|e| e.into_inner()).set_secrets(secrets.values().filter_map(|v| v.as_str().map(str::to_string)).collect());
             let hello = ToAdapter::Hello { pitwall: env!("CARGO_PKG_VERSION").to_string(), settings, secrets };
-            open_link(folder, &command, &hello)
+            open_link(folder, &command, &hello, log)
         });
         cx.spawn(async move |this, cx| {
             let res = started.await;
@@ -599,6 +626,9 @@ impl Hub {
             Ok(o) => o,
             Err(why) => {
                 if st.gen == gen {
+                    if let Some(l) = self.logs.get(key) {
+                        l.lock().unwrap_or_else(|e| e.into_inner()).push(log::Dir::Note, &why);
+                    }
                     st.run = Run::Stopped(why);
                     st.gen = 0;
                 }
@@ -812,19 +842,19 @@ struct Opened {
 }
 
 #[cfg(not(test))]
-fn open_link(folder: Option<std::path::PathBuf>, command: &[String], hello: &ToAdapter) -> Result<Opened, String> {
+fn open_link(folder: Option<std::path::PathBuf>, command: &[String], hello: &ToAdapter, log: log::Shared) -> Result<Opened, String> {
     let folder = folder.ok_or("Extensions need Pitwall's data folder.")?;
     if command.is_empty() {
         return Err("It has no adapter.".into());
     }
-    let (link, events) = super::adapter::spawn(&folder, command, hello)?;
+    let (link, events) = super::adapter::spawn(&folder, command, hello, Some(log))?;
     Ok(Opened { link, events })
 }
 
 /// Tests: no process; the test drives the other end ([`Hub::ends`]).
 #[cfg(test)]
-fn open_link(_: Option<std::path::PathBuf>, _: &[String], hello: &ToAdapter) -> Result<Opened, String> {
-    let (link, events, end) = super::adapter::pair(hello);
+fn open_link(_: Option<std::path::PathBuf>, _: &[String], hello: &ToAdapter, log: log::Shared) -> Result<Opened, String> {
+    let (link, events, end) = super::adapter::pair(hello, Some(log));
     Ok(Opened { link, events, end: Some(end) })
 }
 

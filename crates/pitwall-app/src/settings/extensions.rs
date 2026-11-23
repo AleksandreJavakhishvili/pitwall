@@ -16,6 +16,9 @@
 //! or more, a row of tabs over the checklist picks which one it shows,
 //! each with its state as a dot and the default marked; Rename, Make
 //! default and Remove are beside them.
+//!
+//! For authors (`extensions_dev`): Load from folder…, a development card's
+//! Reload and "Remove from list", and any card's Log.
 
 use std::collections::{HashMap, HashSet};
 
@@ -73,6 +76,8 @@ pub struct Section {
     /// Removing a connection asked to confirm: (extension, connection,
     /// the one to make the default when it is the default).
     remove_conn: Option<(String, String, Option<String>)>,
+    /// Development folders and logs.
+    pub(super) dev: super::extensions_dev::Dev,
     _subs: Vec<Subscription>,
 }
 
@@ -85,26 +90,9 @@ pub fn url_value(text: &str) -> Result<Option<String>, String> {
     pitwall_proto::web::address(text).map(Some).map_err(|_| "That isn't a web address (like https://example.com).".to_string())
 }
 
-/// Each variable extension `m` sets, as `NAME=value`: its settings put in
-/// (the per-agent placeholders left as they are), or why it isn't set.
-pub fn env_preview(m: &Manifest, values: &std::collections::BTreeMap<String, String>) -> Vec<String> {
-    m.agent_env
-        .iter()
-        .map(|v| {
-            let mut value = v.value.clone();
-            for s in &m.settings {
-                let p = format!("{}{}}}", pitwall_core::extensions::SETTING_PLACEHOLDER, s.key);
-                if value.contains(&p) {
-                    match values.get(&s.key).filter(|x| !x.trim().is_empty()) {
-                        Some(x) => value = value.replace(&p, x),
-                        None => return format!("{} (not set until {} is)", v.name, s.label),
-                    }
-                }
-            }
-            format!("{}={value}", v.name)
-        })
-        .collect()
-}
+/// Each variable extension `m` sets, as `NAME=value` (the core's, which
+/// `pitwall extension check` prints too).
+pub use pitwall_core::extensions::plan::env_preview;
 
 /// The adapter's state in a few words, its tone, and what to do.
 pub fn run_text(run: &Run, conn: Option<&(ConnState, String)>) -> (&'static str, Tone, String) {
@@ -291,17 +279,21 @@ impl SettingsView {
             self.exts._subs.push(cx.observe(&runs, |_, _, cx| cx.notify()));
         }
         let folder = crate::extensions::dir(cx).map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()));
+        let load = self.dev_load_button(ui, cx);
         section()
             .child(
                 head(ui, "Extensions").child(
-                    crate::kit::text_button("extensions-rescan", "Look again", BtnKind::GhostSm, false, &ui.t)
-                        .tooltip(crate::kit::tooltip("Read the extensions folder again"))
-                        .on_click(cx.listener(|_, _, _, cx| {
-                            crate::extensions::rescan(cx);
-                            cx.notify();
-                        })),
+                    div().flex().gap(px(4.)).child(load).child(
+                        crate::kit::text_button("extensions-rescan", "Look again", BtnKind::GhostSm, false, &ui.t)
+                            .tooltip(crate::kit::tooltip("Read the extensions folder again"))
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                crate::extensions::rescan(cx);
+                                cx.notify();
+                            })),
+                    ),
                 ),
             )
+            .children(self.dev_note(ui))
             .child(crate::kit::hint(
                 match &folder {
                     Some(f) => format!("Extensions bring questions from your agents' tools into Pitwall, in an inbox. Installing one turns nothing on: its program runs only while it is on. An extension you got elsewhere goes in {f}."),
@@ -382,6 +374,7 @@ impl SettingsView {
         let (pill, tone): (SharedString, Tone) = if conns.len() > 1 && on { Self::overall(&m, &conns, cx) } else { (word.into(), tone) };
         let open = self.exts.open.get(&m.id).copied().unwrap_or(on || needs_setup);
         let (icon, text) = Self::ext_title(ui, &m, &f.folder);
+        let text = text.children(Self::dev_chip(ui, &m, cx));
         let id = m.id.clone();
         let switch = crate::kit::toggle(SharedString::from(format!("extension-switch-{}", m.id)), on, &ui.t).tooltip(crate::kit::tooltip(if on { "Turn off" } else { "Turn on" })).on_click(cx.listener(move |v, _, _, cx| {
             let id = id.clone();
@@ -415,7 +408,11 @@ impl SettingsView {
             .child(div().mt(px(1.)).child(chevron));
         let mut card = Self::card(ui, format!("extension-card-{}", m.id)).child(top);
         let changed = local.get(&m.id) == Some(&false);
-        card = card.children(self.installed_notes(ui, &m, shipped.iter().find(|s| s.offer.manifest.id == m.id), changed, cx));
+        // A development folder is never updated: its line says where it is.
+        let dev_line = self.dev_line(ui, &m, cx);
+        let shipped_one = shipped.iter().find(|s| s.offer.manifest.id == m.id).filter(|_| dev_line.is_none());
+        card = card.children(dev_line);
+        card = card.children(self.installed_notes(ui, &m, shipped_one, changed, cx));
         if open {
             if on {
                 let new_here = self.exts.naming.as_ref().is_some_and(|(e, c, _)| *e == m.id && c.is_none());
@@ -438,6 +435,7 @@ impl SettingsView {
                 card = card.child(crate::kit::hint(format!("Turn it on to set it up. While it is off, nothing of {} runs.", m.name), &ui.t));
             }
             card = card.child(self.card_footer(ui, &m, &f.folder, cx));
+            card = card.children(self.log_view(ui, &m, cx));
         }
         div().child(card)
     }
@@ -910,13 +908,16 @@ impl SettingsView {
         if let Some(url) = m.docs.clone() {
             row = row.child(crate::kit::text_button(SharedString::from(format!("extension-docs-{}", m.id)), "Docs", BtnKind::Link, false, &ui.t).tooltip(crate::kit::tooltip(url.clone())).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &url)));
         }
+        let (mut row, dev) = self.dev_buttons(ui, m, row, cx);
         let working = self.exts.working.contains(&m.id);
         let id = m.id.clone();
-        row = row.child(crate::kit::text_button(SharedString::from(format!("extension-remove-{}", m.id)), if working { "Working…" } else { "Remove" }, BtnKind::GhostSm, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
-            v.exts.confirm_remove = Some(id.clone());
-            v.exts.confirm_replace = None;
-            cx.notify();
-        })));
+        if !dev {
+            row = row.child(crate::kit::text_button(SharedString::from(format!("extension-remove-{}", m.id)), if working { "Working…" } else { "Remove" }, BtnKind::GhostSm, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+                v.exts.confirm_remove = Some(id.clone());
+                v.exts.confirm_replace = None;
+                cx.notify();
+            })));
+        }
         let mut col = div().flex().flex_col().gap(px(8.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(row);
         if shown {
             col = col.child(self.disclosure(ui, m, folder, cx));
@@ -949,8 +950,8 @@ impl SettingsView {
             }
             col = col.child(b);
         }
-        if let Some(dir) = crate::extensions::dir(cx) {
-            col = col.child(block("Its folder:").child(crate::kit::mono_text(pitwall_core::paths::tildify(&dir.join(folder).to_string_lossy()), &ui.t)));
+        if let Some(path) = crate::extensions::dev_folder(&m.id, cx).or_else(|| crate::extensions::dir(cx).map(|d| d.join(folder))) {
+            col = col.child(block("Its folder:").child(crate::kit::mono_text(pitwall_core::paths::tildify(&path.to_string_lossy()), &ui.t)));
         }
         col
     }
@@ -959,7 +960,9 @@ impl SettingsView {
     /// Install.
     fn ext_available(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let (shipped, _) = self.shipped_now(cx);
-        let available: Vec<Manifest> = shipped.iter().filter(|s| s.status == Status::Available).map(|s| s.offer.manifest.clone()).collect();
+        let found = crate::extensions::found(cx);
+        let listed = |id: &str| found.iter().any(|f| f.key() == id);
+        let available: Vec<Manifest> = shipped.iter().filter(|s| s.status == Status::Available && !listed(&s.offer.manifest.id)).map(|s| s.offer.manifest.clone()).collect();
         let mut d = div().flex().flex_col().gap(px(8.));
         if available.is_empty() {
             return d;
@@ -1352,28 +1355,5 @@ mod tests {
         prefs.secrets_set.push("apiKey".into());
         prefs.actions_done.push("setup".into());
         assert!(steps(&prefs, true).iter().all(|(_, d)| *d));
-    }
-
-    /// Settings shows exactly what each variable will be: for each
-    /// extension in the repo whose `test/pitwall.json` says so, before and
-    /// after its settings are filled in.
-    #[test]
-    fn the_variables_shown_are_the_ones_set() {
-        let mut checked = 0;
-        for (dir, m, fixture) in crate::extensions::shipped_all() {
-            let env = &fixture["env"];
-            if env.is_null() {
-                continue;
-            }
-            let lines = |v: &serde_json::Value| -> Vec<String> { v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect() };
-            let mut values = std::collections::BTreeMap::new();
-            assert_eq!(env_preview(&m, &values), lines(&env["unset"]), "{}", dir.display());
-            for (k, v) in env["values"].as_object().unwrap() {
-                values.insert(k.clone(), v.as_str().unwrap().to_string());
-            }
-            assert_eq!(env_preview(&m, &values), lines(&env["set"]), "{}", dir.display());
-            checked += 1;
-        }
-        assert!(checked > 0, "no extension says what its variables are");
     }
 }

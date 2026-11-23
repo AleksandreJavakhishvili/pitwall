@@ -399,6 +399,26 @@ impl MainView {
             }
             return;
         }
+        // `ext-dev <folder>`: in the open Settings, that folder loaded as a
+        // development extension (as "Load from folder…", without the
+        // picker).
+        if let Some(folder) = cmd.strip_prefix("ext-dev ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_load_dev(folder.trim(), cx));
+            }
+            return;
+        }
+        // `ext-log <ext> [off]`: in the open Settings, that extension's
+        // card unfolded with its log shown (or hidden).
+        if let Some(rest) = cmd.strip_prefix("ext-log ") {
+            let mut words = rest.split_whitespace();
+            let ext = words.next().unwrap_or_default().to_string();
+            let on = words.next() != Some("off");
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_log(&ext, on, cx));
+            }
+            return;
+        }
         // `settings-end`: the open Settings page scrolled to its end.
         if cmd == "settings-end" {
             if let Some(v) = self.layer.read(cx).settings_view() {
