@@ -40,6 +40,7 @@ use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
 use crate::main_screen::workspace::ExtensionPrefs;
 use pitwall_core::accounts::Account;
 
+mod grants;
 mod updates;
 
 /// The page's own state.
@@ -93,6 +94,13 @@ pub struct Section {
     add_git: Option<AddGit>,
     /// Go back of a folder changed by hand asked to confirm.
     confirm_back: Option<String>,
+    /// The permission screen: the extension being turned on, and each
+    /// permission's answer so far.
+    asking: Option<(String, std::collections::BTreeMap<String, bool>)>,
+    /// Cards whose activity is shown.
+    activity: HashSet<String>,
+    /// Open activity lists redraw every second.
+    activity_ticking: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -154,10 +162,7 @@ pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool) -> Vec<(
         .settings
         .iter()
         .map(|s| {
-            let set = match s.kind {
-                SettingKind::Url => prefs.values.get(&s.key).is_some_and(|v| !v.trim().is_empty()),
-                SettingKind::Secret => prefs.secrets_set.contains(&s.key),
-            };
+            let set = s.is_set(prefs.values.get(&s.key).map(String::as_str), prefs.secrets_set.contains(&s.key));
             (Step::Setting(s.key.clone()), set || !s.required)
         })
         .collect();
@@ -405,12 +410,19 @@ impl SettingsView {
         let open = self.exts.open.get(&m.id).copied().unwrap_or(on || needs_setup);
         let (icon, text) = Self::ext_title(ui, &m, &f.folder);
         let text = text.children(Self::dev_chip(ui, &m, cx));
-        let id = m.id.clone();
-        let switch = crate::kit::toggle(SharedString::from(format!("extension-switch-{}", m.id)), on, &ui.t).tooltip(crate::kit::tooltip(if on { "Turn off" } else { "Turn on" })).on_click(cx.listener(move |v, _, _, cx| {
-            let id = id.clone();
-            crate::ui_state::update(cx, |s| *s = s.clone().set_extension(&id, !on));
-            // Turned on: unfolded; turned off: folded.
+        let m2 = m.clone();
+        let sel = format!("extension-switch-{}", m.id);
+        let switch = crate::kit::toggle(SharedString::from(sel.clone()), on, &ui.t).debug_selector(move || sel).tooltip(crate::kit::tooltip(if on { "Turn off" } else { "Turn on" })).on_click(cx.listener(move |v, _, _, cx| {
+            let id = m2.id.clone();
+            // Turned on: unfolded (after its permissions are answered);
+            // turned off: folded.
             v.exts.open.remove(&id);
+            if on {
+                crate::ui_state::update(cx, |s| *s = s.clone().set_extension(&id, false));
+                v.exts.asking = None;
+            } else {
+                v.ask_to_turn_on(&m2, cx);
+            }
             cx.notify();
         }));
         let id = m.id.clone();
@@ -443,6 +455,9 @@ impl SettingsView {
         let shipped_one = shipped.iter().find(|s| s.offer.manifest.id == m.id).filter(|_| dev_line.is_none());
         card = card.children(dev_line);
         card = card.children(self.installed_notes(ui, &m, shipped_one, changed, cx));
+        if let Some(ask) = self.permission_screen(ui, &m, cx) {
+            card = card.child(ask);
+        }
         if open {
             if on {
                 let new_here = self.exts.naming.as_ref().is_some_and(|(e, c, _)| *e == m.id && c.is_none());
@@ -461,11 +476,15 @@ impl SettingsView {
                     }
                     card = card.child(other);
                 }
+                card = card.children(self.permissions_view(ui, &m, cx));
+            } else if self.exts.asking.as_ref().is_some_and(|(e, _)| *e == m.id) {
+                // The permission screen above says it all.
             } else {
                 card = card.child(crate::kit::hint(format!("Turn it on to set it up. While it is off, nothing of {} runs.", m.name), &ui.t));
             }
             card = card.child(self.card_footer(ui, &m, &f.folder, cx));
             card = card.children(self.log_view(ui, &m, cx));
+            card = card.children(self.activity_view(ui, &m, cx));
         }
         div().child(card)
     }
@@ -776,6 +795,9 @@ impl SettingsView {
                     match s.kind {
                         SettingKind::Url => self.url_row(ui, m, c, s, cx).into_any_element(),
                         SettingKind::Secret => self.secret_row(ui, m, c, s, cx).into_any_element(),
+                        SettingKind::Text | SettingKind::Number => self.plain_row(ui, m, c, s, cx).into_any_element(),
+                        SettingKind::Choice => self.choice_row(ui, m, c, s, cx).into_any_element(),
+                        SettingKind::Bool => self.bool_row(ui, m, c, s, cx).into_any_element(),
                     }
                 }
                 Step::Action(id) => {
@@ -922,6 +944,7 @@ impl SettingsView {
         if let Some(url) = m.docs.clone() {
             row = row.child(crate::kit::text_button(SharedString::from(format!("extension-docs-{}", m.id)), "Docs", BtnKind::Link, false, &ui.t).tooltip(crate::kit::tooltip(url.clone())).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &url)));
         }
+        let row = row.children(self.activity_button(ui, m, cx));
         let (mut row, dev) = self.dev_buttons(ui, m, row, cx);
         // A development folder is the author's: nothing to go back to.
         if !dev {
@@ -1375,7 +1398,7 @@ mod tests {
     fn the_checklist_follows_the_manifest() {
         let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../extensions/demo-inbox/extension.json")).unwrap();
         let mut m = pitwall_core::extensions::parse(&text).unwrap();
-        m.settings.push(SettingDef { key: "apiKey".into(), kind: SettingKind::Secret, label: "API key".into(), hint: None, placeholder: None, required: true });
+        m.settings.push(SettingDef { required: true, ..SettingDef::new("apiKey", SettingKind::Secret, "API key") });
         m.actions.push(Action { id: "setup".into(), label: "Set up".into(), description: "d".into(), setup: true, steps: vec![] });
         let mut prefs = ExtensionPrefs::default();
         let steps = |p: &ExtensionPrefs, c| checklist(&m, p, c);

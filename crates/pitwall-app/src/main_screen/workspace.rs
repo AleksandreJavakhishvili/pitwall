@@ -440,6 +440,11 @@ pub struct ExtensionPrefs {
     /// Extensions → Load from folder…): used instead of an installed copy.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub dev_path: Option<String>,
+    /// The user's answer to each permission it asked for, and when
+    /// (`pitwall_core::extensions::permissions`): only a granted one that
+    /// its manifest still asks for counts.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub grants: BTreeMap<String, pitwall_core::extensions::permissions::Decision>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -447,7 +452,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.connection.is_none() && self.dev_path.is_none() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && !self.window && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.rest.is_empty()
     }
 }
 

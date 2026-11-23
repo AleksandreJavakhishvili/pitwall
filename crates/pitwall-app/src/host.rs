@@ -15,7 +15,7 @@ use pitwall_core::clock::SystemClock;
 use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
-use pitwall_daemon::{Approvals, Config, Handle, Hub, ProcessIdentity};
+use pitwall_daemon::{Approvals, Config, Handle, Hub, ProcessIdentity, Registry, Server};
 use pitwall_peer::{EngineFeed, Peers, PeersConfig, Tailnet, TailscaleCli};
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
 use pitwall_providers::local::{LocalConfig, LocalProvider};
@@ -40,6 +40,9 @@ pub struct Host {
     pub peers: Option<Arc<Peers>>,
     /// The local Tailscale (`tailscale status`, read-only).
     pub tailnet: Arc<dyn Tailnet>,
+    /// The socket's server without the socket: what extensions' adapters
+    /// read through (extensions::calls).
+    pub api: Arc<Server>,
     server: Option<Handle>,
 }
 
@@ -100,7 +103,10 @@ impl Host {
 
         let approvals = Approvals::new(APPROVAL_TIMEOUT);
         approvals.on_change(move |list| bridge.send(AppEvent::Approvals(list)));
-        let identify = ProcessIdentity::new(engine.clone());
+        // Extensions are callers too: a process their adapter started is
+        // told by its parent chain (pitwall_daemon::extensions).
+        let extensions = Registry::new();
+        let identify = ProcessIdentity::with_extensions(engine.clone(), extensions.clone());
         let settings = crate::settings::backend::AppSettings::new(Some(engine.clone()));
         let workspace = crate::cli_spaces::AppWorkspace::new();
         let cfg = Config {
@@ -110,8 +116,10 @@ impl Host {
             workspace: Some(workspace.clone()),
             viewer: Some(workspace.clone()),
             events: Some(hub),
+            extensions: Some(extensions),
         };
-        let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {
+        let api = pitwall_daemon::build(engine.clone(), approvals.clone(), identify, cfg);
+        let server = match pitwall_daemon::listen(api.clone(), paths.cli_socket()) {
             Ok(h) => Some(h),
             Err(e) => {
                 eprintln!("pitwall: the command-line socket is off: {e}");
@@ -125,6 +133,7 @@ impl Host {
             workspace,
             peers,
             tailnet,
+            api,
             server,
         }
     }

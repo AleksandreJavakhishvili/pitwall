@@ -461,6 +461,41 @@ impl MainView {
             }
             return;
         }
+        // `ext-permissions <ext>`: in the open Settings, that extension's
+        // permission screen, as its switch shows it.
+        if let Some(ext) = cmd.strip_prefix("ext-permissions ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_permissions(ext.trim(), cx));
+            }
+            return;
+        }
+        // `ext-permissions-on`: Turn on, on the permission screen shown.
+        if cmd == "ext-permissions-on" {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_permissions_on(cx));
+            }
+            return;
+        }
+        // `ext-grant <ext> <permission> on|off`: granted or revoked, as its
+        // switch in the card does.
+        if let Some(rest) = cmd.strip_prefix("ext-grant ") {
+            let w: Vec<&str> = rest.split_whitespace().collect();
+            if let [ext, perm, on] = w[..] {
+                crate::extensions::calls::decide(ext, perm, on == "on", cx);
+            }
+            return;
+        }
+        // `ext-activity <ext> [off]`: in the open Settings, that
+        // extension's card unfolded with its activity shown (or hidden).
+        if let Some(rest) = cmd.strip_prefix("ext-activity ") {
+            let mut words = rest.split_whitespace();
+            let ext = words.next().unwrap_or_default().to_string();
+            let on = words.next() != Some("off");
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_activity(&ext, on, cx));
+            }
+            return;
+        }
         // `settings-end`: the open Settings page scrolled to its end.
         if cmd == "settings-end" {
             if let Some(v) = self.layer.read(cx).settings_view() {

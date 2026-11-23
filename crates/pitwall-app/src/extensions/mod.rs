@@ -15,6 +15,7 @@
 
 pub mod actions;
 pub mod adapter;
+pub mod calls;
 pub mod catalog;
 pub mod connections;
 pub mod hub;
@@ -110,10 +111,13 @@ pub fn remove_secret(id: &str, key: &str, cx: &mut App, done: impl FnOnce(Option
 
 /// Run adapters from now on: the system's secure store for data folder
 /// `root`, and a hub that follows the switches and settings.
-pub fn start(root: Option<&std::path::Path>, engine: Option<pitwall_core::engine::Shared>, cx: &mut App) {
+pub fn start(root: Option<&std::path::Path>, engine: Option<pitwall_core::engine::Shared>, server: Option<Arc<pitwall_daemon::Server>>, cx: &mut App) {
     cx.set_global(Secrets { store: crate::platform::secrets::system(), scope: scope_of(root) });
     if let Some(e) = engine {
         cx.set_global(Engine(e));
+    }
+    if let Some(s) = server {
+        calls::set_api(s, cx);
     }
     connections::migrate(cx);
     follow(cx);
@@ -144,6 +148,7 @@ pub fn follow(cx: &mut App) {
         if cx.try_global::<Installed>().is_some_and(|i| *i.dev != dev) {
             rescan(cx);
         }
+        calls::sync(cx);
         h.update(cx, |h, cx| h.reconcile(cx));
         if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
             e.set_extension_env(env_sources(cx));
@@ -237,7 +242,7 @@ pub fn asks_for(a: &pitwall_proto::AgentView, cx: &App) -> Option<AgentAsks> {
 
 /// The extensions that are on and have an adapter: those with an inbox.
 pub fn inboxes(cx: &App) -> Vec<Manifest> {
-    enabled(&found(cx), &crate::ui_state::get(cx)).into_iter().filter(|m| m.adapter.is_some()).collect()
+    enabled(&found(cx), &crate::ui_state::get(cx)).into_iter().filter(Manifest::has_inbox).collect()
 }
 
 /// Pitwall quits: every adapter is killed.

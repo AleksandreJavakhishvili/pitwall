@@ -28,17 +28,19 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, Global};
-use pitwall_core::extensions::protocol::{ConnState, Counts, FromAdapter, Thread, ThreadDetail, ToAdapter, MAX_REPLY, PROTOCOL};
 use pitwall_core::extensions::log::{self, Line};
+use pitwall_core::extensions::protocol::{negotiate, Call, CallError, ConnState, Connection, Counts, FromAdapter, FromInbox, Hello, Thread, ThreadDetail, ToAdapter, ToInbox, MAX_REPLY, PROTOCOL_2};
 use pitwall_core::extensions::{Manifest, SettingKind};
 use serde_json::{Map, Value};
 
 use super::adapter::{Event, Link};
+use super::calls;
 
 /// How long an adapter has to answer `hello`.
 pub const HELLO_WITHIN: Duration = Duration::from_secs(10);
@@ -114,6 +116,19 @@ pub struct ExtState {
     pending: HashMap<u64, String>,
     /// How finished requests went (the latest few).
     done: Vec<(u64, bool)>,
+    /// The protocol its hello answered with (0: none yet).
+    protocol: u64,
+    /// Its calls waiting for their answer.
+    in_flight: usize,
+    /// Its calls refused for its limits in a row.
+    strikes: u32,
+    /// Its events (protocol 2, after `events.subscribe`).
+    events: Option<Arc<pitwall_daemon::events::Queue>>,
+    /// The permissions its adapter was last told it has.
+    told: Vec<String>,
+    /// Its process, as the socket's callers are told by.
+    pid: Option<u32>,
+    reg: Option<Arc<pitwall_daemon::Registry>>,
 }
 
 impl ExtState {
@@ -302,10 +317,7 @@ pub fn missing(m: &Manifest, values: &BTreeMap<String, String>, secrets_set: &[S
         .settings
         .iter()
         .filter(|s| s.required)
-        .filter(|s| match s.kind {
-            SettingKind::Url => values.get(&s.key).is_none_or(|v| v.trim().is_empty()),
-            SettingKind::Secret => !secrets_set.contains(&s.key),
-        })
+        .filter(|s| !s.is_set(values.get(&s.key).map(String::as_str), secrets_set.contains(&s.key)))
         .map(|s| s.label.as_str())
         .collect();
     if gone.is_empty() {
@@ -412,6 +424,16 @@ impl Hub {
                 }
             }
             self.targets.insert(m.id.clone(), order);
+            // A grant or a revoke: its protocol 2 adapters are told.
+            let grants = calls::effective(m, &ui.extension(&m.id).grants);
+            for st in self.runs.iter_mut().filter(|(k, _)| k.0 == m.id).map(|(_, st)| st) {
+                if st.hello && st.protocol >= PROTOCOL_2 && st.told != grants {
+                    if let Some(l) = &st.link {
+                        l.send(&ToAdapter::Grants(grants.clone()));
+                    }
+                    st.told = grants.clone();
+                }
+            }
         }
         for (key, st) in self.runs.iter_mut() {
             if !wanted.contains(key) {
@@ -539,8 +561,18 @@ impl Hub {
         if let Some(l) = st.link.take() {
             l.stop();
         }
+        if let Some(q) = st.events.take() {
+            q.close();
+        }
+        if let (Some(pid), Some(reg)) = (st.pid.take(), &st.reg) {
+            reg.adapter_stopped(pid);
+        }
         st.gen = 0;
         st.hello = false;
+        st.protocol = 0;
+        st.in_flight = 0;
+        st.strikes = 0;
+        st.told.clear();
         st.conn = None;
         st.busy.clear();
         st.pending.clear();
@@ -571,11 +603,16 @@ impl Hub {
         st.details.clear();
         st.notes.clear();
         let mut settings = Map::new();
-        for s in m.settings.iter().filter(|s| s.kind == SettingKind::Url) {
-            if let Some(v) = t.values.get(&s.key).filter(|v| !v.trim().is_empty()) {
-                settings.insert(s.key.clone(), Value::String(v.clone()));
+        for s in m.settings.iter().filter(|s| s.kind != SettingKind::Secret) {
+            if let Some(v) = s.json(t.values.get(&s.key).map(String::as_str)) {
+                settings.insert(s.key.clone(), v);
             }
         }
+        let grants = calls::effective(m, &crate::ui_state::get(cx).extension(&m.id).grants);
+        let connection = (!t.conn.is_empty()).then(|| Connection { id: t.conn.clone(), name: t.name.clone() });
+        let reg = calls::api(cx).registry;
+        st.reg = Some(reg);
+        st.told = grants.clone();
         let secret_keys: Vec<String> = m.settings.iter().filter(|s| s.kind == SettingKind::Secret && t.secrets_set.contains(&s.key)).map(|s| s.key.clone()).collect();
         let store = super::secret_store(cx);
         let accounts: Vec<(String, String)> = secret_keys.iter().map(|k| (k.clone(), super::account(&t.secrets_name, k, cx))).collect();
@@ -595,7 +632,7 @@ impl Hub {
             }
             // Its log takes out these values wherever they show.
             log.lock().unwrap_or_else(|e| e.into_inner()).set_secrets(secrets.values().filter_map(|v| v.as_str().map(str::to_string)).collect());
-            let hello = ToAdapter::Hello { pitwall: env!("CARGO_PKG_VERSION").to_string(), settings, secrets };
+            let hello = ToAdapter::Hello(Hello { pitwall: pitwall_core::extensions::PITWALL.to_string(), settings, secrets, connection, grants });
             open_link(folder, &command, &hello, log)
         });
         cx.spawn(async move |this, cx| {
@@ -641,6 +678,11 @@ impl Hub {
             opened.link.stop();
             return None;
         }
+        // Processes it starts call the socket as the extension.
+        st.pid = opened.link.pid();
+        if let (Some(pid), Some(reg)) = (st.pid, &st.reg) {
+            reg.adapter_started(&key.0, pid);
+        }
         st.link = Some(opened.link);
         #[cfg(test)]
         if let Some(end) = opened.end {
@@ -671,35 +713,54 @@ impl Hub {
                 Self::stop(st);
                 st.run = Run::Stopped(why);
             }
-            Event::Msg(FromAdapter::Hello { protocol }) => {
-                if protocol != PROTOCOL {
+            Event::Msg(FromAdapter::Hello { protocol, .. }) => match negotiate(protocol) {
+                Err(why) => {
                     Self::stop(st);
-                    st.run = Run::Stopped(format!("It speaks protocol {protocol}; this Pitwall speaks {PROTOCOL}. Update the extension or Pitwall."));
-                } else if !st.hello {
+                    st.run = Run::Stopped(why);
+                }
+                Ok(p) if !st.hello => {
                     st.hello = true;
+                    st.protocol = p;
                     st.run = Run::Running;
                     // Threads open in tiles from before (a restart).
                     for thread in st.open.keys() {
                         if let Some(l) = &st.link {
-                            l.send(&ToAdapter::Open { thread: thread.clone() });
+                            l.send(&ToAdapter::Inbox(ToInbox::Open { thread: thread.clone() }));
                         }
                     }
                 }
-            }
+                Ok(_) => {}
+            },
             // Nothing before its hello counts.
             Event::Msg(_) if !st.hello => {}
             Event::Msg(FromAdapter::Status { state, message }) => st.conn = Some((state, message)),
-            Event::Msg(FromAdapter::Threads(list)) => {
+            Event::Msg(FromAdapter::Inbox(FromInbox::Threads(list))) => {
                 if st.listed {
                     news = new_asks(&st.threads, &list);
                 }
                 st.listed = true;
                 st.threads = list;
             }
-            Event::Msg(FromAdapter::Counts(c)) => st.totals = Some(c),
-            Event::Msg(FromAdapter::Thread(d)) => {
+            Event::Msg(FromAdapter::Inbox(FromInbox::Counts(c))) => st.totals = Some(c),
+            Event::Msg(FromAdapter::Inbox(FromInbox::Thread(d))) => {
                 if st.open.contains_key(&d.id) {
                     st.details.insert(d.id.clone(), d);
+                }
+            }
+            Event::Msg(FromAdapter::Call(c)) => {
+                if let Some(why) = self.call(key, gen, c, cx) {
+                    let st = self.runs.get_mut(key).expect("it is there");
+                    Self::stop(st);
+                    st.run = Run::Stopped(why);
+                }
+            }
+            Event::Msg(FromAdapter::BadCall { id, why }) => {
+                let e = CallError::new("bad_params", why);
+                if let Some(reg) = &st.reg {
+                    calls::refused(reg, &key.0, "(a bad call)", &e);
+                }
+                if let Some(l) = &st.link {
+                    l.send(&ToAdapter::Reply { id, result: Err(e) });
                 }
             }
             Event::Msg(FromAdapter::Result { req, ok, message }) => {
@@ -725,6 +786,100 @@ impl Hub {
         cx.notify();
     }
 
+    /// Adapter `key` calls `c`: answered off the UI thread by the daemon's
+    /// table, with the extension as the caller. `Some(why)` when it is to
+    /// be stopped (it kept calling past its limits).
+    fn call(&mut self, key: &Key, gen: u64, c: Call, cx: &mut Context<Self>) -> Option<String> {
+        let api = calls::api(cx);
+        let st = self.runs.get_mut(key)?;
+        let link = st.link.as_ref()?;
+        let refuse = |e: CallError, st: &ExtState| {
+            calls::refused(&api.registry, &key.0, &c.method, &e);
+            if let Some(l) = &st.link {
+                l.send(&ToAdapter::Reply { id: c.id.clone(), result: Err(e) });
+            }
+        };
+        if st.protocol < PROTOCOL_2 {
+            refuse(CallError::new("unsupported", "Calls need protocol 2: answer hello with \"protocol\": 2."), st);
+            return None;
+        }
+        if st.in_flight >= calls::MAX_IN_FLIGHT {
+            st.strikes += 1;
+            refuse(CallError::new("busy", format!("More than {} calls wait for their answer: wait for one.", calls::MAX_IN_FLIGHT)), st);
+            return (st.strikes >= calls::MAX_STRIKES).then(|| format!("It was stopped: it kept calling past its limits ({} calls refused in a row).", st.strikes));
+        }
+        st.in_flight += 1;
+        let ext = key.0.clone();
+        let Call { id, method, params } = c;
+        // Subscribing: its events go straight to its adapter, paced, on a
+        // thread of their own.
+        if method == pitwall_proto::method::EVENTS_SUBSCRIBE {
+            let to = link.sender();
+            let server = api.server.clone();
+            let old = st.events.take();
+            let res = (|| {
+                let server = server.ok_or_else(|| CallError::new("unsupported", "This Pitwall doesn't send events."))?;
+                let req: pitwall_proto::EventsSubscribe = serde_json::from_value(if params.is_null() { serde_json::json!({}) } else { params }).map_err(|e| CallError::new("bad_params", e.to_string()))?;
+                let caller = server.extension_caller(&ext).ok_or_else(|| CallError::new("denied", "This extension is off."))?;
+                let (q, topics) = server.subscribe_as(&caller, &req, pitwall_core::extensions::activity::Via::Adapter).map_err(|e| CallError::new(e.code, e.message))?;
+                Ok((server, q, topics))
+            })();
+            let result = match res {
+                Ok((server, q, topics)) => {
+                    if let Some(old) = old {
+                        old.close();
+                    }
+                    if let Some(to) = to {
+                        calls::pump(server, ext.clone(), q.clone(), to);
+                    }
+                    st.events = Some(q);
+                    Ok(serde_json::json!({"topics": topics}))
+                }
+                Err(e) => {
+                    st.events = old;
+                    Err(e)
+                }
+            };
+            self.call_done(key, gen, id, result, cx);
+            return None;
+        }
+        let server = api.server.clone();
+        let task = cx.background_executor().spawn(async move { calls::answer(server.as_deref(), &ext, &method, params) });
+        let key = key.clone();
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |h, cx| h.call_done(&key, gen, id, result, cx));
+        })
+        .detach();
+        None
+    }
+
+    /// Call `id` of adapter `key` was answered: the reply goes to it.
+    fn call_done(&mut self, key: &Key, gen: u64, id: String, result: Result<Value, CallError>, cx: &mut Context<Self>) {
+        let Some(st) = self.runs.get_mut(key) else { return };
+        if st.gen != gen {
+            return;
+        }
+        st.in_flight = st.in_flight.saturating_sub(1);
+        match &result {
+            Err(e) if e.code == "busy" => st.strikes += 1,
+            _ => st.strikes = 0,
+        }
+        if let Some(l) = &st.link {
+            l.send(&ToAdapter::Reply { id, result });
+        }
+        if st.strikes >= calls::MAX_STRIKES {
+            let why = format!("It was stopped: it kept calling past its limits ({} calls refused in a row).", st.strikes);
+            if let Some(l) = self.logs.get(key) {
+                l.lock().unwrap_or_else(|e| e.into_inner()).push(log::Dir::Note, &why);
+            }
+            Self::stop(st);
+            st.run = Run::Stopped(why);
+            self.merge(&key.0);
+            cx.notify();
+        }
+    }
+
     /// The adapter a view's thread id is of, and the adapter's own id.
     fn route(&self, ext: &str, thread: &str) -> (Key, String) {
         if let Some((c, rest)) = thread.split_once(':') {
@@ -744,7 +899,7 @@ impl Hub {
         *n += 1;
         if *n == 1 && st.hello {
             if let Some(l) = &st.link {
-                l.send(&ToAdapter::Open { thread: inner });
+                l.send(&ToAdapter::Inbox(ToInbox::Open { thread: inner }));
             }
         }
         self.merge(&key.0);
@@ -761,7 +916,7 @@ impl Hub {
             st.open.remove(&inner);
             st.details.remove(&inner);
             if let (true, Some(l)) = (st.hello, &st.link) {
-                l.send(&ToAdapter::Close { thread: inner });
+                l.send(&ToAdapter::Inbox(ToInbox::Close { thread: inner }));
             }
         }
         self.merge(&key.0);
@@ -783,7 +938,7 @@ impl Hub {
                 if !declined && picks.is_empty() && text.is_none() {
                     return Err("Pick an answer or write one.".into());
                 }
-                ToAdapter::Answer { req, thread: thread_s, ask, picks: if declined { vec![] } else { picks }, text: if declined { None } else { text }, declined }
+                ToAdapter::Inbox(ToInbox::Answer { req, thread: thread_s, ask, picks: if declined { vec![] } else { picks }, text: if declined { None } else { text }, declined })
             }
             Request::Message { text } => {
                 let text = text.trim().to_string();
@@ -793,10 +948,10 @@ impl Hub {
                 if text.chars().count() > MAX_REPLY {
                     return Err(format!("Keep it under {MAX_REPLY} characters."));
                 }
-                ToAdapter::Message { req, thread: thread_s, text }
+                ToAdapter::Inbox(ToInbox::Message { req, thread: thread_s, text })
             }
-            Request::MarkRead => ToAdapter::MarkRead { req, thread: thread_s },
-            Request::Archive => ToAdapter::Archive { req, thread: thread_s },
+            Request::MarkRead => ToAdapter::Inbox(ToInbox::MarkRead { req, thread: thread_s }),
+            Request::Archive => ToAdapter::Inbox(ToInbox::Archive { req, thread: thread_s }),
         };
         if !link.send(&msg) {
             return Err("The extension isn't running.".into());
@@ -826,7 +981,7 @@ impl Hub {
         for (k, st) in &self.runs {
             if k.0 == id && st.hello {
                 if let Some(l) = &st.link {
-                    l.send(&ToAdapter::Refresh);
+                    l.send(&ToAdapter::Inbox(ToInbox::Refresh));
                 }
             }
         }

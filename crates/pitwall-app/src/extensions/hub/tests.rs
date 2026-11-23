@@ -7,7 +7,7 @@ use pitwall_core::testing::TempDir;
 use serde_json::json;
 
 fn manifest() -> Manifest {
-    let setting = |key: &str, kind| SettingDef { key: key.into(), kind, label: key.to_uppercase(), hint: None, placeholder: None, required: true };
+    let setting = |key: &str, kind| SettingDef { required: true, ..SettingDef::new(key, kind, &key.to_uppercase()) };
     Manifest {
         settings: vec![setting("server", SettingKind::Url), setting("apiKey", SettingKind::Secret)],
         adapter: Some(Adapter { command: vec!["node".into(), "a.mjs".into()] }),
@@ -140,7 +140,7 @@ fn an_adapter_follows_its_switch_and_settings(cx: &mut TestAppContext) {
     // A wrong protocol stops it, saying what to do.
     h.update(cx, |h, cx| h.restart("inbox", cx));
     cx.run_until_parked();
-    say(&h, &end, json!({"type": "hello", "protocol": 2}), cx);
+    say(&h, &end, json!({"type": "hello", "protocol": 3}), cx);
     assert!(matches!(run(&h, cx), Run::Stopped(why) if why.contains("Update the extension or Pitwall")));
 
     // Off: stopped.
@@ -406,6 +406,146 @@ fn a_silent_adapter_is_stopped(cx: &mut TestAppContext) {
     assert_eq!(run(&h, cx), Run::Starting);
     cx.executor().advance_clock(HELLO_WITHIN + Duration::from_secs(1));
     assert!(matches!(run(&h, cx), Run::Stopped(why) if why.contains("didn't answer within 10 seconds")));
+}
+
+/// Extension "inbox" in format 2, asking for `agents.read` and
+/// `projects.read`; the hub with a daemon server answering its calls.
+fn setup_2(cx: &mut TestAppContext, t: &TempDir) -> Entity<Hub> {
+    use pitwall_core::extensions::PermissionAsk;
+    use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink};
+    let m = Manifest {
+        format: 2,
+        permissions: vec![PermissionAsk { name: "agents.read".into(), reason: "To match".into() }, PermissionAsk { name: "projects.read".into(), reason: "To list".into() }],
+        ..manifest()
+    };
+    let events = pitwall_daemon::Hub::new(RecordingSink::new());
+    let engine = pitwall_core::Engine::open(pitwall_core::Deps {
+        paths: Paths::new(t.path().join("engine")),
+        events: events.clone(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(pitwall_core::exec::LocalExec))],
+    });
+    let reg = pitwall_daemon::Registry::new();
+    let identify = pitwall_daemon::ProcessIdentity::with_extensions(engine.clone(), reg.clone());
+    let cfg = pitwall_daemon::Config { socket: t.path().join("unused.sock"), version: "test".into(), settings: None, workspace: None, viewer: None, events: Some(events), extensions: Some(reg) };
+    let server = pitwall_daemon::build(engine, pitwall_daemon::Approvals::new(Duration::from_secs(5)), identify, cfg);
+    let paths = Paths::new(t.path().join("pw"));
+    cx.update(|cx| {
+        crate::extensions::calls::set_api(server, cx);
+        crate::accounts::model(cx).update(cx, |a, _| a.set_paths(paths));
+        crate::extensions::set_found(vec![Found { folder: "inbox".into(), manifest: Ok(m) }], cx);
+        crate::extensions::follow(cx);
+        hub(cx)
+    })
+}
+
+/// Turned on with `agents.read` granted and `projects.read` refused; its
+/// adapter's end.
+fn on_with_grants(cx: &mut TestAppContext) -> String {
+    use pitwall_core::extensions::permissions::Decision;
+    cx.update(|cx| {
+        crate::ui_state::update(cx, |u| {
+            *u = std::mem::take(u).with_extension("inbox", |e| {
+                e.enabled = true;
+                e.grants.insert("agents.read".into(), Decision { granted: true, at: 1 });
+                e.grants.insert("projects.read".into(), Decision { granted: false, at: 1 });
+            })
+        })
+    });
+    let id = connection("Work", "https://x.example", cx);
+    cx.run_until_parked();
+    format!("inbox/{id}")
+}
+
+fn reply(h: &Entity<Hub>, end: &str, id: &str, cx: &mut TestAppContext) -> serde_json::Value {
+    cx.run_until_parked();
+    sent(h, end, cx).into_iter().rev().find(|l| l["type"] == "reply" && l["id"] == id).unwrap_or_else(|| panic!("no reply to {id}: {:?}", sent(h, end, cx)))
+}
+
+/// Hello offers both protocols with its grants; an adapter that answers
+/// 2 calls what it is granted, is refused the rest and every action, a
+/// revoke applies to its next call, and each call is in its activity.
+#[gpui::test]
+fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-calls");
+    let h = setup_2(cx, &t);
+    let end = on_with_grants(cx);
+    let hello = sent(&h, &end, cx);
+    assert_eq!(hello[0]["protocols"], json!([1, 2]));
+    assert_eq!(hello[0]["grants"], json!(["agents.read"]), "only what was granted");
+    assert_eq!(hello[0]["offers"], json!(["inbox", "call", "events"]));
+    assert_eq!(hello[0]["connection"]["name"], json!("Work"));
+    say(&h, &end, json!({"type": "hello", "protocol": 2, "uses": ["call"]}), cx);
+    assert_eq!(run(&h, cx), Run::Running);
+
+    say(&h, &end, json!({"type": "call", "id": "c1", "method": "agent.list"}), cx);
+    assert!(reply(&h, &end, "c1", cx).get("result").is_some(), "granted");
+    say(&h, &end, json!({"type": "call", "id": "c2", "method": "project.list"}), cx);
+    assert_eq!(reply(&h, &end, "c2", cx)["error"]["code"], json!("denied"), "refused by the user");
+    say(&h, &end, json!({"type": "call", "id": "c3", "method": "agent.create", "params": {}}), cx);
+    let no = reply(&h, &end, "c3", cx);
+    assert!(no["error"]["message"].as_str().unwrap().contains("agent.create"), "an action is refused, saying which: {no}");
+    say(&h, &end, json!({"type": "call", "id": "c4", "method": "agent.kill"}), cx);
+    assert!(reply(&h, &end, "c4", cx).get("error").is_some());
+
+    // Revoked: its next call is refused, and it is told its grants.
+    cx.update(|cx| crate::extensions::calls::decide("inbox", "agents.read", false, cx));
+    cx.run_until_parked();
+    assert_eq!(sent(&h, &end, cx).last(), Some(&json!({"type": "grants", "grants": []})));
+    say(&h, &end, json!({"type": "call", "id": "c5", "method": "agent.list"}), cx);
+    assert_eq!(reply(&h, &end, "c5", cx)["error"]["code"], json!("denied"));
+    assert_eq!(run(&h, cx), Run::Running, "a refusal doesn't stop it");
+
+    let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
+    let methods: Vec<(&str, bool)> = log.iter().map(|e| (e.method.as_str(), e.refused())).collect();
+    assert_eq!(methods, [("agent.list", false), ("project.list", true), ("agent.create", true), ("agent.kill", true), ("agent.list", true)]);
+}
+
+/// An adapter that answers protocol 1 runs as before: calls are refused
+/// (it never makes them), its inbox works.
+#[gpui::test]
+fn a_protocol_1_adapter_is_unchanged(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-calls-v1");
+    let h = setup_2(cx, &t);
+    let end = on_with_grants(cx);
+    say(&h, &end, json!({"type": "hello", "protocol": 1}), cx);
+    assert_eq!(run(&h, cx), Run::Running);
+    say(&h, &end, json!({"type": "threads", "threads": [{"id": "t1"}]}), cx);
+    assert_eq!(h.read_with(cx, |h, _| h.get("inbox").unwrap().threads.len()), 1);
+    say(&h, &end, json!({"type": "call", "id": "c1", "method": "agent.list"}), cx);
+    assert_eq!(reply(&h, &end, "c1", cx)["error"]["code"], json!("unsupported"));
+    // Grants aren't sent to it.
+    cx.update(|cx| crate::extensions::calls::decide("inbox", "projects.read", true, cx));
+    cx.run_until_parked();
+    assert!(!sent(&h, &end, cx).iter().any(|l| l["type"] == "grants"));
+}
+
+/// Past its limits: calls waiting for answers are capped, and one that
+/// keeps calling past them is stopped, saying why.
+#[gpui::test]
+fn an_adapter_past_its_limits_is_stopped(cx: &mut TestAppContext) {
+    let t = TempDir::new("hub-calls-limits");
+    let h = setup_2(cx, &t);
+    let end = on_with_grants(cx);
+    say(&h, &end, json!({"type": "hello", "protocol": 2}), cx);
+    // Calls sent without the hub getting a turn: past the in-flight cap.
+    h.read_with(cx, |h, _| {
+        for i in 0..(calls::MAX_IN_FLIGHT + 5) {
+            h.ends[&end].say(json!({"type": "call", "id": format!("c{i}"), "method": "agent.list"}));
+        }
+    });
+    cx.run_until_parked();
+    let busy = sent(&h, &end, cx).iter().filter(|l| l["error"]["code"] == "busy").count();
+    assert!(busy >= 1, "some refused as busy");
+    // Keeps at it: stopped.
+    h.read_with(cx, |h, _| {
+        for i in 0..(calls::MAX_STRIKES as usize * 2) {
+            h.ends[&end].say(json!({"type": "call", "id": format!("d{i}"), "method": "agent.list"}));
+        }
+    });
+    cx.run_until_parked();
+    assert!(matches!(run(&h, cx), Run::Stopped(why) if why.contains("limits")), "{:?}", run(&h, cx));
 }
 
 /// Its log, for its author: what Pitwall sent (the secret taken out of

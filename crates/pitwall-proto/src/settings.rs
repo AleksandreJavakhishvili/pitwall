@@ -625,7 +625,20 @@ pub fn json_schema() -> Value {
                     "actionSteps": { "type": "object", "additionalProperties": { "type": "string" }, "description": "A digest of the steps each recorded setup action ran, by action (`<action>@<connection>` for one kept per connection): when an update changes an action's steps, its step is unticked and asks to be run again." },
                     "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows)." },
                     "connection": { "type": "string", "description": "The connection its inbox lists, by id (absent: all of them). One that is gone, or a single connection, lists all." },
-                    "devPath": { "type": "string", "description": "A development folder it is loaded from, where it is (Settings → Extensions → Load from folder…): used instead of an installed copy, never copied or changed by Pitwall. Removing it from the list forgets this, never the folder." }
+                    "devPath": { "type": "string", "description": "A development folder it is loaded from, where it is (Settings → Extensions → Load from folder…): used instead of an installed copy, never copied or changed by Pitwall. Removing it from the list forgets this, never the folder." },
+                    "grants": {
+                        "type": "object",
+                        "description": "The user's answer to each permission it asks for (docs/extensions/permissions.md), by name, with when. One it asks for without an answer here (added by an update) is not granted. Turning a grant off applies to its next call.",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "granted": { "type": "boolean", "description": "Granted (true) or refused." },
+                                "at": { "type": "integer", "minimum": 0, "description": "When the user answered, in seconds since 1970 (UTC)." }
+                            },
+                            "required": ["granted"],
+                            "additionalProperties": true
+                        }
+                    }
                 },
                 "additionalProperties": true
             }
