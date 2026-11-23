@@ -140,4 +140,41 @@ runs until the user presses one and confirms the exact commands listed.
 
 Check them with an [`actions` test](checks.md#actions).
 
+When a release changes an action's steps (a new version pin, say), a
+user who ran it is asked to run it again: Pitwall remembers the steps
+each tick was for.
+
+## Releases from git
+
+`source` (optional) lets Pitwall update your extension from your own
+repository's release tags, without waiting for a Pitwall release:
+
+```json
+"source": { "git": "https://github.com/me/my-tools", "dir": "extensions/my-inbox", "tags": "my-inbox-v{version}" }
+```
+
+- `git`: the repository's `https://` address (no user or password in
+  it), at most 300 characters. A private one works through the user's
+  own git sign-in; Pitwall never asks for a password.
+- `dir`: optional, the folder in it that holds `extension.json`
+  (relative, `/`-separated). Empty or left out: the repository's root.
+- `tags`: which tags are releases, a pattern with `{version}` once
+  (letters, digits and `._/-` around it), such as `v{version}` or
+  `my-inbox-v{version}`.
+
+To release: raise `version`, commit, then tag that commit with the
+pattern (`my-inbox-v1.2.0`) and push the tag. Never move a tag once it is
+pushed: Pitwall records the commit a tag pointed at and refuses one that
+moved. A release holds everything that runs; Pitwall runs no build step
+or package manager on it, and copies only `dir` (without `.git`,
+`node_modules` or `.DS_Store`), at most 50 MiB and 5 000 files, with no
+links pointing outside it. Its `extension.json` must have the tag's version.
+
+Pitwall checks at start, once a day and when the user presses "Check for
+updates", and shows what a newer release changes on the computer before
+the user presses Update. Users can also install it with "Add from Git…"
+in Settings → Extensions. `pitwall extension check` says which tag the
+current version's release is. A folder loaded with "Load from folder…"
+is never updated.
+
 Every limit is in [the specification](../spec/extensions.md#the-manifest-extensionjson-format-1).
