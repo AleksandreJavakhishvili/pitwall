@@ -93,6 +93,40 @@ pub enum Command {
     /// list and count come first. Prints one JSON event per line until
     /// stopped (or --count).
     Events(EventsArgs),
+    /// For extension authors: check a folder, run its tests, or start a
+    /// new one. Works on the folder, offline, without the app (exit status
+    /// 1 when a check fails).
+    #[command(subcommand)]
+    Extension(ExtensionCmd),
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum ExtensionCmd {
+    /// Read an extension's folder without running anything: its manifest
+    /// and limits, the files it names, and what it would run and set, in
+    /// plain words.
+    Check {
+        /// The extension's folder (the one with extension.json).
+        folder: PathBuf,
+    },
+    /// Run what the folder's test/pitwall.json expects: its actions'
+    /// command lines, the variables it sets, its adapter's run and its
+    /// agreement with its fake server (skipped when the adapter's program,
+    /// such as node, isn't installed).
+    Test {
+        /// The extension's folder.
+        folder: PathBuf,
+    },
+    /// Write a starter into a new folder: a manifest, a Node adapter that
+    /// speaks protocol 1 and shows one inbox thread, a README and
+    /// test/pitwall.json. Its id is the folder's name.
+    New {
+        /// The folder to make (absent or empty), named like my-extension.
+        folder: PathBuf,
+        /// What Pitwall calls it (default: from the folder's name).
+        #[arg(long)]
+        name: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand, PartialEq)]

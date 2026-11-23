@@ -10,6 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 pitwall-client = { path = "../pitwall-client" }
+# `pitwall extension check|test|new`, on a folder without the app; already
+# in the tree through pitwall-peer.
+pitwall-core = { path = "../pitwall-core" }
 # `pitwall peers` (tailnet-peers.md), on the data folder directly.
 pitwall-peer = { path = "../pitwall-peer" }
 pitwall-proto = { path = "../pitwall-proto" }

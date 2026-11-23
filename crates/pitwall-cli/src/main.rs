@@ -11,6 +11,7 @@
 
 mod args;
 mod events;
+mod extension;
 mod manage;
 mod mcp;
 mod open;
@@ -159,6 +160,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             out(&list, render::sessions(&list))
         }
         Command::Settings(_) | Command::Peers(_) => unreachable!("handled above"),
+        Command::Extension(_) => unreachable!("run by main (extension::run)"),
         Command::Events(_) => unreachable!("streamed by main (events::follow)"),
         Command::Mcp => unreachable!("served by main (mcp::serve)"),
         Command::Open(a) if a.web.is_some() => {
@@ -266,6 +268,24 @@ fn main() -> ExitCode {
                 eprintln!("pitwall mcp: {e}");
                 ExitCode::from(1)
             }
+        };
+    }
+    if let Command::Extension(e) = &cli.command {
+        // On a folder, offline: no socket.
+        return match extension::run(e) {
+            Ok((o, passed)) => {
+                if cli.human {
+                    print!("{}", o.human);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&o.json).unwrap_or_default());
+                }
+                if passed {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                }
+            }
+            Err(e) => report(&e, cli.human),
         };
     }
     if let Command::Events(a) = &cli.command {
