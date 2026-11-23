@@ -1,14 +1,17 @@
-//! Installing the extensions Pitwall ships (docs/spec/extensions.md,
-//! "Installing"): the app carries copies of some extension folders (its
-//! bundle); Settings lists those not yet in `<data>/extensions/` and
-//! copies one there on Install, updates it when the bundled copy is newer,
-//! and removes it. Nothing here runs an extension: an installed one is off
-//! until the user turns it on.
+//! Installing extensions (docs/spec/extensions.md, "Installing"): the app
+//! carries copies of some extension folders (its bundle), and an extension
+//! whose manifest names a `source` gets its releases from a git repository
+//! ([`super::source`]). Settings lists those not yet in
+//! `<data>/extensions/` and copies one there on Install, updates it when a
+//! newer copy is offered (the newest wins, never a downgrade), goes back
+//! to the copy before the last update, and removes it. Nothing here runs
+//! an extension: an installed one is off until the user turns it on.
 //!
 //! A folder is always written next to its place and renamed into it, so a
 //! failed copy leaves nothing half-installed. Pitwall records what it
-//! installed in the folder ([`MARKER`]: the version and a digest of the
-//! files), so it can tell a folder the user changed by hand and never
+//! installed in the folder ([`MARKER`]: the version, a digest of the
+//! files, and where it came from: Pitwall's copy, or a source's tag and
+//! commit), so it can tell a folder the user changed by hand and never
 //! replaces one silently.
 
 use std::cmp::Ordering;
@@ -25,14 +28,76 @@ pub const MARKER: &str = ".pitwall-install.json";
 
 /// Never copied, never part of the digest: what a package manager or the
 /// system adds.
-const SKIPPED: [&str; 3] = ["node_modules", ".git", ".DS_Store"];
+pub(crate) const SKIPPED: [&str; 3] = ["node_modules", ".git", ".DS_Store"];
 
-/// A bundled extension, ready to install.
+/// Where an offered or installed copy came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Origin {
+    /// The copy the app ships.
+    Bundled,
+    /// A release of a git source: the repository, the extension's folder
+    /// in it, the tag and the commit it pointed at.
+    Git { url: String, dir: String, tag: String, commit: String },
+}
+
+impl Origin {
+    /// The repository, for a git one.
+    pub fn url(&self) -> Option<&str> {
+        match self {
+            Origin::Git { url, .. } => Some(url),
+            Origin::Bundled => None,
+        }
+    }
+
+    /// Its tag and commit, for a git one.
+    pub fn tag_commit(&self) -> Option<(&str, &str)> {
+        match self {
+            Origin::Git { tag, commit, .. } => Some((tag, commit)),
+            Origin::Bundled => None,
+        }
+    }
+
+    /// Whether `other` comes from the same place (the same repository
+    /// and folder, or both Pitwall's copy).
+    pub fn same_place(&self, other: &Origin) -> bool {
+        match (self, other) {
+            (Origin::Bundled, Origin::Bundled) => true,
+            (Origin::Git { url: a, dir: da, .. }, Origin::Git { url: b, dir: db, .. }) => same_repo(a, b) && da == db,
+            _ => false,
+        }
+    }
+
+    /// In a few words: "Pitwall's copy", or the repository, its folder,
+    /// tag and short commit.
+    pub fn describe(&self) -> String {
+        match self {
+            Origin::Bundled => "Comes with Pitwall".into(),
+            Origin::Git { url, dir, tag, commit } => {
+                let at = if dir.is_empty() { String::new() } else { format!(" ({dir})") };
+                format!("{}{at}, tag {tag}, commit {}", repo_name(url), super::source::short(commit))
+            }
+        }
+    }
+}
+
+/// Repository `url` without `https://` and `.git`, for reading.
+pub fn repo_name(url: &str) -> String {
+    url.trim_start_matches("https://").trim_end_matches('/').trim_end_matches(".git").to_string()
+}
+
+/// Whether repository addresses `a` and `b` are the same repository.
+pub fn same_repo(a: &str, b: &str) -> bool {
+    repo_name(a).eq_ignore_ascii_case(&repo_name(b))
+}
+
+/// An extension ready to install: its manifest, its folder (in the bundle,
+/// or fetched from a source) and where it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
     pub manifest: Manifest,
-    /// Its folder in the bundle.
+    /// Its folder, to copy from.
     pub folder: PathBuf,
+    pub origin: Origin,
 }
 
 /// The usable extensions in bundle folder `bundle`: by name, demos last.
@@ -41,7 +106,7 @@ pub fn bundled(bundle: &Path) -> Vec<Offer> {
         .into_iter()
         .filter_map(|f| {
             let m = f.manifest.ok()?;
-            Some(Offer { folder: bundle.join(&f.folder), manifest: m })
+            Some(Offer { folder: bundle.join(&f.folder), manifest: m, origin: Origin::Bundled })
         })
         .collect();
     out.sort_by(|a, b| a.manifest.demo.cmp(&b.manifest.demo).then_with(|| a.manifest.name.to_lowercase().cmp(&b.manifest.name.to_lowercase())));
@@ -61,11 +126,13 @@ pub enum Status {
 
 /// What Pitwall can say about installed folder `dir`: whether it is as
 /// Pitwall installed it (false for one changed by hand, or put there by
-/// hand), and the version it has.
+/// hand), the version it has, and where it came from (`None`: put there
+/// by hand).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Local {
     pub as_installed: bool,
     pub version: Option<String>,
+    pub origin: Option<Origin>,
 }
 
 /// Bundled extension `offer` against data folder `extensions`.
@@ -75,21 +142,177 @@ pub fn status(offer: &Offer, extensions: &Path) -> Status {
         return Status::Available;
     }
     let local = local(&dir);
-    match (&offer.manifest.version, &local.version) {
-        (Some(b), Some(l)) if compare_versions(b, l) == Ordering::Greater => Status::Newer(b.clone()),
-        // One with no version (put there by hand from an older copy) is
-        // older than any bundled version.
-        (Some(b), None) => Status::Newer(b.clone()),
-        _ => Status::Current,
+    if is_newer(offer, &local) {
+        Status::Newer(offer.manifest.version.clone().unwrap_or_default())
+    } else {
+        Status::Current
     }
+}
+
+/// Whether `offer` is newer than installed `local`. One with no version
+/// (put there by hand from an older copy) is older than any version.
+fn is_newer(offer: &Offer, local: &Local) -> bool {
+    match (&offer.manifest.version, &local.version) {
+        (Some(b), Some(l)) => compare_versions(b, l) == Ordering::Greater,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
+/// The update to offer for installed `local` among `offers` (the bundled
+/// copy, a source's newest release): the newest above it, never a
+/// downgrade; between two of the same version, the one from where it was
+/// installed from, else Pitwall's own copy (there without a network).
+pub fn best<'a>(local: &Local, offers: &'a [Offer]) -> Option<&'a Offer> {
+    let rank = |o: &Offer| match &local.origin {
+        Some(from) if from.same_place(&o.origin) => 2,
+        _ if o.origin == Origin::Bundled => 1,
+        _ => 0,
+    };
+    offers.iter().filter(|o| is_newer(o, local)).max_by(|a, b| {
+        let (va, vb) = (a.manifest.version.as_deref().unwrap_or_default(), b.manifest.version.as_deref().unwrap_or_default());
+        compare_versions(va, vb).then_with(|| rank(a).cmp(&rank(b)))
+    })
+}
+
+/// One thing installing or updating changes on this computer: a title and
+/// its lines (commands, variables, settings).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    pub title: String,
+    pub lines: Vec<String>,
+}
+
+/// What installing `offer` changes on this computer, against the
+/// installed copy (`installed`: its manifest and origin; `None`: a new
+/// install, which lists everything). First where it comes from; then its
+/// program, the variables it sets on agents, its setup actions' commands,
+/// the settings it asks for and where its updates come from: all for a
+/// new install, only what differs for an update.
+pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -> Vec<Change> {
+    let new = &offer.manifest;
+    let mut out = Vec::new();
+    let mut push = |title: String, lines: Vec<String>| out.push(Change { title, lines });
+    let cmd = |m: &Manifest| m.adapter.as_ref().map(|a| a.command.join(" "));
+    let env = |m: &Manifest| -> Vec<String> { m.agent_env.iter().map(|e| format!("{}={}", e.name, e.value)).collect() };
+    let steps = |a: &super::Action| -> Vec<String> { a.steps.iter().map(|s| s.run.join(" ")).collect() };
+    let setting = |s: &super::SettingDef| match s.kind {
+        super::SettingKind::Secret => format!("{} (a secret, kept in the system's secure store)", s.label),
+        super::SettingKind::Url => s.label.clone(),
+    };
+    let updates_from = |m: &Manifest| match &m.source {
+        Some(s) => format!("{}{}, tags {}", repo_name(&s.git), if s.dir.is_empty() { String::new() } else { format!(" ({})", s.dir) }, s.tags),
+        None => "Pitwall's own copy only".into(),
+    };
+    let Some((old, old_origin)) = installed else {
+        let mut from = vec![offer.origin.describe()];
+        if offer.origin != Origin::Bundled {
+            from.push("Not reviewed by Pitwall".into());
+        }
+        push("Comes from:".into(), from);
+        match cmd(new) {
+            Some(c) => push("While it is on, runs this in its folder:".into(), vec![c]),
+            None => push("Runs no program of its own.".into(), vec![]),
+        }
+        if !new.agent_env.is_empty() {
+            push("Sets these on agents you start while it is on:".into(), env(new));
+        }
+        for a in &new.actions {
+            push(format!("“{}” runs, when you press it and confirm:", a.label), steps(a));
+        }
+        if !new.settings.is_empty() {
+            push("Asks you for:".into(), new.settings.iter().map(setting).collect());
+        }
+        if new.source.is_some() {
+            push("Its updates come from:".into(), vec![updates_from(new)]);
+        }
+        return out;
+    };
+    match old_origin.filter(|o| !o.same_place(&offer.origin)) {
+        Some(was) => push("Where it comes from changes:".into(), vec![format!("now: {}", offer.origin.describe()), format!("was: {}", was.describe())]),
+        None => push("Comes from:".into(), vec![offer.origin.describe()]),
+    }
+    if cmd(old) != cmd(new) {
+        let shown = |c: Option<String>| c.unwrap_or_else(|| "no program".into());
+        push("The program it runs while it is on changes:".into(), vec![format!("now: {}", shown(cmd(new))), format!("was: {}", shown(cmd(old)))]);
+    }
+    let (was, now) = (env(old), env(new));
+    let mut lines: Vec<String> = now.iter().filter(|e| !was.contains(e)).map(|e| format!("+ {e}")).collect();
+    lines.extend(was.iter().filter(|e| !now.contains(e)).map(|e| format!("- {e}")));
+    if !lines.is_empty() {
+        push("The variables it sets on agents change:".into(), lines);
+    }
+    for a in &new.actions {
+        match old.actions.iter().find(|o| o.id == a.id) {
+            None => push(format!("New: “{}” runs, when you press it and confirm:", a.label), steps(a)),
+            Some(o) if steps(o) != steps(a) => {
+                let again = if a.setup { " (its step is unticked: run it again)" } else { "" };
+                push(format!("“{}” runs other commands{again}:", a.label), steps(a));
+            }
+            Some(_) => {}
+        }
+    }
+    for a in old.actions.iter().filter(|o| !new.actions.iter().any(|a| a.id == o.id)) {
+        push(format!("“{}” is gone.", a.label), vec![]);
+    }
+    let added: Vec<String> = new.settings.iter().filter(|s| !old.settings.iter().any(|o| o.key == s.key)).map(setting).collect();
+    if !added.is_empty() {
+        push("It asks you for more:".into(), added);
+    }
+    let dropped: Vec<String> = old.settings.iter().filter(|o| !new.settings.iter().any(|s| s.key == o.key)).map(setting).collect();
+    if !dropped.is_empty() {
+        push("It no longer asks for:".into(), dropped);
+    }
+    if old.source != new.source {
+        push("Its updates will come from:".into(), vec![updates_from(new)]);
+    }
+    out
 }
 
 /// What installed folder `dir` is.
 pub fn local(dir: &Path) -> Local {
-    let version = read(dir, &dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).ok().and_then(|m| m.version);
+    local_as(dir, &dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+}
+
+/// What folder `dir`, holding extension `id`, is.
+fn local_as(dir: &Path, id: &str) -> Local {
+    let version = read(dir, id).ok().and_then(|m| m.version);
     let marker: Option<Value> = std::fs::read_to_string(dir.join(MARKER)).ok().and_then(|t| serde_json::from_str(&t).ok());
     let as_installed = marker.as_ref().and_then(|m| m["digest"].as_str()).is_some_and(|d| digest(dir).as_deref() == Ok(d));
-    Local { as_installed, version }
+    Local { as_installed, version, origin: marker.as_ref().map(marker_origin) }
+}
+
+/// Where installed folder `dir` came from, by its marker alone (quick: no
+/// digest); `None` for one put there by hand.
+pub fn origin(dir: &Path) -> Option<Origin> {
+    let marker: Value = std::fs::read_to_string(dir.join(MARKER)).ok().and_then(|t| serde_json::from_str(&t).ok())?;
+    Some(marker_origin(&marker))
+}
+
+fn marker_origin(m: &Value) -> Origin {
+    match (&m["source"], m["tag"].as_str(), m["commit"].as_str()) {
+        (Value::Object(s), Some(tag), Some(commit)) => Origin::Git {
+            url: s.get("git").and_then(Value::as_str).unwrap_or_default().to_string(),
+            dir: s.get("dir").and_then(Value::as_str).unwrap_or_default().to_string(),
+            tag: tag.to_string(),
+            commit: commit.to_string(),
+        },
+        // Written before sources (only Pitwall's copy was installed), or
+        // Pitwall's copy.
+        _ => Origin::Bundled,
+    }
+}
+
+/// The copy kept by the last update of extension `id`, for "Go back"
+/// (`None` when there is none).
+pub fn previous(extensions: &Path, id: &str) -> Option<Local> {
+    let dir = previous_dir(extensions, id);
+    dir.is_dir().then(|| local_as(&dir, id))
+}
+
+/// Where the copy before the last update of `id` is kept (hidden).
+fn previous_dir(extensions: &Path, id: &str) -> PathBuf {
+    extensions.join(format!(".{id}.previous"))
 }
 
 /// Order of versions `a` and `b` ("1.2.10" > "1.2.9"; "1.0.0-beta" <
@@ -152,35 +375,87 @@ pub fn install(offer: &Offer, extensions: &Path) -> Result<(), String> {
     })
 }
 
-/// Replace installed `extensions/<id>/` with bundled `offer` (its settings
-/// and secrets aren't in the folder: they stay). A folder that isn't as
-/// Pitwall installed it is replaced only when `replace_changed`.
+/// Replace installed `extensions/<id>/` with `offer` (its settings and
+/// secrets aren't in the folder: they stay); the installed copy is kept
+/// as the previous one, for [`rollback`] (one step back: an older previous
+/// one goes). A folder that isn't as Pitwall installed it is replaced only
+/// when `replace_changed`. Refused: a release whose tag the installed copy
+/// came from at another commit (the tag moved).
 pub fn update(offer: &Offer, extensions: &Path, replace_changed: bool) -> Result<(), Refused> {
-    let target = extensions.join(&offer.manifest.id);
+    let id = &offer.manifest.id;
+    let target = extensions.join(id);
     if !target.is_dir() {
         return Err(Refused::Failed(format!("{} isn't installed", offer.manifest.name)));
     }
-    if !replace_changed && !local(&target).as_installed {
+    let now = local(&target);
+    if let (Some(Origin::Git { url, tag, commit, .. }), Origin::Git { url: new_url, tag: new_tag, commit: new_commit, .. }) = (&now.origin, &offer.origin) {
+        if same_repo(url, new_url) && tag == new_tag && !commit.eq_ignore_ascii_case(new_commit) {
+            return Err(Refused::Failed(format!("The {tag} tag moved: it pointed at {} and now points at {}. Not installed.", super::source::short(commit), super::source::short(new_commit))));
+        }
+    }
+    if !replace_changed && !now.as_installed {
         return Err(Refused::ChangedLocally);
     }
     let staged = stage(offer, extensions).map_err(Refused::Failed)?;
-    let old = sibling(extensions, &offer.manifest.id, "old");
+    swap(extensions, id, &staged, true)
+}
+
+/// Put staged folder `staged` in place of installed `extensions/<id>/`:
+/// the installed one moved aside, the staged one moved in (the installed
+/// one back if that fails); the installed one then kept as the previous
+/// copy (`keep`) or deleted.
+fn swap(extensions: &Path, id: &str, staged: &Path, keep: bool) -> Result<(), Refused> {
+    let target = extensions.join(id);
+    let old = sibling(extensions, id, "old");
     if let Err(e) = rename_retrying(&target, &old) {
-        let _ = std::fs::remove_dir_all(&staged);
+        let _ = std::fs::remove_dir_all(staged);
         return Err(Refused::Failed(format!("Can't move the installed copy aside: {e}")));
     }
-    if let Err(e) = rename_retrying(&staged, &target) {
+    if let Err(e) = rename_retrying(staged, &target) {
         let _ = std::fs::rename(&old, &target);
-        let _ = std::fs::remove_dir_all(&staged);
+        let _ = std::fs::remove_dir_all(staged);
         return Err(Refused::Failed(format!("Can't put it in place: {e}")));
+    }
+    if keep {
+        let prev = previous_dir(extensions, id);
+        let _ = std::fs::remove_dir_all(&prev);
+        if rename_retrying(&old, &prev).is_ok() {
+            return Ok(());
+        }
     }
     let _ = std::fs::remove_dir_all(&old);
     Ok(())
 }
 
-/// Delete installed `extensions/<id>/`: moved aside first (so it is gone
-/// from the list at once, even if deleting takes a moment), then deleted.
+/// "Go back": the copy kept by the last update of `id` put back in place
+/// of the installed one (which goes). A folder that isn't as Pitwall
+/// installed it is replaced only when `replace_changed`.
+pub fn rollback(extensions: &Path, id: &str, replace_changed: bool) -> Result<(), Refused> {
+    let prev = previous_dir(extensions, id);
+    if !prev.is_dir() {
+        return Err(Refused::Failed("There is no earlier copy to go back to.".into()));
+    }
+    read(&prev, id).map_err(|e| Refused::Failed(format!("The earlier copy can't be used: {e}")))?;
+    let target = extensions.join(id);
+    if !target.is_dir() {
+        return Err(Refused::Failed("It isn't installed.".into()));
+    }
+    if !replace_changed && !local(&target).as_installed {
+        return Err(Refused::ChangedLocally);
+    }
+    // Moved aside first, so a failed swap leaves it where it was.
+    let staged = sibling(extensions, id, "back");
+    rename_retrying(&prev, &staged).map_err(|e| Refused::Failed(format!("Can't take the earlier copy: {e}")))?;
+    swap(extensions, id, &staged, false).inspect_err(|_| {
+        let _ = std::fs::rename(&staged, &prev);
+    })
+}
+
+/// Delete installed `extensions/<id>/` and the copy kept for "Go back":
+/// moved aside first (so it is gone from the list at once, even if
+/// deleting takes a moment), then deleted.
 pub fn remove(extensions: &Path, id: &str) -> Result<(), String> {
+    let _ = std::fs::remove_dir_all(previous_dir(extensions, id));
     let target = extensions.join(id);
     if !target.is_dir() {
         return Ok(());
@@ -199,12 +474,24 @@ fn sibling(extensions: &Path, id: &str, what: &str) -> PathBuf {
 /// A copy of `offer` with its marker, in a hidden sibling of its place.
 fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
     let id = &offer.manifest.id;
-    // The bundled copy must be usable as installed.
-    read(&offer.folder, id).map_err(|e| format!("The bundled copy can't be used: {e}"))?;
+    // The copy must be usable as installed.
+    let usable = match &offer.origin {
+        Origin::Bundled => read(&offer.folder, id).map(|_| ()).map_err(|e| format!("The bundled copy can't be used: {e}")),
+        // A fetched folder isn't named after its id.
+        Origin::Git { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
+            Ok(m) if m.id == *id => Ok(()),
+            Ok(m) => Err(format!("The fetched copy is “{}”, not “{id}”", m.id)),
+            Err(e) => Err(format!("The fetched copy can't be used: {e}")),
+        },
+    };
+    usable?;
     let staged = sibling(extensions, id, "installing");
     let done = copy_tree(&offer.folder, &staged).and_then(|()| {
         let d = digest(&staged)?;
-        let marker = json!({ "version": offer.manifest.version, "digest": d });
+        let marker = match &offer.origin {
+            Origin::Bundled => json!({ "version": offer.manifest.version, "digest": d, "source": "bundled" }),
+            Origin::Git { url, dir, tag, commit } => json!({ "version": offer.manifest.version, "digest": d, "source": { "git": url, "dir": dir }, "tag": tag, "commit": commit }),
+        };
         std::fs::write(staged.join(MARKER), format!("{marker:#}\n")).map_err(|e| e.to_string())
     });
     match done {
@@ -346,14 +633,16 @@ mod tests {
         let names: Vec<String> = std::fs::read_dir(&data).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert_eq!(names, ["inbox"], "nothing staged is left");
         assert_eq!(status(&offer, &data), Status::Current);
-        assert_eq!(local(&dir), Local { as_installed: true, version: Some("1.0.0".into()) });
+        assert_eq!(local(&dir), Local { as_installed: true, version: Some("1.0.0".into()), origin: Some(Origin::Bundled) });
+        assert_eq!(previous(&data, "inbox"), None);
         assert!(install(&offer, &data).unwrap_err().contains("already installed"));
         // What npm adds doesn't count as a change.
         std::fs::create_dir_all(dir.join("adapter/node_modules/y")).unwrap();
         std::fs::write(dir.join("adapter/node_modules/y/a.js"), "").unwrap();
         assert!(local(&dir).as_installed);
 
-        // A newer bundled copy: an update, which keeps nothing of the old.
+        // A newer bundled copy: an update, which keeps the old one aside
+        // (hidden, so not listed) for Go back.
         ext(&bundle, "inbox", Some("1.1.0"), false);
         std::fs::write(bundle.join("inbox/adapter/main.mjs"), "// main 1.1").unwrap();
         let offer = bundled(&bundle).remove(0);
@@ -361,8 +650,14 @@ mod tests {
         update(&offer, &data, false).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("adapter/main.mjs")).unwrap(), "// main 1.1");
         assert_eq!(status(&offer, &data), Status::Current);
-        let names: Vec<String> = std::fs::read_dir(&data).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        assert_eq!(names, ["inbox"], "the old copy is gone");
+        let names = |data: &Path| {
+            let mut n: Vec<String> = std::fs::read_dir(data).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            n.sort();
+            n
+        };
+        assert_eq!(names(&data), [".inbox.previous", "inbox"], "the old copy is kept, hidden");
+        assert_eq!(super::super::discover(&data).len(), 1);
+        assert_eq!(previous(&data, "inbox").and_then(|p| p.version).as_deref(), Some("1.0.0"));
 
         // Changed by hand: an update is refused until the user says so.
         std::fs::write(dir.join("adapter/main.mjs"), "// my fix").unwrap();
@@ -373,10 +668,128 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("adapter/main.mjs")).unwrap(), "// my fix", "left as it was");
         update(&offer, &data, true).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("adapter/main.mjs")).unwrap(), "// main");
+        assert_eq!(previous(&data, "inbox").and_then(|p| p.version).as_deref(), Some("1.1.0"), "one step back: the copy before this update");
 
         remove(&data, "inbox").unwrap();
-        assert_eq!(std::fs::read_dir(&data).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&data).unwrap().count(), 0, "the kept copy goes too");
         assert_eq!(status(&offer, &data), Status::Available);
+    }
+
+    /// Go back: the copy before the last update returns, as Pitwall
+    /// installed it, and there is then nothing more to go back to.
+    #[test]
+    fn go_back_restores_the_copy_before_the_update() {
+        let t = TempDir::new("ext-rollback");
+        let (bundle, data) = (t.path().join("bundle"), t.path().join("data"));
+        ext(&bundle, "inbox", Some("1.0.0"), false);
+        install(&bundled(&bundle).remove(0), &data).unwrap();
+        assert_eq!(rollback(&data, "inbox", false), Err(Refused::Failed("There is no earlier copy to go back to.".into())));
+        ext(&bundle, "inbox", Some("1.1.0"), false);
+        std::fs::write(bundle.join("inbox/adapter/main.mjs"), "// 1.1").unwrap();
+        update(&bundled(&bundle).remove(0), &data, false).unwrap();
+        // Changed by hand since: asked first.
+        std::fs::write(data.join("inbox/adapter/main.mjs"), "// mine").unwrap();
+        assert_eq!(rollback(&data, "inbox", false), Err(Refused::ChangedLocally));
+        rollback(&data, "inbox", true).unwrap();
+        let l = local(&data.join("inbox"));
+        assert_eq!((l.version.as_deref(), l.as_installed), (Some("1.0.0"), true));
+        assert_eq!(std::fs::read_to_string(data.join("inbox/adapter/main.mjs")).unwrap(), "// main");
+        assert_eq!(previous(&data, "inbox"), None);
+        assert_eq!(std::fs::read_dir(&data).unwrap().count(), 1, "nothing else left");
+        // And the newer one is offered again.
+        assert_eq!(status(&bundled(&bundle).remove(0), &data), Status::Newer("1.1.0".into()));
+    }
+
+    fn git_offer(dir: &Path, id: &str, version: &str, tag: &str, commit: &str) -> Offer {
+        ext(dir, id, Some(version), false);
+        let manifest = read(&dir.join(id), id).unwrap();
+        Offer { manifest, folder: dir.join(id), origin: Origin::Git { url: "https://example.com/r".into(), dir: "ext".into(), tag: tag.into(), commit: commit.into() } }
+    }
+
+    /// A release from a source: its marker says the source, tag and
+    /// commit; the same tag at another commit later is refused.
+    #[test]
+    fn a_release_records_its_source_and_a_moved_tag_is_refused() {
+        let t = TempDir::new("ext-git-origin");
+        let data = t.path().join("data");
+        let offer = git_offer(&t.path().join("f1"), "inbox", "1.0.0", "t-v1.0.0", "aaaaaaaaaa");
+        install(&offer, &data).unwrap();
+        let l = local(&data.join("inbox"));
+        assert_eq!(l.origin, Some(offer.origin.clone()));
+        assert!(l.as_installed);
+        let marker: Value = serde_json::from_str(&std::fs::read_to_string(data.join("inbox").join(MARKER)).unwrap()).unwrap();
+        assert_eq!((marker["source"]["git"].as_str(), marker["tag"].as_str(), marker["commit"].as_str()), (Some("https://example.com/r"), Some("t-v1.0.0"), Some("aaaaaaaaaa")));
+        let moved = git_offer(&t.path().join("f2"), "inbox", "1.0.0", "t-v1.0.0", "bbbbbbbbbb");
+        match update(&moved, &data, true) {
+            Err(Refused::Failed(why)) => assert!(why.contains("tag moved"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        let newer = git_offer(&t.path().join("f3"), "inbox", "1.1.0", "t-v1.1.0", "cccccccccc");
+        update(&newer, &data, false).unwrap();
+        assert_eq!(local(&data.join("inbox")).origin.and_then(|o| o.tag_commit().map(|(t, c)| (t.to_string(), c.to_string()))), Some(("t-v1.1.0".into(), "cccccccccc".into())));
+        assert_eq!(previous(&data, "inbox").and_then(|p| p.origin), Some(offer.origin));
+        // A fetched folder of another extension isn't installed under this id.
+        let mut wrong = git_offer(&t.path().join("f4"), "other", "2.0.0", "t-v2.0.0", "dddddddddd");
+        wrong.manifest.id = "inbox".into();
+        assert_eq!(update(&wrong, &data, false), Err(Refused::Failed("The fetched copy is “other”, not “inbox”".into())));
+    }
+
+    /// Bundled and source offers together: the newest wins, never a
+    /// downgrade; on a tie, the place it was installed from.
+    #[test]
+    fn the_newest_offer_wins_and_never_a_downgrade() {
+        let t = TempDir::new("ext-best");
+        let bundled_at = |v: &str| Offer { origin: Origin::Bundled, ..git_offer(&t.path().join(format!("b{v}")), "inbox", v, "", "") };
+        let git_at = |v: &str| git_offer(&t.path().join(format!("g{v}")), "inbox", v, &format!("t-v{v}"), "aaaaaaa");
+        let from_git = Local { as_installed: true, version: Some("1.0.0".into()), origin: Some(git_at("1.0.0").origin) };
+        let from_pitwall = Local { origin: Some(Origin::Bundled), ..from_git.clone() };
+        let ver = |o: Option<&Offer>| o.map(|o| (o.manifest.version.clone().unwrap(), o.origin == Origin::Bundled));
+        assert_eq!(ver(best(&from_pitwall, &[bundled_at("1.1.0"), git_at("1.2.0")])), Some(("1.2.0".into(), false)));
+        assert_eq!(ver(best(&from_pitwall, &[bundled_at("1.3.0"), git_at("1.2.0")])), Some(("1.3.0".into(), true)));
+        assert_eq!(ver(best(&from_pitwall, &[bundled_at("1.2.0"), git_at("1.2.0")])), Some(("1.2.0".into(), true)), "a tie: where it came from");
+        assert_eq!(ver(best(&from_git, &[bundled_at("1.2.0"), git_at("1.2.0")])), Some(("1.2.0".into(), false)));
+        assert_eq!(best(&from_git, &[bundled_at("0.9.0"), git_at("1.0.0")]), None, "never a downgrade, nor the same");
+        let by_hand = Local { as_installed: false, version: None, origin: None };
+        assert_eq!(ver(best(&by_hand, &[bundled_at("0.1.0")])), Some(("0.1.0".into(), true)));
+    }
+
+    /// What changes on this computer: everything for a new install, only
+    /// the differences for an update.
+    #[test]
+    fn what_changes_is_listed() {
+        let m = |extra: &str| super::super::parse(&format!(r#"{{"id": "x", "name": "X", "version": "1.0.0", {extra}}}"#)).unwrap();
+        let old = m(r#""settings": [{"key": "server", "type": "url", "label": "Server"}],
+            "adapter": {"command": ["node", "main.mjs"]},
+            "agentEnv": [{"name": "X_URL", "value": "{setting:server}"}, {"name": "X_AGENT", "value": "{project}"}],
+            "actions": [{"id": "setup", "setup": true, "label": "Set up", "description": "d", "steps": [{"run": ["tool", "add", "x#v0.4.0"]}]},
+                        {"id": "tidy", "label": "Tidy", "description": "d", "steps": [{"run": ["tool", "tidy"]}]}]"#);
+        let new = m(r#""settings": [{"key": "server", "type": "url", "label": "Server"}, {"key": "key", "type": "secret", "label": "Key"}],
+            "adapter": {"command": ["node", "main.mjs"]},
+            "agentEnv": [{"name": "X_URL", "value": "{setting:server}"}, {"name": "X_SESSION", "value": "{agent_id}"}],
+            "actions": [{"id": "setup", "setup": true, "label": "Set up", "description": "d", "steps": [{"run": ["tool", "add", "x#v0.5.0"]}]}],
+            "source": {"git": "https://example.com/r", "dir": "ext", "tags": "x-v{version}"}"#);
+        let origin = Origin::Git { url: "https://example.com/r".into(), dir: "ext".into(), tag: "x-v1.1.0".into(), commit: "0123456789abcdef".into() };
+        let offer = Offer { manifest: new.clone(), folder: PathBuf::new(), origin: origin.clone() };
+        let fresh = changes(None, &offer);
+        assert_eq!(fresh[0], Change { title: "Comes from:".into(), lines: vec!["example.com/r (ext), tag x-v1.1.0, commit 0123456".into(), "Not reviewed by Pitwall".into()] });
+        assert!(fresh.iter().any(|c| c.lines == ["node main.mjs"]));
+        assert!(fresh.iter().any(|c| c.lines == ["tool add x#v0.5.0"]));
+        let up = changes(Some((&old, Some(&Origin::Bundled))), &offer);
+        let titles: Vec<&str> = up.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, [
+            "Where it comes from changes:",
+            "The variables it sets on agents change:",
+            "“Set up” runs other commands (its step is unticked: run it again):",
+            "“Tidy” is gone.",
+            "It asks you for more:",
+            "Its updates will come from:",
+        ]);
+        assert_eq!(up[1].lines, ["+ X_SESSION={agent_id}", "- X_AGENT={project}"]);
+        assert_eq!(up[2].lines, ["tool add x#v0.5.0"]);
+        assert_eq!(up[4].lines, ["Key (a secret, kept in the system's secure store)"]);
+        // The same manifest from the same place: only where it comes from.
+        let same = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
+        assert_eq!(changes(Some((&old, Some(&Origin::Bundled))), &same), [Change { title: "Comes from:".into(), lines: vec!["Comes with Pitwall".into()] }]);
     }
 
     /// A folder put there by hand: not as installed, and older than any
