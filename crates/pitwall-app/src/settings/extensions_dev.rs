@@ -35,6 +35,19 @@ pub struct Dev {
     ticking: bool,
 }
 
+/// Extension `id`'s Log as its card shows it, oldest first: its
+/// adapters' lines (with the connection's name when there are several)
+/// and its service's (marked `service`), secrets already taken out.
+pub fn log_lines(id: &str, cx: &gpui::App) -> Vec<(String, pitwall_core::extensions::log::Line)> {
+    let mut lines = hub::try_hub(cx).map(|h| h.read(cx).log(id)).unwrap_or_default();
+    // Its service's output and what Pitwall did with it, marked.
+    if let Some(s) = crate::extensions::service::try_services(cx) {
+        lines.extend(s.read(cx).log(id).into_iter().map(|l| ("service".to_string(), l)));
+        lines.sort_by_key(|(_, l)| l.at);
+    }
+    lines
+}
+
 /// A log line's time of day, as the clock on this computer shows it.
 fn time_of(at: std::time::SystemTime) -> String {
     let t: chrono::DateTime<chrono::Local> = at.into();
@@ -203,12 +216,7 @@ impl SettingsView {
 
     /// The log, when it is shown: its lines, newest at the bottom.
     pub(super) fn log_view(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<Div> {
-        let mut lines = hub::try_hub(cx).map(|h| h.read(cx).log(&m.id)).unwrap_or_default();
-        // Its service's output and what Pitwall did with it, marked.
-        if let Some(s) = crate::extensions::service::try_services(cx) {
-            lines.extend(s.read(cx).log(&m.id).into_iter().map(|l| ("service".to_string(), l)));
-            lines.sort_by_key(|(_, l)| l.at);
-        }
+        let lines = log_lines(&m.id, cx);
         let (handle, seen) = self.exts.dev.logs.get_mut(&m.id)?;
         if lines.len() != *seen {
             *seen = lines.len();

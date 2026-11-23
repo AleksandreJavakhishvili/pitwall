@@ -169,6 +169,9 @@ pub fn run() {
         if let Some(w) = cx.global::<AppState>().host.as_ref().map(|h| h.workspace.clone()) {
             cli_spaces::attach(w, cx);
         }
+        if let Some(e) = cx.global::<AppState>().host.as_ref().map(|h| h.ext_setup.clone()) {
+            extensions::agent_setup::attach(e, cx);
+        }
         engineer::register(cx, engine.as_ref());
         if let Some(e) = engine.clone() {
             follow_tool_updates(e.clone(), cx);

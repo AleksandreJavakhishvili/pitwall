@@ -15,6 +15,7 @@
 
 pub mod actions;
 pub mod adapter;
+pub mod agent_setup;
 pub mod calls;
 pub mod catalog;
 pub mod connections;

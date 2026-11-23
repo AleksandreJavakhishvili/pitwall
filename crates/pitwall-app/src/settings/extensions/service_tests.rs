@@ -25,12 +25,12 @@ use crate::extensions::actions;
 use crate::extensions::service::{self, FirstRun, OpenLink, State};
 
 /// A first run's one-time link: it must never be kept anywhere.
-const SECRET: &str = "ONE-TIME-7f3a9c";
+pub(super) const SECRET: &str = "ONE-TIME-7f3a9c";
 
 /// Extension "kit": an install action and a service; `ready` its readiness
 /// (`{"line": "listening"}`, or an address setting's), `tag` an argument
 /// that changes its command.
-fn kit(listen: Option<&str>, tag: &str) -> String {
+pub(super) fn kit(listen: Option<&str>, tag: &str) -> String {
     let (settings, ready) = match listen {
         Some(a) => (format!(r#""settings": [{{"key": "listen", "type": "text", "label": "Address", "default": "{a}"}}],"#), r#"{"listen": "{setting:listen}"}"#.to_string()),
         None => (String::new(), r#"{"line": "listening"}"#.to_string()),
@@ -82,7 +82,7 @@ while :; do /bin/sleep 1; done
     }
 }
 
-fn open<'a>(cx: &'a mut TestAppContext, t: &TempDir, manifest: &str, installed: bool) -> (Entity<SettingsView>, &'a mut VisualTestContext) {
+pub(super) fn open<'a>(cx: &'a mut TestAppContext, t: &TempDir, manifest: &str, installed: bool) -> (Entity<SettingsView>, &'a mut VisualTestContext) {
     let dir = t.path().join("pw/extensions/kit");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("extension.json"), manifest).unwrap();
@@ -113,13 +113,13 @@ fn open<'a>(cx: &'a mut TestAppContext, t: &TempDir, manifest: &str, installed: 
     (view, cx)
 }
 
-fn state(cx: &mut VisualTestContext) -> State {
+pub(super) fn state(cx: &mut VisualTestContext) -> State {
     cx.update(|_, cx| service::try_services(cx).and_then(|s| s.read(cx).get("kit").map(|v| v.state.clone())).unwrap_or_default())
 }
 
 /// Until `want` holds of its state (real threads run meanwhile, Pitwall's
 /// clock is moved on by `step` each time).
-fn wait(cx: &mut VisualTestContext, step: Duration, what: &str, want: impl Fn(&State) -> bool) -> State {
+pub(super) fn wait(cx: &mut VisualTestContext, step: Duration, what: &str, want: impl Fn(&State) -> bool) -> State {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         std::thread::sleep(Duration::from_millis(20));
@@ -134,12 +134,12 @@ fn wait(cx: &mut VisualTestContext, step: Duration, what: &str, want: impl Fn(&S
     }
 }
 
-fn running(s: &State) -> bool {
+pub(super) fn running(s: &State) -> bool {
     matches!(s, State::Running { .. })
 }
 
 /// The pid noted in `bin/<file>`, and whether it is still alive.
-fn alive(t: &TempDir, file: &str) -> bool {
+pub(super) fn alive(t: &TempDir, file: &str) -> bool {
     let pid = std::fs::read_to_string(t.path().join("bin").join(file)).unwrap();
     let out = std::process::Command::new("/bin/ps").args(["-o", "stat=", "-p", pid.trim()]).output().unwrap();
     let stat = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -147,7 +147,7 @@ fn alive(t: &TempDir, file: &str) -> bool {
 }
 
 /// Until the server and its child are gone.
-fn gone(t: &TempDir, cx: &mut VisualTestContext) {
+pub(super) fn gone(t: &TempDir, cx: &mut VisualTestContext) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while alive(t, "pid") || alive(t, "child") {
         assert!(Instant::now() < deadline, "the service's group is still running");
@@ -156,7 +156,7 @@ fn gone(t: &TempDir, cx: &mut VisualTestContext) {
     }
 }
 
-fn starts(t: &TempDir) -> usize {
+pub(super) fn starts(t: &TempDir) -> usize {
     std::fs::read_to_string(t.path().join("bin/started")).map(|s| s.lines().count()).unwrap_or(0)
 }
 
