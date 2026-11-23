@@ -101,9 +101,10 @@ It shows:
 
 - **Denied** (`denied`) when the user says no; **`approval_timeout`** when
   nobody answers in time. Nothing starts.
-- **On this computer, in one of Pitwall's projects.** `provider`,
-  `machine`, `options`, `account` and `resume` are refused. A folder that
-  isn't a project is `not_found`.
+- **On this computer, in one of Pitwall's projects** (one in the
+  project list, or a folder one of Pitwall's agents works in). `provider`,
+  `machine`, `options`, `account` and `resume` are refused. Any other
+  folder is `not_found`.
 - **One request at a time, three in ten minutes** (a timed-out one
   counts). Past that, `busy`.
 - **The prompt** (at most 4000 characters) isn't typed into the agent. It
