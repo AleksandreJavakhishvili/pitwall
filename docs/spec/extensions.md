@@ -1049,10 +1049,12 @@ which lists the command, the version command, the first run, the
 variables (a secret by name) and the data folder. `ui.json` keeps a
 digest of the commands, version check, readiness, variables and first
 run (`extensions.<id>.service.confirmed`, with when). The label and the
-lowest version aren't part of it. While the digest doesn't match (an
-update or Reload changed a command), it is stopped and the card asks
-again ("An update changed what it runs, so it was stopped", with the
-risk). An update's review lists new, changed and removed services.
+lowest version aren't part of it, its backup is. While the digest
+doesn't match (Reload or a hand edit changed a command), it is stopped
+and the card asks again ("An update changed what it runs, so it was
+stopped", with the risk). An update's review lists new, changed and
+removed services, and pressing Update confirms the new commands when the
+old ones were confirmed ("Updating as one step" below).
 
 **Before each start**, off the UI thread, in this order: a setting it
 uses isn't set (waits); its address isn't on this computer (not
@@ -1159,6 +1161,90 @@ side), `pitwall-cli/src/extension.rs`.
 - Never offered to agents: permissions beyond what turning on grants,
   deleting data, "send without asking", entering a secret. Extensions
   never call any `extension.*` method.
+
+## Updating as one step
+
+The author's page is [`docs/extensions/updates.md`](../extensions/updates.md).
+Core: `pitwall_core::extensions::update` (the plan, backup folders, copy
+and restore, generations); app: `crate::extensions::safe_update` (the
+run), `crate::extensions::stale` (agents on a previous setup) and
+`settings/extensions/{updates,stale_ui}.rs`.
+
+**The manifest.** Format 2 adds `update: { order, agents }` (`order`:
+`serviceFirst` | `agentsFirst`, `agents`: `compatible` | `restart`;
+unknown keys refused) and `service.backup`: an argv with `{backup}`, or
+`{ run, replaces }` (`replaces`: up to 16 plain file names in `{data}`).
+Its program is a bare name. The backup is part of the service's digest.
+
+**The run.** Review computes the plan (`update::plan`) from the
+installed manifest, the new one and what is so now: on or off, whether
+Pitwall runs the service here (confirmed, not stopped by the user, not
+*running elsewhere*), whether `{data}` has anything, the setup actions
+set up before (`actionSteps` keys), the running agents that started with
+the extension on (`Engine::extension_users`) and the restart setting.
+Update then runs, live on the card (`extension-update-run-<id>`):
+
+1. `Services::hold(id, true)` stops the service (and keeps it stopped
+   across the switch off and on); Pitwall waits for its group. A backup
+   folder `<data>/extension-backups/<id>/<YYYYMMDD-HHMMSS>` (UTC, `-2`… on
+   a clash, mode 700) gets the backup: the declared command (minimal
+   environment, in `{data}`, 10 minutes at most), else a copy of `{data}`
+   (at most 2 GiB; bigger needs the review's "Update without a backup"),
+   or a copy when the command fails. `pitwall-backup.json` notes the
+   versions, the time and how to put it back. Only the newest 3 are
+   kept. A failure here releases the service and changes nothing.
+2. `catalog::apply`, keeping `.<id>.previous`. A folder changed by hand
+   stops here and asks, as before. The new service's commands are
+   confirmed (when the old ones were) and `extensions.<id>.lastUpdate`
+   is written (versions, time, backup folder, the previous confirmation).
+3. With the service on: released, then, if its state is *not installed*
+   or *version too old*, its install action runs (through `Runs`, as a
+   press would) and it is looked at again.
+4. Up within 60 s (`Timeouts`, shorter in tests), then: still up, and
+   when the adapter was `ready` before, `ready` again within 30 s; a
+   crashed adapter fails it.
+5. Each setup action set up before whose steps changed runs for every
+   account (and per connection when it uses a setting), its steps
+   recorded as confirmed after the run starts. With `agentsFirst` this
+   runs between 2 and 3.
+
+A failure in 1–4 after the files changed rolls back: the service held,
+`catalog::rollback_one`, the previous confirmation and no `lastUpdate`,
+the data put back from the note (`restore_copy`: `{data}` moved into the
+backup's `replaced/`, the copy copied back; `restore_files`: the
+`replaces` files moved there, the backup's files copied in mode 600),
+the service released, and a line for each, with what couldn't be put back
+(a server program upgraded by step 3 stays, and the card says what to do).
+A failure in 5 ends *SetupFailed* with the accounts and Retry. Each start
+and end is in the extension's Activity.
+
+**Go back** with a `lastUpdate` backup that can be put back asks first
+(`extension-back-data-<id>`): Keep current data (default) or Put back the
+backup too (the service held meanwhile). Go back confirms the previous
+commands again and clears `lastUpdate`.
+
+**Agents on a previous setup.** At each start and restart, an agent's
+record keeps `extSetup`: for each extension on with setup actions or
+agent variables, `update::generation` (FNV-1a over the setup actions'
+run keys and the digests of the steps they last ran with, the expanded
+agent variables, and the connection). The app sends the extensions that
+are on with their `actionSteps` (`Engine::set_extension_setup`, when that
+or the accounts change); the engine works out each agent's generation now.
+A running agent whose recorded generation for an extension differs from
+now carries it in `AgentView.staleFor`; one turned off since isn't
+counted. The sidebar row and the pane header show a chip ("old setup",
+warning tone with `agents: "restart"`), the card lists them with Restart
+now and Restart all idle, and `pitwall agent list` adds a line.
+
+**The restart setting** (`extensions.restartAfterUpdate`, `ui.json`
+`extensionsRestartAfterUpdate`; per extension `restartAfterUpdate`):
+`ask` (default), `whenIdle`, `never`. `whenIdle` looks every 2 s while
+an extension that is on uses it; a stale agent that runs, can restart
+and can resume its conversation, and whose status is idle or done, is
+restarted once it has been so for 30 s, one at a time (`lifecycle::restart`,
+as Restart). Working, blocked, unknown or not resumable: never. A restart
+that fails isn't tried again by itself. Each restart is a notice and an
+Activity line.
 
 ## For authors
 The author's guide is [`docs/extensions/`](../extensions/README.md).
