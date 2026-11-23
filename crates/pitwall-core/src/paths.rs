@@ -90,6 +90,13 @@ impl Paths {
         self.root.join("extension-data").join(id)
     }
 
+    /// Where the backups an update takes of extension `id`'s service data
+    /// go, one folder per update, the last few kept
+    /// (`extensions::update`, docs/extensions/updates.md).
+    pub fn extension_backups_dir(&self, id: &str) -> PathBuf {
+        self.root.join(crate::extensions::update::BACKUPS_DIR).join(id)
+    }
+
     /// Where versions before 0.1 made agent worktrees. Pitwall no longer creates
     /// any; agents still working in one keep their stored path.
     pub fn legacy_worktrees_dir(&self) -> PathBuf {

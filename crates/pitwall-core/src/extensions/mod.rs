@@ -47,6 +47,7 @@ pub mod protocol;
 pub mod service;
 pub mod source;
 pub mod starter;
+pub mod update;
 pub mod view;
 
 use std::path::Path;
@@ -132,6 +133,9 @@ pub struct Manifest {
     /// Format 2: the long-running program Pitwall keeps running for it
     /// while it is on, once the user confirmed its commands ([`service`]).
     pub service: Option<service::Service>,
+    /// Format 2: how its updates go ([`update`]): which part goes first
+    /// and whether agents started before keep working.
+    pub update: update::Policy,
 }
 
 /// A permission a manifest asks for, and why, in the extension's words.
@@ -313,6 +317,7 @@ impl Manifest {
             permissions: vec![],
             contributes: Contributes::default(),
             service: None,
+            update: update::Policy::default(),
         }
     }
 
@@ -812,6 +817,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         Some(v) if format >= 2 && !v.is_null() => Some(service::parse(v, &settings, &actions)?),
         _ => None,
     };
+    let update = if format >= 2 { update::parse(obj.get("update"))? } else { update::Policy::default() };
     if contributes.inbox && adapter.is_none() {
         return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
     }
@@ -828,7 +834,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.panels\" needs the \"agents.read\" permission, with your reason for it: a section is about one agent".into());
     }
     check_web_views(&contributes, &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service })
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update })
 }
 
 /// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
