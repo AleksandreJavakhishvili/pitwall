@@ -504,7 +504,8 @@ impl MainScreen {
 
     /// Bench and debug builds, `settings-tile …` (nothing clicked or typed
     /// on the screen): `open` (as the palette), `page <id>`, `close`,
-    /// `agent <agent id> [page] [extension]` (as `show_settings`),
+    /// `agent <agent id> [page] [extension]` (as `show_settings`), `max`
+    /// (⌘⏎ on it), `share <fraction>` (its side of a two-tile space),
     /// `state` (on stderr).
     pub fn debug_settings_tile(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
         let mut w = cmd.split_whitespace();
@@ -519,6 +520,35 @@ impl MainScreen {
                 }
             }
             "close" => cx.defer(close),
+            "max" => {
+                if let Some((space, pane)) = self.ui.tile_of(&Content::Settings) {
+                    self.update_ui(|s| s.toggle_maximize(&space, Some(&pane)), cx);
+                    cx.notify();
+                }
+            }
+            "share" => {
+                let share = w.next().and_then(|f| f.parse::<f64>().ok()).unwrap_or(0.5).clamp(0.1, 0.9);
+                if let Some((space, _)) = self.ui.tile_of(&Content::Settings) {
+                    self.update_ui(
+                        |s| {
+                            let layout = match s.space(&space).map(|sp| sp.layout.clone()) {
+                                Some(super::tree::Node::Split { id, children, .. }) if children.len() == 2 => {
+                                    let last = children[1].leaves().iter().any(|p| p.settings);
+                                    let sizes = if last { [1. - share, share] } else { [share, 1. - share] };
+                                    s.space(&space).map(|sp| super::tree::set_split_sizes(&sp.layout, &id, &sizes))
+                                }
+                                _ => None,
+                            };
+                            match layout {
+                                Some(l) => s.set_layout(&space, l),
+                                None => s,
+                            }
+                        },
+                        cx,
+                    );
+                    cx.notify();
+                }
+            }
             "agent" => {
                 let agent = w.next().unwrap_or_default().to_string();
                 let page = w.next().map(String::from);
