@@ -811,7 +811,9 @@ impl Render for MainView {
             .child(self.layer.clone())
             .child(self.palette.clone())
             .children(approvals)
-            .children(crate::frame_stats::probe());
+            .children(crate::frame_stats::probe())
+            // Bench: the floating control's view, to capture (`float preview`).
+            .children(crate::float::bench_preview(window, cx));
         crate::platform::decorations::frame(root, window, cx)
     }
 }
