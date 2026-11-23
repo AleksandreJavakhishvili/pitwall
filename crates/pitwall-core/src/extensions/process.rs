@@ -29,9 +29,12 @@ pub fn start(program: &Path, args: &[String], dir: &Path, path: Option<&str>) ->
     Ok((Process { inner }, Pipes { stdin: Box::new(stdin), stdout: Box::new(stdout), stderr: Box::new(stderr) }))
 }
 
+/// A started program's stdout or stderr.
+pub type Output = Box<dyn Read + Send>;
+
 /// Start a service's `program` (found already) with `args` in `dir`, with
 /// exactly the variables `env` and no stdin: its stdout and stderr.
-pub fn start_service(program: &Path, args: &[String], dir: &Path, env: &[(String, String)]) -> io::Result<(Process, Box<dyn Read + Send>, Box<dyn Read + Send>)> {
+pub fn start_service(program: &Path, args: &[String], dir: &Path, env: &[(String, String)]) -> io::Result<(Process, Output, Output)> {
     let (inner, stdout, stderr) = crate::platform::spawn_grouped_env(program, args, dir, env)?;
     Ok((Process { inner }, Box::new(stdout), Box::new(stderr)))
 }
