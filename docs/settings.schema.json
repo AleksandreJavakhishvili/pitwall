@@ -55,6 +55,36 @@
       "additionalProperties": {
         "additionalProperties": true,
         "properties": {
+          "actionAccounts": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "The tools' accounts (their ids in accounts.json) each recorded setup action went through without a failure, by the same keys as `actionSteps`. A step for a tool runs for its default folder and for each Pitwall account of it; the action counts as done only once every current account of its tools is here. A record without an entry, from before accounts were kept, covers none.",
+            "type": "object"
+          },
+          "actionConfirmed": {
+            "additionalProperties": {
+              "properties": {
+                "at": {
+                  "description": "When, in Unix seconds.",
+                  "type": "integer"
+                },
+                "steps": {
+                  "description": "A digest of the steps confirmed, as in `actionSteps`.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "steps"
+              ],
+              "type": "object"
+            },
+            "description": "The steps of each setup action the user confirmed, by the same keys as `actionSteps`: Pitwall runs exactly those, by itself, for a tool's account added later (or not yet covered), while the extension is on. Once the steps change (an update), nothing runs until the user confirms them again.",
+            "type": "object"
+          },
           "actionSteps": {
             "additionalProperties": {
               "type": "string"

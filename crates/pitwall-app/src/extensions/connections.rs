@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 
 use gpui::App;
 use pitwall_core::accounts::Account;
+use pitwall_core::extensions::plan::ToolAccount;
 use pitwall_core::extensions::{Action, Manifest, SETTING_PLACEHOLDER};
 
 use crate::main_screen::workspace::ExtensionPrefs;
@@ -63,10 +64,52 @@ pub fn settings_secrets_set(ext: &str, cx: &App) -> Vec<String> {
     settings_target(ext, cx).map(|c| c.secrets_set).unwrap_or_default()
 }
 
+/// What a run of action `a` (for connection `conn`) is kept under in
+/// `ui.json`: `<action>@<connection>` when it uses a setting, else the
+/// action's id.
+pub fn key_of(a: &Action, conn: Option<&str>) -> String {
+    match conn.filter(|_| uses_setting(a)) {
+        Some(c) => format!("{}@{c}", a.id),
+        None => a.id.clone(),
+    }
+}
+
 /// `m`'s `ui.json` entry as connection `c` sees it: `c`'s settings and
 /// secrets, and as done the actions that use a setting and ran for `c`
-/// plus the others that ran at all.
+/// plus the others that ran at all, each only once its recorded run
+/// covers every current account of the tools its steps are for
+/// ([`not_yet_for`]).
 pub fn prefs_for(m: &Manifest, c: Option<&Account>, cx: &App) -> ExtensionPrefs {
+    let mut p = recorded(m, c, cx);
+    let accounts = crate::accounts::tool_accounts(cx);
+    if !accounts.is_empty() {
+        let conn = c.map(|c| c.id.as_str());
+        let covered = p.action_accounts.clone();
+        p.actions_done.retain(|id| match m.actions.iter().find(|a| a.id == *id) {
+            Some(a) => pitwall_core::extensions::plan::missing(a, &accounts, covered.get(&key_of(a, conn)).map_or(&[], Vec::as_slice)).is_empty(),
+            None => true,
+        });
+    }
+    p
+}
+
+/// The accounts of the tools `m`'s action `a` has steps for that its run,
+/// recorded as done for connection `c` with the steps it has now, didn't
+/// go through: added since, or the record is from before accounts were
+/// kept. Empty when it isn't recorded as done (it runs for everything).
+pub fn not_yet_for(m: &Manifest, a: &Action, c: Option<&Account>, cx: &App) -> Vec<ToolAccount> {
+    let p = recorded(m, c, cx);
+    if !p.actions_done.contains(&a.id) {
+        return vec![];
+    }
+    let accounts = crate::accounts::tool_accounts(cx);
+    let covered = p.action_accounts.get(&key_of(a, c.map(|c| c.id.as_str()))).cloned().unwrap_or_default();
+    pitwall_core::extensions::plan::missing(a, &accounts, &covered).into_iter().cloned().collect()
+}
+
+/// [`prefs_for`] without the accounts: the runs recorded as done with
+/// the steps their actions have now.
+fn recorded(m: &Manifest, c: Option<&Account>, cx: &App) -> ExtensionPrefs {
     let mut p = crate::ui_state::get(cx).extension(&m.id);
     let per_conn: Vec<&str> = m.actions.iter().filter(|a| uses_setting(a)).map(|a| a.id.as_str()).collect();
     p.actions_done.retain(|a| !per_conn.contains(&a.as_str()));
@@ -182,8 +225,8 @@ pub fn record_action(m: &Manifest, a: &str, conn: Option<&str>, ok: bool, cx: &m
     let per_conn = action.is_some_and(uses_setting);
     // The steps that ran, kept with the record: changed steps untick it.
     let steps = action.map(pitwall_core::extensions::steps_digest).filter(|_| ok);
-    let key = match conn.filter(|_| per_conn) {
-        Some(c) => format!("{a}@{c}"),
+    let key = match action {
+        Some(x) => key_of(x, conn),
         None => a.to_string(),
     };
     crate::ui_state::update(cx, |ui| {
@@ -192,7 +235,9 @@ pub fn record_action(m: &Manifest, a: &str, conn: Option<&str>, ok: bool, cx: &m
                 e.action_steps.insert(key, d);
             }
             None => {
+                // Not done: nor for any account.
                 e.action_steps.remove(&key);
+                e.action_accounts.remove(&key);
             }
         });
     });
@@ -212,16 +257,65 @@ pub fn record_action(m: &Manifest, a: &str, conn: Option<&str>, ok: bool, cx: &m
     });
 }
 
+/// Keep the accounts the run of `m`'s action `a` (for connection
+/// `conn`) went through without a failure, `ok`: added to those already
+/// kept for a run for missing accounts only (`partial`), else in their
+/// place.
+pub fn record_accounts(m: &Manifest, a: &str, conn: Option<&str>, partial: bool, ok: &[String], cx: &mut App) {
+    let Some(action) = m.actions.iter().find(|x| x.id == a) else { return };
+    let key = key_of(action, conn);
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(&m.id, |e| {
+            let before = e.action_accounts.get(&key).cloned().unwrap_or_default();
+            let now = pitwall_core::extensions::plan::covered_after(&before, partial, ok);
+            if now.is_empty() {
+                e.action_accounts.remove(&key);
+            } else {
+                e.action_accounts.insert(key, now);
+            }
+        });
+    });
+}
+
+/// Keep that the user confirmed the steps setup action `a` of `m` (for
+/// connection `conn`) has now, and when: Pitwall runs exactly those for
+/// an account added later ([`confirmed`]).
+pub fn record_confirmed(m: &Manifest, a: &Action, conn: Option<&str>, cx: &mut App) {
+    if !a.setup {
+        return;
+    }
+    let key = key_of(a, conn);
+    let c = crate::main_screen::workspace::Confirmed::now(pitwall_core::extensions::steps_digest(a));
+    crate::ui_state::update(cx, |ui| *ui = std::mem::take(ui).with_extension(&m.id, |e| {
+        e.action_confirmed.insert(key, c);
+    }));
+}
+
+/// When the user confirmed the steps setup action `a` of `m` (for
+/// connection `conn`) has now: `Some(None)` for a run recorded before
+/// confirmations were kept, whose digest (the steps the user ran) stands
+/// for one, except for a development folder's extension. `None`: its
+/// steps weren't confirmed as they are.
+pub fn confirmed(m: &Manifest, a: &Action, conn: Option<&str>, cx: &App) -> Option<Option<u64>> {
+    if !a.setup {
+        return None;
+    }
+    let p = crate::ui_state::get(cx).extension(&m.id);
+    let key = key_of(a, conn);
+    let now = pitwall_core::extensions::steps_digest(a);
+    match p.action_confirmed.get(&key) {
+        Some(c) => (c.steps == now).then_some(Some(c.at).filter(|at| *at > 0)),
+        None if super::dev_folder(&m.id, cx).is_none() => (p.action_steps.get(&key) == Some(&now)).then_some(None),
+        None => None,
+    }
+}
+
 /// Whether the recorded run of `m`'s action `a` (for connection `conn`)
 /// ran the steps it has now: a record without a digest (from before
 /// digests, sealed at start) counts.
 pub fn steps_current(m: &Manifest, a: &str, conn: Option<&str>, steps: &BTreeMap<String, String>) -> bool {
     let Some(action) = m.actions.iter().find(|x| x.id == a) else { return true };
-    let key = match conn.filter(|_| uses_setting(action)) {
-        Some(c) => format!("{a}@{c}"),
-        None => a.to_string(),
-    };
-    steps.get(&key).is_none_or(|d| *d == pitwall_core::extensions::steps_digest(action))
+    steps.get(&key_of(action, conn)).is_none_or(|d| *d == pitwall_core::extensions::steps_digest(action))
 }
 
 /// Remove connection `id`: its secrets leave the secure store, and the

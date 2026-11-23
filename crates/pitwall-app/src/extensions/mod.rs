@@ -156,6 +156,9 @@ pub fn follow(cx: &mut App) {
             e.set_extension_env(env_sources(cx));
             calls::sync_queue(&e, cx);
         }
+        // A tool's account added, an extension turned on, or start: the
+        // setup the user confirmed covers the accounts it doesn't yet.
+        actions::auto_setup_if_changed(cx);
     };
     // A new ask: the notification an agent needing the user gets.
     let watched = hub::hub(cx);

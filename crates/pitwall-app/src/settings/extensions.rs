@@ -179,20 +179,45 @@ pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool) -> Vec<(
 }
 
 /// A finished run of `m`'s `action` (for connection `conn`), kept: one
-/// where a step ran and none failed ticks its checklist step; any other
-/// unticks it. One that uses a setting is kept for its connection.
+/// where a step ran and none failed for the tools' default folders and
+/// for no tool ticks its checklist step, with the accounts it went
+/// through without a failure (the step stays unticked until it covers
+/// all of them); any other unticks it. A run for missing accounts only
+/// adds those it went through. One that uses a setting is kept for its
+/// connection.
 pub fn record_run(m: &Manifest, action: &str, conn: Option<&str>, st: &RunState, cx: &mut gpui::App) {
-    let ok = !st.failed() && !st.cancelled && st.steps.iter().any(|(_, s)| matches!(s, StepState::Ended(Outcome::Done)));
-    connections::record_action(m, action, conn, ok, cx);
+    let (base, ok) = actions::settle(st);
+    match base {
+        Some(done) => {
+            connections::record_action(m, action, conn, done, cx);
+            if done {
+                connections::record_accounts(m, action, conn, false, &ok, cx);
+            }
+        }
+        None => connections::record_accounts(m, action, conn, true, &ok, cx),
+    }
 }
 
 /// What a run of `a` is kept under: per connection when it uses a
 /// setting (`<action>@<connection>`), else the action's id.
 pub fn run_key(a: &Action, conn: Option<&Account>) -> String {
-    match conn {
-        Some(c) if connections::uses_setting(a) => format!("{}@{}", a.id, c.id),
-        _ => a.id.clone(),
-    }
+    connections::key_of(a, conn.map(|c| c.id.as_str()))
+}
+
+/// The confirmation's rows: each command (with why it won't run), under
+/// a line saying where it runs whenever that changes, when any runs for
+/// an account ("Claude Code, account Work"; "Once" for steps for no tool).
+pub fn plan_rows(plan: &[Planned]) -> Vec<(Option<String>, String, Option<String>)> {
+    let by_account = plan.iter().any(|p| p.account.is_some());
+    let mut last: Option<Option<String>> = None;
+    plan.iter()
+        .map(|p| {
+            let who = p.who();
+            let head = (by_account && last.as_ref() != Some(&who)).then(|| who.clone().unwrap_or_else(|| "Once".into()));
+            last = Some(who);
+            (head, p.line(), p.skip.clone())
+        })
+        .collect()
 }
 
 /// Where the system keeps secrets, in the user's words.
@@ -1098,11 +1123,19 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// The plan of `a`, to confirm.
+    /// The plan of `a`, to confirm: for the tools' default folders and
+    /// every account of them, or, when its run is recorded as done but
+    /// not for some accounts (added since), for those only.
     fn ask_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
         let c = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
         let values = c.as_ref().map(|c| c.values.clone()).unwrap_or_default();
-        let plan = actions::plan(m, a, &values, pitwall_core::shell::spawn_path().as_deref());
+        let path = actions::steps_path(cx);
+        let missing = connections::not_yet_for(m, a, c.as_ref(), cx);
+        let plan = if missing.is_empty() {
+            actions::plan_for(m, a, &values, path.as_deref(), &crate::accounts::tool_accounts(cx), true)
+        } else {
+            actions::plan_for(m, a, &values, path.as_deref(), &missing, false)
+        };
         self.exts.confirm = Some((m.id.clone(), run_key(a, c.as_ref()), plan));
         cx.notify();
     }
@@ -1123,7 +1156,8 @@ impl SettingsView {
         };
         let open = {
             let (m, a) = (m.clone(), a.clone());
-            crate::kit::text_button(SharedString::from(format!("extension-action-{}-{}", m.id, a.id)), label, BtnKind::Small, running || asking, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.ask_action(&m, &a, cx)))
+            let sel = format!("extension-action-{}-{}", m.id, a.id);
+            crate::kit::text_button(SharedString::from(sel.clone()), label, BtnKind::Small, running || asking, &ui.t).debug_selector(move || sel).on_click(cx.listener(move |v, _, _, cx| v.ask_action(&m, &a, cx)))
         };
         let mut col = div().flex().flex_col().gap(px(6.)).child(
             div()
@@ -1133,6 +1167,14 @@ impl SettingsView {
                 .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(Self::step_title(ui, a.label.clone())).child(crate::kit::hint(a.description.clone(), &ui.t)))
                 .child(open),
         );
+        // Done, but not for every account of its tools: said where the
+        // step is, not only in the run.
+        let not_yet = if done == Some(false) && !running { connections::not_yet_for(m, a, c, cx) } else { vec![] };
+        if !not_yet.is_empty() {
+            let names = not_yet.iter().map(actions::ToolAccount::words).collect::<Vec<_>>().join("; ");
+            let sel = format!("extension-not-yet-{}-{}", m.id, a.id);
+            col = col.child(div().debug_selector(move || sel).text_size(px(12.)).text_color(ui.t.amber).child(format!("Not yet set up for: {names}")));
+        }
         if asking {
             col = col.child(self.confirm_card(ui, m, a, cx));
         } else if let Some(st) = state {
@@ -1156,10 +1198,17 @@ impl SettingsView {
             .border_color(ui.t.line_strong)
             .bg(ui.t.surface_2)
             .child(div().pb(px(2.)).text_size(px(12.)).text_color(ui.t.text_2).child(if runs { "These commands will run, in this order, when you press Run:" } else { "Nothing can run:" }));
-        for p in &plan {
-            card = card.child(match &p.skip {
-                None => crate::kit::mono_text(p.line(), &ui.t),
-                Some(why) => div().flex().flex_col().opacity(0.6).child(crate::kit::mono_text(p.line(), &ui.t)).child(crate::kit::hint(format!("Skipped: {why}."), &ui.t)),
+        if !plan.is_empty() && plan.iter().all(|p| p.account.is_some()) {
+            card = card.child(crate::kit::hint("Only for the accounts it hasn't been set up for yet.", &ui.t));
+        }
+        for (i, (head, line, skip)) in plan_rows(&plan).into_iter().enumerate() {
+            if let Some(head) = head {
+                let sel = format!("extension-confirm-for-{}-{}-{i}", m.id, a.id);
+                card = card.child(div().debug_selector(move || sel).pt(px(4.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(ui.t.text_2).child(head));
+            }
+            card = card.child(match skip {
+                None => crate::kit::mono_text(line, &ui.t),
+                Some(why) => div().flex().flex_col().opacity(0.6).child(crate::kit::mono_text(line, &ui.t)).child(crate::kit::hint(format!("Skipped: {why}."), &ui.t)),
             });
         }
         if plan.iter().any(|p| p.optional && p.skip.is_none()) {
@@ -1172,7 +1221,8 @@ impl SettingsView {
             cx.notify();
         })));
         if runs {
-            buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-run-{}-{}", m.id, a.id)), "Run", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.run_action(&m2, &a2, cx))));
+            let sel = format!("extension-run-{}-{}", m.id, a.id);
+            buttons = buttons.child(crate::kit::text_button(SharedString::from(sel.clone()), "Run", BtnKind::Small, false, &ui.t).debug_selector(move || sel).on_click(cx.listener(move |v, _, _, cx| v.run_action(&m2, &a2, cx))));
         }
         card.child(buttons)
     }
@@ -1182,7 +1232,33 @@ impl SettingsView {
     fn run_view(&mut self, ui: &Ui, m: &Manifest, key: &str, st: &RunState, cx: &mut Context<Self>) -> Div {
         let motion = crate::theme::motion_on(cx);
         let mut list = div().flex().flex_col().gap(px(6.)).p(px(10.)).rounded(px(8.)).border_1().border_color(ui.t.line).bg(ui.t.surface_2.opacity(0.5));
+        if let Some(note) = &st.note {
+            list = list.child(div().text_size(px(12.)).text_color(ui.t.text_2).child(note.clone()));
+        }
+        let by_account = st.by_account();
         for (i, (line, state)) in st.steps.iter().enumerate() {
+            // Each place's steps under where they run, with how they stand.
+            if by_account && (i == 0 || st.places.get(i).map(|p| &p.0) != st.places.get(i - 1).map(|p| &p.0)) {
+                let who = st.places.get(i).and_then(|p| p.0.clone()).unwrap_or_else(|| "Once".into());
+                let word = st.group_word(&st.group(i));
+                let color = match word {
+                    "failed" => ui.t.amber,
+                    "done" => ui.t.green,
+                    _ => ui.t.text_3,
+                };
+                list = list.child(
+                    div()
+                        .debug_selector({
+                            let sel = format!("extension-run-for-{}-{key}-{i}", m.id);
+                            move || sel
+                        })
+                        .flex()
+                        .gap(px(8.))
+                        .pt(px(if i == 0 { 0. } else { 4. }))
+                        .child(div().flex_1().min_w_0().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(ui.t.text_2).child(who))
+                        .child(div().flex_none().text_size(px(12.)).text_color(color).child(word)),
+                );
+            }
             let slot = |d: AnyElement| div().flex_none().w(px(16.)).h(px(18.)).flex().items_center().justify_center().child(d);
             let (mark, word, color): (AnyElement, String, gpui::Hsla) = match state {
                 StepState::Waiting => (div().size(px(8.)).rounded_full().border_1().border_color(ui.t.line_strong).into_any_element(), "waiting".into(), ui.t.text_4),
@@ -1246,6 +1322,9 @@ impl SettingsView {
     fn run_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
         let Some((_, key, plan)) = self.exts.confirm.take() else { return };
         let c = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
+        // These steps, confirmed: an account added later gets them by
+        // itself (`actions::auto_setup`).
+        connections::record_confirmed(m, a, c.as_ref().map(|c| c.id.as_str()), cx);
         let ext = m.id.clone();
         let home = pitwall_core::paths::home();
         let runs = actions::runs(cx);
@@ -1383,6 +1462,9 @@ impl SettingsView {
         connections::set_secret_in(ext, conn.as_deref(), &key, secret, cx, done);
     }
 }
+
+#[cfg(all(test, unix))]
+mod accounts_tests;
 
 #[cfg(test)]
 mod tests {
