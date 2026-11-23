@@ -4,7 +4,10 @@ Status: built, unreleased. Finding extensions, the manifest (settings,
 adapter, agent variables, agent matching, setup actions), the adapter
 protocol (version 1), the adapter's lifecycle, settings and secrets, the
 inbox tile, agents' ask badges and notifications, and questions in the
-floating control. The first example is Agention
+floating control; for authors, dev mode (a folder loaded in place), the
+adapter's log, process groups and `pitwall extension check|test|new`
+("For authors" below; the author's guide is
+[`docs/extensions/`](../extensions/README.md)). The first example is Agention
 ([`extensions/agention/`](../../extensions/agention/README.md)); a fake
 adapter that speaks the protocol is in
 [`extensions/demo-inbox/`](../../extensions/demo-inbox/adapter.mjs).
@@ -29,6 +32,10 @@ the environment variables its manifest lists, shown in Settings.
   Extensions (and after Install, Update or Remove there). Not watched.
 - Installed from Settings → Extensions (below), or by copying a folder
   in by hand: a folder put there by hand works the same.
+- **Development folders** ("For authors" below): a folder anywhere,
+  recorded in `ui.json` as `extensions.<id>.devPath` and read where it
+  is, never copied. It is listed with the installed ones and wins over an
+  installed copy with the same id.
 
 ## Installing (the extensions Pitwall ships)
 Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
@@ -90,7 +97,7 @@ Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
   needs a newer Pitwall".
 - `id` (required): 1–40 characters, lower-case ASCII letters, digits and
   `-`, starting with a letter, not ending with `-`. It must be the
-  folder's name. It keys the extension's settings and its inbox tile.
+  folder's name (a development folder may be named otherwise). It keys the extension's settings and its inbox tile.
 - `name` (required): one line, at most 40 characters (trimmed).
 - `version` (optional): at most 32 characters, starting with a digit;
   letters, digits and `.-+`. Shown beside the name; what Update compares.
@@ -151,7 +158,8 @@ Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
 ## Adapter protocol (version 1)
 JSON lines over the adapter's stdin (from Pitwall) and stdout (from the
 adapter): one JSON object per line, UTF-8, each with a `type`. The
-adapter's stderr is kept (its last few KiB) and shown when it stops.
+adapter's stderr is kept (its last few KiB) and shown when it stops, and
+goes in its log ("For authors").
 Types and keys a side doesn't know are ignored. Code:
 `pitwall_core::extensions::protocol`.
 
@@ -164,8 +172,10 @@ argv or the environment. Its first line to the adapter is:
 ```
 Settings and secrets reach the adapter **only** here (a setting not set is
 absent). The adapter answers `{"type":"hello","protocol":1}` within 10
-seconds, else it is stopped. It is stopped (stdin closed, then killed
-after 2 s) when the extension is turned off, its settings change (then
+seconds, else it is stopped. It runs in a process group of its own (a
+job object on Windows), and stopping it closes its stdin, gives it 2 s
+to exit, then kills the whole group, so whatever it started stops with
+it. It is stopped when the extension is turned off, its settings change (then
 started again), or Pitwall quits; it must also exit when its stdin
 closes.
 
@@ -420,15 +430,14 @@ a peer of the files and web tiles, or a window of its own. Code:
   confirmation shown), `ext-run <ext> <action> <prog args|prog args…>`
   (that action run with these harmless steps in its place),
   `ext-disclose <ext>`, `ext-secret <ext> <key> <value>` (a bench
-  instance keeps secrets in memory, never in the keychain) and
-  `settings-end` (the Settings page scrolled to its end).
-- **Shipped extensions' checks:** Pitwall's tests read every folder
-  under the repo's `extensions/`: each manifest parses and plans its
-  actions, and its `test/pitwall.json`, when there is one, says what
-  else to expect: an action's exact command lines (with the programs
-  taken as installed), the variables Settings shows before and after
-  its settings are set, and a fake server its real adapter must agree
-  with Pitwall against (skipped without Node).
+  instance keeps secrets in memory, never in the keychain), `ext-dev
+  <folder>` (that folder loaded as from "Load from folder…", without the
+  picker), `ext-log <ext> [off]` (its card unfolded with its log shown or
+  hidden) and `settings-end` (the Settings page scrolled to its end).
+- **Shipped extensions' checks:** Pitwall's tests run
+  `pitwall_core::extensions::check` (the same as `pitwall extension
+  check` and `test`, "For authors") on every folder under the repo's
+  `extensions/`, and on each staged copy.
 
 ## Agents' ask badges and notifications
 - An agent whose threads (matched through `matchAgents`) have open asks
@@ -522,6 +531,69 @@ as installing a tool's plugin in the user's agents. Code:
 - Nothing runs when an extension is found, turned on, at startup, or at
   an adapter's request: only from the button, after the confirmation.
 
+## For authors
+The author's guide is [`docs/extensions/`](../extensions/README.md).
+Code: `crate::extensions::{load_dev, reload_dev, forget_dev}`,
+`settings/extensions_dev.rs`, `pitwall_core::extensions::{check, log,
+plan, process, starter}`, `pitwall_core::platform::group`.
+- **Load from folder…** (Settings → Extensions, beside "Look again")
+  picks a folder with an `extension.json` and records it in `ui.json`
+  (`extensions.<id>.devPath`). It is read where it is: never copied,
+  changed, updated or deleted by Pitwall. Loading it turns that id
+  **off**: nothing runs until the user turns it on. A folder whose id is
+  already loaded from another folder is refused, saying so; one whose
+  folder or id changed later shows as a problem card with why.
+- Its card is marked **development** (the folder in its tooltip, and a
+  line under its name: "loaded from …, never copied or updated"). It has
+  no Update and no Remove; it has **Reload** (its manifest read again
+  and, while it is on, its adapter started again) and **Remove from
+  list** (turned off and no longer listed; its settings and secrets
+  stay, its folder is untouched, so it asks nothing).
+- **Log** (any card with an adapter): the last 500 lines while it runs,
+  both ways, its stderr and Pitwall's own notes (started, stopped and
+  why), each with its time, newest at the bottom, with Copy. Secrets
+  are taken out before a line is kept: the `secrets` of the hello, the
+  values of its secret settings wherever they appear, and anything
+  shaped like an API key or a bearer token. Lines are cut at 2000
+  characters. It is kept across restarts of the adapter and cleared when
+  the extension is turned off. In memory only.
+- **Process groups:** every adapter, and every program `check`/`test`
+  starts, is started in its own process group (Unix: `setpgid`; Windows:
+  a job object that kills its processes when closed) and the whole
+  group is killed when it is stopped. OS code is in
+  `pitwall_core::platform::group`.
+- **`pitwall extension check <folder>`**, offline (no app): the manifest
+  parses and is within the limits, its version, the adapter's program
+  is found (PATH, as Pitwall would start it), the files its command
+  names are there and inside the folder, a README and the fixture; then
+  what it would run and set, in plain words: its settings, its adapter's
+  command, the variables it sets on agents, how threads match agents,
+  each action's commands. A folder name that differs from the id is a
+  note, not a failure.
+- **`pitwall extension test <folder>`** runs what `test/pitwall.json`
+  expects, each part only when there:
+  - `actions`: each action's exact command lines, with the programs
+    taken as installed;
+  - `env`: the variables Settings shows with no settings (`unset`) and
+    with `values` set (`set`);
+  - `run`: the adapter started with `settings` and `secrets`; it answers
+    hello with protocol 1, its status (default `ready`), at least
+    `threads` threads, thread `open` with its messages, and `reply`
+    answered ok;
+  - `agreement`: a fake server of the folder's own (`fake`, a command;
+    its first stdout line is JSON with its `thread` and the values
+    `{field}` in `settings` and `secrets` stand for) the real adapter is
+    pointed at: it connects, lists that thread with its blocking ask,
+    opens it, and carries `answer` back.
+  Every adapter must exit when its stdin closes. A part whose program
+  (such as Node) isn't installed is skipped, not failed. JSON by default,
+  plain words with `--human`; exit status 1 when a check fails.
+- **`pitwall extension new <folder> [--name …]`** writes a starter into
+  a new or empty folder (its id is the folder's name): `extension.json`,
+  `adapter.mjs` (Node, no dependencies, protocol 1, one inbox thread that
+  answers a reply), `README.md` and `test/pitwall.json`. It passes
+  `check` and `test` as written (Pitwall's tests make sure).
+
 ## Later (not built)
 - Pitwall registering an extension's MCP server in agents itself, rather
   than a setup action running the agent tools' own commands.
@@ -532,5 +604,6 @@ as installing a tool's plugin in the user's agents. Code:
   list of archived threads.
 - `pitwall extension list|install|remove` on the command line (it needs
   the app's socket protocol to reach the running app's state).
-- Installing from a folder or a link, and watching the folder.
+- Installing from a link; watching a development folder for changes
+  (Reload is by hand).
 - View kinds besides the inbox.
