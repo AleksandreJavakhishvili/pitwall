@@ -233,6 +233,10 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
         if !new.permissions.is_empty() {
             push("Asks for these permissions (you grant or refuse each when you turn it on):".into(), new.permissions.iter().map(permission).collect());
         }
+        let adds = new.contributes.lines();
+        if !adds.is_empty() {
+            push("Adds to Pitwall, while it is on:".into(), adds);
+        }
         if new.source.is_some() {
             push("Its updates come from:".into(), vec![updates_from(new)]);
         }
@@ -280,6 +284,12 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
     let fewer: Vec<String> = old.permissions.iter().filter(|o| !new.permissions.iter().any(|p| p.name == o.name)).map(|o| o.name.clone()).collect();
     if !fewer.is_empty() {
         push("It no longer asks for these permissions (their grants are forgotten):".into(), fewer);
+    }
+    let (was, now) = (old.contributes.lines(), new.contributes.lines());
+    let mut lines: Vec<String> = now.iter().filter(|l| !was.contains(l)).map(|l| format!("+ {l}")).collect();
+    lines.extend(was.iter().filter(|l| !now.contains(l)).map(|l| format!("- {l}")));
+    if !lines.is_empty() {
+        push("What it adds to Pitwall changes:".into(), lines);
     }
     if old.source != new.source {
         push("Its updates will come from:".into(), vec![updates_from(new)]);
@@ -816,17 +826,37 @@ mod tests {
     #[test]
     fn permissions_are_part_of_what_changes() {
         let m = |perms: &str| super::super::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "version": "1.0.0", "permissions": {{{perms}}}}}"#)).unwrap();
-        let old = m(r#""agents.read": "To match runs", "notify": "To tell you""#);
+        let old = m(r#""agents.read": "To match runs", "agents.queue": "To tell it""#);
         let new = m(r#""agents.read": "To match runs", "projects.read": "To list projects""#);
         let offer = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
         let fresh = changes(None, &offer);
         let p = fresh.iter().find(|c| c.title.starts_with("Asks for these permissions")).unwrap();
-        assert_eq!(p.lines, ["Read your agents (agents.read): To match runs", "notify: To tell you (not available in this Pitwall yet)"]);
+        assert_eq!(p.lines, ["agents.queue: To tell it (not available in this Pitwall yet)", "Read your agents (agents.read): To match runs"]);
         let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer });
         let more = up.iter().find(|c| c.title.starts_with("It asks for more permissions")).unwrap();
         assert_eq!(more.lines, ["Read your projects (projects.read): To list projects"]);
         assert!(more.title.contains("not granted until you allow them"));
-        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["notify"]);
+        assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.queue"]);
+    }
+
+    /// What it adds to Pitwall (views, commands, badges, notifications):
+    /// all of it for an install, what is added and gone for an update.
+    #[test]
+    fn contributions_are_part_of_what_changes() {
+        let m = |c: &str| super::super::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "version": "1.0.0", "adapter": {{"command": ["node", "a.mjs"]}}, "permissions": {{"notify": "To tell you"}}, "contributes": {{{c}}}}}"#)).unwrap();
+        let old = m(r#""views": [{"id": "runs", "title": "Runs"}], "badges": true"#);
+        let new = m(r#""views": [{"id": "runs", "title": "Runs"}], "commands": [{"id": "rerun", "title": "Re-run"}], "notifications": true"#);
+        let offer = Offer { manifest: old.clone(), folder: PathBuf::new(), origin: Origin::Bundled };
+        let fresh = changes(None, &offer);
+        let adds = fresh.iter().find(|c| c.title.starts_with("Adds to Pitwall")).unwrap();
+        assert_eq!(adds.lines.len(), 2);
+        assert!(adds.lines[0].contains("a view tile “Runs”"));
+        let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer });
+        let c = up.iter().find(|c| c.title.starts_with("What it adds to Pitwall changes")).unwrap();
+        assert!(c.lines.iter().any(|l| l.starts_with("+ a command “Re-run”")), "{:?}", c.lines);
+        assert!(c.lines.iter().any(|l| l.starts_with("+ notifications")), "{:?}", c.lines);
+        assert!(c.lines.iter().any(|l| l.starts_with("- badges")), "{:?}", c.lines);
+        assert!(!c.lines.iter().any(|l| l.contains("view tile")), "unchanged: not listed");
     }
 
     /// A folder put there by hand: not as installed, and older than any

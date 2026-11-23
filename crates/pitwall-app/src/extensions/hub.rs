@@ -777,7 +777,7 @@ impl Hub {
                     st.done.remove(0);
                 }
             }
-            Event::Msg(FromAdapter::Unknown) => {}
+            Event::Msg(FromAdapter::Unknown | FromAdapter::View(_) | FromAdapter::Badges(_) | FromAdapter::Notify(_)) => {}
         }
         self.merge(&key.0);
         for t in news {

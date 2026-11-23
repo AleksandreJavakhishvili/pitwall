@@ -33,7 +33,7 @@ pub const AGENTS_FOCUS: &str = "agents.focus";
 pub const AGENTS_QUEUE: &str = "agents.queue";
 /// Start an agent (a later Pitwall).
 pub const AGENTS_START: &str = "agents.start";
-/// Notifications (a later Pitwall).
+/// Notifications (with `contributes.notifications`).
 pub const NOTIFY: &str = "notify";
 
 /// How much a permission lets an extension do.
@@ -69,7 +69,7 @@ pub const ALL: [Permission; 9] = [
     Permission { name: AGENTS_FOCUS, title: "Focus an agent", detail: "Bring an agent's tile forward when you click its item.", risk: Risk::Low, available: false },
     Permission { name: AGENTS_QUEUE, title: "Send text to your agents", detail: "Put text in an agent's Next up. Text an agent gets becomes what it does, with its own permissions in your repositories.", risk: Risk::High, available: false },
     Permission { name: AGENTS_START, title: "Start agents", detail: "Start an agent in a project, as you.", risk: Risk::High, available: false },
-    Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications, a few a minute at most.", risk: Risk::Low, available: false },
+    Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name.", risk: Risk::Low, available: true },
 ];
 
 /// Permission `name`, when this Pitwall knows it.
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn defaults_and_words() {
-        assert!(on_by_default(AGENTS_READ) && on_by_default(PROFILES_READ));
+        assert!(on_by_default(AGENTS_READ) && on_by_default(PROFILES_READ) && on_by_default(NOTIFY));
         assert!(!on_by_default(AGENTS_QUEUE) && !on_by_default(AGENTS_START), "never on by default");
         assert_eq!(unavailable_why(AGENTS_READ), None);
         assert_eq!(unavailable_why(SHOW), Some("not available in this Pitwall yet"));
