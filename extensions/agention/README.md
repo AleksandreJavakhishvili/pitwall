@@ -54,8 +54,30 @@ Pitwall does the rest from the extension's checklist (section 4):
    your passkeys).
 
 Its data is in a folder of its own, `extension-data/agention` in Pitwall's
-data folder. It is private to you, and updates never touch it. Remove asks
-before deleting it and keeps it unless you say otherwise.
+data folder. It is private to you. Remove asks before deleting it and
+keeps it unless you say otherwise.
+
+**Updates are one step** ([docs/extensions/updates.md](../../docs/extensions/updates.md)).
+When you press Update, Pitwall stops the server and backs up its database
+with `agention backup --data <its data folder> <backup folder>/agention.db`
+(a consistent copy, made while the server is stopped) into
+`extension-backups/agention/<time>` in Pitwall's data folder (private; the
+last three are kept). Then it installs the new files, updates the server
+with **Install Agention's server** if the new version needs a newer one,
+starts it and checks that it is up and that the inbox connects again.
+Only then does it update the plugin in your agents. If the server doesn't
+come up, Pitwall puts the previous extension, the database and the
+previous server back by itself and says what failed. A server program it
+updated stays updated: Pitwall can't downgrade npm packages, so the card
+says what to do. **Go back** asks whether to put the database from before
+the update back too: it moves `agention.db` and its `-wal` and `-shm`
+files into the backup folder and copies the backup in, as Agention's
+`backup --help` describes.
+
+Agents you started before an update keep the plugin they started with
+until restarted (`update.agents: "compatible"`). Their row says *old
+setup*. Settings → Extensions → "After an update, restart agents that use
+the old setup" decides what happens: Ask (default), When idle, or Never.
 
 **Already running a server yourself?** If something already listens on
 **Local server listens on** (127.0.0.1:8787 by default), Pitwall says
@@ -187,10 +209,10 @@ Pitwall updates this extension from this repository (`source` in
 
 1. Change what it needs (an adapter fix, the pinned Agention version in
    the setup action and the server action), and raise `version` in
-   `extension.json` (say to `1.3.0`). Commit it to `main`.
+   `extension.json` (say to `1.4.0`). Commit it to `main`.
 2. Tag that commit `agention-v<version>`, the same version as in
    `extension.json`, and push the tag:
-   `git tag agention-v1.3.0 && git push origin agention-v1.3.0`.
+   `git tag agention-v1.4.0 && git push origin agention-v1.4.0`.
 
 A tag is never moved once pushed: Pitwall records the commit a tag
 pointed at and refuses a tag that moved. Pitwall finds the new tag when it

@@ -42,7 +42,8 @@
     "expect": {
       "run": "agention serve --data {data} --origin https://agention.example.ts.net --listen 127.0.0.1:8787",
       "version": "agention version",
-      "firstRun": "agention passkey-link --data {data} --origin https://agention.example.ts.net"
+      "firstRun": "agention passkey-link --data {data} --origin https://agention.example.ts.net",
+      "backup": "agention backup --data {data} {backup}/agention.db"
     },
     "cases": [
       { "version": "agention 0.6.0", "verdict": "starts (Agention's server 0.6.0)" },
@@ -52,6 +53,23 @@
       { "installed": false, "portTaken": true, "verdict": "something else is already listening on 127.0.0.1:8787: that one is used, nothing is started" },
       { "values": { "server": "" }, "verdict": "waits for Server address to be set" },
       { "values": { "server": "https://agention.example.ts.net", "listen": "0.0.0.0:8787" }, "verdict": "isn't started: “0.0.0.0:8787” isn't on this computer only: use 127.0.0.1 and a port" }
+    ]
+  },
+  "update": {
+    "from": "test/previous-extension.json",
+    "values": { "server": "https://agention.example.ts.net" },
+    "setUp": ["setup"],
+    "agents": 2,
+    "expect": [
+      ["Stops Agention's server and backs up its data first:", "agention backup --data {data} {backup}/agention.db"],
+      ["Installs Agention 1.3.0 (the installed 1.2.0 is kept for Go back)."],
+      ["If Agention's server is older than 0.6.0 or isn't installed, runs “Install Agention's server here”:", "npm install -g @wayfarerlabs/agention@0.6.0"],
+      ["Starts Agention's server and waits until it is up (at most 60 s)."],
+      ["Checks that Agention's server is up and Agention connects as before (within 30 s). If not, it puts back Agention 1.2.0, its data and its service, and says what failed."]
+    ],
+    "agentsSay": [
+      "2 running agents keep the previous setup until restarted.",
+      "After the update: Pitwall restarts nothing by itself: their rows and this card say so, with Restart."
     ]
   },
   "agreement": {
