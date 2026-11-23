@@ -650,6 +650,25 @@ mod tests {
         assert!(cx.debug_bounds("extension-update-inbox").is_some(), "1.1.0 offered again");
     }
 
+    /// The card's footer buttons stay inside the card however narrow the
+    /// page is: they wrap onto more rows rather than run out of it.
+    #[gpui::test]
+    fn the_footer_buttons_stay_inside_a_narrow_card(cx: &mut TestAppContext) {
+        let t = TempDir::new("settings-ext-footer");
+        let (view, cx) = open(cx, &t);
+        view.update(cx, |v, cx| {
+            v.exts_open("inbox");
+            cx.notify();
+        });
+        for width in [1400., 560., 440., 380., 330.] {
+            cx.simulate_resize(gpui::size(gpui::px(width), gpui::px(1800.)));
+            to_end(&view, cx);
+            let (what, buttons) = (cx.debug_bounds("extension-what-inbox").unwrap(), cx.debug_bounds("extension-footer-inbox").unwrap());
+            assert!(buttons.origin.x >= what.origin.x - gpui::px(1.), "{width}: the buttons start inside the card, {buttons:?} against {what:?}");
+            assert!(buttons.right() <= gpui::px(width), "{width}: and end inside the window, {buttons:?}");
+        }
+    }
+
     /// Update of a folder changed by hand asks first (the answer comes
     /// back while the click is still being handled), and Replace updates.
     #[gpui::test]
