@@ -314,7 +314,7 @@ pub fn changes(installed: Option<(&Manifest, Option<&Origin>)>, offer: &Offer) -
         (Some(o), Some(s)) if super::service::digest(o) != super::service::digest(s) => {
             let mut lines: Vec<String> = service_lines(s).into_iter().map(|l| format!("now: {l}")).collect();
             lines.extend(service_lines(o).into_iter().map(|l| format!("was: {l}")));
-            push(format!("The program it keeps running changes ({}): it is stopped and asks you to confirm it again. {SERVICE_RISK}", s.label), lines);
+            push(format!("The program it keeps running changes ({}): pressing Update confirms these commands in place of the ones you confirmed before (if you hadn't, it asks). {SERVICE_RISK}", s.label), lines);
         }
         (Some(o), None) => push(format!("It no longer runs {}: it is stopped (its data stays).", o.label), vec![]),
         _ => {}
@@ -1013,7 +1013,7 @@ mod tests {
         new.service.as_mut().unwrap().run.push("--quiet".into());
         let up = changes(Some((&old, Some(&Origin::Bundled))), &Offer { manifest: new, ..offer.clone() });
         let c = up.iter().find(|c| c.title.starts_with("The program it keeps running changes")).unwrap();
-        assert!(c.title.contains("asks you to confirm it again") && c.title.contains(SERVICE_RISK), "{}", c.title);
+        assert!(c.title.contains("pressing Update confirms these commands") && c.title.contains(SERVICE_RISK), "{}", c.title);
         assert_eq!(c.lines[0], "now: srv serve --data {data} --quiet");
         assert!(c.lines.contains(&"was: srv serve --data {data}".to_string()));
     }

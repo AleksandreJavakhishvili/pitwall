@@ -83,4 +83,10 @@ previewUrls?: Array<string>,
  * How many times its terminal printed one of them: a dev server that
  * restarts prints its address again, and the in-app preview reloads.
  */
-previewSeen?: number, };
+previewSeen?: number, 
+/**
+ * The extensions (their ids) updated since it started, or whose setup
+ * or settings for it changed: it keeps the setup it started with until
+ * restarted (docs/extensions/updates.md). Only while it runs.
+ */
+staleFor?: Array<string>, };
