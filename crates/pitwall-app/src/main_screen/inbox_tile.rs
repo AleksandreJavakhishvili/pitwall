@@ -418,10 +418,10 @@ impl InboxView {
     }
 
     /// Answer `ask` of `thread`: shown as answered at once, back with why
-    /// if it fails.
-    pub fn answer(&mut self, thread: &str, ask: &Ask, picks: Vec<u32>, text: Option<String>, declined: bool, cx: &mut Context<Self>) {
+    /// if it fails. The request, when it went.
+    pub fn answer(&mut self, thread: &str, ask: &Ask, picks: Vec<u32>, text: Option<String>, declined: bool, cx: &mut Context<Self>) -> Option<u64> {
         let labels: Vec<String> = picks.iter().filter_map(|i| ask.suggestions.get(*i as usize)).map(|s| s.label.clone()).collect();
-        match self.request(thread, Request::Answer { ask: ask.number, picks, text: text.clone(), declined }, cx) {
+        let sent = match self.request(thread, Request::Answer { ask: ask.number, picks, text: text.clone(), declined }, cx) {
             Ok(req) => {
                 let key = (thread.to_string(), ask.number);
                 self.sent.insert(key.clone(), Sent { req, labels, text: text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()), declined });
@@ -430,10 +430,15 @@ impl InboxView {
                     i.update(cx, |i, cx| i.set_text("", cx));
                 }
                 self.answered = Some(key);
+                Some(req)
             }
-            Err(why) => self.note(thread, why, cx),
-        }
+            Err(why) => {
+                self.note(thread, why, cx);
+                None
+            }
+        };
         cx.notify();
+        sent
     }
 
     fn send_reply(&mut self, cx: &mut Context<Self>) {
@@ -1460,7 +1465,9 @@ impl InboxView {
                     .child(
                         kit::text_button(SharedString::from(format!("inbox-decline-{thread}-{}", a.number)), "Decline", kit::BtnKind::Link, busy, t)
                             .tooltip(kit::tooltip("Tell the agent you won't answer this"))
-                            .on_click(cx.listener(move |this, _, _, cx| this.answer(&th_dec, &ask_dec, vec![], None, true, cx))),
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.answer(&th_dec, &ask_dec, vec![], None, true, cx);
+                            })),
                     ),
             )
             .into_any_element()
@@ -1642,6 +1649,25 @@ pub fn view(ext: &str, cx: &mut App) -> Entity<InboxView> {
 /// Extension `ext`'s inbox view, if it is made.
 pub fn get(ext: &str, cx: &App) -> Option<Entity<InboxView>> {
     cx.try_global::<Inboxes>()?.0.get(ext).cloned()
+}
+
+/// Answer `ask` of extension `ext`'s thread `thread` from outside its
+/// inbox (the floating control), as the inbox answers it: through its view
+/// when there is one, so it shows the answer as sent at once too, else
+/// straight to the hub. Why it couldn't be sent goes on the thread, as in
+/// the inbox. The request, when it went.
+pub fn answer_ask(ext: &str, thread: &str, ask: &Ask, picks: Vec<u32>, text: Option<String>, declined: bool, cx: &mut App) -> Option<u64> {
+    if let Some(v) = get(ext, cx) {
+        return v.update(cx, |v, cx| v.answer(thread, ask, picks, text, declined, cx));
+    }
+    let h = hub::hub(cx);
+    match h.update(cx, |h, cx| h.request(ext, thread, Request::Answer { ask: ask.number, picks, text, declined }, cx)) {
+        Ok(req) => Some(req),
+        Err(why) => {
+            h.update(cx, |h, cx| h.set_note(ext, thread, why, cx));
+            None
+        }
+    }
 }
 
 /// Extension `ext`'s inbox closed: out of every layout, its window (if it

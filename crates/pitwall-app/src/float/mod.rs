@@ -20,17 +20,33 @@
 //! - **Open** for everything else (a question with options, a trust
 //!   dialog, another machine's agent): Pitwall comes forward on the agent.
 //!
+//! The open questions in the inboxes of the extensions that are on (and
+//! running) are cards too, after the agents' (docs/spec/extensions.md, "In
+//! the floating control"): the extension and connection, who asks and in
+//! which thread, the question, its suggestions (a click sends one, or
+//! toggles it when it takes several), a field for an answer of the user's
+//! own, Send, Decline and Open in inbox. They are the inbox's own data and
+//! are answered as the inbox tile answers ([`crate::main_screen::inbox_tile::
+//! answer_ask`]): the hub is the one place either reads, so an answer in
+//! one shows in the other. The control asks an extension for the threads
+//! with open questions (the first [`model::ASK_THREADS`] of each) only
+//! while it could show them; without such an extension it is as before.
+//!
 //! It can be dragged anywhere (by the mark, or by any part of the open
 //! panel that isn't a button) and stays there, also the next time Pitwall
-//! starts (`app-float.json` in the data folder). It goes away when nothing asks,
-//! when Pitwall comes forward, and when the setting is off. Nothing here
-//! polls while no agent is blocked: the check for "is Pitwall in front"
-//! runs only while one is.
+//! starts (`app-float.json` in the data folder). The open panel is resized
+//! by any of its edges and corners (a double click on one: the default
+//! size), or to Small, Medium or Large by the header's S / M / L; its
+//! minimise button takes it back to the mark, and a click on the mark
+//! opens it again at the size it had. The size is kept with the place. It
+//! goes away when nothing asks, when Pitwall comes forward, and when the
+//! setting is off. Nothing here polls while nothing asks: the check for
+//! "is Pitwall in front" runs only while something does.
 
 pub mod model;
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,7 +62,8 @@ use gpui::{
 };
 
 use crate::agents::AgentStore;
-use crate::kit;
+use crate::extensions::hub::{self, Run};
+use crate::kit::{self, InputEvent, TextInput};
 use crate::platform::decorations::no_drag;
 use crate::platform::FloatCursor;
 use crate::theme::{self, Theme};
@@ -54,8 +71,8 @@ use crate::wall::paint::{screen_view, term_colors, ScreenOpts};
 use crate::wall::screen::Screen;
 use crate::wall::source::{forward, FrameMsg, ScreenSource, Screens};
 use model::{
-    Item, Shape, TermRows, BOX_PAD, BUTTONS_H, CARD_HEAD, GAP, HEADER_H, LINE_H, MAX_CARDS, MORE_H, NOTE_H, PAD, PUCK, RULE,
-    TERM_FONT,
+    AskItem, Item, Preset, Shape, TermRows, ANSWER_H, BOX_PAD, BUTTONS_H, CARD_HEAD, CHIP_H, GAP, HEADER_H, LINE_H, MAX_CARDS,
+    MORE_H, NOTE_H, OPTION_H, PAD, PUCK, QUESTION_LINE, RULE, TERM_FONT,
 };
 
 /// The setting that turns the control on and off.
@@ -95,6 +112,9 @@ pub type Answerer = Arc<dyn Fn(&str, bool, &str) -> Result<(), String>>;
 pub type Typer = Arc<dyn Fn(&str, &[u8]) -> Result<(), String>>;
 /// Brings Pitwall forward on an agent.
 pub type Opener = Arc<dyn Fn(&str, &mut App)>;
+/// Brings Pitwall forward on an extension's inbox at a thread: (extension,
+/// thread).
+pub type InboxOpener = Arc<dyn Fn(&str, &str, &mut App)>;
 
 /// The control's state (one per app).
 pub struct Float {
@@ -102,6 +122,7 @@ pub struct Float {
     answer: Answerer,
     typer: Typer,
     open: Opener,
+    open_inbox: InboxOpener,
     window: Option<WindowHandle<FloatView>>,
     /// The agent whose terminal the keyboard goes to (the user clicked it).
     typing: Option<String>,
@@ -139,47 +160,102 @@ pub struct Float {
     /// The cards were just opened: the window takes the keyboard when it
     /// next draws.
     grab: bool,
+    /// Questions' cards: the height each was drawn at, for the width it
+    /// had (until then [`model::ask_height`]).
+    ask_heights: HashMap<String, (f32, f32)>,
+    /// The suggestions picked so far of a question that takes several.
+    picks: HashMap<String, Vec<u32>>,
+    /// Questions answered here: the request, until their thread says they
+    /// are answered (or it failed: the thread's note says why).
+    sent: HashMap<String, u64>,
+    /// The threads it asked their extension for: (extension, thread).
+    opened: HashSet<(String, String)>,
+    /// How far a resize by the edges it is anchored on moved that corner
+    /// (right and down positive), not yet given to the window.
+    shift: (f32, f32),
+    /// A bench instance shows it (`float show`), off the screen.
+    bench_shown: bool,
 }
 
 impl Global for Float {}
 
-/// Which edge of the open panel is being dragged: the one across from
-/// the side it is anchored on (its left), the one across from the end it
-/// is anchored at (its top on macOS, its bottom elsewhere), or the corner
-/// between them.
+/// Which edge or corner of the open panel is being dragged: `x` is -1 for
+/// its left, 1 for its right, 0 for neither; `y` -1 for its top, 1 for its
+/// bottom. The window stays put at its right and (see [`GROWS_UP`]) its
+/// bottom on macOS, its top elsewhere: dragging the edges it is anchored
+/// on moves that corner with them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Edge {
-    Side,
-    End,
-    Corner,
+struct Edge {
+    x: i8,
+    y: i8,
 }
 
 impl Edge {
+    const LEFT: Edge = Edge { x: -1, y: 0 };
+    const RIGHT: Edge = Edge { x: 1, y: 0 };
+    const TOP: Edge = Edge { x: 0, y: -1 };
+    const BOTTOM: Edge = Edge { x: 0, y: 1 };
+    const ALL: [Edge; 8] = [
+        Edge::LEFT,
+        Edge::RIGHT,
+        Edge::TOP,
+        Edge::BOTTOM,
+        Edge { x: -1, y: -1 },
+        Edge { x: 1, y: -1 },
+        Edge { x: -1, y: 1 },
+        Edge { x: 1, y: 1 },
+    ];
+    /// The end it is anchored at: its bottom on macOS, its top elsewhere.
+    const ANCHORED_Y: i8 = if GROWS_UP { 1 } else { -1 };
+    /// The edge across from it: what made it taller before every edge did.
+    const FREE_END: Edge = Edge { x: 0, y: -Edge::ANCHORED_Y };
+    /// The corner across from where it is anchored.
+    const FREE_CORNER: Edge = Edge { x: -1, y: -Edge::ANCHORED_Y };
+
     fn resizes_width(self) -> bool {
-        self != Edge::End
+        self.x != 0
     }
 
     fn resizes_rows(self) -> bool {
-        self != Edge::Side
+        self.y != 0
+    }
+
+    /// Dragging it moves the corner the window is anchored at.
+    fn moves_anchor(self) -> bool {
+        self.x == 1 || self.y == Edge::ANCHORED_Y
     }
 
     fn cursor(self) -> FloatCursor {
-        match self {
-            Edge::Side => FloatCursor::ResizeLeftRight,
-            Edge::End => FloatCursor::ResizeUpDown,
-            Edge::Corner => FloatCursor::ResizeDiagonal,
+        match (self.x, self.y) {
+            (_, 0) => FloatCursor::ResizeLeftRight,
+            (0, _) => FloatCursor::ResizeUpDown,
+            // Top left to bottom right, or bottom left to top right.
+            (x, y) if x == y => FloatCursor::ResizeDiagonal,
+            _ => FloatCursor::ResizeDiagonalUp,
         }
     }
 
     /// GPUI's pointer for it (where GPUI's pointers apply: not macOS).
     fn style(self) -> CursorStyle {
-        match self {
-            Edge::Side => CursorStyle::ResizeLeftRight,
-            Edge::End => CursorStyle::ResizeUpDown,
-            // The corner's diagonal: top left to bottom right on macOS,
-            // bottom left to top right elsewhere.
-            Edge::Corner if GROWS_UP => CursorStyle::ResizeUpLeftDownRight,
-            Edge::Corner => CursorStyle::ResizeUpRightDownLeft,
+        match (self.x, self.y) {
+            (_, 0) => CursorStyle::ResizeLeftRight,
+            (0, _) => CursorStyle::ResizeUpDown,
+            (x, y) if x == y => CursorStyle::ResizeUpLeftDownRight,
+            _ => CursorStyle::ResizeUpRightDownLeft,
+        }
+    }
+
+    /// Its strip's name (tests and the debug hook find it by this).
+    fn name(self) -> &'static str {
+        match (self.x, self.y) {
+            (-1, 0) => "float-resize-left",
+            (1, 0) => "float-resize-right",
+            (0, -1) => "float-resize-top",
+            (0, 1) => "float-resize-bottom",
+            (-1, -1) => "float-resize-top-left",
+            (1, -1) => "float-resize-top-right",
+            (-1, 1) => "float-resize-bottom-left",
+            _ => "float-resize-bottom-right",
         }
     }
 }
@@ -189,15 +265,27 @@ impl Edge {
 struct Resize {
     edge: Edge,
     width: f32,
-    /// Each card's rows, the agents asking and the cards shown.
+    /// Each card's rows, the cards asking and the agents' cards shown
+    /// (a drag of the height is shared by those).
     per_card: usize,
     count: usize,
     cards: usize,
+    /// The corner the window is anchored at, and what is drawn's height.
+    anchor: Point<Pixels>,
+    height: f32,
     /// Where the press was on the screen, when the window's own mouse
     /// events are followed (not macOS: see [`crate::platform::float_resize`]).
     from: Option<Point<Pixels>>,
-    /// A width that waits for the release (see [`LIVE_WIDTH`]).
-    pending: Option<f32>,
+    /// What waits for the release (see [`LIVE_WIDTH`]).
+    pending: Option<Pending>,
+}
+
+/// A size and place that wait for a resize's release.
+#[derive(Debug, Clone, Copy, Default)]
+struct Pending {
+    width: Option<f32>,
+    rows: Option<usize>,
+    anchor: Option<Point<Pixels>>,
 }
 
 /// What `app-float.json` keeps: where the control was dragged to, and the
@@ -210,10 +298,11 @@ struct Place {
     rows: Option<usize>,
 }
 
-/// Set the control up for `store`'s agents. `answer` types into an agent
-/// (the engine) if it still asks the same, `typer` types keys into its
-/// terminal, `open` shows one in Pitwall.
-pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Opener, cx: &mut App) {
+/// Set the control up for `store`'s agents and the extensions' inboxes.
+/// `answer` types into an agent (the engine) if it still asks the same,
+/// `typer` types keys into its terminal, `open` shows one in Pitwall,
+/// `open_inbox` an inbox at a thread.
+pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Opener, open_inbox: InboxOpener, cx: &mut App) {
     let file = cx.try_global::<crate::AppState>().and_then(|s| s.root.as_deref().map(place_file));
     let place = file.as_deref().and_then(load_place).unwrap_or_default();
     // A spot on a display that is still there.
@@ -226,6 +315,7 @@ pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Op
         answer,
         typer,
         open,
+        open_inbox,
         window: None,
         typing: None,
         expanded: false,
@@ -243,10 +333,20 @@ pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Op
         watch: None,
         unsupported: false,
         grab: false,
+        ask_heights: HashMap::new(),
+        picks: HashMap::new(),
+        sent: HashMap::new(),
+        opened: HashSet::new(),
+        shift: (0., 0.),
+        bench_shown: false,
     });
     cx.observe(store, |_, cx| sync(cx)).detach();
     let ui = crate::ui_state::store(cx);
     cx.observe(&ui, |_, cx| sync(cx)).detach();
+    // The extensions' inboxes (made at start, before this).
+    if let Some(h) = hub::try_hub(cx) {
+        cx.observe(&h, |_, cx| sync(cx)).detach();
+    }
     sync(cx);
 }
 
@@ -300,9 +400,11 @@ fn shape(f: &Float) -> Shape {
 /// stays put (see [`GROWS_UP`]) there.
 fn screen_area(cx: &App) -> Option<(Point<Pixels>, Bounds<Pixels>)> {
     let anchor = cx.global::<Float>().anchor;
-    let display = anchor
-        .and_then(|a| cx.displays().into_iter().find(|d| d.bounds().contains(&a)))
-        .or_else(|| cx.primary_display())?;
+    let display = match anchor {
+        // (Off every display: a bench instance's, which has no bounds.)
+        Some(a) => cx.displays().into_iter().find(|d| d.bounds().contains(&a))?,
+        None => cx.primary_display()?,
+    };
     let area = display.visible_bounds();
     let corner = anchor.unwrap_or_else(|| {
         let y = if GROWS_UP { area.origin.y + area.size.height - px(MARGIN) } else { area.origin.y + px(MARGIN) };
@@ -311,20 +413,64 @@ fn screen_area(cx: &App) -> Option<(Point<Pixels>, Bounds<Pixels>)> {
     Some((corner, area))
 }
 
+/// The heights of the questions' cards, in order: as drawn at `width`,
+/// else as [`model::ask_height`] reckons.
+fn ask_heights(f: &Float, asks: &[AskItem], width: f32) -> Vec<f32> {
+    asks.iter()
+        .map(|a| match f.ask_heights.get(&a.key()) {
+            Some((w, h)) if (w - width).abs() < 0.5 => *h,
+            _ => model::ask_height(a, width, ask_note(f, a).is_some()),
+        })
+        .collect()
+}
+
+/// What is drawn's height with the panel open in shape `s`.
+fn content_height(list: &[Item], asks: &[AskItem], s: Shape, f: &Float) -> f32 {
+    let hs = ask_heights(f, asks, s.width);
+    model::content_size(list, &hs, true, s, &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied()).1
+}
+
+/// Where the window can grow to: the panel's widest and tallest that fit
+/// between the screen's edges and the window's edges that stay put while
+/// `edge` is dragged (`None`: not known).
+fn room(edge: Edge, anchor: Point<Pixels>, width: f32, height: f32, cx: &App) -> Option<(f32, f32)> {
+    let (_, area) = screen_area(cx)?;
+    let (left, right) = (f32::from(area.origin.x), f32::from(area.origin.x + area.size.width));
+    let (top, bottom) = (f32::from(area.origin.y), f32::from(area.origin.y + area.size.height));
+    let (ax, ay) = (f32::from(anchor.x), f32::from(anchor.y));
+    // The right edge moves: the window's left stays.
+    let w = if edge.x == 1 { right - (ax - width - 2. * PAD) } else { ax - left };
+    let h = match (edge.y == Edge::ANCHORED_Y, GROWS_UP) {
+        // The bottom moves (macOS): its top stays.
+        (true, true) => bottom - (ay - height - 2. * PAD),
+        // The top moves (elsewhere): its bottom stays.
+        (true, false) => (ay + height + 2. * PAD) - top,
+        (false, true) => ay - top,
+        (false, false) => bottom - ay,
+    };
+    Some((w - 2. * PAD, h - 2. * PAD))
+}
+
 /// Start resizing the open panel by `edge`.
 fn begin_resize(edge: Edge, cx: &mut App) {
-    let list = items(cx);
-    let f = cx.global_mut::<Float>();
-    if !f.expanded || list.is_empty() {
+    let (list, asks) = (items(cx), asks(cx));
+    let corner = screen_area(cx).map(|(c, _)| c);
+    let f = cx.global::<Float>();
+    let count = list.len() + asks.len();
+    if !f.expanded || count == 0 {
         return;
     }
     let s = shape(f);
-    f.resize = Some(Resize {
+    let height = content_height(&list, &asks, s, f);
+    let anchor = f.anchor.or(corner).unwrap_or_default();
+    cx.global_mut::<Float>().resize = Some(Resize {
         edge,
         width: s.width,
-        per_card: s.max_lines(list.len()),
-        count: list.len(),
-        cards: model::shown(&list).len().max(1),
+        per_card: s.max_lines(count),
+        count,
+        cards: model::shown(&list).len(),
+        anchor,
+        height,
         from: None,
         pending: None,
     });
@@ -335,48 +481,74 @@ fn begin_resize(edge: Edge, cx: &mut App) {
 /// The pointer is `dx`, `dy` points (right and down are positive) from
 /// where the resize began: the panel takes the size that puts its edge
 /// under it. Its width moves with the pointer; its height in whole rows,
-/// a row per [`LINE_H`] shared by the cards shown. Kept within the
-/// bounds of [`model`] and so that the window fits between its anchored
-/// corner and the screen's far edges.
+/// a row per [`LINE_H`] shared by the agents' cards shown (questions'
+/// cards are as tall as what they hold). Kept within the bounds of
+/// [`model`] and so that the window fits on the screen. Dragging the edges
+/// the window is anchored on (its right; its bottom on macOS, its top
+/// elsewhere) moves that corner by as much as the size changed.
 fn resize_to(dx: f32, dy: f32, cx: &mut App) {
     let Some(r) = cx.global::<Float>().resize else { return };
-    let room = screen_area(cx).map(|(corner, area)| {
-        let w = f32::from(corner.x - area.origin.x);
-        let h = if GROWS_UP { f32::from(corner.y - area.origin.y) } else { f32::from(area.origin.y + area.size.height - corner.y) };
-        (w - 2. * PAD, h - 2. * PAD)
-    });
-    let list = items(cx);
-    let f = cx.global_mut::<Float>();
+    let room = room(r.edge, r.anchor, r.width, r.height, cx);
+    let (list, asks) = (items(cx), asks(cx));
+    let f = cx.global::<Float>();
+    let (mut width, mut rows) = (f.width, f.rows);
     if r.edge.resizes_width() {
         let most = room.map_or(model::MAX_WIDTH, |(w, _)| w.min(model::MAX_WIDTH));
-        // The left edge: moving it left makes the panel wider.
-        let w = (r.width - dx).min(most).max(model::MIN_WIDTH).round();
-        if w != r.width || f.width.is_some() {
-            if LIVE_WIDTH {
-                f.width = Some(w);
-            } else if let Some(r) = f.resize.as_mut() {
-                r.pending = Some(w);
-            }
+        // Its left edge wider to the left, its right edge to the right.
+        let w = (r.width + dx * r.edge.x as f32).min(most).max(model::MIN_WIDTH).round();
+        if w != r.width || width.is_some() {
+            width = Some(w);
         }
     }
-    if r.edge.resizes_rows() {
-        // The top edge on macOS (up makes it taller), the bottom elsewhere.
-        let grow = if GROWS_UP { -dy } else { dy };
+    if r.edge.resizes_rows() && r.cards > 0 {
+        // Its top edge taller upward, its bottom edge downward.
+        let grow = dy * r.edge.y as f32;
         let by = (grow / LINE_H / r.cards as f32).round() as isize;
-        if by != 0 || f.rows.is_some() {
+        if by != 0 || rows.is_some() {
             let per = (r.per_card as isize + by).clamp(model::MIN_ROWS as isize, model::MAX_ROWS as isize) as usize;
             let mut alone = model::alone_for(r.count, per).clamp(model::MIN_ROWS, model::MAX_ROWS);
             // No taller than the screen has room for.
-            let fits = |alone: usize, f: &Float| {
-                let s = Shape { rows: Some(alone), ..shape(f) };
-                let h = model::content_size(&list, true, s, &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied()).1;
-                room.is_none_or(|(_, room)| h <= room)
+            let fits = |alone: usize| {
+                let s = Shape { width: width.unwrap_or(model::WIDTH), rows: Some(alone) };
+                room.is_none_or(|(_, room)| content_height(&list, &asks, s, f) <= room)
             };
-            while alone > model::MIN_ROWS && !fits(alone, f) {
+            while alone > model::MIN_ROWS && !fits(alone) {
                 alone -= 1;
             }
-            f.rows = Some(alone);
+            rows = Some(alone);
         }
+    }
+    // The anchored corner follows the edges dragged that it is on.
+    let s = Shape { width: width.unwrap_or(model::WIDTH), rows };
+    let mut anchor = r.anchor;
+    if r.edge.x == 1 {
+        anchor.x += px(s.width - r.width);
+    }
+    if r.edge.y == Edge::ANCHORED_Y {
+        let grew = content_height(&list, &asks, s, f) - r.height;
+        anchor.y += px(grew * Edge::ANCHORED_Y as f32);
+    }
+    let moved = r.edge.moves_anchor().then_some(anchor);
+    let f = cx.global_mut::<Float>();
+    // Where the window is opened again for a new width or place (not
+    // macOS), all of it waits for the release; a height of the free end
+    // follows the pointer.
+    let live = LIVE_WIDTH || !r.edge.moves_anchor();
+    if live {
+        if LIVE_WIDTH || !r.edge.resizes_width() {
+            f.width = width;
+        } else if let Some(p) = f.resize.as_mut() {
+            p.pending = Some(Pending { width, ..Default::default() });
+        }
+        f.rows = rows;
+        if let Some(a) = moved {
+            let was = f.anchor.unwrap_or(r.anchor);
+            f.shift.0 += f32::from(a.x - was.x);
+            f.shift.1 += f32::from(a.y - was.y);
+            f.anchor = Some(a);
+        }
+    } else if let Some(p) = f.resize.as_mut() {
+        p.pending = Some(Pending { width, rows, anchor: moved });
     }
     sync_later(cx);
 }
@@ -386,8 +558,10 @@ fn resize_to(dx: f32, dy: f32, cx: &mut App) {
 fn end_resize(cx: &mut App) {
     let f = cx.global_mut::<Float>();
     let Some(r) = f.resize.take() else { return };
-    if let Some(w) = r.pending {
-        f.width = Some(w);
+    if let Some(p) = r.pending {
+        f.width = p.width.or(f.width);
+        f.rows = p.rows.or(f.rows);
+        f.anchor = p.anchor.or(f.anchor);
     }
     log(|| format!("resize ends at {:?}", shape(f)));
     crate::platform::float_cursor(cursor_now(f));
@@ -397,11 +571,32 @@ fn end_resize(cx: &mut App) {
 
 /// Back to the default size (a double click on an edge).
 fn reset_size(cx: &mut App) {
+    set_preset(Preset::Medium, cx);
+}
+
+/// One of the header's sizes: the panel takes it (no wider or taller than
+/// the screen has room for), growing from the corner it is anchored at.
+fn set_preset(p: Preset, cx: &mut App) {
+    let (width, rows) = p.size();
+    let (list, asks) = (items(cx), asks(cx));
+    let anchor = screen_area(cx).map(|(c, _)| c);
+    let f = cx.global::<Float>();
+    let (mut w, mut r) = (width, rows);
+    if let Some(room) = anchor.and_then(|a| room(Edge::FREE_CORNER, a, shape(f).width, 0., cx)) {
+        w = w.map(|w| w.min(room.0.max(model::MIN_WIDTH)));
+        while let Some(n) = r.filter(|n| *n > model::MIN_ROWS) {
+            let s = Shape { width: w.unwrap_or(model::WIDTH), rows: Some(n) };
+            if content_height(&list, &asks, s, f) <= room.1 {
+                break;
+            }
+            r = Some(n - 1);
+        }
+    }
     let f = cx.global_mut::<Float>();
     f.resize = None;
-    f.width = None;
-    f.rows = None;
-    log(|| "size reset".to_string());
+    f.width = w;
+    f.rows = r;
+    log(|| format!("size {}", p.name()));
     save_place(cx);
     sync_later(cx);
 }
@@ -455,10 +650,67 @@ fn items(cx: &App) -> Vec<Item> {
     cx.try_global::<Float>().map(|f| model::items(&f.store.read(cx).agents)).unwrap_or_default()
 }
 
+/// The extensions that are on, have an inbox and whose adapter runs, with
+/// their state.
+fn inboxes(cx: &App) -> Vec<(pitwall_core::extensions::Manifest, &hub::ExtState)> {
+    let Some(h) = hub::try_hub(cx) else { return Vec::new() };
+    let h = h.read(cx);
+    crate::extensions::inboxes(cx).into_iter().filter_map(|m| h.get(&m.id).filter(|st| st.run == Run::Running).map(|st| (m, st))).collect()
+}
+
+/// The open questions in those inboxes whose threads have arrived.
+fn asks(cx: &App) -> Vec<AskItem> {
+    let Some(f) = cx.try_global::<Float>() else { return Vec::new() };
+    let agents = &f.store.read(cx).agents;
+    let mut out = Vec::new();
+    for (m, st) in inboxes(cx) {
+        let conn = |id: &str| st.label(id).map(str::to_string);
+        let from = |th: &pitwall_core::extensions::protocol::Thread| {
+            let fr = th.from.as_ref()?;
+            Some(crate::extensions::agent_of(&m, agents, &th.id, fr, cx).map_or_else(|| fr.agent.clone(), |a| a.name.clone()))
+        };
+        let icon = crate::extensions::icon_of(&m).to_string();
+        out.extend(model::asks(&[model::Inbox {
+            ext: &m.id,
+            name: &m.name,
+            icon: &icon,
+            threads: &st.threads,
+            details: &st.details,
+            busy: &st.busy,
+            notes: &st.notes,
+            conn: &conn,
+            from: &from,
+        }]));
+    }
+    // Blocking ones first across the inboxes too (stable).
+    out.sort_by_key(|a| !a.ask.blocking);
+    out
+}
+
+/// The threads whose questions the control would show: (extension,
+/// thread).
+fn ask_threads(cx: &App) -> HashSet<(String, String)> {
+    inboxes(cx).into_iter().flat_map(|(m, st)| model::ask_threads(&st.threads).into_iter().map(move |t| (m.id.clone(), t.id))).collect()
+}
+
+/// It can show here: not in a bench instance, unless one asked for it.
+fn shows_here(cx: &App) -> bool {
+    !crate::bench::enabled() || cx.try_global::<Float>().is_some_and(|f| f.bench_shown)
+}
+
 /// Whether the control should be up: on, something asks, and the user
 /// isn't in Pitwall.
-fn wanted(items: &[Item], cx: &App) -> bool {
-    !items.is_empty() && enabled(cx) && !crate::bench::enabled() && !in_front(cx)
+fn wanted(items: &[Item], asks: &[AskItem], cx: &App) -> bool {
+    !(items.is_empty() && asks.is_empty()) && enabled(cx) && shows_here(cx) && !in_front(cx)
+}
+
+/// What a question's card says under its buttons: that the answer is on
+/// its way, or why it didn't go (an error).
+fn ask_note(f: &Float, a: &AskItem) -> Option<(SharedString, bool)> {
+    if f.sent.contains_key(&a.key()) || a.busy {
+        return Some(("Sending…".into(), false));
+    }
+    a.note.as_ref().map(|n| (format!("Not sent: {n}").into(), true))
 }
 
 /// Tests say whether the user is in Pitwall.
@@ -502,17 +754,36 @@ pub fn sync(cx: &mut App) {
         return;
     }
     let list = items(cx);
-    let want = wanted(&list, cx);
+    let questions = asks(cx);
+    let want = wanted(&list, &questions, cx);
+    // The questions' threads are asked for while they could be shown.
+    let threads = if enabled(cx) && shows_here(cx) && !in_front(cx) { ask_threads(cx) } else { HashSet::new() };
+    follow_threads(threads, cx);
+    // How the answers sent from here went.
+    let failed: HashSet<String> = {
+        let f = cx.global::<Float>();
+        let h = hub::try_hub(cx);
+        let result = |key: &str, req: u64| {
+            let ext = questions.iter().find(|a| a.key() == key).map(|a| a.ext.as_str())?;
+            h.as_ref()?.read(cx).get(ext)?.result(req)
+        };
+        f.sent.iter().filter(|(k, req)| result(k, **req) == Some(false)).map(|(k, _)| k.clone()).collect()
+    };
     let f = cx.global_mut::<Float>();
     // What was answered or failed belongs to a prompt that is gone.
     let asks = |id: &str| list.iter().find(|i| i.id == id).map(|i| i.ask.text.as_str());
     f.answered.retain(|id, seen| asks(id) == Some(seen.as_str()));
     f.errors.retain(|id, _| asks(id).is_some());
     f.term_rows.retain(|id, _| asks(id).is_some());
+    // And to a question that is gone (answered, here or in its inbox).
+    let open: HashSet<String> = questions.iter().map(AskItem::key).collect();
+    f.sent.retain(|k, _| open.contains(k) && !failed.contains(k));
+    f.picks.retain(|k, _| open.contains(k));
+    f.ask_heights.retain(|k, _| open.contains(k));
     if f.typing.as_deref().is_some_and(|id| asks(id).is_none()) || !f.expanded {
         f.typing = None;
     }
-    if list.is_empty() {
+    if list.is_empty() && questions.is_empty() {
         f.expanded = false;
     }
     // Nothing open to resize (the cards were closed under the pointer).
@@ -521,7 +792,7 @@ pub fn sync(cx: &mut App) {
         crate::platform::float_cursor(FloatCursor::Arrow);
     }
     // Watch who is in front only while it can matter.
-    let watching = !list.is_empty() && enabled(cx);
+    let watching = (!list.is_empty() || inboxes(cx).iter().any(|(_, st)| st.threads.iter().any(|t| t.open_asks > 0))) && enabled(cx);
     if !watching {
         cx.global_mut::<Float>().watch = None;
     } else if cx.global::<Float>().watch.is_none() {
@@ -542,18 +813,22 @@ pub fn sync(cx: &mut App) {
             cool(cx);
             log(|| {
                 let (on, front, raw) = (enabled(cx), in_front(cx), crate::platform::app_active_raw());
-                format!("closed: {} asking, enabled {on}, pitwall in front {front} (system says active {raw})", list.len())
+                format!("closed: {} asking, {} questions, enabled {on}, pitwall in front {front} (system says active {raw})", list.len(), questions.len())
             });
         }
+        cx.global_mut::<Float>().shift = (0., 0.);
         return;
     }
-    let new = model::size(&list, f.expanded, shape(f), &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied());
+    let hs = ask_heights(f, &questions, shape(f).width);
+    let new = model::size(&list, &hs, f.expanded, shape(f), &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied());
     let old = std::mem::replace(&mut f.size, new);
+    let shift = std::mem::take(&mut f.shift);
     match f.window {
         // A window that isn't resized from the corner it sits on is opened
-        // again in its new place when its width changes (the mark ↔ the
-        // cards); a change of height alone keeps its top where it is.
-        Some(w) if old.0 != new.0 && !GROWS_UP && !cfg!(test) => {
+        // again in its new place when its width or that corner changes
+        // (the mark ↔ the cards); a change of height alone keeps its top
+        // where it is.
+        Some(w) if (old.0 != new.0 || shift != (0., 0.)) && !GROWS_UP && !cfg!(test) => {
             f.window = None;
             let _ = w.update(cx, |_, window, _| {
                 crate::platform::glass::slab(window, None);
@@ -564,8 +839,8 @@ pub fn sync(cx: &mut App) {
         }
         Some(w) => {
             let alive = w.update(cx, |_, window, cx| {
-                if old != new {
-                    crate::platform::resize_float(window, size(px(new.0), px(new.1)), cx);
+                if old != new || shift != (0., 0.) {
+                    crate::platform::resize_float(window, size(px(new.0), px(new.1)), shift, cx);
                 }
                 cx.notify();
             });
@@ -584,6 +859,29 @@ pub fn sync(cx: &mut App) {
     }
 }
 
+/// Ask the extensions for exactly `threads` (kept current while asked
+/// for), letting go of the others it asked for. An inbox tile showing one
+/// of them keeps it (the hub counts who asks).
+fn follow_threads(threads: HashSet<(String, String)>, cx: &mut App) {
+    let Some(h) = hub::try_hub(cx) else { return };
+    let f = cx.global_mut::<Float>();
+    if f.opened == threads {
+        return;
+    }
+    let gone: Vec<(String, String)> = f.opened.difference(&threads).cloned().collect();
+    let new: Vec<(String, String)> = threads.difference(&f.opened).cloned().collect();
+    f.opened = threads;
+    h.update(cx, |h, cx| {
+        for (ext, thread) in &gone {
+            h.close(ext, thread);
+        }
+        for (ext, thread) in &new {
+            h.open(ext, thread, cx);
+        }
+        cx.notify();
+    });
+}
+
 /// Where a window of `size` sits: its fixed corner on the user's spot,
 /// else in the primary display's corner.
 fn bounds((w, h): (f32, f32), cx: &App) -> Option<Bounds<Pixels>> {
@@ -600,7 +898,7 @@ fn bounds((w, h): (f32, f32), cx: &App) -> Option<Bounds<Pixels>> {
 }
 
 fn open_window(cx: &mut App) {
-    if cx.try_global::<Float>().is_none_or(|f| f.window.is_some()) || !wanted(&items(cx), cx) {
+    if cx.try_global::<Float>().is_none_or(|f| f.window.is_some()) || !wanted(&items(cx), &asks(cx), cx) {
         return;
     }
     let Some(bounds) = bounds(cx.global::<Float>().size, cx) else { return };
@@ -725,9 +1023,58 @@ fn open(id: &str, cx: &mut App) {
     opener(id, cx);
 }
 
+/// Pick suggestion `i` of question `key`: sent at once, or toggled when
+/// it takes several (as in its inbox).
+fn pick_ask(key: &str, i: u32, cx: &mut App) {
+    let Some(a) = asks(cx).into_iter().find(|a| a.key() == key) else { return };
+    if i as usize >= a.ask.suggestions.len() || cx.global::<Float>().sent.contains_key(key) {
+        return;
+    }
+    if a.ask.multiple {
+        let p = cx.global_mut::<Float>().picks.entry(key.to_string()).or_default();
+        match p.iter().position(|x| *x == i) {
+            Some(at) => {
+                p.remove(at);
+            }
+            None => {
+                p.push(i);
+                p.sort();
+            }
+        }
+        sync_later(cx);
+    } else {
+        send_ask(&a, vec![i], None, false, cx);
+    }
+}
+
+/// Answer question `a` (picks and/or the user's own words, or a
+/// decline), as its inbox does: `true` when it went.
+fn send_ask(a: &AskItem, picks: Vec<u32>, text: Option<String>, declined: bool, cx: &mut App) -> bool {
+    let key = a.key();
+    if cx.global::<Float>().sent.contains_key(&key) {
+        return false;
+    }
+    log(|| format!("answer to {key}: picks {picks:?}, own words {}, declined {declined}", text.as_deref().is_some_and(|t| !t.trim().is_empty())));
+    let req = crate::main_screen::inbox_tile::answer_ask(&a.ext, &a.thread, &a.ask, picks, text, declined, cx);
+    if let Some(req) = req {
+        let f = cx.global_mut::<Float>();
+        f.sent.insert(key.clone(), req);
+        f.picks.remove(&key);
+    }
+    sync_later(cx);
+    req.is_some()
+}
+
+/// Bring Pitwall forward on question `a`'s thread in its inbox.
+fn open_ask(a: &AskItem, cx: &mut App) {
+    let opener = cx.global::<Float>().open_inbox.clone();
+    opener(&a.ext, &a.thread, cx);
+}
+
 /// Debug builds: `PITWALL_DEBUG_PROMPTS=expand[,accept|reject|open|all|
 /// click-puck|click-collapse|click-accept|resize-wide|resize-narrow|
-/// resize-tall|resize-short|resize-corner|resize-reset]` does those to the
+/// resize-tall|resize-short|resize-corner|resize-right|resize-anchored|
+/// resize-reset|size-small|size-medium|size-large]` does those to the
 /// control once it is up (the first agent listed; `all` is "Accept all";
 /// the `click-` ones are real clicks, macOS only; the `resize-` ones go
 /// through what a drag of an edge does, with a made-up travel), a step
@@ -776,10 +1123,14 @@ pub fn debug_hook(cx: &mut App) {
                         debug_click(PAD + width - 20., PAD + HEADER_H / 2., cx)
                     }
                     "resize-reset" => reset_size(cx),
+                    "size-small" => set_preset(Preset::Small, cx),
+                    "size-medium" => set_preset(Preset::Medium, cx),
+                    "size-large" => set_preset(Preset::Large, cx),
                     "click-accept" => {
                         let list = items(cx);
                         let f = cx.global::<Float>();
-                        let rows = list.first().map_or(0, |i| model::lines_shown(i, list.len(), shape(f), f.term_rows.get(&i.id).copied()));
+                        let count = list.len() + asks(cx).len();
+                        let rows = list.first().map_or(0, |i| model::lines_shown(i, count, shape(f), f.term_rows.get(&i.id).copied()));
                         let y = HEADER_H + RULE + GAP + CARD_HEAD + rows as f32 * LINE_H + BOX_PAD + GAP + BUTTONS_H / 2.;
                         debug_click(PAD + 40., PAD + y, cx);
                     }
@@ -788,23 +1139,108 @@ pub fn debug_hook(cx: &mut App) {
             });
             cx.background_executor().timer(step).await;
             cx.update(|cx| {
-                let list = items(cx);
-                let f = cx.global::<Float>();
-                eprintln!(
-                    "pitwall-debug: prompts after {verb}: up {}, expanded {}, size {:?}, shape {:?}, anchor {:?}, agents {:?}, answered {:?}, errors {:?}",
-                    f.window.is_some(),
-                    f.expanded,
-                    f.size,
-                    shape(f),
-                    f.anchor,
-                    list.iter().map(|i| (i.name.as_str(), i.can_accept(), i.can_reject())).collect::<Vec<_>>(),
-                    f.answered.keys().collect::<Vec<_>>(),
-                    f.errors
-                );
+                eprintln!("pitwall-debug: prompts after {verb}: {}", state(cx));
             });
         }
     })
     .detach();
+}
+
+/// Bench commands, `float …` (`PITWALL_BENCH`, for screenshots; nothing is
+/// clicked or typed on the screen): `show` (the control up in a bench
+/// instance, which otherwise never shows it, far off every display; capture
+/// it by its window), `hide`, `expand`, `minimise` (back to the mark),
+/// `size small|medium|large`, `resize <left|right|top|bottom|top-left|…>
+/// <dx> <dy>` (that edge dragged so far, as a drag does it), `pick <n>`
+/// (suggestion n of the first question's card, as a click), `type <text>`
+/// (into its own-answer field), `send`, `decline`, `open`, and `state` (on
+/// stderr).
+pub fn bench(cmd: &str, cx: &mut App) {
+    if !cx.has_global::<Float>() {
+        return eprintln!("pitwall-debug: float: no floating control here");
+    }
+    let mut words = cmd.split_whitespace();
+    let what = words.next().unwrap_or_default();
+    let first = |cx: &App| asks(cx).into_iter().next();
+    match what {
+        "show" => {
+            let f = cx.global_mut::<Float>();
+            f.bench_shown = true;
+            f.anchor = Some(point(px(crate::bench::OFF_SCREEN.0 + 3000.), px(crate::bench::OFF_SCREEN.1 + 2000.)));
+            sync(cx);
+        }
+        "hide" => {
+            cx.global_mut::<Float>().bench_shown = false;
+            sync(cx);
+        }
+        "expand" if !cx.global::<Float>().expanded => toggle(cx),
+        "minimise" | "minimize" if cx.global::<Float>().expanded => toggle(cx),
+        "size" => match words.next() {
+            Some("small") => set_preset(Preset::Small, cx),
+            Some("medium") => set_preset(Preset::Medium, cx),
+            Some("large") => set_preset(Preset::Large, cx),
+            _ => eprintln!("pitwall-debug: float size small|medium|large"),
+        },
+        "resize" => {
+            let name = format!("float-resize-{}", words.next().unwrap_or_default());
+            let mut by = words.filter_map(|w| w.parse::<f32>().ok());
+            let (Some(edge), Some(dx), Some(dy)) = (Edge::ALL.into_iter().find(|e| e.name() == name), by.next(), by.next()) else {
+                return eprintln!("pitwall-debug: float resize <edge> <dx> <dy>");
+            };
+            begin_resize(edge, cx);
+            resize_to(dx, dy, cx);
+            end_resize(cx);
+        }
+        "pick" => match (first(cx), words.next().and_then(|n| n.parse::<u32>().ok())) {
+            (Some(a), Some(n)) => pick_ask(&a.key(), n.saturating_sub(1), cx),
+            _ => eprintln!("pitwall-debug: float pick <n> (with a question shown)"),
+        },
+        "type" | "send" => {
+            let Some(a) = first(cx) else { return eprintln!("pitwall-debug: float has no question") };
+            let input = cx.global::<Float>().window.and_then(|w| w.read(cx).ok()).and_then(|v| v.others.get(&a.key()).map(|(i, _)| i.clone()));
+            let Some(input) = input else { return eprintln!("pitwall-debug: float's question has no field drawn (expand first)") };
+            if what == "type" {
+                let text = cmd.trim_start().strip_prefix("type").unwrap_or_default().trim().to_string();
+                input.update(cx, |i, cx| i.replace_text(text, cx));
+                sync(cx);
+            } else {
+                submit_own(&a.key(), &input, cx);
+            }
+        }
+        "decline" => {
+            if let Some(a) = first(cx) {
+                send_ask(&a, vec![], None, true, cx);
+            }
+        }
+        "open" => {
+            if let Some(a) = first(cx) {
+                open_ask(&a, cx);
+            }
+        }
+        "state" => eprintln!("pitwall-debug: float: {}", state(cx)),
+        _ => eprintln!("pitwall-debug: float {cmd}?"),
+    }
+}
+
+/// What the control shows and how, in a line (the debug hook, `float
+/// state`).
+fn state(cx: &App) -> String {
+    let (list, questions) = (items(cx), asks(cx));
+    let f = cx.global::<Float>();
+    format!(
+        "up {}, expanded {}, size {:?}, shape {:?} ({}), anchor {:?}, agents {:?}, questions {:?}, answered {:?}, errors {:?}, threads asked for {}",
+        f.window.is_some(),
+        f.expanded,
+        f.size,
+        shape(f),
+        Preset::of(f.width, f.rows).map_or("dragged", Preset::name),
+        f.anchor,
+        list.iter().map(|i| (i.name.as_str(), i.can_accept(), i.can_reject())).collect::<Vec<_>>(),
+        questions.iter().map(|a| (a.ext_name.as_str(), a.who(), a.ask.question.as_str(), ask_note(f, a).map(|n| n.0.to_string()))).collect::<Vec<_>>(),
+        f.answered.keys().collect::<Vec<_>>(),
+        f.errors,
+        f.opened.len()
+    )
 }
 
 /// The `resize-` verbs of [`debug_hook`]: the edge, and how far the
@@ -814,11 +1250,15 @@ fn debug_resize(verb: &str, cx: &App) -> Option<(Edge, f32, f32)> {
     // Up is taller on macOS (its top edge), down elsewhere.
     let taller = if GROWS_UP { -1. } else { 1. };
     Some(match verb {
-        "resize-wide" => (Edge::Side, -200., 0.),
-        "resize-narrow" => (Edge::Side, 150., 0.),
-        "resize-tall" => (Edge::End, 0., taller * 6. * LINE_H * cards),
-        "resize-short" => (Edge::End, 0., -taller * 8. * LINE_H * cards),
-        "resize-corner" => (Edge::Corner, -120., taller * 4. * LINE_H * cards),
+        "resize-wide" => (Edge::LEFT, -200., 0.),
+        "resize-narrow" => (Edge::LEFT, 150., 0.),
+        "resize-tall" => (Edge::FREE_END, 0., taller * 6. * LINE_H * cards),
+        "resize-short" => (Edge::FREE_END, 0., -taller * 8. * LINE_H * cards),
+        "resize-corner" => (Edge::FREE_CORNER, -120., taller * 4. * LINE_H * cards),
+        // The edges it is anchored on: its right, and its bottom on macOS
+        // (its top elsewhere).
+        "resize-right" => (Edge::RIGHT, 120., 0.),
+        "resize-anchored" => (Edge { x: 0, y: Edge::ANCHORED_Y }, 0., -taller * 4. * LINE_H * cards),
         _ => return None,
     })
 }
@@ -857,19 +1297,16 @@ fn edge_zone(edge: Edge, w: f32, h: f32) -> impl IntoElement {
     // The panel's edges in the window, and the strips' thickness.
     let (left, top, right, bottom) = (PAD, PAD, w - PAD, h - PAD);
     let (half, corner) = (EDGE / 2., CORNER / 2.);
-    // The edge across from the anchored end: the top on macOS.
-    let end = if GROWS_UP { top } else { bottom };
-    let (x, y, zw, zh) = match edge {
-        Edge::Side if GROWS_UP => (left - half, top + corner, EDGE, bottom - top - corner),
-        Edge::Side => (left - half, top, EDGE, bottom - top - corner),
-        Edge::End => (left + corner, end - half, right - left - corner, EDGE),
-        Edge::Corner => (left - corner, end - corner, CORNER, CORNER),
+    let at_x = if edge.x < 0 { left } else { right };
+    let at_y = if edge.y < 0 { top } else { bottom };
+    let (x, y, zw, zh) = match (edge.x, edge.y) {
+        // A side, between the corners.
+        (_, 0) => (at_x - half, top + corner, EDGE, bottom - top - 2. * corner),
+        // The top or the bottom, between the corners.
+        (0, _) => (left + corner, at_y - half, right - left - 2. * corner, EDGE),
+        _ => (at_x - corner, at_y - corner, CORNER, CORNER),
     };
-    let name = match edge {
-        Edge::Side => "float-resize-side",
-        Edge::End => "float-resize-end",
-        Edge::Corner => "float-resize-corner",
-    };
+    let name = edge.name();
     hot_as(
         div()
             .id(name)
@@ -877,7 +1314,7 @@ fn edge_zone(edge: Edge, w: f32, h: f32) -> impl IntoElement {
             .absolute()
             .left(px(x))
             .top(px(y))
-            .w(px(zw))
+            .w(px(zw.max(0.)))
             .h(px(zh.max(0.)))
             .cursor(edge.style())
             .occlude()
@@ -982,6 +1419,8 @@ pub struct FloatView {
     tokens: u64,
     /// Has the keyboard while a card's terminal is typed into.
     focus: FocusHandle,
+    /// Each question's field for an answer of the user's own, by its key.
+    others: HashMap<String, (Entity<TextInput>, gpui::Subscription)>,
     _pump: Task<()>,
     _subs: [gpui::Subscription; 2],
 }
@@ -996,6 +1435,11 @@ impl FloatView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Wherever the user drags it is where it opens and resizes from.
         let moved = cx.observe_window_bounds(window, |_, window, cx| {
+            // (A bench instance's is off every display: it has no bounds.
+            // A test window keeps its top left whatever it is told.)
+            if crate::bench::enabled() || cfg!(test) {
+                return;
+            }
             let b = window.bounds();
             let y = if GROWS_UP { b.origin.y + b.size.height } else { b.origin.y };
             cx.global_mut::<Float>().anchor = Some(point(b.origin.x + b.size.width, y));
@@ -1021,6 +1465,7 @@ impl FloatView {
             frames,
             tokens: 0,
             focus: cx.focus_handle(),
+            others: HashMap::new(),
             _pump: pump,
             _subs: [cx.observe_global::<Theme>(|_, cx| cx.notify()), moved],
         }
@@ -1077,8 +1522,8 @@ impl FloatView {
         cx.notify();
     }
 
-    /// Collapsed: a tile with the Pitwall mark, and how many agents ask on
-    /// its corner.
+    /// Collapsed: a tile with the Pitwall mark, and how many agents and
+    /// questions ask on its corner.
     fn puck(count: usize, fill: Option<gpui::Hsla>, t: &Theme) -> impl IntoElement {
         let tile = div()
             .id("float-puck")
@@ -1123,9 +1568,9 @@ impl FloatView {
         div().relative().size_full().child(hot(drag_handle(tile), "puck")).child(badge)
     }
 
-    /// Open: the mark, the count, "Accept all" when several can be, and
-    /// the button that closes the cards.
-    fn header(list: &[Item], f: &Float, t: &Theme) -> impl IntoElement {
+    /// Open: the mark, the count, "Accept all" when several can be, the
+    /// sizes, and the button that minimises it to the mark.
+    fn header(list: &[Item], asks: &[AskItem], f: &Float, t: &Theme) -> impl IntoElement {
         let several = model::acceptable(list).len() >= 2;
         let pending = model::acceptable(list).iter().any(|i| !f.answered.contains_key(&i.id));
         let collapse = div()
@@ -1162,7 +1607,7 @@ impl FloatView {
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(SharedString::from(model::title(list))),
+                    .child(SharedString::from(model::title(list, asks))),
             )
             .when(several, |d| {
                 d.child(no_drag(hot(
@@ -1187,7 +1632,46 @@ impl FloatView {
                     "accept-all",
                 )))
             })
+            .child(Self::sizes(Preset::of(f.width, f.rows), t))
             .child(no_drag(hot(collapse, "collapse")))
+    }
+
+    /// Small, Medium and Large, the one it has marked (none after a drag).
+    fn sizes(now: Option<Preset>, t: &Theme) -> impl IntoElement {
+        div()
+            .debug_selector(|| "float-sizes".into())
+            .flex_none()
+            .h(px(24.))
+            .p(px(2.))
+            .rounded(px(7.))
+            .bg(t.surface_2)
+            .flex()
+            .items_center()
+            .gap(px(1.))
+            .children(Preset::ALL.map(|p| {
+                let on = now == Some(p);
+                let sel = format!("float-size-{}", p.name());
+                no_drag(hot(
+                    div()
+                        .id(SharedString::from(sel.clone()))
+                        .debug_selector(move || sel)
+                        .w(px(22.))
+                        .h(px(20.))
+                        .rounded(px(5.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(if on { t.text } else { t.text_3 })
+                        .when(on, |d| d.bg(t.raised).shadow(vec![t.ring(t.line_strong)]))
+                        .cursor_pointer()
+                        .hover(|d| d.text_color(t.text))
+                        .on_click(move |_, _, cx| set_preset(p, cx))
+                        .child(p.letter()),
+                    format!("size-{}", p.name()),
+                ))
+            }))
     }
 
     /// One agent: who it is and what it wants, its prompt (`term`: as its
@@ -1356,9 +1840,11 @@ impl FloatView {
             })
     }
 
-    /// "+2 more in Pitwall": opens the first agent that has no card.
-    fn more(list: &[Item], t: &Theme) -> Stateful<Div> {
-        let first = list[MAX_CARDS].id.clone();
+    /// "+2 more in Pitwall": opens the first agent or question that has
+    /// no card.
+    fn more(list: &[Item], asks: &[AskItem], t: &Theme) -> Stateful<Div> {
+        let first_agent = list.get(MAX_CARDS).map(|i| i.id.clone());
+        let first_ask = asks.get(model::shown_asks(list, asks)).cloned();
         no_drag(hot(
             div()
                 .id("float-more")
@@ -1372,17 +1858,232 @@ impl FloatView {
                 .text_size(px(12.))
                 .text_color(t.text_3)
                 .hover(|d| d.bg(t.surface_3))
-                .on_click(move |_, _, cx| open(&first, cx))
-                .child(SharedString::from(format!("+{} more in Pitwall", list.len() - MAX_CARDS))),
+                .on_click(move |_, _, cx| match (&first_agent, &first_ask) {
+                    (Some(id), _) => open(id, cx),
+                    (None, Some(a)) => open_ask(a, cx),
+                    (None, None) => {}
+                })
+                .child(SharedString::from(format!("+{} more in Pitwall", list.len() + asks.len() - MAX_CARDS))),
             "more",
         ))
+    }
+
+    /// Question `a`'s field for an answer of the user's own (Enter sends
+    /// it, with what is picked).
+    fn other_input(&mut self, a: &AskItem, cx: &mut Context<Self>) -> Entity<TextInput> {
+        let key = a.key();
+        if let Some((i, _)) = self.others.get(&key) {
+            return i.clone();
+        }
+        let input = cx.new(|cx| TextInput::new(cx, "", "Or write your own answer…").max_len(pitwall_core::extensions::protocol::MAX_REPLY));
+        let k = key.clone();
+        let sub = cx.subscribe(&input, move |_, input, e: &InputEvent, cx| {
+            if matches!(e, InputEvent::Submit) {
+                submit_own(&k, &input, cx);
+            }
+        });
+        self.others.insert(key, (input.clone(), sub));
+        input
+    }
+
+    /// An open question in an extension's inbox: where it is from (the
+    /// extension and its connection, who asks, the thread), the question,
+    /// its suggestions (a click sends one, or toggles it when it takes
+    /// several), a field for an answer of the user's own, Send, Decline,
+    /// Open in inbox, and a line saying it is on its way or why it didn't
+    /// go. It says how tall it was drawn (`Float::ask_heights`): the
+    /// window is sized to it.
+    fn ask_card(a: &AskItem, input: Entity<TextInput>, width: f32, picked: Vec<u32>, note: Option<(SharedString, bool)>, sent: bool, t: &Theme) -> impl IntoElement {
+        let key = a.key();
+        let sel = |what: &str| format!("float-{what}-{}-{}", a.thread, a.ask.number);
+        let place = match &a.conn {
+            Some(c) => format!("{} · {c}", a.ext_name),
+            None => a.ext_name.clone(),
+        };
+        let whence = match &a.from {
+            Some(who) => format!("{who} · {}", a.title),
+            None => a.title.clone(),
+        };
+        let head = div()
+            .h(px(CARD_HEAD))
+            .flex_none()
+            .flex()
+            .items_start()
+            .gap(px(7.))
+            .child(div().flex_none().h(px(18.)).flex().items_center().child(kit::icon(&a.icon, 14., t.text_2)))
+            .child(div().flex_none().max_w(px(190.)).overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::SEMIBOLD).child(SharedString::from(place)))
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(t.text_3).child(SharedString::from(whence)))
+            .when(a.ask.blocking, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .h(px(18.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .child(div().size(px(7.)).rounded_full().bg(t.amber))
+                        .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(t.amber).child("Waiting on you")),
+                )
+            });
+        let described = a.described();
+        let options = a.ask.suggestions.iter().enumerate().map(|(i, s)| {
+            let on = picked.contains(&(i as u32));
+            let k = key.clone();
+            let id = sel(&format!("pick-{i}"));
+            let num = (i < 9).then(|| kit::kbd(&(i + 1).to_string(), t));
+            let base = div()
+                .id(SharedString::from(id.clone()))
+                .debug_selector(move || id)
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(7.))
+                .border_1()
+                .border_color(if on { t.text } else { t.line_strong })
+                .bg(if on { t.surface_3 } else { t.surface })
+                .when(!sent, |d| d.cursor_pointer().hover(|d| d.bg(t.surface_2).border_color(t.text_3)))
+                .when(sent, |d| d.opacity(0.5))
+                .on_click(move |_, _, cx| pick_ask(&k, i as u32, cx));
+            let label = div().flex_none().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(t.text).child(s.label.clone());
+            let base = if described {
+                base.h(px(OPTION_H)).px(px(10.)).rounded(px(7.)).children(num).child(label).child(
+                    div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).text_color(t.text_3).child(s.description.clone()),
+                )
+            } else {
+                base.h(px(CHIP_H)).px(px(10.)).rounded_full().children(num).child(label)
+            };
+            no_drag(hot(base.when(on, |d| d.child(kit::icon("check", 13., t.text))), format!("pick-{key}-{i}")))
+        });
+        let options = if described {
+            div().flex().flex_col().gap(px(4.)).children(options).into_any_element()
+        } else {
+            div().flex().flex_wrap().gap(px(6.)).children(options).into_any_element()
+        };
+        let send_label = if a.ask.multiple && !picked.is_empty() { format!("Send {} picked", picked.len()) } else { "Send".to_string() };
+        let (k_send, input_send) = (key.clone(), input.clone());
+        let (open_a, decline_a) = (a.clone(), a.clone());
+        let named = |what: &str| {
+            let s = sel(what);
+            move || s
+        };
+        let answer = div()
+            .h(px(ANSWER_H))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(no_drag(
+                div()
+                    .id(SharedString::from(sel("own")))
+                    .debug_selector(named("own"))
+                    .flex_1()
+                    .min_w(px(120.))
+                    // The panel takes the keyboard for typing in it
+                    // (Pitwall still doesn't come forward); the keys go
+                    // here, not to an agent's terminal.
+                    .capture_any_mouse_down(|_, window, cx| {
+                        crate::platform::float_take_keys(window);
+                        cx.global_mut::<Float>().typing = None;
+                    })
+                    .child(input),
+            ))
+            .child(no_drag(hot(
+                kit::text_button(SharedString::from(sel("send")), send_label, kit::BtnKind::Primary, sent, t)
+                    .debug_selector(named("send"))
+                    .on_click(move |_, _, cx| submit_own(&k_send, &input_send, cx)),
+                format!("send-{key}"),
+            )))
+            .child(no_drag(hot(
+                kit::text_button(SharedString::from(sel("decline")), "Decline", kit::BtnKind::Link, sent, t)
+                    .debug_selector(named("decline"))
+                    .on_click(move |_, _, cx| {
+                        send_ask(&decline_a, vec![], None, true, cx);
+                    }),
+                format!("decline-{key}"),
+            )))
+            .child(no_drag(hot(
+                kit::text_button(SharedString::from(sel("open")), "Open in inbox", kit::BtnKind::Ghost, false, t)
+                    .debug_selector(named("open"))
+                    .on_click(move |_, _, cx| open_ask(&open_a, cx)),
+                format!("open-{key}"),
+            )));
+        // How tall it is drawn, for the window's size.
+        let measured = key.clone();
+        let measure = canvas(
+            move |b, _, cx| {
+                let h = f32::from(b.size.height);
+                let known = cx.try_global::<Float>().and_then(|f| f.ask_heights.get(&measured).copied());
+                if known.is_none_or(|(w, k)| (w - width).abs() >= 0.5 || (k - h).abs() >= 0.5) {
+                    let key = measured.clone();
+                    cx.defer(move |cx| {
+                        if cx.has_global::<Float>() {
+                            cx.global_mut::<Float>().ask_heights.insert(key, (width, h));
+                            sync(cx);
+                        }
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
+        div()
+            .debug_selector(named("ask"))
+            .relative()
+            .flex_none()
+            .px(px(12.))
+            .py(px(GAP))
+            .flex()
+            .flex_col()
+            .child(measure)
+            .child(head)
+            .child(
+                div()
+                    .mb(px(GAP))
+                    .text_size(px(13.5))
+                    .line_height(px(QUESTION_LINE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t.text)
+                    .child(a.ask.question.clone()),
+            )
+            .when(!a.ask.suggestions.is_empty(), |d| d.child(div().mb(px(GAP)).child(options)))
+            .child(answer)
+            .when_some(note, |d, (text, error)| {
+                d.child(
+                    div()
+                        .debug_selector(named("ask-note"))
+                        .h(px(NOTE_H))
+                        .flex_none()
+                        .flex()
+                        .items_end()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_size(px(11.5))
+                        .text_color(if error { t.red } else { t.text_3 })
+                        .child(text),
+                )
+            })
+    }
+}
+
+/// Send question `key`'s answer: its field's words, with what is picked.
+fn submit_own(key: &str, input: &Entity<TextInput>, cx: &mut App) {
+    let Some(a) = asks(cx).into_iter().find(|a| a.key() == key) else { return };
+    let text = input.read(cx).text().to_string();
+    let picks = cx.global::<Float>().picks.get(key).cloned().unwrap_or_default();
+    if send_ask(&a, picks, Some(text), false, cx) {
+        input.update(cx, |i, cx| i.set_text("", cx));
     }
 }
 
 impl Render for FloatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list = items(cx);
-        let expanded = cx.try_global::<Float>().is_some_and(|f| f.expanded) && !list.is_empty();
+        let questions = asks(cx);
+        let count = list.len() + questions.len();
+        let expanded = cx.try_global::<Float>().is_some_and(|f| f.expanded) && count > 0;
         // Liquid Glass: the control is a slab of the system's own glass
         // over whatever the user is in; nothing of ours is painted behind
         // its content (terminals stay opaque).
@@ -1398,17 +2099,19 @@ impl Render for FloatView {
         // The theme's own surface, thinly, over the glass.
         let fill = liquid.then(|| t.raised.opacity(if expanded { GLASS_FILL_OPEN } else { GLASS_FILL }));
         let slab = crate::platform::glass::Slab { inset: PAD, radius, mode: t.mode };
-        crate::platform::glass::slab(window, (liquid && !list.is_empty()).then_some(slab));
+        crate::platform::glass::slab(window, (liquid && count > 0).then_some(slab));
         if cx.try_global::<Float>().is_some_and(|f| f.grab) {
             cx.global_mut::<Float>().grab = false;
             window.focus(&self.focus, cx);
             crate::platform::float_take_keys(window);
         }
+        let focus = self.focus.clone();
         let root = div()
             .id("float")
             .track_focus(&self.focus)
-            .on_key_down(|ev, _, cx| {
-                if key(ev, cx) {
+            .on_key_down(move |ev, window, cx| {
+                // (Not while a question's field has the keys: typed there.)
+                if focus.is_focused(window) && key(ev, cx) {
                     cx.stop_propagation();
                 }
             })
@@ -1418,7 +2121,7 @@ impl Render for FloatView {
             .line_height(gpui::relative(kit::BODY_LINE_HEIGHT))
             .text_color(t.text);
         let shape = cx.try_global::<Float>().map(shape).unwrap_or_default();
-        let (max_lines, fill_rows) = (shape.max_lines(list.len()), shape.fill());
+        let (max_lines, fill_rows) = (shape.max_lines(count), shape.fill());
         // The screens of this machine's agents that have a card.
         let cards = if expanded { model::shown(&list) } else { &[] };
         self.watch(&cards.iter().filter(|i| i.local).map(|i| i.id.as_str()).collect::<Vec<_>>());
@@ -1432,12 +2135,17 @@ impl Render for FloatView {
                 sync(cx);
             });
         }
+        // The questions that have a card, and their fields.
+        let shown_asks = if expanded { &questions[..model::shown_asks(&list, &questions)] } else { &[] };
+        let keys: HashSet<String> = shown_asks.iter().map(AskItem::key).collect();
+        self.others.retain(|k, _| keys.contains(k));
+        let inputs: Vec<Entity<TextInput>> = shown_asks.iter().map(|a| self.other_input(a, cx)).collect();
         let Some(f) = cx.try_global::<Float>() else { return root };
-        if list.is_empty() {
+        if count == 0 {
             return root;
         }
         if !expanded {
-            return root.child(Self::puck(list.len(), fill, &t));
+            return root.child(Self::puck(count, fill, &t));
         }
         let rule = || div().h(px(RULE)).flex_none().bg(t.line);
         let mut panel = div()
@@ -1450,7 +2158,7 @@ impl Render for FloatView {
             .bg(fill.unwrap_or(t.raised))
             .border_1()
             .border_color(t.line_strong)
-            .child(Self::header(&list, f, &t));
+            .child(Self::header(&list, &questions, f, &t));
         for (item, term) in cards.iter().zip(terms) {
             let scrolled = item.clone();
             let on_scroll = cx.listener(move |this, ev: &ScrollEvent, _, cx| {
@@ -1460,8 +2168,13 @@ impl Render for FloatView {
             });
             panel = panel.child(rule()).child(Self::card(item, max_lines, term, on_scroll, self.focus.clone(), f, &t));
         }
-        if list.len() > MAX_CARDS {
-            panel = panel.child(rule()).child(Self::more(&list, &t));
+        for (a, input) in shown_asks.iter().zip(inputs) {
+            let picked = f.picks.get(&a.key()).cloned().unwrap_or_default();
+            let sent = f.sent.contains_key(&a.key()) || a.busy;
+            panel = panel.child(rule()).child(Self::ask_card(a, input, shape.width, picked, ask_note(f, a), sent, &t));
+        }
+        if count > MAX_CARDS {
+            panel = panel.child(rule()).child(Self::more(&list, &questions, &t));
         }
         // The edges that resize it, over the panel's (laid out for the
         // window's size now: the panel fills it).
@@ -1471,9 +2184,7 @@ impl Render for FloatView {
         root.relative()
             .p(px(PAD))
             .child(div().size_full().rounded(px(PANEL_RADIUS)).shadow(shadow(&t, liquid)).child(drag_handle(panel)))
-            .child(edge_zone(Edge::Side, w, h))
-            .child(edge_zone(Edge::End, w, h))
-            .child(edge_zone(Edge::Corner, w, h))
+            .children(Edge::ALL.map(|e| edge_zone(e, w, h)))
             // Where the platform doesn't follow the pointer itself.
             .child(canvas(|_, _, _| {}, |_, _, window, _| follow_resize(window)).absolute().size_0())
     }
