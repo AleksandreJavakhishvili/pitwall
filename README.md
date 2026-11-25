@@ -23,7 +23,8 @@
   <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/how-it-works/">How it works</a> ·
   <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/cli/">CLI reference</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="https://www.reddit.com/r/pitwalls/">Reddit</a>
 </p>
 
 <p align="center">
