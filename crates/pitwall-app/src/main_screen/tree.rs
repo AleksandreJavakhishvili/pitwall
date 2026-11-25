@@ -8,7 +8,9 @@
 //! `<extension>/<view>`; one per view; an older Pitwall shows it empty),
 //! or Pitwall's Settings (a Settings tile: `settings: true`; one at most,
 //! its page is `ui.json`'s `settingsPage`), or a device's screen (a device tile:
-//! `device`, `android:<serial>` or `ios:<udid>`; one per device).
+//! `device`, `android:<serial>` or `ios:<udid>`; one per device), or the
+//! text editor (an editor tile: `editor: true`; one at most, its files are
+//! `ui.json`'s `editor`).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -63,6 +65,9 @@ pub enum Node {
         /// `ios:<udid>`; docs/spec/device.md).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         device: Option<String>,
+        /// The text editor's tile (docs/spec/editor.md).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        editor: bool,
     },
     Split {
         id: String,
@@ -90,12 +95,14 @@ pub struct Pane {
     pub settings: bool,
     /// A device tile: the device's key.
     pub device: Option<String>,
+    /// The text editor's tile.
+    pub editor: bool,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings && self.device.is_none()
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings && self.device.is_none() && !self.editor
     }
 
     /// What a tile that isn't a terminal shows (a files or web tile).
@@ -106,6 +113,7 @@ impl Pane {
             (None, None, Some(x), _) => Some(Content::Inbox(x.clone())),
             (None, None, None, Some(v)) => Some(Content::View(v.clone())),
             _ if self.settings => Some(Content::Settings),
+            _ if self.editor => Some(Content::Editor),
             _ => self.device.clone().map(Content::Device),
         }
     }
@@ -127,6 +135,8 @@ pub enum Content {
     /// A device's screen (its key, `android:<serial>` or `ios:<udid>`; one
     /// tile per device).
     Device(String),
+    /// The text editor (one at most).
+    Editor,
 }
 
 /// What is drawn in a tile or a window of its own by one view wherever
@@ -140,6 +150,8 @@ pub enum Surface {
     Settings,
     /// A device tile (the device's key).
     Device(String),
+    /// The text editor.
+    Editor,
 }
 
 /// Settings' surface key.
@@ -148,12 +160,15 @@ pub const SETTINGS_KEY: &str = "@settings";
 /// A device tile's surface key: this, then the device's key.
 pub const DEVICE_PREFIX: &str = "@device:";
 
+/// The text editor's surface key.
+pub const EDITOR_KEY: &str = "@editor";
+
 impl Surface {
     /// The extension it is of (none: Settings, a device).
     pub fn ext(&self) -> &str {
         match self {
             Surface::Inbox(e) | Surface::View(e, _) => e,
-            Surface::Settings | Surface::Device(_) => "",
+            Surface::Settings | Surface::Device(_) | Surface::Editor => "",
         }
     }
 
@@ -164,6 +179,7 @@ impl Surface {
             Surface::View(e, v) => format!("{e}/{v}"),
             Surface::Settings => SETTINGS_KEY.to_string(),
             Surface::Device(d) => format!("{DEVICE_PREFIX}{d}"),
+            Surface::Editor => EDITOR_KEY.to_string(),
         }
     }
 
@@ -171,6 +187,9 @@ impl Surface {
     pub fn parse(key: &str) -> Surface {
         if key == SETTINGS_KEY {
             return Surface::Settings;
+        }
+        if key == EDITOR_KEY {
+            return Surface::Editor;
         }
         if let Some(d) = key.strip_prefix(DEVICE_PREFIX) {
             return Surface::Device(d.to_string());
@@ -188,6 +207,7 @@ impl Surface {
             Surface::View(..) => Content::View(self.key()),
             Surface::Settings => Content::Settings,
             Surface::Device(d) => Content::Device(d.clone()),
+            Surface::Editor => Content::Editor,
         }
     }
 
@@ -198,6 +218,7 @@ impl Surface {
             Content::View(k) => Some(Surface::parse(k)),
             Content::Settings => Some(Surface::Settings),
             Content::Device(d) => Some(Surface::Device(d.clone())),
+            Content::Editor => Some(Surface::Editor),
             _ => None,
         }
     }
@@ -328,6 +349,7 @@ impl Node {
             view: None,
             settings: false,
             device: None,
+            editor: false,
         }
     }
 
@@ -338,7 +360,7 @@ impl Node {
 
     /// A tile showing `c`.
     pub fn content_pane(c: &Content) -> Node {
-        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false, device: None }.showing(c)
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false, device: None, editor: false }.showing(c)
     }
 
     /// This pane showing `c` instead (its id kept); a split is unchanged.
@@ -350,14 +372,15 @@ impl Node {
                     Content::Web(w) => (None, Some(w.clone()), None, None),
                     Content::Inbox(x) => (None, None, Some(x.clone()), None),
                     Content::View(v) => (None, None, None, Some(v.clone())),
-                    Content::Settings | Content::Device(_) => (None, None, None, None),
+                    Content::Settings | Content::Device(_) | Content::Editor => (None, None, None, None),
                 };
                 let settings = *c == Content::Settings;
                 let device = match c {
                     Content::Device(d) => Some(d.clone()),
                     _ => None,
                 };
-                Node::Pane { id, agent_id: None, files, web, inbox, view, settings, device }
+                let editor = *c == Content::Editor;
+                Node::Pane { id, agent_id: None, files, web, inbox, view, settings, device, editor }
             }
             n => n,
         }
@@ -403,7 +426,7 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view, settings, device } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings, device, editor } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
@@ -412,6 +435,7 @@ impl Node {
                 view: view.clone(),
                 settings: *settings,
                 device: device.clone(),
+                editor: *editor,
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -448,7 +472,7 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view, settings, device } => {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings, device, editor } => {
                 let agent_id = f(id, agent_id);
                 // An agent put in a files, web, inbox, view or Settings tile
                 // takes it.
@@ -459,7 +483,8 @@ impl Node {
                 let view = if taken { None } else { view.clone() };
                 let settings = !taken && *settings;
                 let device = if taken { None } else { device.clone() };
-                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings, device }
+                let editor = !taken && *editor;
+                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings, device, editor }
             }
             Node::Split {
                 id,
@@ -1086,6 +1111,18 @@ mod tests {
         let (fit, hidden) = fit_layout(&t, (1700.0, 500.0), min, None);
         assert!(hidden.is_empty(), "{hidden:?}");
         assert!(fit.find_files("a").is_some());
+    }
+
+    #[test]
+    fn an_editor_tile_is_kept_across_a_restart() {
+        let s = Surface::of(&Content::Editor).unwrap();
+        assert_eq!(s.key(), "@editor");
+        assert_eq!(Surface::parse(&s.key()), s);
+        let json = serde_json::to_value(Node::content_pane(&Content::Editor)).unwrap();
+        assert_eq!(json["editor"], true);
+        let back: Node = serde_json::from_value(json).unwrap();
+        assert_eq!(back.leaves()[0].content(), Some(Content::Editor));
+        assert!(serde_json::to_value(Node::pane(None)).unwrap().get("editor").is_none());
     }
 
     #[test]

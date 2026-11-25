@@ -407,6 +407,13 @@ impl MainView {
             }
             return;
         }
+        // `editor …`: the text editor's tile (`MainScreen::debug_editor`).
+        if let Some(what) = cmd.strip_prefix("editor ") {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.debug_editor(what.trim(), window, cx));
+            }
+            return;
+        }
         // `settings-tile …`: the Settings tile
         // (`MainScreen::debug_settings_tile`).
         if let Some(what) = cmd.strip_prefix("settings-tile ") {

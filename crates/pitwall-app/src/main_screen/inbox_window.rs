@@ -51,6 +51,9 @@ pub fn title(key: &str, cx: &App) -> String {
     if let Surface::Device(d) = &s {
         return super::device_tile::title(d, cx);
     }
+    if s == Surface::Editor {
+        return "Editor".into();
+    }
     let m = crate::extensions::manifest_of(s.ext(), cx);
     let name = m.as_ref().map(|m| m.name.clone()).unwrap_or_else(|| s.ext().to_string());
     match &s {
@@ -58,6 +61,7 @@ pub fn title(key: &str, cx: &App) -> String {
         Surface::View(_, v) => format!("{name} — {}", m.as_ref().and_then(|m| m.contributes.view(v)).map_or(v.as_str(), |d| d.title.as_str())),
         Surface::Settings => "Settings".into(),
         Surface::Device(d) => super::device_tile::title(d, cx),
+        Surface::Editor => "Editor".into(),
     }
 }
 
@@ -77,15 +81,24 @@ impl InboxWindow {
         // The user closing it closes the inbox (not when it moves into a
         // layout, nor when Pitwall quits: it opens again next time).
         let me = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |_, cx| {
+        window.on_window_should_close(cx, move |window, cx| {
             let Some(w) = me.upgrade() else { return true };
             let (leaving, ext) = (w.read(cx).leaving, w.read(cx).ext.clone());
+            // The editor asks about unsaved edits first (and closes itself
+            // after Save or Don't Save).
+            if !leaving && !crate::windows::quitting(cx) && Surface::parse(&ext) == Surface::Editor {
+                return super::editor_tile::window_may_close(window, cx) && {
+                    cx.defer(super::editor_tile::close);
+                    true
+                };
+            }
             if !leaving && !crate::windows::quitting(cx) {
                 cx.defer(move |cx| match Surface::parse(&ext) {
                     Surface::Inbox(e) => inbox_tile::close(&e, cx),
                     Surface::View(..) => super::view_tile::close(&ext, cx),
                     Surface::Settings => super::settings_tile::close(cx),
                     Surface::Device(d) => super::device_tile::close(&d, cx),
+                    Surface::Editor => super::editor_tile::close(cx),
                 });
             }
             true
@@ -173,6 +186,12 @@ fn held(key: &str, cx: &mut App) -> (gpui::AnyView, FocusHandle) {
             let f = gpui::Focusable::focus_handle(v.read(cx), cx);
             (v.into(), f)
         }
+        Surface::Editor => {
+            let v = super::editor_tile::view(cx);
+            v.update(cx, |v, cx| v.held(true, cx));
+            let f = gpui::Focusable::focus_handle(v.read(cx), cx);
+            (v.into(), f)
+        }
     }
 }
 
@@ -220,6 +239,9 @@ pub fn restore(cx: &mut App) {
         kept.push(Surface::Settings);
     }
     kept.extend(ui.device_windows.iter().map(|d| Surface::Device(d.clone())));
+    if ui.surface_in_window(&Surface::Editor) {
+        kept.push(Surface::Editor);
+    }
     for s in kept {
         // An extension no longer found, or a view its manifest no longer
         // has: forgotten.
@@ -229,6 +251,7 @@ pub fn restore(cx: &mut App) {
             Surface::View(_, v) => m.is_some_and(|m| m.contributes.view(v).is_some()),
             Surface::Settings => true,
             Surface::Device(_) => super::device_tile::enabled(cx),
+            Surface::Editor => true,
         };
         if !there {
             crate::ui_state::update(cx, |ui| *ui = ui.clone().close_surface(&s));
@@ -312,6 +335,7 @@ pub fn described(ext: &str, cx: &mut App) -> String {
         Surface::View(_, v) => format!("the view tile “{v}”"),
         Surface::Settings => "the Settings tile".to_string(),
         Surface::Device(d) => format!("the device tile “{}”", super::device_tile::title(d, cx).trim_end_matches(" — Device")),
+        Surface::Editor => "the editor tile".to_string(),
     };
     format!("{tile} in space {} (window {}), {at}", sp.name, ui.window_of_space(&space))
 }

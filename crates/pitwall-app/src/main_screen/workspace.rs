@@ -317,6 +317,13 @@ pub struct UiState {
     /// again at the next start; `main_screen::device_tile`).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
     pub device_windows: Vec<String>,
+    /// The text editor is in a window of its own (opened in one again at
+    /// the next start; `crate::editor`).
+    #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
+    pub editor_window: bool,
+    /// The text editor's open files and settings (`crate::editor`).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "EditorPrefs::is_empty")]
+    pub editor: EditorPrefs,
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
@@ -400,6 +407,8 @@ impl Default for UiState {
             inbox_window: None,
             settings_window: false,
             device_windows: Vec::new(),
+            editor_window: false,
+            editor: EditorPrefs::default(),
             docked_files: BTreeMap::new(),
             files_windows: BTreeMap::new(),
             web_tiles: BTreeMap::new(),
@@ -408,6 +417,23 @@ impl Default for UiState {
             extensions: BTreeMap::new(),
             rest: serde_json::Map::new(),
         }
+    }
+}
+
+/// The text editor in `ui.json` (`editor`): the files it has open (full
+/// paths; their unsaved edits are not kept) and the one shown.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPrefs {
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<String>,
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
+}
+
+impl EditorPrefs {
+    pub fn is_empty(&self) -> bool {
+        *self == EditorPrefs::default()
     }
 }
 
@@ -631,6 +657,7 @@ impl UiState {
             Surface::View(_, v) => e.is_some_and(|e| e.view_windows.contains(v)),
             Surface::Settings => self.settings_window,
             Surface::Device(d) => self.device_windows.contains(d),
+            Surface::Editor => self.editor_window,
         }
     }
 
@@ -638,6 +665,10 @@ impl UiState {
     fn surface_window(mut self, s: &Surface, on: bool) -> UiState {
         if *s == Surface::Settings {
             self.settings_window = on;
+            return self;
+        }
+        if *s == Surface::Editor {
+            self.editor_window = on;
             return self;
         }
         if let Surface::Device(d) = s {
@@ -655,7 +686,7 @@ impl UiState {
                     e.view_windows.push(v.clone());
                 }
             }
-            Surface::Settings | Surface::Device(_) => {}
+            Surface::Settings | Surface::Device(_) | Surface::Editor => {}
         })
     }
 

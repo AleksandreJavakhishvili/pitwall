@@ -17,6 +17,7 @@ pub mod float;
 pub mod frame_stats;
 pub mod code_view;
 pub mod device;
+pub mod editor;
 pub mod engineer;
 pub mod home;
 pub mod kit;
