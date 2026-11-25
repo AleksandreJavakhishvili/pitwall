@@ -122,7 +122,7 @@ A blocked agent can show a short hint, like the question it asks. With `detail` 
 
 ## Answering a prompt
 
-When an agent waits on a plain yes or no, such as a permission prompt, Pitwall can answer it for you from outside the terminal: the **Accept** and **Reject** buttons of the floating "needs you" control (Settings → General). An `[[answers]]` table says what such a prompt looks like and which keys answer it:
+When an agent waits on a plain yes or no, such as a permission prompt, Pitwall can answer it for you from outside the terminal: the **Accept** and **Reject** buttons of the floating "needs you" control (Settings → General), on its pill or its card, or ⏎ and esc on the card. Either way Pitwall reads the screen again first and types only if the same prompt is still there; otherwise it says "The prompt changed: nothing was sent." An `[[answers]]` table says what such a prompt looks like and which keys answer it:
 
 ```toml
 [[answers]]

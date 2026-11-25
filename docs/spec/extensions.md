@@ -894,9 +894,9 @@ works as before.
 - **Which:** each open ask (not answered, withdrawn or closed) of the
   threads with open asks, the first 6 of each inbox in its "Needs you"
   order (`float::model::ASK_THREADS`); blocking ones first, then in
-  the inboxes' order. Cards are at most 3 together with the agents'
-  (agents first); the rest are counted in "+N more in Pitwall", which
-  opens the first of them.
+  the inboxes' order. The control shows one card at a time, the agents'
+  first (oldest first) and then the questions, with "1 of N" and arrows
+  (←/→) to go between them; the pill shows the first and "+N".
 - **Asked for only while it could show them:** while the setting is on
   and Pitwall isn't in front, the control `open`s those threads in their
   adapters (and `close`s them when Pitwall comes forward, the setting is
@@ -922,8 +922,8 @@ works as before.
   note, as in the tile) and can be sent again.
 - **Open in inbox** brings Pitwall forward on that thread in the
   extension's inbox (`windows::show_inbox`, as ⌘I opens it).
-- **The count** on the mark and the header's title include the
-  questions ("api and 1 question", "2 questions for you").
+- **The count** on the pill ("+N") and the header's "1 of N" include
+  the questions. On the pill a question shows who asks, the question and Open.
 - **Keys:** a press in a card's field gives the control the keyboard for
   it (Pitwall still doesn't come forward); what is typed there never goes
   to an agent's terminal.
@@ -936,7 +936,10 @@ works as before.
   `float minimise`, `float size
   small|medium|large`, `float resize <edge> <dx> <dy>`, `float pick <n>`,
   `float type <text>`, `float send`, `float decline`, `float open`,
-  `float state`.
+  `float next`, `float prev`, `float show-all`, `float state`; and,
+  for screenshots, `float demo one|two|many|question|long|remote|off`
+  (made-up agents in place of the real ones), `float demo-error`,
+  `float demo-sent`.
 
 ## Setup actions
 What "setting up" means for an extension is the manifest's to say, such
