@@ -211,6 +211,9 @@ their commands, as the review lists them. Nothing runs.
 - `setUp`: the setup actions set up before; one whose steps changed runs
   again for every account.
 - `agents`: how many running agents use its setup now.
+- `installed`: programs taken as installed, as fakes on an empty PATH,
+  as for `actions`. Give it when a setup action runs again, so the steps
+  don't depend on what the computer running the check has installed.
 - `expect`: each step, its title then its lines (`{data}` and `{backup}`
   left as is). `agentsSay`: what the review says about those agents.
 
