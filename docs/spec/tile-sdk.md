@@ -2081,6 +2081,8 @@ tools in phase 3.
    unattended runs; then a per-command "may run from outside Pitwall"
    grant that still can't cover `act`.
 
+## 12. Alternatives considered
+
 | Alternative | For | Against | Verdict |
 |---|---|---|---|
 | **Native dynamic libraries** (Rust `cdylib` loaded with `libloading`) | Full GPUI, fastest | No stable Rust ABI across compiler versions, so every tile must be rebuilt per Pitwall release; a crash or a hang takes the app down; full access to memory, keychain and windows; per-OS binaries; code signing issues on macOS | Rejected (as extension-api.md [today]) |
