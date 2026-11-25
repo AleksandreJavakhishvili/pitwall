@@ -124,6 +124,10 @@ block2 = "0.6"
 objc2-pdf-kit = { version = "0.3", default-features = false, features = ["std", "PDFDocument", "PDFPage", "PDFSelection", "objc2-core-foundation", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+# Device tiles (platform/video_macos.rs): VideoToolbox decodes into
+# CVPixelBuffers that GPUI draws as surfaces. Zlib OR Apache-2.0 OR MIT;
+# already in the tree via gpui (the version it pins).
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "CVBuffer", "CVImageBuffer", "CVPixelBuffer"] }
 
 [target.'cfg(windows)'.dependencies]
 # Settings → Appearance: Mica and Reduce motion. MIT OR Apache-2.0.

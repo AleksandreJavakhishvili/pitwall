@@ -10,8 +10,10 @@ use super::secrets::{SecretStore, SERVICE};
 type CFTypeRef = *const c_void;
 type OSStatus = i32;
 
+/// CoreFoundation's callback tables, never looked into (shared with
+/// `video_macos.rs` so both declare `CFDictionaryCreate` alike).
 #[repr(C)]
-struct Opaque {
+pub(super) struct Opaque {
     _p: [u8; 0],
 }
 
