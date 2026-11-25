@@ -216,6 +216,25 @@ Settings tile opens right of your terminal, or stays where the user keeps
 it and switches page. It never takes the keyboard or brings Pitwall
 forward. MCP: `show_settings`. Off with `agents.showSettings false`.
 
+## Showing the user a simulator or emulator
+
+```bash
+pitwall open --device --agent api                 # the one booted simulator or emulator, right of api's terminal
+pitwall open --device "iPhone 17" --agent api     # by name, UDID or adb serial
+```
+
+When the user asks to see or run the app on a simulator or emulator ("show
+me on the simulator", "run it on the simulator"): if none is running, boot
+or start one with the tools you normally use (`xcrun simctl boot`, `flutter
+run`, `npx expo run:ios`, `emulator -avd …`), then call this so its screen
+opens in Pitwall. A device still booting is waited for (up to a minute).
+It only shows the screen: you get nothing back from it and can't tap or
+type in it; the user can. It never takes the keyboard or brings Pitwall
+forward. A device an agent boots usually opens beside it on its own
+(`general.deviceAutoOpen`); calling this is still right when the user asked.
+MCP: `show_device`. Off with `agents.showDevice false` or
+`general.devicePreviews false`.
+
 Without `--root`, files come from the folder the agent works in now (where
 its hooks last said it was, so a worktree it entered mid-session), shown in
 the git worktree that holds it, with that worktree's branch and status. When
