@@ -3,22 +3,40 @@
 //! While Pitwall isn't in front and an agent's screen asks the user
 //! something, a small window floats above the other apps, on every desktop
 //! and over full-screen apps (a GPUI pop-up: on macOS a panel that takes
-//! clicks without bringing Pitwall forward). It starts as the Pitwall mark
-//! with the count on it; a click opens a card per agent, all at once, each
-//! with the part of its terminal that holds the prompt, drawn live as
-//! the Wall draws a tile (its text, as the rules cut it out of the screen,
-//! until the screen arrives and for another machine's agent), and
+//! clicks without bringing Pitwall forward).
 //!
-//! - **Accept** / **Reject** when the prompt is a plain yes/no Pitwall has
-//!   the keys for (`pitwall-detect`'s `[[answers]]`, per agent kind). The
-//!   engine reads the screen again and types only if the same prompt is
-//!   still there (`engine::input::answer`). **Accept all** in the header
-//!   does it for every card that has an Accept;
-//! - the keyboard, after a click on the card's terminal: arrows, Enter,
-//!   Esc and text go to that agent as they would in its pane (the panel
-//!   takes the keyboard for that; Pitwall still doesn't come forward);
-//! - **Open** for everything else (a question with options, a trust
-//!   dialog, another machine's agent): Pitwall comes forward on the agent.
+//! It starts as a pill: the agent that has waited longest (its logo, its
+//! name, and its project when two share a name), one plain line of what it
+//! wants ("Run: pnpm test", "Edit src/cart/total.ts", the question), and
+//! "+N" when others wait. When the prompt is a plain yes/no Pitwall has the
+//! keys for and the line names all of what it asks, the pill has
+//! **Reject** and **Accept**; otherwise **Show** (it opens the card) or,
+//! for anything more than a yes or no, **Open** (Pitwall comes forward on
+//! the agent). The pill never takes the keyboard.
+//!
+//! A click opens one card at a time, oldest first, with "1 of 3" and
+//! arrows to the others. A card shows what the prompt asks, as lines of
+//! the prompt itself (never a paraphrase, and nothing when they can't be
+//! read off it reliably), over the part of the agent's terminal that holds
+//! the prompt, drawn live as the Wall draws a tile (its text, as the rules
+//! cut it out of the screen, until the screen arrives and for another
+//! machine's agent): a few rows under a summary, all of it with "Show all",
+//! and
+//!
+//! - **Accept** / **Reject** for a plain yes/no (`pitwall-detect`'s
+//!   `[[answers]]`, per agent kind). The engine reads the screen again and
+//!   types only if the same prompt is still there (`engine::input::answer`);
+//!   if it changed: "The prompt changed: nothing was sent." **Accept all**
+//!   in the header, only when every prompt that waits is such a yes/no;
+//! - the keyboard: ⏎ Accept and esc Reject on a yes/no (the same re-check),
+//!   ←/→ between the cards, esc closes a card that is more than a yes or
+//!   no, and other keys go to the agent as they would in its pane (the
+//!   panel takes the keyboard; Pitwall still doesn't come forward);
+//! - **Open in Pitwall** for everything else (a question with options, a
+//!   trust dialog, another machine's agent).
+//!
+//! After an answer, "Sent to <agent>" for about a second, then the next
+//! prompt that waits.
 //!
 //! The open questions in the inboxes of the extensions that are on (and
 //! running) are cards too, after the agents' (docs/spec/extensions.md, "In
@@ -32,13 +50,13 @@
 //! with open questions (the first [`model::ASK_THREADS`] of each) only
 //! while it could show them; without such an extension it is as before.
 //!
-//! It can be dragged anywhere (by the mark, or by any part of the open
+//! It can be dragged anywhere (by the pill, or by any part of the open
 //! panel that isn't a button) and stays there, also the next time Pitwall
 //! starts (`app-float.json` in the data folder). The open panel is resized
 //! by any of its edges and corners (a double click on one: the default
-//! size), or to Small, Medium or Large by the header's S / M / L; its
-//! minimise button takes it back to the mark, and a click on the mark
-//! opens it again at the size it had. The size is kept with the place. It
+//! size); the header's button takes it back to the pill, and a click on
+//! the pill opens it again at the size it had. The size is kept with the
+//! place. It slides in once when it appears (not with Reduce motion). It
 //! goes away when nothing asks, when Pitwall comes forward, and when the
 //! setting is off. Nothing here polls while nothing asks: the check for
 //! "is Pitwall in front" runs only while something does.
@@ -56,10 +74,10 @@ use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::StreamExt;
 
 use gpui::{
-    canvas, div, point, prelude::*, px, size, App, AsyncApp, Bounds, Context, CursorStyle, DispatchPhase, Div, Entity,
-    FocusHandle, FontWeight, Global, IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    Render, ScrollEvent, SharedString, Stateful, Task, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
-    WindowKind, WindowOptions,
+    canvas, div, point, prelude::*, px, size, Animation, AnimationExt, App, AsyncApp, Bounds, Context, CursorStyle,
+    DispatchPhase, Div, ElementId, Entity, FocusHandle, FontWeight, Global, IntoElement, KeyDownEvent, MouseButton,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, ScrollEvent, SharedString, Task, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
 
 use crate::agents::AgentStore;
@@ -72,8 +90,8 @@ use crate::wall::paint::{screen_view, term_colors, ScreenOpts};
 use crate::wall::screen::Screen;
 use crate::wall::source::{forward, FrameMsg, ScreenSource, Screens};
 use model::{
-    AskItem, Item, Preset, Shape, TermRows, ANSWER_H, BOX_PAD, BUTTONS_H, CARD_HEAD, CHIP_H, GAP, HEADER_H, LINE_H, MAX_CARDS,
-    MORE_H, NOTE_H, OPTION_H, PAD, PUCK, QUESTION_LINE, RULE, TERM_FONT,
+    AskItem, Item, Preset, Shape, TermRows, ANSWER_H, BOX_PAD, BUTTONS_H, CARD_HEAD, CHIP_H, GAP, HEADER_H, HINT_H, LINE_H,
+    NOTE_H, OPTION_H, PAD, PILL_H, PILL_W, QUESTION_LINE, RULE, TERM_FONT,
 };
 
 /// The setting that turns the control on and off.
@@ -125,10 +143,26 @@ pub struct Float {
     open: Opener,
     open_inbox: InboxOpener,
     window: Option<WindowHandle<FloatView>>,
-    /// The agent whose terminal the keyboard goes to (the user clicked it).
-    typing: Option<String>,
-    /// The cards are open (else the mark alone).
+    /// The open panel has the keyboard: keys go to the card shown (not
+    /// while a question's field has them).
+    keys: bool,
+    /// The panel is open (else the pill alone).
     expanded: bool,
+    /// The card shown: an agent's id or a question's key (`None`, or one
+    /// that is gone: the first).
+    current: Option<String>,
+    /// When each agent began to ask, as a number (lower is earlier), and
+    /// the next number: the cards go oldest first.
+    since: HashMap<String, u64>,
+    next_since: u64,
+    /// The cards show every row of the terminal under a summary.
+    show_all: bool,
+    /// Just answered, said on its card for a moment: (agent, its name).
+    confirm: Option<(String, String)>,
+    /// How many times it came up: its first appearance slides in.
+    shown_count: u64,
+    /// It is up (or would be, in a bench instance without its preview).
+    up: bool,
     /// Answers that couldn't be given: agent → why.
     errors: HashMap<String, SharedString>,
     /// Answered, waiting for the agent to move on: agent → the prompt.
@@ -273,11 +307,8 @@ impl Edge {
 struct Resize {
     edge: Edge,
     width: f32,
-    /// Each card's rows, the cards asking and the agents' cards shown
-    /// (a drag of the height is shared by those).
-    per_card: usize,
-    count: usize,
-    cards: usize,
+    /// The rows a card shows in full.
+    rows: usize,
     /// The corner the window is anchored at, and what is drawn's height.
     anchor: Point<Pixels>,
     height: f32,
@@ -325,8 +356,15 @@ pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Op
         open,
         open_inbox,
         window: None,
-        typing: None,
+        keys: false,
         expanded: false,
+        current: None,
+        since: HashMap::new(),
+        next_since: 0,
+        show_all: false,
+        confirm: None,
+        shown_count: 0,
+        up: false,
         errors: HashMap::new(),
         answered: HashMap::new(),
         size: (0., 0.),
@@ -424,21 +462,39 @@ fn screen_area(cx: &App) -> Option<(Point<Pixels>, Bounds<Pixels>)> {
     Some((corner, area))
 }
 
-/// The heights of the questions' cards, in order: as drawn at `width`,
-/// else as [`model::ask_height`] reckons.
-fn ask_heights(f: &Float, asks: &[AskItem], width: f32) -> Vec<f32> {
-    asks.iter()
-        .map(|a| match f.ask_heights.get(&a.key()) {
-            Some((w, h)) if (w - width).abs() < 0.5 => *h,
-            _ => model::ask_height(a, width, ask_note(f, a).is_some()),
-        })
-        .collect()
+/// A question's card's height: as drawn at `width`, else as
+/// [`model::ask_height`] reckons.
+fn ask_card_height(f: &Float, a: &AskItem, width: f32) -> f32 {
+    match f.ask_heights.get(&a.key()) {
+        Some((w, h)) if (w - width).abs() < 0.5 => *h,
+        _ => model::ask_height(a, width, ask_note(f, a).is_some()),
+    }
+}
+
+/// An agent's card is answered: sent, waiting for it to move on.
+fn sent(f: &Float, id: &str) -> bool {
+    f.answered.contains_key(id)
+}
+
+/// How `item`'s card looks in shape `s`.
+fn look(item: &Item, s: Shape, f: &Float) -> model::Look {
+    let note = model::has_note(item, f.errors.contains_key(&item.id), sent(f, &item.id));
+    model::look(item, s, f.term_rows.get(&item.id).copied(), f.show_all, note)
+}
+
+/// The height of the card shown, in shape `s` (`None`: nothing waits).
+fn card_height(list: &[Item], asks: &[AskItem], s: Shape, f: &Float) -> Option<f32> {
+    let entries = model::entries(list, asks);
+    let at = model::position(&entries, f.current.as_deref());
+    Some(match entries.get(at)? {
+        model::Entry::Agent(i) => model::card_height(look(i, s, f)),
+        model::Entry::Ask(a) => ask_card_height(f, a, s.width),
+    })
 }
 
 /// What is drawn's height with the panel open in shape `s`.
 fn content_height(list: &[Item], asks: &[AskItem], s: Shape, f: &Float) -> f32 {
-    let hs = ask_heights(f, asks, s.width);
-    model::content_size(list, &hs, true, s, &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied()).1
+    model::content_size(Some(card_height(list, asks, s, f).unwrap_or(0.)), s).1
 }
 
 /// Where the window can grow to: the panel's widest and tallest that fit
@@ -471,15 +527,19 @@ fn begin_resize(edge: Edge, cx: &mut App) {
     if !f.expanded || count == 0 {
         return;
     }
+    // Taller shows more of the terminal: all of it, not a few rows under
+    // the summary.
+    if edge.resizes_rows() {
+        cx.global_mut::<Float>().show_all = true;
+    }
+    let f = cx.global::<Float>();
     let s = shape(f);
     let height = content_height(&list, &asks, s, f);
     let anchor = f.anchor.or(corner).unwrap_or_default();
     cx.global_mut::<Float>().resize = Some(Resize {
         edge,
         width: s.width,
-        per_card: s.max_lines(count),
-        count,
-        cards: model::shown(&list).len(),
+        rows: s.max_lines(),
         anchor,
         height,
         from: None,
@@ -514,17 +574,16 @@ fn resize_to(dx: f32, dy: f32, cx: &mut App) {
             width = Some(w);
         }
     }
-    if r.edge.resizes_rows() && r.cards > 0 {
+    if r.edge.resizes_rows() {
         // Its top edge taller upward, its bottom edge downward.
         let grow = dy * r.edge.y as f32;
-        let by = (grow / LINE_H / r.cards as f32).round() as isize;
+        let by = (grow / LINE_H).round() as isize;
         if by != 0 || rows.is_some() {
-            let per = (r.per_card as isize + by).clamp(model::MIN_ROWS as isize, model::MAX_ROWS as isize) as usize;
-            let mut alone = model::alone_for(r.count, per).clamp(model::MIN_ROWS, model::MAX_ROWS);
+            let mut alone = (r.rows as isize + by).clamp(model::MIN_ROWS as isize, model::MAX_ROWS as isize) as usize;
             // No taller than the screen has room for; without room (the
             // panel already reaches past that edge), a drag outward keeps
             // the rows it had, never fewer.
-            let had = model::alone_for(r.count, r.per_card).clamp(model::MIN_ROWS, model::MAX_ROWS);
+            let had = r.rows.clamp(model::MIN_ROWS, model::MAX_ROWS);
             let least = had.min(alone).max(model::MIN_ROWS);
             let fits = |alone: usize| {
                 let s = Shape { width: width.unwrap_or(model::WIDTH), rows: Some(alone) };
@@ -666,10 +725,11 @@ pub fn enabled(cx: &App) -> bool {
 
 fn items(cx: &App) -> Vec<Item> {
     let Some(f) = cx.try_global::<Float>() else { return Vec::new() };
-    match &f.demo {
+    let list = match &f.demo {
         Some(agents) => model::items(agents),
         None => model::items(&f.store.read(cx).agents),
-    }
+    };
+    model::oldest_first(list, &f.since)
 }
 
 /// The extensions that are on, have an inbox and whose adapter runs, with
@@ -802,12 +862,33 @@ pub fn sync(cx: &mut App) {
     f.sent.retain(|k, _| open.contains(k) && !failed.contains(k));
     f.picks.retain(|k, _| open.contains(k));
     f.ask_heights.retain(|k, _| open.contains(k));
-    if f.typing.as_deref().is_some_and(|id| asks(id).is_none()) || !f.expanded {
-        f.typing = None;
+    // When each agent began to ask: the cards go oldest first.
+    f.since.retain(|id, _| asks(id).is_some());
+    for i in &list {
+        if !f.since.contains_key(&i.id) {
+            f.since.insert(i.id.clone(), f.next_since);
+            f.next_since += 1;
+        }
+    }
+    // The card shown went: the first that waits.
+    if f.current.as_deref().is_some_and(|c| !list.iter().any(|i| i.id == c) && !open.contains(c)) {
+        f.current = None;
+    }
+    if f.confirm.as_ref().is_some_and(|(id, _)| asks(id).is_none()) {
+        f.confirm = None;
+    }
+    if !f.expanded {
+        f.keys = false;
     }
     if list.is_empty() && questions.is_empty() {
         f.expanded = false;
+        f.show_all = false;
     }
+    // It comes up (again): its first appearance slides in.
+    if want && !f.up {
+        f.shown_count += 1;
+    }
+    f.up = want;
     // Nothing open to resize (the cards were closed under the pointer).
     if !f.expanded && f.resize.is_some() {
         f.resize = None;
@@ -841,8 +922,8 @@ pub fn sync(cx: &mut App) {
         cx.global_mut::<Float>().shift = (0., 0.);
         return;
     }
-    let hs = ask_heights(f, &questions, shape(f).width);
-    let new = model::size(&list, &hs, f.expanded, shape(f), &|id| f.errors.contains_key(id), &|id| f.term_rows.get(id).copied());
+    let card = if f.expanded { card_height(&list, &questions, shape(f), f) } else { None };
+    let new = model::size(card, shape(f));
     let old = std::mem::replace(&mut f.size, new);
     let shift = std::mem::take(&mut f.shift);
     if let Some(v) = f.preview.clone() {
@@ -971,22 +1052,52 @@ fn sync_later(cx: &mut App) {
     cx.defer(sync);
 }
 
-/// Open or close the cards.
+/// How long "Sent to …" stays on a card before the next one that waits
+/// is shown.
+const CONFIRM: Duration = Duration::from_millis(1100);
+
+/// Open or close the panel. Opened, it has the keyboard: Enter and Esc
+/// answer the card shown, or go to its terminal (see [`key`]).
 fn toggle(cx: &mut App) {
-    // Opened: the keyboard goes to the first card's terminal right away,
-    // so arrows and Enter answer it with no click in between.
-    let first = model::shown(&items(cx)).iter().find(|i| i.local).map(|i| i.id.clone());
     let f = cx.global_mut::<Float>();
     f.expanded = !f.expanded;
     let open = f.expanded;
-    f.typing = first.filter(|_| open);
-    f.grab = open && f.typing.is_some();
-    log(|| format!("toggle: cards {}", if open { "open" } else { "closed" }));
+    f.keys = open;
+    f.grab = open;
+    log(|| format!("toggle: panel {}", if open { "open" } else { "closed" }));
     sync_later(cx);
 }
 
+/// Open the panel on `key`'s card (an agent's id or a question's key).
+fn expand_on(key: &str, cx: &mut App) {
+    cx.global_mut::<Float>().current = Some(key.to_string());
+    if !cx.global::<Float>().expanded {
+        toggle(cx);
+    }
+}
+
+/// The card `by` steps from the one shown (around at either end).
+fn go(by: isize, cx: &mut App) {
+    let (list, questions) = (items(cx), asks(cx));
+    let entries = model::entries(&list, &questions);
+    let f = cx.global_mut::<Float>();
+    let at = model::step(entries.len(), model::position(&entries, f.current.as_deref()), by);
+    f.current = entries.get(at).map(|e| e.key());
+    f.confirm = None;
+    sync_later(cx);
+}
+
+/// Why an answer wasn't typed, in the words the card uses.
+fn not_sent(e: &str) -> SharedString {
+    if e.contains("prompt changed") {
+        "The prompt changed: nothing was sent.".into()
+    } else {
+        format!("Nothing was sent: {e}.").into()
+    }
+}
+
 /// Type the answer into `id`'s terminal, if it still shows the prompt the
-/// user is looking at.
+/// user is looking at (the engine reads its screen again first).
 fn answer(id: &str, accept: bool, cx: &mut App) {
     let list = items(cx);
     let Some(item) = list.iter().find(|i| i.id == id) else { return };
@@ -994,7 +1105,7 @@ fn answer(id: &str, accept: bool, cx: &mut App) {
     if !(if accept { item.can_accept() } else { item.can_reject() }) {
         return;
     }
-    let seen = item.ask.text.clone();
+    let (seen, name) = (item.ask.text.clone(), item.name.clone());
     let f = cx.global_mut::<Float>();
     if f.answered.contains_key(id) {
         return;
@@ -1003,47 +1114,119 @@ fn answer(id: &str, accept: bool, cx: &mut App) {
         Ok(()) => {
             f.errors.remove(id);
             f.answered.insert(id.to_string(), seen);
+            f.confirm = Some((id.to_string(), name));
+            let id = id.to_string();
+            cx.spawn(async move |cx: &mut AsyncApp| {
+                cx.background_executor().timer(CONFIRM).await;
+                cx.update(|cx| confirmed(&id, cx));
+            })
+            .detach();
         }
         Err(e) => {
             log(|| format!("not sent: {e}"));
-            f.errors.insert(id.to_string(), format!("Not sent: {e}.").into());
+            f.errors.insert(id.to_string(), not_sent(&e));
         }
     }
     sync_later(cx);
 }
 
-/// The keyboard goes to `id`'s terminal from now on.
-fn type_into(id: &str, cx: &mut App) {
-    let Some(item) = items(cx).into_iter().find(|i| i.id == id && i.local) else { return };
-    log(|| format!("keys go to {}", item.name));
-    cx.global_mut::<Float>().typing = Some(item.id);
+/// "Sent to …" has been said: the next card that waits is shown (the
+/// answered one goes when its agent moves on).
+fn confirmed(id: &str, cx: &mut App) {
+    if !cx.has_global::<Float>() || cx.global::<Float>().confirm.as_ref().is_none_or(|(c, _)| c != id) {
+        return;
+    }
+    let (list, questions) = (items(cx), asks(cx));
+    let entries = model::entries(&list, &questions);
+    let f = cx.global_mut::<Float>();
+    f.confirm = None;
+    let at = model::position(&entries, f.current.as_deref());
+    if entries.get(at).is_some_and(|e| e.key() == id) {
+        let answered = |k: &str| f.answered.contains_key(k);
+        let next = model::next_waiting(&entries, at, &answered);
+        f.current = entries.get(next).map(|e| e.key());
+    }
+    sync(cx);
 }
 
-/// A key pressed while a card's terminal has the keyboard: sent to its
-/// agent as its own pane would send it. `true` when it was.
+/// A key pressed while the open panel has the keyboard. ←/→ go between
+/// the cards. On a yes/no Pitwall can answer, Enter is Accept and Esc is
+/// Reject (the same re-check as the buttons); other keys go to the agent's
+/// terminal as its own pane would send them (the terminal shows what they
+/// do). On anything else Esc closes the panel and the rest goes to the
+/// terminal. `true` when the key was used.
 fn key(ev: &KeyDownEvent, cx: &mut App) -> bool {
     use pitwall_term_view::keys::{encode_key, KeyModes, KeyPress, Mods};
+    let (list, questions) = (items(cx), asks(cx));
+    let entries = model::entries(&list, &questions);
     let f = cx.global::<Float>();
-    let Some(id) = f.typing.clone() else { return false };
+    if !f.expanded || !f.keys {
+        return false;
+    }
     let ks = &ev.keystroke;
+    let plain = !(ks.modifiers.shift || ks.modifiers.alt || ks.modifiers.control || ks.modifiers.platform);
+    let current = entries.get(model::position(&entries, f.current.as_deref())).copied();
+    match ks.key.as_str() {
+        "left" if plain && entries.len() > 1 => {
+            go(-1, cx);
+            return true;
+        }
+        "right" if plain && entries.len() > 1 => {
+            go(1, cx);
+            return true;
+        }
+        _ => {}
+    }
+    let item = match current {
+        Some(model::Entry::Agent(i)) if i.local => i,
+        _ => {
+            if ks.key == "escape" {
+                toggle(cx);
+                return true;
+            }
+            return false;
+        }
+    };
+    match ks.key.as_str() {
+        "enter" if plain && item.can_accept() => {
+            answer(&item.id, true, cx);
+            return true;
+        }
+        "escape" if plain && item.can_reject() => {
+            answer(&item.id, false, cx);
+            return true;
+        }
+        "escape" if plain && !item.can_accept() => {
+            toggle(cx);
+            return true;
+        }
+        _ => {}
+    }
     let mods = Mods { shift: ks.modifiers.shift, alt: ks.modifiers.alt, ctrl: ks.modifiers.control, cmd: ks.modifiers.platform };
     let press = KeyPress { key: ks.key.as_str(), text: ks.key_char.as_deref(), mods };
     // Plain text isn't a terminal key: it is typed as it is.
     let bytes = encode_key(press, KeyModes::default())
         .or_else(|| ks.key_char.as_ref().filter(|_| !mods.cmd && !mods.ctrl).map(|t| t.as_bytes().to_vec()));
     let Some(bytes) = bytes else { return false };
+    let id = item.id.clone();
     if let Err(e) = (f.typer)(&id, &bytes) {
         log(|| format!("key not sent: {e}"));
-        cx.global_mut::<Float>().errors.insert(id, format!("Not sent: {e}.").into());
+        cx.global_mut::<Float>().errors.insert(id, not_sent(&e));
         sync_later(cx);
     }
     true
 }
 
-/// Accept every card that has an Accept.
+/// Accept every card, when every one is a yes/no Pitwall can answer
+/// ([`model::accept_all`]).
 fn accept_all(cx: &mut App) {
-    let list = items(cx);
-    for id in model::acceptable(&list).into_iter().map(|i| i.id.clone()) {
+    let (list, questions) = (items(cx), asks(cx));
+    let entries = model::entries(&list, &questions);
+    let f = cx.global::<Float>();
+    if !model::accept_all(&entries, &|k| f.answered.contains_key(k)) {
+        return;
+    }
+    for id in list.iter().map(|i| i.id.clone()) {
         answer(&id, true, cx);
     }
 }
@@ -1146,9 +1329,9 @@ pub fn debug_hook(cx: &mut App) {
                     "reject" => answer(&first, false, cx),
                     "all" => accept_all(cx),
                     "open" => open(&first, cx),
-                    // Real clicks (macOS): the mark, the header's
-                    // collapse button, the first card's Accept.
-                    "click-puck" => debug_click(PAD + PUCK / 2., PAD + PUCK / 2., cx),
+                    // Real clicks (macOS): the pill (its name), the
+                    // header's collapse button, the pill's Accept.
+                    "click-puck" => debug_click(PAD + 70., PAD + PILL_H / 2., cx),
                     "click-collapse" => {
                         let width = shape(cx.global::<Float>()).width;
                         debug_click(PAD + width - 20., PAD + HEADER_H / 2., cx)
@@ -1157,14 +1340,7 @@ pub fn debug_hook(cx: &mut App) {
                     "size-small" => set_preset(Preset::Small, cx),
                     "size-medium" => set_preset(Preset::Medium, cx),
                     "size-large" => set_preset(Preset::Large, cx),
-                    "click-accept" => {
-                        let list = items(cx);
-                        let f = cx.global::<Float>();
-                        let count = list.len() + asks(cx).len();
-                        let rows = list.first().map_or(0, |i| model::lines_shown(i, count, shape(f), f.term_rows.get(&i.id).copied()));
-                        let y = HEADER_H + RULE + GAP + CARD_HEAD + rows as f32 * LINE_H + BOX_PAD + GAP + BUTTONS_H / 2.;
-                        debug_click(PAD + 40., PAD + y, cx);
-                    }
+                    "click-accept" => debug_click(PAD + PILL_W - PILL_PAD - 38., PAD + PILL_H / 2., cx),
                     _ => {}
                 }
             });
@@ -1180,7 +1356,8 @@ pub fn debug_hook(cx: &mut App) {
 /// Bench commands, `float …` (`PITWALL_BENCH`, for screenshots; nothing is
 /// clicked or typed on the screen): `show` (the control up in a bench
 /// instance, which otherwise never shows it, far off every display; capture
-/// it by its window), `hide`, `expand`, `minimise` (back to the mark),
+/// it by its window), `hide`, `expand`, `minimise` (back to the pill),
+/// `next`, `prev` (the cards), `show-all` (every row under a summary),
 /// `size small|medium|large`, `resize <left|right|top|bottom|top-left|…>
 /// <dx> <dy>` (that edge dragged so far, as a drag does it), `pick <n>`
 /// (suggestion n of the first question's card, as a click), `type <text>`
@@ -1278,20 +1455,32 @@ pub fn bench(cmd: &str, cx: &mut App) {
             } else {
                 return eprintln!("pitwall-debug: float demo one|two|many|question|long|remote|off");
             }
-            (f.errors, f.answered) = (HashMap::new(), HashMap::new());
+            (f.errors, f.answered, f.confirm, f.current, f.show_all) = (HashMap::new(), HashMap::new(), None, None, false);
             sync(cx);
             cx.refresh_windows();
         }
-        "demo-error" | "demo-sent" => {
-            let Some(item) = items(cx).into_iter().next() else { return };
+        // The card shown's answer as failed (the prompt changed) or just
+        // sent (`demo-sent`; `demo-sent-later`: after "Sent to …").
+        "demo-error" | "demo-sent" | "demo-sent-later" => {
+            let (list, questions) = (items(cx), asks(cx));
+            let entries = model::entries(&list, &questions);
             let f = cx.global_mut::<Float>();
+            let Some(model::Entry::Agent(item)) = entries.get(model::position(&entries, f.current.as_deref())).copied() else { return };
             if what == "demo-error" {
-                f.errors.insert(item.id, "Not sent: its prompt changed.".into());
+                f.errors.insert(item.id.clone(), not_sent("its prompt changed"));
             } else {
-                f.answered.insert(item.id, item.ask.text);
+                f.answered.insert(item.id.clone(), item.ask.text.clone());
+                f.confirm = (what == "demo-sent").then(|| (item.id.clone(), item.name.clone()));
             }
             sync(cx);
             cx.refresh_windows();
+        }
+        "next" => go(1, cx),
+        "prev" => go(-1, cx),
+        "show-all" => {
+            let f = cx.global_mut::<Float>();
+            f.show_all = !f.show_all;
+            sync(cx);
         }
         "state" => eprintln!("pitwall-debug: float: {}", state(cx)),
         _ => eprintln!("pitwall-debug: float {cmd}?"),
@@ -1321,8 +1510,8 @@ fn state(cx: &App) -> String {
 
 /// The `resize-` verbs of [`debug_hook`]: the edge, and how far the
 /// pointer goes (right and down are positive).
-fn debug_resize(verb: &str, cx: &App) -> Option<(Edge, f32, f32)> {
-    let cards = model::shown(&items(cx)).len().max(1) as f32;
+fn debug_resize(verb: &str, _: &App) -> Option<(Edge, f32, f32)> {
+    let cards = 1.;
     // Up is taller on macOS (its top edge), down elsewhere.
     let taller = if GROWS_UP { -1. } else { 1. };
     Some(match verb {
@@ -1455,9 +1644,10 @@ const GLASS_FILL: f32 = 0.58;
 /// The opened panel holds text: a little more of it.
 const GLASS_FILL_OPEN: f32 = 0.72;
 
-/// Corners of the tile and of the opened panel.
-const PUCK_RADIUS: f32 = 13.;
-const PANEL_RADIUS: f32 = 12.;
+/// Corners of the pill and of the opened panel, and the pill's padding.
+const PILL_RADIUS: f32 = 16.;
+const PANEL_RADIUS: f32 = 14.;
+const PILL_PAD: f32 = 12.;
 
 /// The control's own shadow, small enough for the [`PAD`] around it, and
 /// the hairline around it.
@@ -1611,205 +1801,386 @@ impl FloatView {
         cx.notify();
     }
 
-    /// Collapsed: a tile with the Pitwall mark, and how many agents and
-    /// questions ask on its corner.
-    fn puck(count: usize, fill: Option<gpui::Hsla>, t: &Theme) -> impl IntoElement {
-        let tile = div()
+    /// Collapsed: a pill that says who waits (the oldest not answered
+    /// yet), what it wants, and how many wait; Accept and Reject when the
+    /// pill can answer it in one click, else a way to look first.
+    fn pill(entries: &[model::Entry], f: &Float, fill: Option<gpui::Hsla>, t: &Theme) -> impl IntoElement {
+        let answered = |k: &str| f.answered.contains_key(k);
+        let at = model::next_waiting(entries, 0, &answered);
+        let entry = entries[at];
+        let key = entry.key();
+        let more = entries.len().saturating_sub(1);
+        let sent_to = f.answered.contains_key(&key).then(|| entry.name().to_string());
+        // Who: the agent's logo (the extension's icon), its name, and its
+        // project when another that waits has the same name.
+        let (logo, name, project) = match entry {
+            model::Entry::Agent(i) => (
+                kit::agent_logo(&i.kind, &i.kind_name, 20., t),
+                i.name.clone(),
+                model::clashes(entries, &i.name).then(|| i.project.clone()),
+            ),
+            model::Entry::Ask(a) => (kit::icon(&a.icon, 18., t.text_2).into_any_element(), a.who().to_string(), Some(a.ext_name.clone())),
+        };
+        let error = f.errors.get(&key).cloned();
+        let what: (SharedString, gpui::Hsla) = match (&error, &sent_to, entry) {
+            (Some(e), _, _) => (e.clone(), t.red),
+            (None, Some(n), _) => (format!("Sent to {n}").into(), t.green),
+            (None, None, model::Entry::Agent(i)) => (model::gist(i).into(), t.text_2),
+            (None, None, model::Entry::Ask(a)) => (a.ask.question.clone().into(), t.text_2),
+        };
+        let ident = div()
+            .flex_none()
+            .size(px(36.))
+            .rounded(px(10.))
+            .bg(t.surface_2)
+            .border_1()
+            .border_color(t.amber.opacity(0.55))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(logo);
+        let count_chip = (more > 0).then(|| {
+            let chip = div()
+                .debug_selector(|| "float-pill-count".into())
+                .flex_none()
+                .h(px(18.))
+                .px(px(6.))
+                .rounded_full()
+                .bg(t.amber_soft)
+                .flex()
+                .items_center()
+                .text_size(px(11.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(t.amber)
+                .child(SharedString::from(format!("+{more}")));
+            // A change of count: a short fade in, nothing that blinks.
+            if kit::motion::on() {
+                chip.with_animation(ElementId::Name(format!("float-count-{more}").into()), Animation::new(Duration::from_millis(260)), |d, k| d.opacity(0.35 + 0.65 * k)).into_any_element()
+            } else {
+                chip.into_any_element()
+            }
+        });
+        let words = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .min_w_0()
+                    .child(div().flex_none().max_w(px(170.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(SharedString::from(name)))
+                    .when_some(project, |d, p| d.child(div().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.5)).text_color(t.text_3).child(SharedString::from(p))))
+                    .children(count_chip),
+            )
+            .child(
+                div()
+                    .debug_selector(|| "float-pill-what".into())
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(12.5))
+                    .text_color(what.1)
+                    .child(what.0),
+            );
+        // The buttons: one click answers a plain yes/no whose summary says
+        // all it does; anything else is looked at first.
+        let k = key.clone();
+        let review = move |label: &'static str, t: &Theme| {
+            let k = k.clone();
+            no_drag(hot(
+                kit::text_button("float-pill-review", label, kit::BtnKind::Ghost, false, t).debug_selector(|| "float-pill-review".into()).on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    expand_on(&k, cx);
+                }),
+                "pill-review",
+            ))
+            .into_any_element()
+        };
+        let buttons: Vec<gpui::AnyElement> = match entry {
+            _ if sent_to.is_some() => vec![],
+            _ if error.is_some() => vec![review("Show", t)],
+            model::Entry::Agent(i) if model::pill_answers(i) => {
+                let (yes, no) = (i.id.clone(), i.id.clone());
+                let mut b = Vec::new();
+                if i.can_reject() {
+                    b.push(
+                        no_drag(hot(
+                            kit::text_button("float-pill-reject", "Reject", kit::BtnKind::Ghost, false, t).debug_selector(|| "float-pill-reject".into()).on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                answer(&no, false, cx);
+                            }),
+                            "pill-reject",
+                        ))
+                        .into_any_element(),
+                    );
+                }
+                b.push(
+                    no_drag(hot(
+                        kit::accent_button("float-pill-accept", t.amber, gpui::rgb(0x1a1200).into(), t).debug_selector(|| "float-pill-accept".into()).child("Accept").on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            answer(&yes, true, cx);
+                        }),
+                        "pill-accept",
+                    ))
+                    .into_any_element(),
+                );
+                b
+            }
+            model::Entry::Agent(i) if i.can_accept() => vec![review("Show", t)],
+            model::Entry::Agent(i) => {
+                let id = i.id.clone();
+                vec![no_drag(hot(
+                    kit::text_button("float-pill-open", "Open", kit::BtnKind::Ghost, false, t).debug_selector(|| "float-pill-open".into()).on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        open(&id, cx);
+                    }),
+                    "pill-open",
+                ))
+                .into_any_element()]
+            }
+            model::Entry::Ask(a) => {
+                let a = a.clone();
+                vec![no_drag(hot(
+                    kit::text_button("float-pill-open", "Open", kit::BtnKind::Ghost, false, t).debug_selector(|| "float-pill-open".into()).on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        open_ask(&a, cx);
+                    }),
+                    "pill-open",
+                ))
+                .into_any_element()]
+            }
+        };
+        let k = key.clone();
+        let pill = div()
             .id("float-puck")
             .debug_selector(|| "float-puck".into())
             .absolute()
             .left(px(PAD))
             .top(px(PAD))
-            .size(px(PUCK))
-            .rounded(px(PUCK_RADIUS))
+            .w(px(PILL_W))
+            .h(px(PILL_H))
+            .rounded(px(PILL_RADIUS))
             .bg(fill.unwrap_or(t.raised))
             .shadow(shadow(t, fill.is_some()))
+            .px(px(PILL_PAD))
             .flex()
             .items_center()
-            .justify_center()
+            .gap(px(10.))
             .cursor_pointer()
-            .hover(|d| d.bg(t.surface_3))
-            .on_click(|_, _, cx| {
+            .on_click(move |_, _, cx| {
                 if !DRAGGED.replace(false) {
-                    toggle(cx);
+                    expand_on(&k, cx);
                 }
             })
-            .child(kit::brand_mark(t));
-        // The count sits on the tile's corner, half outside it.
-        let badge = div()
-            .absolute()
-            .left(px(PAD + PUCK - 12.))
-            .top(px(PAD - 7.))
-            .h(px(19.))
-            .min_w(px(19.))
-            .px(px(5.))
-            .rounded_full()
-            .bg(t.amber)
-            // A dark rim, so it reads as a badge on the tile over anything.
-            .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.55), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.5), inset: false }])
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(11.))
-            .font_weight(FontWeight::BOLD)
-            .text_color(gpui::rgb(0x1a1200))
-            .child(SharedString::from(count.to_string()));
-        div().relative().size_full().child(hot(drag_handle(tile), "puck")).child(badge)
+            .child(ident)
+            .child(words)
+            .child(div().flex_none().flex().items_center().gap(px(6.)).children(buttons));
+        div().relative().size_full().child(hot(drag_handle(pill), "puck"))
     }
 
-    /// Open: the mark, the count, "Accept all" when several can be, the
-    /// sizes, and the button that minimises it to the mark.
-    fn header(list: &[Item], asks: &[AskItem], f: &Float, t: &Theme) -> impl IntoElement {
-        let several = model::acceptable(list).len() >= 2;
-        let pending = model::acceptable(list).iter().any(|i| !f.answered.contains_key(&i.id));
+    /// Open: who asks (logo, name, project), where this card is among
+    /// those that wait ("1 of 3" and the arrows), "Accept all" when every
+    /// one is a plain yes/no, and the button back to the pill.
+    fn header(entries: &[model::Entry], at: usize, f: &Float, t: &Theme) -> impl IntoElement {
+        let entry = entries[at];
+        let (logo, name, place) = match entry {
+            model::Entry::Agent(i) => {
+                let place = if i.local { i.project.clone() } else { format!("{} · another machine", i.project) };
+                (kit::agent_logo(&i.kind, &i.kind_name, 18., t), i.name.clone(), place)
+            }
+            model::Entry::Ask(a) => (kit::icon(&a.icon, 16., t.text_2).into_any_element(), a.who().to_string(), a.ext_name.clone()),
+        };
+        let all = model::accept_all(entries, &|k| f.answered.contains_key(k));
+        let nav = |id: &'static str, glyph: &'static str, by: isize| {
+            no_drag(hot(
+                div()
+                    .id(id)
+                    .debug_selector(move || id.into())
+                    .flex_none()
+                    .size(px(28.))
+                    .rounded(px(7.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(16.))
+                    .text_color(t.text_2)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(t.surface_3).text_color(t.text))
+                    .on_click(move |_, _, cx| go(by, cx))
+                    .child(glyph),
+                id,
+            ))
+        };
         let collapse = div()
             .id("float-collapse")
             .debug_selector(|| "float-collapse".into())
             .flex_none()
-            .size(px(24.))
-            .rounded_full()
-            .bg(t.surface_2)
+            .size(px(28.))
+            .rounded(px(7.))
             .flex()
             .items_center()
             .justify_center()
             .cursor_pointer()
             .hover(|d| d.bg(t.surface_3))
             .on_click(|_, _, cx| toggle(cx))
-            // Minimize: back to the tile.
-            .child(div().w(px(10.)).h(px(1.5)).rounded_full().bg(t.text_2));
+            // Minimise: back to the pill.
+            .child(div().w(px(11.)).h(px(1.5)).rounded_full().bg(t.text_2));
         div()
             .id("float-header")
             .debug_selector(|| "float-header".into())
             .h(px(HEADER_H))
             .flex_none()
-            .pl(px(12.))
+            .pl(px(14.))
             .pr(px(8.))
             .flex()
             .items_center()
-            .gap(px(9.))
-            .child(kit::brand_mark(t))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(SharedString::from(model::title(list, asks))),
-            )
-            .when(several, |d| {
+            .gap(px(8.))
+            .child(div().flex_none().flex().items_center().child(logo))
+            .child(div().flex_none().max_w(px(200.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(SharedString::from(name)))
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.5)).text_color(t.text_3).child(SharedString::from(place)))
+            .when(all, |d| {
                 d.child(no_drag(hot(
                     div()
                         .id("float-accept-all")
                         .debug_selector(|| "float-accept-all".into())
                         .flex_none()
-                        .h(px(24.))
-                        .px(px(9.))
+                        .h(px(28.))
+                        .px(px(10.))
                         .rounded(kit::button::btn_radius(t))
                         .flex()
                         .items_center()
                         .border_1()
                         .border_color(t.amber.opacity(0.7))
-                        .text_size(px(12.))
+                        .text_size(px(12.5))
                         .font_weight(kit::WEIGHT_550)
                         .text_color(t.text)
-                        .when(!pending, |d| d.opacity(0.45))
-                        .when(pending, |d| d.cursor_pointer().hover(|d| d.bg(t.amber_soft)))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(t.amber_soft))
                         .on_click(|_, _, cx| accept_all(cx))
-                        .child("Accept all"),
+                        .child(SharedString::from(format!("Accept all {}", entries.len()))),
                     "accept-all",
                 )))
             })
-            .child(Self::sizes(Preset::of(f.width, f.rows), t))
+            .when(entries.len() > 1, |d| {
+                d.child(nav("float-prev", "‹", -1))
+                    .child(
+                        div()
+                            .debug_selector(|| "float-position".into())
+                            .flex_none()
+                            .text_size(px(12.5))
+                            .text_color(t.text_2)
+                            .child(SharedString::from(format!("{} of {}", at + 1, entries.len()))),
+                    )
+                    .child(nav("float-next", "›", 1))
+            })
             .child(no_drag(hot(collapse, "collapse")))
     }
 
-    /// Small, Medium and Large, the one it has marked (none after a drag).
-    fn sizes(now: Option<Preset>, t: &Theme) -> impl IntoElement {
-        div()
-            .debug_selector(|| "float-sizes".into())
-            .flex_none()
-            .h(px(24.))
-            .p(px(2.))
-            .rounded(px(7.))
-            .bg(t.surface_2)
-            .flex()
-            .items_center()
-            .gap(px(1.))
-            .children(Preset::ALL.map(|p| {
-                let on = now == Some(p);
-                let sel = format!("float-size-{}", p.name());
-                no_drag(hot(
-                    div()
-                        .id(SharedString::from(sel.clone()))
-                        .debug_selector(move || sel)
-                        .w(px(22.))
-                        .h(px(20.))
-                        .rounded(px(5.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if on { t.text } else { t.text_3 })
-                        .when(on, |d| d.bg(t.raised).shadow(vec![t.ring(t.line_strong)]))
-                        .cursor_pointer()
-                        .hover(|d| d.text_color(t.text))
-                        .on_click(move |_, _, cx| set_preset(p, cx))
-                        .child(p.letter()),
-                    format!("size-{}", p.name()),
-                ))
-            }))
+    /// The keys the open panel takes, for the card shown.
+    fn hints(entry: model::Entry, count: usize, t: &Theme) -> impl IntoElement {
+        let hint = |keys: &str, what: &str| div().flex_none().flex().items_center().gap(px(5.)).child(kit::kbd(keys, t)).child(div().text_size(px(12.)).text_color(t.text_3).child(SharedString::from(what.to_string())));
+        let mut list = Vec::new();
+        match entry {
+            model::Entry::Agent(i) if i.can_accept() => {
+                list.push(hint("⏎", "Accept"));
+                if i.can_reject() {
+                    list.push(hint("esc", "Reject"));
+                }
+            }
+            model::Entry::Agent(i) if i.local => {
+                list.push(hint("↑ ↓ ⏎", "Answer in its terminal"));
+                list.push(hint("esc", "Close"));
+            }
+            _ => list.push(hint("esc", "Close")),
+        }
+        if count > 1 {
+            list.push(hint("← →", "Other prompts"));
+        }
+        div().debug_selector(|| "float-hints".into()).h(px(HINT_H)).flex_none().px(px(14.)).flex().items_center().gap(px(14.)).children(list)
     }
 
-    /// One agent: who it is and what it wants, its prompt (`term`: as its
-    /// terminal shows it; else its text), the buttons, and a line of help
-    /// or of an error.
-    fn card(
-        item: &Item,
-        max_lines: usize,
-        term: Option<Screen>,
-        on_scroll: impl Fn(&ScrollEvent, &mut Window, &mut App) + 'static,
-        focus: FocusHandle,
-        f: &Float,
-        t: &Theme,
-    ) -> impl IntoElement {
-        let lines = if term.is_some() { Vec::new() } else { item.lines(max_lines, shape(f).cols()) };
+    /// One agent's card: the summary of what it asks (when its prompt has
+    /// a shape Pitwall knows), the terminal's rows that ask (a few under a
+    /// summary, "Show all" for the rest; `term`: as its terminal shows
+    /// them, else the prompt's text), the buttons, and a line of what
+    /// happened or how to answer.
+    fn card(item: &Item, term: Option<Screen>, total: usize, on_scroll: impl Fn(&ScrollEvent, &mut Window, &mut App) + 'static, focus: FocusHandle, f: &Float, t: &Theme) -> impl IntoElement {
+        let s = shape(f);
+        let summary = model::summary(item);
+        let few = summary.is_some() && !f.show_all;
+        let lines = if term.is_some() { Vec::new() } else { item.lines(if few { model::RAW_FEW } else { s.max_lines() }, s.cols()) };
         let sel_term = format!("float-term-{}", item.id);
-        // The keyboard goes to this card's terminal.
-        let typing = f.typing.as_deref() == Some(item.id.as_str());
-        let (local, term_id) = (item.local, item.id.clone());
+        let (local, keys) = (item.local, f.keys);
         let error = f.errors.get(&item.id).cloned();
-        let sent = f.answered.contains_key(&item.id);
-        let note: Option<(SharedString, gpui::Hsla)> = match (&error, item.can_accept()) {
-            (Some(e), _) => Some((e.clone(), t.red)),
-            (None, false) if !item.local => Some(("On another machine: answer it there, or open it to look.".into(), t.text_3)),
-            (None, false) => Some(("More than a yes or no: open the agent to answer.".into(), t.text_3)),
-            (None, true) => None,
+        let sent = sent(f, &item.id);
+        let confirm = f.confirm.as_ref().filter(|(id, _)| *id == item.id).map(|(_, n)| n.clone());
+        let note: Option<(SharedString, gpui::Hsla)> = match (&error, sent, item.can_accept()) {
+            (Some(e), _, _) => Some((e.clone(), t.red)),
+            (None, true, _) => Some((format!("Sent to {}{}", item.name, if confirm.is_some() { "" } else { ". It goes when the agent moves on." }).into(), t.green)),
+            (None, false, false) if !item.local => Some(("On another machine: answer it there, or open it to look.".into(), t.text_3)),
+            (None, false, false) => Some(("More than a yes or no: answer it with the keyboard here, or open it.".into(), t.text_3)),
+            (None, false, true) => None,
         };
         let key = |what: &str| format!("float-{what}-{}", item.id);
         let (accept_id, reject_id, open_id) = (item.id.clone(), item.id.clone(), item.id.clone());
-        let (sel_accept, sel_reject, sel_open, sel_prompt, sel_note, sel_card) =
-            (key("accept"), key("reject"), key("open"), key("prompt"), key("note"), key("card"));
-        let head = div()
-            .h(px(CARD_HEAD))
-            .flex_none()
-            .flex()
-            .items_start()
-            .gap(px(7.))
-            .child(div().flex_none().h(px(18.)).flex().items_center().child(kit::agent_logo(&item.kind, &item.kind_name, 14., t)))
-            .child(div().flex_none().max_w(px(190.)).overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::SEMIBOLD).child(SharedString::from(item.name.clone())))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_color(t.text_3)
-                    .child(SharedString::from(item.detail.clone().unwrap_or_default())),
-            );
+        let (sel_accept, sel_reject, sel_open, sel_prompt, sel_note, sel_card, sel_summary) =
+            (key("accept"), key("reject"), key("open"), key("prompt"), key("note"), key("card"), key("summary"));
+        let summary_block = summary.as_ref().map(|sm| {
+            let lines = model::summary_lines(sm, s.width);
+            div()
+                .debug_selector(move || sel_summary)
+                .flex_none()
+                .mb(px(GAP))
+                .flex()
+                .flex_col()
+                .child(div().h(px(model::SUMMARY_LABEL_H)).flex_none().text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(t.amber).child(SharedString::from(sm.label.to_uppercase())))
+                .children(lines.into_iter().map(|l| {
+                    let line = div().h(px(model::SUMMARY_LINE)).flex_none().whitespace_nowrap().overflow_hidden().line_height(px(model::SUMMARY_LINE)).text_color(t.text);
+                    let line = if sm.code { line.font_family(kit::MONO_FONT).text_size(px(13.)) } else { line.text_size(px(14.)).font_weight(FontWeight::MEDIUM) };
+                    line.child(SharedString::from(l))
+                }))
+        });
+        // Over the rows when a summary is above them: what they are, and
+        // "Show all" when there are more than a few.
+        let raw_head = summary.is_some().then(|| {
+            div()
+                .h(px(model::RAW_HEAD_H))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(div().flex_1().text_size(px(12.)).text_color(t.text_3).child("As its terminal shows it"))
+                .when(total > model::RAW_FEW || f.show_all, |d| {
+                    d.child(no_drag(hot(
+                        div()
+                            .id("float-show-all")
+                            .debug_selector(|| "float-show-all".into())
+                            .flex_none()
+                            .h(px(22.))
+                            .px(px(6.))
+                            .rounded(px(5.))
+                            .flex()
+                            .items_center()
+                            .text_size(px(12.))
+                            .font_weight(kit::WEIGHT_550)
+                            .text_color(t.text_2)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.surface_3).text_color(t.text))
+                            .on_click(|_, _, cx| {
+                                let f = cx.global_mut::<Float>();
+                                f.show_all = !f.show_all;
+                                sync_later(cx);
+                            })
+                            .child(if f.show_all { "Show less" } else { "Show all" }),
+                        "show-all",
+                    )))
+                })
+        });
         let buttons = div()
             .h(px(BUTTONS_H))
             .flex_none()
@@ -1826,9 +2197,9 @@ impl FloatView {
                     key("accept"),
                 )))
             })
-            .when(item.can_reject(), |d| {
+            .when(item.can_reject() && !sent, |d| {
                 d.child(no_drag(hot(
-                    kit::text_button(SharedString::from(sel_reject.clone()), "Reject", kit::BtnKind::Ghost, sent, t)
+                    kit::text_button(SharedString::from(sel_reject.clone()), "Reject", kit::BtnKind::Ghost, false, t)
                         .debug_selector(move || sel_reject)
                         .on_click(move |_, _, cx| answer(&reject_id, false, cx)),
                     key("reject"),
@@ -1838,7 +2209,7 @@ impl FloatView {
             .child(no_drag(hot(
                 kit::text_button(
                     SharedString::from(sel_open.clone()),
-                    "Open",
+                    "Open in Pitwall",
                     if item.can_accept() { kit::BtnKind::Ghost } else { kit::BtnKind::Primary },
                     false,
                     t,
@@ -1847,14 +2218,16 @@ impl FloatView {
                 .on_click(move |_, _, cx| open(&open_id, cx)),
                 key("open"),
             )));
+        let term_id = item.id.clone();
         div()
             .debug_selector(move || sel_card)
             .flex_none()
-            .px(px(12.))
+            .px(px(14.))
             .py(px(GAP))
             .flex()
             .flex_col()
-            .child(head)
+            .children(summary_block)
+            .children(raw_head)
             .when_some(term, |d, screen| {
                 // The terminal at its own size, cut off on the right: the
                 // inner box is wider than any screen, so nothing is scaled.
@@ -1863,7 +2236,7 @@ impl FloatView {
                         .id(SharedString::from(sel_term.clone()))
                         .debug_selector(move || sel_term)
                         .on_scroll(on_scroll)
-                        // A click (not a drag) gives it the keyboard.
+                        // A click (not a drag) gives the panel the keyboard back.
                         .when(local, |d| {
                             d.on_click(move |_, window, cx| {
                                 if DRAGGED.replace(false) {
@@ -1871,22 +2244,23 @@ impl FloatView {
                                 }
                                 window.focus(&focus, cx);
                                 crate::platform::float_take_keys(window);
-                                type_into(&term_id, cx);
+                                log(|| format!("keys go to {term_id}"));
+                                cx.global_mut::<Float>().keys = true;
                                 cx.refresh_windows();
                             })
                         })
                         .border_1()
-                        .border_color(if typing { t.focus } else { gpui::transparent_black() })
+                        .border_color(if keys && local { t.focus.opacity(0.6) } else { t.line })
                         .relative()
                         .h(px(f32::from(screen.rows) * LINE_H + BOX_PAD))
                         .mb(px(GAP))
                         .flex_none()
-                        .rounded(px(6.))
+                        .rounded(px(7.))
                         .bg(t.term_bg)
                         .overflow_hidden()
-                        .child(div().absolute().top_0().left_0().h_full().w(px(4000.)).child(screen_view(
+                        .child(div().absolute().top(px(BOX_PAD / 2. - 1.)).left_0().h_full().w(px(4000.)).child(screen_view(
                             &screen,
-                            ScreenOpts { font_size: TERM_FONT, colors: term_colors(t.mode), show_cursor: typing },
+                            ScreenOpts { font_size: TERM_FONT, colors: term_colors(t.mode), show_cursor: keys && local && !item.can_accept() },
                         ))),
                 )
             })
@@ -1899,16 +2273,16 @@ impl FloatView {
                         .flex_none()
                         .px(px(10.))
                         .py(px(BOX_PAD / 2.))
-                        .rounded(px(6.))
+                        .rounded(px(7.))
+                        .border_1()
+                        .border_color(t.line)
                         .bg(t.term_bg)
                         .overflow_hidden()
                         .font_family(kit::MONO_FONT)
                         .text_size(px(TERM_FONT))
                         .line_height(px(LINE_H))
                         .text_color(t.text_2)
-                        .children(lines.into_iter().map(|l| {
-                            div().h(px(LINE_H)).flex_none().whitespace_nowrap().overflow_hidden().child(SharedString::from(l))
-                        })),
+                        .children(lines.into_iter().map(|l| div().h(px(LINE_H)).flex_none().whitespace_nowrap().overflow_hidden().child(SharedString::from(l)))),
                 )
             })
             .child(buttons)
@@ -1920,41 +2294,15 @@ impl FloatView {
                         .flex_none()
                         .flex()
                         .items_end()
+                        .gap(px(5.))
                         .overflow_hidden()
                         .whitespace_nowrap()
-                        .text_size(px(11.5))
+                        .text_size(px(12.5))
                         .text_color(color)
+                        .when(sent && error.is_none(), |d| d.child(kit::icon("check", 13., color)))
                         .child(text),
                 )
             })
-    }
-
-    /// "+2 more in Pitwall": opens the first agent or question that has
-    /// no card.
-    fn more(list: &[Item], asks: &[AskItem], t: &Theme) -> Stateful<Div> {
-        let first_agent = list.get(MAX_CARDS).map(|i| i.id.clone());
-        let first_ask = asks.get(model::shown_asks(list, asks)).cloned();
-        no_drag(hot(
-            div()
-                .id("float-more")
-                .debug_selector(|| "float-more".into())
-                .h(px(MORE_H))
-                .flex_none()
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .text_size(px(12.))
-                .text_color(t.text_3)
-                .hover(|d| d.bg(t.surface_3))
-                .on_click(move |_, _, cx| match (&first_agent, &first_ask) {
-                    (Some(id), _) => open(id, cx),
-                    (None, Some(a)) => open_ask(a, cx),
-                    (None, None) => {}
-                })
-                .child(SharedString::from(format!("+{} more in Pitwall", list.len() + asks.len() - MAX_CARDS))),
-            "more",
-        ))
     }
 
     /// Question `a`'s field for an answer of the user's own (Enter sends
@@ -2072,7 +2420,7 @@ impl FloatView {
                     // here, not to an agent's terminal.
                     .capture_any_mouse_down(|_, window, cx| {
                         crate::platform::float_take_keys(window);
-                        cx.global_mut::<Float>().typing = None;
+                        cx.global_mut::<Float>().keys = false;
                     })
                     .child(input),
             ))
@@ -2171,7 +2519,8 @@ impl Render for FloatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list = items(cx);
         let questions = asks(cx);
-        let count = list.len() + questions.len();
+        let entries = model::entries(&list, &questions);
+        let count = entries.len();
         let expanded = cx.try_global::<Float>().is_some_and(|f| f.expanded) && count > 0;
         // Liquid Glass: the control is a slab of the system's own glass
         // over whatever the user is in; nothing of ours is painted behind
@@ -2184,7 +2533,7 @@ impl Render for FloatView {
             t.text_3 = t.text_2;
             t.text_2 = t.text;
         }
-        let radius = if expanded { PANEL_RADIUS } else { PUCK_RADIUS };
+        let radius = if expanded { PANEL_RADIUS } else { PILL_RADIUS };
         // The theme's own surface, thinly, over the glass.
         let fill = liquid.then(|| t.raised.opacity(if expanded { GLASS_FILL_OPEN } else { GLASS_FILL }));
         let slab = crate::platform::glass::Slab { inset: PAD, radius, mode: t.mode };
@@ -2212,35 +2561,75 @@ impl Render for FloatView {
             .line_height(gpui::relative(kit::BODY_LINE_HEIGHT))
             .text_color(t.text);
         let shape = cx.try_global::<Float>().map(shape).unwrap_or_default();
-        let (max_lines, fill_rows) = (shape.max_lines(count), shape.fill());
-        // The screens of this machine's agents that have a card.
-        let cards = if expanded { model::shown(&list) } else { &[] };
+        let at = cx.try_global::<Float>().map_or(0, |f| model::position(&entries, f.current.as_deref()));
+        let current = entries.get(at).copied().filter(|_| expanded);
+        let show_all = cx.try_global::<Float>().is_some_and(|f| f.show_all);
+        // The screen of the card shown, when it is this machine's agent.
+        let agent = match current {
+            Some(model::Entry::Agent(i)) => Some(i.clone()),
+            _ => None,
+        };
         let demo = cx.try_global::<Float>().map(|f| f.demo_screens.clone()).unwrap_or_default();
-        self.watch(&cards.iter().filter(|i| i.local).map(|i| i.id.as_str()).collect::<Vec<_>>(), &demo);
-        let terms: Vec<Option<(Screen, TermRows)>> = cards.iter().map(|i| self.term(i, max_lines, fill_rows)).collect();
-        // The window is sized for the rows the cards show.
-        let rows: HashMap<String, TermRows> = cards.iter().zip(&terms).filter_map(|(i, t)| Some((i.id.clone(), t.as_ref()?.1))).collect();
-        let terms = terms.into_iter().map(|t| t.map(|(s, _)| s));
+        self.watch(&agent.iter().filter(|i| i.local).map(|i| i.id.as_str()).collect::<Vec<_>>(), &demo);
+        let few = agent.as_ref().is_some_and(|i| model::summary(i).is_some()) && !show_all;
+        let (max_lines, fill_rows) = if few { (model::RAW_FEW, false) } else { (shape.max_lines(), shape.fill()) };
+        let term = agent.as_ref().and_then(|i| self.term(i, max_lines, fill_rows));
+        // The window is sized for the rows the card shows.
+        let rows: HashMap<String, TermRows> = agent.iter().zip(&term).map(|(i, t)| (i.id.clone(), t.1)).collect();
         if cx.try_global::<Float>().is_some_and(|f| f.term_rows != rows) {
             cx.defer(move |cx| {
                 cx.global_mut::<Float>().term_rows = rows;
                 sync(cx);
             });
         }
-        // The questions that have a card, and their fields.
-        let shown_asks = if expanded { &questions[..model::shown_asks(&list, &questions)] } else { &[] };
-        let keys: HashSet<String> = shown_asks.iter().map(AskItem::key).collect();
-        self.others.retain(|k, _| keys.contains(k));
-        let inputs: Vec<Entity<TextInput>> = shown_asks.iter().map(|a| self.other_input(a, cx)).collect();
+        // All of the prompt's rows, for "Show all".
+        let total = agent.as_ref().map_or(0, |i| model::lines_shown(i, shape, term.as_ref().map(|t| t.1), false));
+        let term = term.map(|(s, _)| s);
+        // The question shown, and its field.
+        let ask = match current {
+            Some(model::Entry::Ask(a)) => Some(a.clone()),
+            _ => None,
+        };
+        self.others.retain(|k, _| ask.as_ref().is_some_and(|a| a.key() == *k));
+        let input = ask.as_ref().map(|a| self.other_input(a, cx));
         let Some(f) = cx.try_global::<Float>() else { return root };
         if count == 0 {
             return root;
         }
+        // Its first appearance slides in, a little, once.
+        let arrive = |d: Div| -> gpui::AnyElement {
+            if !kit::motion::on() {
+                return d.into_any_element();
+            }
+            d.with_animation(
+                ElementId::Name(format!("float-in-{}", f.shown_count).into()),
+                Animation::new(Duration::from_millis(240)).with_easing(gpui::ease_out_quint()),
+                |d, k| d.opacity(k).top(px((1. - k) * 10.)),
+            )
+            .into_any_element()
+        };
         if !expanded {
-            return root.child(Self::puck(count, fill, &t));
+            return root.child(arrive(div().relative().size_full().child(Self::pill(&entries, f, fill, &t))));
         }
         let rule = || div().h(px(RULE)).flex_none().bg(t.line);
-        let mut panel = div()
+        let card = match (current, input) {
+            (Some(model::Entry::Ask(a)), Some(input)) => {
+                let picked = f.picks.get(&a.key()).cloned().unwrap_or_default();
+                let sent = f.sent.contains_key(&a.key()) || a.busy;
+                Self::ask_card(a, input, shape.width, picked, ask_note(f, a), sent, &t).into_any_element()
+            }
+            (Some(model::Entry::Agent(item)), _) => {
+                let scrolled = item.clone();
+                let on_scroll = cx.listener(move |this, ev: &ScrollEvent, _, cx| {
+                    // The wheel moves the content: down shows what is above.
+                    let dy = -f32::from(ev.delta.pixel_delta(px(LINE_H)).y);
+                    this.scroll(&scrolled, max_lines, fill_rows, dy, cx);
+                });
+                Self::card(item, term, total, on_scroll, self.focus.clone(), f, &t).into_any_element()
+            }
+            _ => div().into_any_element(),
+        };
+        let panel = div()
             .id("float-panel")
             .size_full()
             .flex()
@@ -2250,24 +2639,12 @@ impl Render for FloatView {
             .bg(fill.unwrap_or(t.raised))
             .border_1()
             .border_color(t.line_strong)
-            .child(Self::header(&list, &questions, f, &t));
-        for (item, term) in cards.iter().zip(terms) {
-            let scrolled = item.clone();
-            let on_scroll = cx.listener(move |this, ev: &ScrollEvent, _, cx| {
-                // The wheel moves the content: down shows what is above.
-                let dy = -f32::from(ev.delta.pixel_delta(px(LINE_H)).y);
-                this.scroll(&scrolled, max_lines, fill_rows, dy, cx);
-            });
-            panel = panel.child(rule()).child(Self::card(item, max_lines, term, on_scroll, self.focus.clone(), f, &t));
-        }
-        for (a, input) in shown_asks.iter().zip(inputs) {
-            let picked = f.picks.get(&a.key()).cloned().unwrap_or_default();
-            let sent = f.sent.contains_key(&a.key()) || a.busy;
-            panel = panel.child(rule()).child(Self::ask_card(a, input, shape.width, picked, ask_note(f, a), sent, &t));
-        }
-        if count > MAX_CARDS {
-            panel = panel.child(rule()).child(Self::more(&list, &questions, &t));
-        }
+            .child(Self::header(&entries, at, f, &t))
+            .child(rule())
+            .child(card)
+            .child(div().flex_1())
+            .child(rule())
+            .child(Self::hints(entries[at], count, &t));
         // The edges that resize it, over the panel's (laid out for the
         // window's size now: the panel fills it).
         let view = window.viewport_size();
@@ -2275,7 +2652,7 @@ impl Render for FloatView {
         // The panel's own shadow, in the clear space around it.
         root.relative()
             .p(px(PAD))
-            .child(div().size_full().rounded(px(PANEL_RADIUS)).shadow(shadow(&t, liquid)).child(drag_handle(panel)))
+            .child(arrive(div().relative().size_full().rounded(px(PANEL_RADIUS)).shadow(shadow(&t, liquid)).child(drag_handle(panel))))
             .children(Edge::ALL.map(|e| edge_zone(e, w, h)))
             // Where the platform doesn't follow the pointer itself.
             .children((!self.preview).then(|| canvas(|_, _, _| {}, |_, _, window, _| follow_resize(window)).absolute().size_0()))
