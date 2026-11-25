@@ -132,6 +132,20 @@ fn settings_as_a_tile_is_a_typed_row(cx: &mut TestAppContext) {
     });
 }
 
+/// The editor's "New file" and "Open file in editor…" when asked for.
+#[gpui::test]
+fn the_editor_is_a_typed_row(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        init(cx);
+        let st = state();
+        for (q, id, title) in [("new file", "editor-new", "New file"), ("open file in editor", "editor-open", "Open file in editor…"), ("text editor", "editor-open", "Open file in editor…")] {
+            let r = rows(cx, q, &st);
+            let row = r.iter().find(|c| c.id == id).unwrap_or_else(|| panic!("{q}"));
+            assert_eq!(row.plain(), title);
+        }
+    });
+}
+
 #[gpui::test]
 fn typing_filters_and_reveals_the_query_only_rows(cx: &mut TestAppContext) {
     cx.update(|cx| {

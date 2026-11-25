@@ -217,6 +217,42 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         .query_only()
         .rank(rank::TERMINALS),
     );
+    // The text editor (docs/spec/editor.md).
+    out.push(
+        Command::new(
+            "editor-new",
+            "New file",
+            "new file untitled text editor write create",
+            on_screen(pc, |s, w, cx| s.new_file_in_editor(w, cx)),
+        )
+        .icon("file")
+        .query_only()
+        .rank(rank::TERMINALS),
+    );
+    out.push(
+        Command::new(
+            "editor-open",
+            "Open file in editor…",
+            "open file in editor text edit code",
+            on_screen(pc, |s, w, cx| s.pick_files_for_editor(w, cx)),
+        )
+        .icon("file")
+        .query_only()
+        .rank(rank::TERMINALS),
+    );
+    if crate::main_screen::editor_tile::placed(cx) {
+        out.push(
+            Command::new(
+                "editor-show",
+                "Show the editor",
+                "editor text files tabs show focus",
+                on_screen(pc, |s, w, cx| s.open_editor_tile(w, cx)),
+            )
+            .icon("file")
+            .query_only()
+            .rank(rank::TERMINALS),
+        );
+    }
     // Device screens (docs/spec/device.md): each device adb and simctl
     // listed that can be shown now, from the list made when the palette
     // opened.

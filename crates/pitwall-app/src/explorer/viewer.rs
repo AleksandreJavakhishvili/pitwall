@@ -2652,6 +2652,20 @@ impl Viewer {
                         .child(crate::kit::segment("ex-md-preview", "Preview".into(), on, false, t).on_click(cx.listener(|v, _, _, cx| v.set_preview(true, cx)))),
                 )
             })
+            .when(is_text && self.local(cx) && !self.agent(cx).is_some_and(|a| crate::agents::mirrored(&a)), |d| {
+                // The text editor, at the same line (docs/spec/editor.md).
+                let (path, code) = (abs.to_string(), doc.and_then(|d| d.code.as_ref()).map(|c| c.code.clone()));
+                d.child(
+                    tool_btn("ex-open-in-editor", "file", if narrow { "" } else { "Open in editor" }, String::new(), false, t)
+                        .debug_selector(|| "ex-open-in-editor".into())
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let line = code.as_ref().and_then(|c| c.read(cx).caret()).map(|(l, _)| l as u32 + 1);
+                            let path = path.clone();
+                            cx.defer(move |cx| crate::main_screen::editor_tile::open_path(&path, line, cx));
+                        }))
+                        .tooltip(|_, cx| tooltip_view("Open this file in the text editor", cx)),
+                )
+            })
             .child(
                 tool_btn("ex-copy-path", "copy", if self.copied { "Copied" } else if narrow { "" } else { "Copy path" }, String::new(), false, t)
                     .on_click(cx.listener(move |this, _, _, cx| this.copy_path(&cwd, cx)))
