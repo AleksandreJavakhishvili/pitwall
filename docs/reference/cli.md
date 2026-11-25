@@ -28,8 +28,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 Start an agent in a project and give it work:
 
 ```bash
-id=$(pitwall agent new --kind claude --project ~/code/api --name api | jq -r .id)
-pitwall queue add "$id" "run the tests and fix what fails"
+id=$(pitwall agent new --kind claude --project ~/code/api --name api --prompt "run the tests and fix what fails" | jq -r .id)
 pitwall wait "$id" --for done,blocked --fresh
 pitwall review changes "$id" --human
 ```
@@ -120,6 +119,8 @@ pitwall agent new [OPTIONS]
 | `--name <NAME>` | Name shown in Pitwall (default: the kind's name). With --machine: the session's name there (required). |
 | `--resume <SESSION_ID>` | Continue this conversation (session id) instead of starting fresh. |
 | `--account <ACCOUNT>` | The login it runs with: an account's name or id (Settings → Agents → Accounts), or `default` for your own (default: the project's). |
+| `--prompt <TEXT>` | Its first instruction: put in its Next up as it is created, as `queue add` does, and sent when it is first free (if Auto-send is on). `-` reads it from stdin. |
+| `--prompt-file <PATH>` | Its first instruction, read from this file (as --prompt). |
 | `--machine <MACHINE>` | Create it on this machine (an agw VM; see `machine list` and `machine form <machine>`). It changes that machine, so it waits for your approval in Pitwall. |
 | `--provider <PROVIDER>` | The provider of --machine, when two have a machine by that name. |
 | `--workspace <NAME>` | --machine: an existing workspace there. |
@@ -132,6 +133,8 @@ pitwall agent new [OPTIONS]
 
 ```bash
 pitwall agent new --kind claude --project ~/code/api --name api
+pitwall agent new --kind claude --name api --prompt "run the tests and fix what fails"
+pitwall agent new --kind claude --name review --prompt-file task.md   # or --prompt - < task.md
 pitwall agent new --kind claude --resume 7f3c2a90-…      # continue a conversation
 pitwall agent new --kind shell                           # a terminal in this folder
 pitwall agent new --machine my-vm --name fix --workspace work --as admin --template claude

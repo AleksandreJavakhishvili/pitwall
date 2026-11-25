@@ -31,16 +31,55 @@ use serde_json::{json, Value};
 
 use args::{AgentCmd, Cli, Command, MachineCmd, SessionCmd};
 use pitwall_client::{Client, Error};
-use pitwall_proto::{code, AgentCreate, ErrorBody, FormRequest, ProviderMachines, SessionAdd, SessionFilter, CREATE_NEW};
+use pitwall_proto::{code, AgentCreate, AgentCreated, ErrorBody, FormRequest, ProviderMachines, SessionAdd, SessionFilter, CREATE_NEW};
 
 /// What a command produced: its JSON result and the same as text.
 pub struct Output {
     pub json: Value,
     pub human: String,
+    /// Done in part, then failed: printed as an error after the output,
+    /// and the exit status is its.
+    pub failed: Option<ErrorBody>,
 }
 
 fn out<T: serde::Serialize>(v: &T, human: String) -> Output {
-    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human }
+    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human, failed: None }
+}
+
+/// `agent new --prompt`/`--prompt-file`: the text (`-`: stdin), trailing
+/// newlines dropped; blank is refused before anything is made.
+fn first_instruction(a: &args::AgentNew) -> Result<Option<String>, Error> {
+    let text = match (&a.prompt, &a.prompt_file) {
+        (Some(p), _) => manage::prompt_text(p)?,
+        (None, Some(path)) => std::fs::read_to_string(path)
+            .map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, format!("--prompt-file {path}: {e}"))))?
+            .trim_end_matches(['\n', '\r'])
+            .to_string(),
+        (None, None) => return Ok(None),
+    };
+    if text.trim().is_empty() {
+        return Err(Error::Server(ErrorBody::new(code::BAD_PARAMS, "the first instruction is empty: nothing was created")));
+    }
+    Ok(Some(text))
+}
+
+/// Error code: the agent was made, but its first instruction wasn't queued.
+pub const QUEUE_FAILED: &str = "queue_failed";
+
+/// What `agent new` printed, and its first instruction's fate.
+fn agent_new_output(made: &AgentCreated) -> Output {
+    let a = &made.agent;
+    let mut human = render::agent_new(a);
+    let mut failed = None;
+    if made.queued.is_some() {
+        human.push_str(&render::first_queued(a));
+    } else if let Some(e) = &made.queue_error {
+        failed = Some(ErrorBody::new(
+            QUEUE_FAILED,
+            format!("{} was created (id {}), but its first instruction couldn't be queued: {e}. Queue it with `pitwall queue add {} -`.", a.name, a.id, a.id),
+        ));
+    }
+    Output { failed, ..out(made, human) }
 }
 
 /// A folder as the server needs it: absolute (`~` is left for the server,
@@ -129,7 +168,8 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Agent(AgentCmd::New(a)) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
             let options = machine_options(a).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
-            let view = c.create_agent(&AgentCreate {
+            let prompt = first_instruction(a)?;
+            let made = c.create_agent_queued(&AgentCreate {
                 kind: a.kind.clone().unwrap_or_default(),
                 project: if a.machine.is_some() { String::new() } else { absolute(a.project.as_deref(), &cwd) },
                 name: a.name.clone(),
@@ -140,9 +180,9 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
                 options,
                 cols: None,
                 rows: None,
-                prompt: None,
+                prompt,
             })?;
-            out(&view, render::agent_new(&view))
+            agent_new_output(&made)
         }
         Command::Machine(MachineCmd::List) => {
             let list = c.machines()?;
@@ -306,13 +346,17 @@ fn main() -> ExitCode {
         };
     }
     match run(&cli.command, &socket) {
-        Ok(o) if cli.human => {
-            print!("{}", o.human);
-            ExitCode::SUCCESS
-        }
         Ok(o) => {
-            println!("{}", serde_json::to_string_pretty(&o.json).unwrap_or_default());
-            ExitCode::SUCCESS
+            if cli.human {
+                print!("{}", o.human);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&o.json).unwrap_or_default());
+            }
+            match o.failed {
+                // What was done is on stdout; what failed after it, as any error.
+                Some(body) => report(&Error::Server(body), cli.human),
+                None => ExitCode::SUCCESS,
+            }
         }
         Err(e) => report(&e, cli.human),
     }
