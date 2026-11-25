@@ -29,6 +29,7 @@ pub mod logic;
 pub mod pan_zoom;
 pub mod pdf_view;
 pub mod quick_open;
+pub mod root_menu;
 pub mod search;
 pub mod show;
 pub mod source;

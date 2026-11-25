@@ -43,6 +43,13 @@ pub fn bindings() -> Vec<KeyBinding> {
 /// A file was picked (click or ↵).
 pub struct OpenFile(pub String);
 
+/// A folder's menu was asked for (a right click on it): its path, and
+/// where (window coordinates).
+pub struct FolderMenu {
+    pub path: String,
+    pub at: gpui::Point<gpui::Pixels>,
+}
+
 pub struct TreeView {
     tree: Entity<TreeModel>,
     rows: Rc<Vec<TreeRow>>,
@@ -56,6 +63,7 @@ pub struct TreeView {
 }
 
 impl EventEmitter<OpenFile> for TreeView {}
+impl EventEmitter<FolderMenu> for TreeView {}
 
 impl Focusable for TreeView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -289,7 +297,21 @@ impl TreeView {
             .when(at_cursor && !current, |d| {
                 d.border_1().border_color(t.focus)
             })
+            .debug_selector({
+                let p = e.path.clone();
+                move || format!("ex-tree-row-{p}")
+            })
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+            .when(is_dir, |d| {
+                let p = e.path.clone();
+                d.on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |_, ev: &gpui::MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(FolderMenu { path: p.clone(), at: ev.position });
+                    }),
+                )
+            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.focus, cx);
                 this.activate(&path, kind, cx);

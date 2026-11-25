@@ -57,7 +57,8 @@ use super::logic::{absolute_path, short_path, size_label, split_path};
 use super::search::{Blurred, OpenHit, SearchPane};
 use super::source::{Res, Source, LARGE_CAP, TEXT_CAP};
 use super::tree::{now_ms, TreeModel};
-use super::tree_view::{OpenFile, TreeView};
+use super::root_menu::{RootMenu, RootMenuEvent, Start};
+use super::tree_view::{FolderMenu, OpenFile, TreeView};
 use super::widgets::{refresh_control, status_mark};
 use crate::kit::{icon, icon_btn_state, kbd, keys, small_btn, tool_btn, tooltip_view, MONO_FONT};
 use crate::agents::AgentStore;
@@ -453,6 +454,8 @@ pub struct Viewer {
     /// The agent it was opened for (its files tile, or its window):
     /// its name in the bar.
     owner: Option<String>,
+    /// The id of the agent `owner` names (whose tile or window it is).
+    owner_id: Option<String>,
     /// In a window: kept on top of other windows.
     pinned: bool,
     /// In a window: a Pitwall window shows the agent ("Dock right of the
@@ -515,6 +518,18 @@ pub struct Viewer {
     tabs_menu: bool,
     /// The tab last scrolled into view.
     tabs_scrolled_to: Option<String>,
+    /// The root menu (the folder in the bar clicked), open at this point.
+    root_menu: Option<(gpui::Point<Pixels>, Entity<RootMenu>, Subscription)>,
+    /// A folder's menu in the tree ("Open as root"), open at this point.
+    tree_menu: Option<(gpui::Point<Pixels>, String)>,
+    /// Why the root couldn't change (from the tree's menu).
+    root_error: Option<String>,
+    /// Where the folder in the bar is, as last drawn (the menu opens under
+    /// it from the command palette).
+    hint_box: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The last press on the bar dragged the files (its release is no
+    /// click on the folder).
+    bar_dragged: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -558,6 +573,7 @@ impl Viewer {
             cx.subscribe(&tree_view, |this, _, e: &OpenFile, cx| {
                 this.open(e.0.clone(), None, cx)
             }),
+            cx.subscribe(&tree_view, |this, _, e: &FolderMenu, cx| this.folder_menu(e.path.clone(), e.at, cx)),
             cx.subscribe(&search, |this, _, hit: &OpenHit, cx| {
                 this.open(
                     hit.path.clone(),
@@ -589,6 +605,7 @@ impl Viewer {
             agent_id,
             host: Host::Main,
             owner: None,
+            owner_id: None,
             pinned: false,
             can_dock: false,
             tree,
@@ -624,6 +641,11 @@ impl Viewer {
             tabs_overflow: Rc::default(),
             tabs_menu: false,
             tabs_scrolled_to: None,
+            root_menu: None,
+            tree_menu: None,
+            root_error: None,
+            hint_box: Rc::default(),
+            bar_dragged: false,
             _subs: subs,
         }
     }
@@ -751,6 +773,14 @@ impl Viewer {
         cx.try_global::<crate::ui_state::UiHandle>()
             .map(|h| h.0.read(cx).state.files_tree.get(self.host))
             .unwrap_or_default()
+    }
+
+    /// Laid out as `other` was, its tree shown or hidden as there (a
+    /// viewer replacing it in the same place: the tree doesn't slide in or
+    /// out).
+    pub fn size_as(&mut self, other: &Viewer) {
+        self.measured.set(other.measured.get());
+        self.tree_open = other.tree_open;
     }
 
     /// The viewer's width, as last laid out.
@@ -1773,6 +1803,7 @@ impl Viewer {
     /// dragged by it once it travels (a tile or a window; not the full
     /// viewer). A double click doesn't start one.
     fn arm_bar(&mut self, e: &gpui::MouseDownEvent) {
+        self.bar_dragged = false;
         if self.host != Host::Main && e.click_count < 2 {
             self.bar_press = Some(e.position);
         }
@@ -1786,6 +1817,7 @@ impl Viewer {
             self.bar_press = None;
         } else if (e.position - at).magnitude() > f64::from(BAR_DRAG_THRESHOLD) {
             self.bar_press = None;
+            self.bar_dragged = true;
             cx.emit(ViewerEvent::Grip);
         }
     }
@@ -1794,6 +1826,154 @@ impl Viewer {
     #[cfg(test)]
     pub(crate) fn place_menu_open(&self) -> bool {
         self.place_menu.is_some()
+    }
+
+    /// Its root can be switched here: a files tile or window (not the
+    /// main area's viewer) on a folder on this computer. Another machine's
+    /// agent's viewer reads its whole folder there: no root menu.
+    pub fn can_switch_root(&self, cx: &App) -> bool {
+        self.host != Host::Main && self.local(cx)
+    }
+
+    /// The agent whose files tile or window this is (said by its place:
+    /// a window can't be looked into while it draws).
+    pub fn set_owner_id(&mut self, id: &str) {
+        self.owner_id = Some(id.to_string());
+    }
+
+    fn owner_id(&self, cx: &mut Context<Self>) -> Option<String> {
+        if let Some(id) = &self.owner_id {
+            return Some(id.clone());
+        }
+        let me = cx.entity();
+        super::dock::owner_of(&me, cx)
+    }
+
+    /// The root menu, under the folder in the bar (or at `at`), the
+    /// keyboard in the field it opens on.
+    pub fn open_root_menu(&mut self, start: Start, at: Option<gpui::Point<Pixels>>, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_switch_root(cx) {
+            return;
+        }
+        let Some(owner) = self.owner_id(cx) else { return };
+        let Some(root) = self.root(cx).map(|r| super::show::real(&r)) else { return };
+        let own = self.store.read(cx).agent(&owner).map(super::show::root_of);
+        let agent_root = own.filter(|o| *o != root || self.agent_id != owner);
+        let at = at.or_else(|| self.hint_box.get().map(|b| b.bottom_left())).unwrap_or_default();
+        let menu = cx.new(|cx| RootMenu::new(root, agent_root, start, cx));
+        let sub = cx.subscribe(&menu, move |this, _, e: &RootMenuEvent, cx| match e {
+            RootMenuEvent::Pick(p) => {
+                let key = super::show::key_for(&owner, p, cx);
+                this.request_root(key, cx);
+            }
+            RootMenuEvent::AgentFolder => this.request_root(owner.clone(), cx),
+            RootMenuEvent::Dismissed => this.close_root_menus(cx),
+        });
+        let field = menu.read(cx).field(cx);
+        window.focus(&field, cx);
+        self.tree_menu = None;
+        self.root_menu = Some((at, menu, sub));
+        cx.notify();
+    }
+
+    /// The root menu, open (tests).
+    #[cfg(test)]
+    pub(crate) fn root_menu(&self) -> Option<Entity<RootMenu>> {
+        self.root_menu.as_ref().map(|(_, m, _)| m.clone())
+    }
+
+    /// Why the root couldn't change, said in the viewer (tests).
+    #[cfg(test)]
+    pub(crate) fn root_error(&self) -> Option<&str> {
+        self.root_error.as_deref()
+    }
+
+    fn close_root_menus(&mut self, cx: &mut Context<Self>) {
+        self.root_menu = None;
+        self.tree_menu = None;
+        cx.notify();
+    }
+
+    /// A folder of the tree right-clicked: its menu ("Open as root").
+    fn folder_menu(&mut self, path: String, at: gpui::Point<Pixels>, cx: &mut Context<Self>) {
+        if !self.can_switch_root(cx) {
+            return;
+        }
+        self.root_menu = None;
+        self.tree_menu = Some((at, path));
+        cx.notify();
+    }
+
+    /// The tree's folder `rel` as the root.
+    fn open_as_root(&mut self, rel: &str, cx: &mut Context<Self>) {
+        let (Some(owner), Some(root)) = (self.owner_id(cx), self.root(cx)) else { return };
+        let path = super::show::real(&std::path::Path::new(&root).join(rel).to_string_lossy());
+        let key = super::show::key_for(&owner, &path, cx);
+        self.request_root(key, cx);
+    }
+
+    /// Root the viewer at `key`, once this update is over (its place makes
+    /// a new viewer, or says why not: shown in the root menu, else in the
+    /// viewer).
+    fn request_root(&mut self, key: String, cx: &mut Context<Self>) {
+        let me = cx.entity();
+        cx.defer(move |cx| match super::show::switch_root(&me, &key, cx) {
+            Ok(_) => {
+                me.update(cx, |v, cx| {
+                    v.root_error = None;
+                    v.close_root_menus(cx);
+                });
+                cx.refresh_windows();
+            }
+            Err(e) => me.update(cx, |v, cx| {
+                match v.root_menu.as_ref().map(|(_, m, _)| m.clone()) {
+                    Some(m) => m.update(cx, |m, cx| m.set_error(e, cx)),
+                    None => v.root_error = Some(e),
+                }
+                v.tree_menu = None;
+                cx.notify();
+            }),
+        });
+    }
+
+    fn root_menu_overlay(&self, at: gpui::Point<Pixels>, menu: Entity<RootMenu>, cx: &mut Context<Self>) -> AnyElement {
+        gpui::deferred(
+            gpui::anchored().position(at).snap_to_window().child(
+                div()
+                    .mt(px(4.))
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_root_menus(cx)))
+                    .child(menu),
+            ),
+        )
+        .with_priority(2)
+        .into_any_element()
+    }
+
+    fn tree_menu_overlay(&self, at: gpui::Point<Pixels>, rel: String, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let ft = t.float();
+        gpui::deferred(
+            gpui::anchored().position(at).snap_to_window().child(
+                crate::kit::menu_panel(&ft)
+                    .id("ex-tree-menu")
+                    .occlude()
+                    .border_1()
+                    .border_color(ft.line_strong)
+                    .child(
+                        crate::kit::menu::menu_item("ex-open-as-root", "folder", "Open as root", None, false, &ft)
+                            .debug_selector(|| "ex-open-as-root".into())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.tree_menu = None;
+                                this.open_as_root(&rel, cx);
+                            })),
+                    )
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.tree_menu = None;
+                        cx.notify();
+                    })),
+            ),
+        )
+        .with_priority(2)
+        .into_any_element()
     }
 
     /// The bar over the viewer, the same in every place it is drawn: the
@@ -1814,6 +1994,8 @@ impl Viewer {
         let named = a.filter(|a| host != Host::Tile || self.owner.as_deref() != Some(a.name.as_str()));
         let branch = a.and_then(|a| a.branch.clone()).filter(|_| super::source::root_of_key(&self.agent_id).is_none());
         let can_dock = self.can_dock;
+        let switch = self.can_switch_root(cx);
+        let hint_box = self.hint_box.clone();
         let sep = || div().flex_none().w(px(1.)).h(px(16.)).mx(px(2.)).bg(t.line);
         let stop = |d: gpui::Stateful<gpui::Div>| d.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
         div()
@@ -1870,15 +2052,45 @@ impl Viewer {
                     .child(
                         div()
                             .id("ex-viewer-hint")
-                            .debug_selector(|| "ex-viewer-hint".into())
+                            .relative()
                             .min_w_0()
                             .flex_shrink(1.)
-                            .ellipsis()
+                            .flex()
+                            .items_center()
+                            .gap(px(3.))
                             .font_family(MONO_FONT)
                             .text_size(px(11.5))
                             .text_color(t.text_3)
-                            .tooltip(move |_, cx| tooltip_view(root_full.clone(), cx))
-                            .child(crate::kit::one_line(root)),
+                            .child(place(hint_box))
+                            .child(div().min_w_0().ellipsis().child(crate::kit::one_line(root)))
+                            .map(|d| {
+                                if switch {
+                                    let open = self.root_menu.is_some();
+                                    let hover = t.surface_3;
+                                    d.px(px(4.))
+                                        .mx(px(-4.))
+                                        .rounded(RADIUS_SM)
+                                        .cursor_pointer()
+                                        .when(open, |d| d.bg(hover).text_color(t.text_2))
+                                        .hover_probed(move |s| s.bg(hover))
+                                        .child(icon("chevron-down", 10., t.text_4))
+                                        .tooltip(move |_, cx| tooltip_view(format!("{root_full}\nClick to show another worktree or folder"), cx))
+                                        .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
+                                            if this.bar_dragged {
+                                                return;
+                                            }
+                                            if this.root_menu.is_some() {
+                                                this.close_root_menus(cx);
+                                            } else {
+                                                this.open_root_menu(Start::Worktrees, Some(e.position()), window, cx);
+                                            }
+                                        }))
+                                } else {
+                                    d.tooltip(move |_, cx| tooltip_view(root_full.clone(), cx))
+                                }
+                            })
+                            // (After the hover style, which marks it in tests.)
+                            .debug_selector(|| "ex-viewer-hint".into()),
                     )
                     .when_some(branch, |d, b| {
                         d.child(
@@ -3475,9 +3687,22 @@ impl Viewer {
 
     /// The changed-on-disk question, the save error, under the header.
     fn notices(&self, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let Some(d) = self.active.as_ref().and_then(|p| self.docs.get(p)) else { return Vec::new() };
-        let (blocked, diffing) = (d.save_blocked, d.diff.is_some());
         let mut out = Vec::new();
+        if let Some(e) = self.root_error.clone() {
+            out.push(
+                Self::notice("ex-root-refused", true, e.into(), t)
+                    .child(
+                        small_btn("ex-root-refused-ok", "OK", t)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.root_error = None;
+                                cx.notify();
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let Some(d) = self.active.as_ref().and_then(|p| self.docs.get(p)) else { return out };
+        let (blocked, diffing) = (d.save_blocked, d.diff.is_some());
         if d.newer.is_some() || blocked {
             let text = if blocked {
                 "Changed on disk since it was read: saving would overwrite it."
@@ -3619,6 +3844,8 @@ impl Render for Viewer {
             .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| this.bar_moved(e, cx)))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.bar_press = None))
             .when_some(self.place_menu.clone(), |d, (at, replace)| d.child(self.place_menu_overlay(at, replace, &t, cx)))
+            .when_some(self.root_menu.as_ref().map(|(at, m, _)| (*at, m.clone())), |d, (at, m)| d.child(self.root_menu_overlay(at, m, cx)))
+            .when_some(self.tree_menu.clone(), |d, (at, rel)| d.child(self.tree_menu_overlay(at, rel, &t, cx)))
             .child(self.measure(self.measured.clone(), cx))
             .child(self.bar(&t, a.as_ref(), cx))
             .child(

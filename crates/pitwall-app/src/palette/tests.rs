@@ -26,6 +26,7 @@ fn state() -> CommandState {
             main_screen::tree::Preset::One,
             main_screen::tree::Preset::Two,
         ],
+        files: None,
     }
 }
 

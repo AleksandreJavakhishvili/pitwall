@@ -774,6 +774,58 @@ fn files_replace_a_terminal_that_comes_back_when_shown(cx: &mut TestAppContext) 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A test app over real folders ([`DiskSource`]): `agents` (id, folder)
+/// on this computer, a space in main holding their terminals. Its data
+/// folder, to delete.
+///
+/// [`DiskSource`]: crate::explorer::source::fake::DiskSource
+fn worktree_app(cx: &mut TestAppContext, tag: &str, agents: &[(&str, &str)]) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("pw-wt-root-ui-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let home = dir.clone();
+    let list: Vec<(String, String)> = agents.iter().map(|(a, f)| (a.to_string(), f.to_string())).collect();
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::main_screen::init(cx);
+        crate::code_view::register(cx);
+        cx.bind_keys(crate::kit::input::bindings());
+        cx.bind_keys(crate::explorer::viewer::bindings());
+        crate::ui_state::init(Some(home.clone()), cx);
+        let views = list
+            .iter()
+            .enumerate()
+            .map(|(i, (id, folder))| {
+                let mut a = agent(id, folder, "idle", i as u64 + 1, true);
+                a.caps.explorer = true;
+                a
+            })
+            .collect();
+        let store = cx.new(|_| AgentStore::new(views));
+        cx.set_global(Main(None, store.clone()));
+        cx.set_global(crate::AppState { host: None, content: Content::Live { store: store.clone() }, root: None, main: None });
+        let pairs: Vec<(&str, &str)> = list.iter().map(|(a, f)| (a.as_str(), f.as_str())).collect();
+        let source: std::sync::Arc<dyn crate::explorer::source::Source> = crate::explorer::source::fake::DiskSource::new(&pairs);
+        cx.set_global(crate::explorer::source::ExplorerSource(source.clone()));
+        crate::explorer::dock::remember_env(Some(source), &store, cx);
+        init(Content::Live { store: store.clone() }, Some(home.clone()), show_main, cx);
+        show_main(cx);
+        restore(cx);
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let (ui, id) = crate::ui_state::get(cx).create_custom_space(MAIN);
+        let mut ui = ui;
+        for (a, _) in &list {
+            ui = ui.place_agent(&id, a, None, None);
+        }
+        crate::ui_state::update(cx, |s| *s = ui);
+        screen_of(MAIN, cx).update(cx, |s, cx| s.show_space(&id, cx));
+    });
+    cx.run_until_parked();
+    dir
+}
+
 /// What `v`'s tree lists: each entry's path and change letter.
 fn tree_listing(v: &Entity<crate::explorer::viewer::Viewer>, cx: &App) -> Vec<String> {
     let tree = v.read(cx).tree();
@@ -792,36 +844,7 @@ fn a_worktree_below_the_agents_folder_is_the_root_in_a_tile_and_in_a_window(cx: 
     use pitwall_core::exec::LocalExec;
     use pitwall_proto::show::{ViewerOpen, ViewerPlace};
     let fx = Fixture::new("tile-window");
-    let dir = std::env::temp_dir().join(format!("pw-wt-root-ui-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let home = dir.clone();
-    let agent_home = fx.home.clone();
-    cx.update(|cx| {
-        cx.set_global(crate::theme::Theme::dark());
-        crate::main_screen::init(cx);
-        crate::code_view::register(cx);
-        crate::ui_state::init(Some(home.clone()), cx);
-        let mut road = agent("road", &agent_home, "idle", 1, true);
-        road.caps.explorer = true;
-        let store = cx.new(|_| AgentStore::new(vec![road]));
-        cx.set_global(Main(None, store.clone()));
-        cx.set_global(crate::AppState { host: None, content: Content::Live { store: store.clone() }, root: None, main: None });
-        let source: std::sync::Arc<dyn crate::explorer::source::Source> = crate::explorer::source::fake::DiskSource::new(&[("road", &agent_home)]);
-        cx.set_global(crate::explorer::source::ExplorerSource(source.clone()));
-        crate::explorer::dock::remember_env(Some(source), &store, cx);
-        init(Content::Live { store: store.clone() }, Some(home.clone()), show_main, cx);
-        show_main(cx);
-        restore(cx);
-    });
-    cx.run_until_parked();
-    cx.update(|cx| {
-        let (ui, id) = crate::ui_state::get(cx).create_custom_space(MAIN);
-        let ui = ui.place_agent(&id, "road", None, None);
-        crate::ui_state::update(cx, |s| *s = ui);
-        screen_of(MAIN, cx).update(cx, |s, cx| s.show_space(&id, cx));
-    });
-    cx.run_until_parked();
+    let dir = worktree_app(cx, "tile-window", &[("road", &fx.home)]);
     // As the server resolves it (the agent works in the repository).
     let resolved = |req: ViewerOpen| {
         let x = LocalExec;
@@ -858,5 +881,205 @@ fn a_worktree_below_the_agents_folder_is_the_root_in_a_tile_and_in_a_window(cx: 
     let v = w.read_with(cx, |w, _| w.viewer().clone()).unwrap();
     check(&v, cx);
     assert_eq!(w.read_with(cx, |w, _| w.key().to_string()).unwrap(), key);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Draw `cx`'s window again (its debug bounds are then current).
+fn draw(cx: &mut gpui::VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    // (A key nothing binds makes the test window draw.)
+    cx.simulate_keystrokes("f12");
+    cx.run_until_parked();
+}
+
+fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    draw(cx);
+    let at = cx.debug_bounds(selector).unwrap_or_else(|| panic!("{selector} isn't drawn")).center();
+    // (Moved there first: after typing, nothing is hovered until it moves.)
+    cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    cx.simulate_click(at, gpui::Modifiers::none());
+    draw(cx);
+}
+
+/// Agent `owner`'s files tile's viewer and its key.
+fn tile_now(owner: &str, cx: &mut TestAppContext) -> (Entity<crate::explorer::viewer::Viewer>, String) {
+    let v = cx.update(|cx| crate::explorer::dock::viewer(owner, cx)).expect("a files tile");
+    let key = v.read_with(cx, |v, _| v.agent_id().to_string());
+    (v, key)
+}
+
+/// Right-click folder `rel` in the tree, then "Open as root".
+fn open_as_root(cx: &mut gpui::VisualTestContext, rel: &str) {
+    draw(cx);
+    let row: &'static str = Box::leak(format!("ex-tree-row-{rel}").into_boxed_str());
+    let at = cx.debug_bounds(row).unwrap_or_else(|| panic!("{rel} isn't in the tree")).center();
+    // (Moved there first: after typing, nothing is hovered until it moves.)
+    cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    cx.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    click(cx, "ex-open-as-root");
+}
+
+/// `v`'s tree's listing with `src` opened.
+fn listing_with_src(v: &Entity<crate::explorer::viewer::Viewer>, cx: &mut TestAppContext) -> Vec<String> {
+    v.read_with(cx, |v, _| v.tree()).update(cx, |t, cx| t.expand("src", cx));
+    cx.run_until_parked();
+    cx.update(|cx| tree_listing(v, cx))
+}
+
+/// The folder in a files tile's bar opens the root menu: the repository's
+/// worktrees (filtered as you type), the one shown ticked; a pick roots
+/// the tile there with that worktree's git status, tabs that are there too
+/// carried over, kept for the next start. "Back to the agent's folder",
+/// "Open folder…" with a typed path (a wrong one said plainly), unsaved
+/// edits refusing a switch, and a tree folder's "Open as root".
+#[gpui::test]
+fn the_files_tiles_own_controls_switch_its_root(cx: &mut TestAppContext) {
+    use crate::explorer::show::roots_tests::Fixture;
+    use pitwall_proto::show::{ViewerPlace, ViewerShow};
+    let fx = Fixture::new("controls");
+    let dir = worktree_app(cx, "controls", &[("a1", &fx.repo)]);
+    let req = ViewerShow { agent_id: "a1".into(), folder: Some(fx.repo.clone()), place: Some(ViewerPlace::Right), ..Default::default() };
+    cx.update(|cx| crate::explorer::show::show(&req, cx)).expect("shown");
+    cx.run_until_parked();
+    let main = cx.update(|cx| state(cx).handle(MAIN).unwrap());
+    let vcx = &mut gpui::VisualTestContext::from_window(main.into(), cx);
+    let (v, key) = tile_now("a1", vcx);
+    assert_eq!(key, "a1");
+    // A tab that the chicken worktree has too, and one only here.
+    std::fs::write(std::path::Path::new(&fx.repo).join("only-here.md"), "x\n").unwrap();
+    v.update(vcx, |v, cx| {
+        v.open("only-here.md".into(), None, cx);
+        v.open("README.md".into(), None, cx);
+    });
+
+    // The menu: three worktrees, this one ticked.
+    click(vcx, "ex-viewer-hint");
+    let menu = v.read_with(vcx, |v, _| v.root_menu()).expect("the root menu");
+    assert_eq!(menu.read_with(vcx, |m, _| m.loaded()), Some(3));
+    assert!(vcx.debug_bounds("ex-root-wt-2").is_some() && vcx.debug_bounds("ex-root-back").is_none());
+    // Typing filters (the keyboard is in the filter).
+    vcx.simulate_input("chicken");
+    draw(vcx);
+    assert!(vcx.debug_bounds("ex-root-wt-0").is_some() && vcx.debug_bounds("ex-root-wt-1").is_none());
+    click(vcx, "ex-root-wt-0");
+    let (v, key) = tile_now("a1", vcx);
+    assert_eq!(key, crate::explorer::source::path_key(&fx.chicken));
+    let listed = listing_with_src(&v, vcx);
+    assert!(listed.contains(&"src/game.rs M".to_string()), "its git status: {listed:?}");
+    assert_eq!(v.read_with(vcx, |v, _| v.tabs().to_vec()), ["README.md"], "the tab that is there too");
+    assert!(v.read_with(vcx, |v, _| v.root_menu().is_none()), "closed");
+    // Kept with the tile for the next start, and made again from it.
+    vcx.run_until_parked();
+    assert_eq!(vcx.update(|_, cx| crate::ui_state::get(cx).docked_files["a1"].key.clone()), key);
+    vcx.update(|_, cx| crate::explorer::dock::release("a1", cx));
+    let again = vcx.update(|window, cx| crate::explorer::dock::view_for("a1", window, cx)).expect("made again");
+    let again = again.downcast::<crate::explorer::viewer::Viewer>().unwrap();
+    assert_eq!(again.read_with(vcx, |v, _| (v.agent_id().to_string(), v.tabs().to_vec())), (key.clone(), vec!["README.md".to_string()]));
+
+    // Back to the agent's folder.
+    click(vcx, "ex-viewer-hint");
+    click(vcx, "ex-root-back");
+    assert_eq!(tile_now("a1", vcx).1, "a1");
+
+    // Open folder…: a path that isn't there is said; the other worktree's
+    // path opens it.
+    click(vcx, "ex-viewer-hint");
+    click(vcx, "ex-root-open-folder");
+    vcx.simulate_keystrokes(if cfg!(target_os = "macos") { "cmd-a" } else { "ctrl-a" });
+    vcx.simulate_input("~/no/such/folder/here");
+    vcx.simulate_keystrokes("enter");
+    draw(vcx);
+    let v = tile_now("a1", vcx).0;
+    let menu = v.read_with(vcx, |v, _| v.root_menu()).expect("still open");
+    assert!(menu.read_with(vcx, |m, _| m.error().unwrap_or_default().contains("no such folder")));
+    vcx.simulate_keystrokes(if cfg!(target_os = "macos") { "cmd-a" } else { "ctrl-a" });
+    vcx.simulate_input(&fx.other);
+    vcx.simulate_keystrokes("enter");
+    draw(vcx);
+    let (v, key) = tile_now("a1", vcx);
+    assert_eq!(key, crate::explorer::source::path_key(&fx.other));
+
+    // Unsaved edits refuse a switch: from a tree folder's "Open as root"
+    // (said in the viewer) and from the menu (said in it).
+    vcx.update(|window, cx| v.update(cx, |v, cx| v.show(Some(crate::explorer::viewer::Pane::Files), window, cx)));
+    v.update(vcx, |v, cx| v.open("README.md".into(), Some((1, None)), cx));
+    draw(vcx);
+    let code = crate::explorer::code_view::shown("README.md").expect("drawn");
+    vcx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(code.read(cx), cx), cx));
+    vcx.simulate_keystrokes("end");
+    vcx.simulate_input(" edited");
+    draw(vcx);
+    assert_eq!(v.read_with(vcx, |v, cx| v.unsaved(cx).len()), 1);
+    // (The tree slides in, in real time: the tile is narrow.)
+    std::thread::sleep(crate::kit::side::SLIDE * 2);
+    open_as_root(vcx, "src");
+    let e = v.read_with(vcx, |v, _| v.root_error().map(str::to_string)).unwrap_or_default();
+    assert!(e.contains("Save or discard your changes to README.md"), "{e}");
+    assert!(vcx.debug_bounds("ex-root-refused").is_some(), "said in the viewer");
+    assert_eq!(tile_now("a1", vcx).1, key, "not switched");
+    click(vcx, "ex-viewer-hint");
+    click(vcx, "ex-root-up");
+    let menu = v.read_with(vcx, |v, _| v.root_menu()).expect("still open");
+    let e = menu.read_with(vcx, |m, _| m.error().map(str::to_string)).unwrap_or_default();
+    assert!(e.contains("Save or discard your changes to README.md"), "{e}");
+    assert_eq!(tile_now("a1", vcx).1, key, "not switched");
+
+    // Saved, a tree folder's "Open as root" roots the tile there.
+    vcx.simulate_keystrokes("escape");
+    vcx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(code.read(cx), cx), cx));
+    vcx.simulate_keystrokes(if cfg!(target_os = "macos") { "cmd-s" } else { "ctrl-s" });
+    draw(vcx);
+    assert!(v.read_with(vcx, |v, cx| v.unsaved(cx).is_empty()));
+    open_as_root(vcx, "src");
+    let src = crate::explorer::show::real(&std::path::Path::new(&fx.other).join("src").to_string_lossy());
+    assert_eq!(tile_now("a1", vcx).1, crate::explorer::source::path_key(&src.to_string_lossy()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A files window's bar has the same menu; the root it switches to is
+/// kept with the window. The command palette's "Files: switch worktree…"
+/// opens it too.
+#[gpui::test]
+fn a_files_windows_root_switches_from_its_bar_and_the_palette(cx: &mut TestAppContext) {
+    use crate::explorer::root_menu::Start;
+    use crate::explorer::show::roots_tests::Fixture;
+    use pitwall_proto::show::{ViewerPlace, ViewerShow};
+    let fx = Fixture::new("window");
+    let dir = worktree_app(cx, "window", &[("a1", &fx.repo)]);
+    let req = ViewerShow { agent_id: "a1".into(), folder: Some(fx.repo.clone()), place: Some(ViewerPlace::Window), ..Default::default() };
+    cx.update(|cx| crate::explorer::show::show(&req, cx)).expect("shown");
+    cx.run_until_parked();
+    let w = cx.update(|cx| crate::windows::viewer_window("a1", cx)).expect("a files window");
+    assert!(cx.update(|cx| crate::explorer::show::can_switch_root_of("a1", cx)));
+    let wcx = &mut gpui::VisualTestContext::from_window(w.into(), cx);
+    click(wcx, "ex-viewer-hint");
+    let v = w.read_with(wcx, |w, _| w.viewer().clone()).unwrap();
+    let menu = v.read_with(wcx, |v, _| v.root_menu()).expect("the root menu");
+    assert_eq!(menu.read_with(wcx, |m, _| m.loaded()), Some(3));
+    // The worktrees are listed in git's order: the main checkout first.
+    click(wcx, "ex-root-wt-1");
+    let key = crate::explorer::source::path_key(&fx.chicken);
+    assert_eq!(w.read_with(wcx, |w, _| w.key().to_string()).unwrap(), key);
+    wcx.run_until_parked();
+    assert_eq!(wcx.update(|_, cx| crate::ui_state::get(cx).files_windows["a1"].open.key.clone()), key);
+    // The palette lists its commands for the agent (only then).
+    let listed = |selected: Option<&str>, cx: &mut gpui::VisualTestContext| {
+        let st = crate::main_screen::CommandState { selected: selected.map(str::to_string), ..Default::default() };
+        let pc = crate::palette::registry::PaletteContext { query: "files", state: &st, screen: None, explorer: None };
+        // (From the main window, where the palette is: not inside the
+        // files window's own update.)
+        cx.cx.update(|cx| crate::palette::builtin::commands(&pc, cx).iter().map(|c| c.id.to_string()).filter(|i| i.starts_with("files-")).collect::<Vec<_>>())
+    };
+    assert_eq!(listed(Some("a1"), wcx), ["files-open-folder", "files-switch-worktree"]);
+    assert!(listed(Some("nobody"), wcx).is_empty());
+    // The palette's command: the menu, on the worktrees.
+    // (As the palette runs it: after its own window's update.)
+    wcx.cx.update(|cx| crate::explorer::show::open_root_menu_for("a1", Start::Worktrees, cx));
+    draw(wcx);
+    let v = w.read_with(wcx, |w, _| w.viewer().clone()).unwrap();
+    assert!(v.read_with(wcx, |v, _| v.root_menu().is_some()));
     let _ = std::fs::remove_dir_all(&dir);
 }
