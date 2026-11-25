@@ -43,7 +43,8 @@
 //!   commands (`from`: an earlier manifest in the folder; `setUp`, the
 //!   setup actions set up before; `agents`, running agents; `expect`, each
 //!   step's title and lines; `agentsSay`, what the review says about the
-//!   agents). Planned only.
+//!   agents; `installed`, programs taken as installed, as for actions).
+//!   Planned only.
 //!
 //! An adapter's program that isn't installed (Node, say) skips the runs,
 //! saying so; it doesn't fail them.
@@ -876,6 +877,26 @@ fn update(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Re
     let set_up: Vec<String> = v["setUp"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
     let n = v["agents"].as_u64().unwrap_or(0) as usize;
     let restart = v["restart"].as_str().and_then(Restart::parse).unwrap_or_default();
+    // With `installed`, the programs named are fakes on an empty PATH, as for
+    // actions, so the steps don't depend on what this computer has.
+    let fakes = match v.get("installed").and_then(Value::as_array) {
+        Some(names) => {
+            let Ok(t) = scratch("update") else {
+                r.add(Level::Fail, "a temporary folder couldn't be made");
+                return;
+            };
+            for program in names.iter().filter_map(Value::as_str) {
+                let _ = std::fs::write(t.0.join(program), "");
+                if std::env::consts::OS == "windows" {
+                    let _ = std::fs::write(t.0.join(format!("{program}.exe")), "");
+                }
+            }
+            Some(t)
+        }
+        None => None,
+    };
+    let fake_path = fakes.as_ref().map(|t| t.0.to_string_lossy().into_owned());
+    let path = fake_path.as_deref().or(path);
     let input = PlanInput { on: true, service_here: true, has_data: true, data: "PITWALL_SERVICE_DATA", backup: "PITWALL_BACKUP", path, set_up: &set_up, agents: n, restart, values, ..Default::default() };
     let shown = |t: &str| t.replace("PITWALL_SERVICE_DATA", super::service::DATA_PLACEHOLDER).replace("PITWALL_BACKUP", super::service::BACKUP_PLACEHOLDER);
     let got: Vec<Vec<String>> = plan(&old, m, &input).into_iter().map(|p| std::iter::once(shown(&p.title)).chain(p.lines.iter().map(|l| shown(l))).collect()).collect();
