@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Packages Pitwall (crates/pitwall-app, the GPUI app; binary `pitwall`):
 # builds the app and its sidecars (pitwall-hold, pitwall-cli, and
-# pitwall-hook on Windows) in release mode and bundles them, with the
+# pitwall-hook on Windows, pitwall-simhost on macOS) in release mode and bundles them, with the
 # Race Engineer's skills (skills/pitwall, skills/race-engineer;
 # docs/spec/engineer.md) and the extensions it offers to install
 # (extensions/, staged by scripts/stage-extensions.sh;
@@ -96,6 +96,8 @@ exe=""
 [ $os = windows ] && exe=.exe
 sidecars="pitwall-hold pitwall-cli"
 [ $os = windows ] && sidecars="$sidecars pitwall-hook"
+# The iOS Simulator helper (docs/spec/device.md): macOS only.
+[ $os = macos ] && sidecars="$sidecars pitwall-simhost"
 # The Race Engineer's files: found at run time by crates/pitwall-app/src/engineer
 # (macOS: Contents/Resources/skills; Linux: /usr/lib/<package>/skills;
 # Windows: skills/ next to the app).
