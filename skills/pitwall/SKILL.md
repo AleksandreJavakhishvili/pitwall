@@ -75,6 +75,8 @@ pitwall settings list
 
 ```bash
 pitwall agent new --kind claude --project ~/code/api [--name api] [--resume <session-id>] [--account <name>]
+pitwall agent new --kind claude --project ~/code/api --name api --prompt "fix the failing tests"   # start an agent to do X
+pitwall agent new --kind claude --project . --name review --prompt - < task.md   # or --prompt-file task.md
 pitwall agent new --kind shell --project .            # a terminal
 pitwall session add agw <vm> <session>                # track an existing session (no approval)
 pitwall session add agw <vm> <session> --start        # …and start it if stopped (asks)
@@ -84,6 +86,13 @@ pitwall agent new --machine <vm> --name <session> --new-workspace [<name>] [--wo
 
 - Kind ids: `claude`, `codex`, `shell`, … (Pitwall's New-agent list).
   `--project` defaults to the current folder.
+- To start an agent to do something, give it the task with `--prompt` in the
+  same command: it is queued in its Next up as it is created (as `queue add`
+  does) and goes in when the agent is first free. The JSON has `queued`
+  (`{id, position}`); if Auto-send is off it waits there for the user's Send.
+  Should queueing fail, the agent still exists: the exit status is 1 (code
+  `queue_failed`), stdout has the agent (with `queueError`), so retry with
+  `queue add <id>`. An empty prompt creates nothing.
 - `--account` picks the login (an account's name or id from Settings →
   Agents → Accounts, or `default` for the user's own); without it the
   project's account is used.
@@ -133,13 +142,11 @@ agent that stops while you wait for something else → `not_running`;
 `--for stopped` / `exited` match any agent that isn't running. Timeout →
 exit 1, code `timeout`.
 
-Example: spawn a reviewer, prompt it, wait, read its changes:
+Example: spawn a reviewer with its task, wait, read its changes:
 
 ```bash
-id=$(pitwall agent new --kind claude --project . --name reviewer | jq -r .id)
-pitwall wait "$id" --for idle --timeout 120
-pitwall queue add "$id" "Review the diff on this branch; list problems only."
-pitwall queue send "$id"
+id=$(pitwall agent new --kind claude --project . --name reviewer \
+  --prompt "Review the diff on this branch; list problems only." | jq -r .id)
 pitwall wait "$id" --for done,blocked --fresh --timeout 1800
 pitwall review changes "$id"
 ```
