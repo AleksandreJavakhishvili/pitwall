@@ -1,7 +1,8 @@
 //! The `pitwall` MCP server's tools (`show_files`, `show_folder`,
-//! `show_web`, `show_settings`): their definitions, the server's
-//! instructions, a call's arguments as a [`ViewerOpen`], a [`WebOpen`] or
-//! a [`SettingsOpen`], and its result in words.
+//! `show_web`, `show_settings`, `show_device`): their definitions, the
+//! server's instructions, a call's arguments as a [`ViewerOpen`], a
+//! [`WebOpen`], a [`SettingsOpen`] or a [`DeviceOpen`], and its result in
+//! words.
 //! Which tools a Pitwall lists follows its settings ([`served`]); this
 //! build's own copy, used when Pitwall can't be asked, has them all
 //! ([`own`]).
@@ -16,8 +17,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::device_open::DeviceOpen;
 use crate::settings_open::SettingsOpen;
-use crate::show::{ViewerOpen, ViewerOpened, ViewerPlace, TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_SETTINGS, TOOL_SHOW_WEB};
+use crate::show::{ViewerOpen, ViewerOpened, ViewerPlace, TOOL_SHOW_DEVICE, TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_SETTINGS, TOOL_SHOW_WEB};
 use crate::web::WebOpen;
 
 /// `mcp.tools`' answer: the tools as MCP's `tools/list` gives them, the
@@ -64,14 +66,17 @@ const WEB_INSTRUCTIONS: &str = " When the user asks to open a web page, a site, 
 
 const SETTINGS_INSTRUCTIONS: &str = " When the user asks to see or change one of Pitwall's own settings (\"where do I turn that on\", \"show me that extension's permissions\"), use show_settings to open Pitwall's Settings at that page for them: it only shows Settings to the user, you get nothing back from it and can't change, click or type anything in it.";
 
+const DEVICE_INSTRUCTIONS: &str = " When the user asks to see the app on a simulator, an emulator or a phone, or to run or show it there (\"show me on the simulator\", \"run it on the simulator\", \"open the emulator\"), start or boot the device with the tools you normally use if none is running (xcrun simctl, flutter run, expo, an Android emulator…), then call show_device so its screen opens in Pitwall next to your terminal: it only shows the screen to the user, you get nothing back from it and can't tap or type in it.";
+
 /// The instructions with every tool listed.
 pub fn all_instructions() -> String {
-    instructions(true, true, true)
+    instructions(true, true, true, true)
 }
 
 /// The instructions for the tools listed: the files ones while `files`,
-/// `show_web` while `web`, `show_settings` while `settings`.
-pub fn instructions(files: bool, web: bool, settings: bool) -> String {
+/// `show_web` while `web`, `show_settings` while `settings`, `show_device`
+/// while `device`.
+pub fn instructions(files: bool, web: bool, settings: bool, device: bool) -> String {
     let mut s = String::from(INTRO);
     if files {
         s.push_str(FILES_INSTRUCTIONS);
@@ -82,14 +87,20 @@ pub fn instructions(files: bool, web: bool, settings: bool) -> String {
     if settings {
         s.push_str(SETTINGS_INSTRUCTIONS);
     }
-    if !files && !web && !settings {
-        s.push_str(" Its tools for showing the user files, web pages and its Settings are turned off in Pitwall's settings.");
+    if device {
+        s.push_str(DEVICE_INSTRUCTIONS);
+    }
+    if !files && !web && !settings && !device {
+        s.push_str(" Its tools for showing the user files, web pages, devices and its Settings are turned off in Pitwall's settings.");
     }
     s
 }
 
 /// `show_web`'s description (docs/spec/web.md quotes it).
 pub const SHOW_WEB_DESCRIPTION: &str = "Show a web page to the user in Pitwall, the app you are running in: it opens in a web tile next to your terminal in Pitwall's layout (or a window of its own), in Pitwall's own web view, where the user may be signed in to sites. This only shows a page to the user: you get no page content back, and you cannot click, type, scroll or run anything in it (nothing the user does there is sent to you). Use it when the user asks to open a page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), not to read the web yourself. Without url, an empty page opens with its address field for the user to type in. A later call goes to the page you opened before, wherever the user moved it, unless `where` names a place. The result says what opened and where, or why not (not a web address, Pitwall not running, turned off).";
+
+/// `show_device`'s description (docs/spec/device.md quotes it).
+pub const SHOW_DEVICE_DESCRIPTION: &str = "Show a device's screen to the user in Pitwall, the app you are running in: an iOS Simulator, an Android emulator or a phone on a cable opens in a device tile next to your terminal in Pitwall's layout, where the user watches it and taps and types into it. This only shows the screen to the user: you get nothing back from it (no pixels, no state), and you cannot tap, type or do anything in it. Use it when the user asks to see or run the app on a simulator, an emulator or a phone (\"show me on the simulator\", \"run it on the simulator\"): if no device is running, boot or start one first with the tools you normally use (xcrun simctl boot, flutter run, npx expo run:ios, an Android emulator…), then call this; a device still booting is waited for, up to a minute. Without `device`, the one booted device is shown (several booted: the result lists them). The result says what opened and where, or why not (no such device, Pitwall not running, turned off).";
 
 /// `show_settings`'s description (docs/spec/layout.md quotes it).
 pub const SHOW_SETTINGS_DESCRIPTION: &str = "Show Pitwall's own Settings to the user, at a page, in the app you are running in: it opens in the Settings tile next to your terminal in Pitwall's layout (or wherever the user keeps that tile). This only shows Settings to the user: you get nothing back about what it holds, and you cannot change, click or type anything in it (only the user does). Use it when the user asks where a Pitwall setting is or to see one (\"where do I turn that on\", \"show me that extension's permissions\"), not to change settings yourself. `page` picks the page; `extension` unfolds that extension's card on the Extensions page. The result says what opened and where, or why not (Pitwall not running, turned off).";
@@ -102,12 +113,12 @@ const ROOT: &str = "The folder the viewer's tree is rooted at, and relative path
 
 /// `tools/list`'s tools, all of them.
 pub fn tools() -> Value {
-    tools_for(true, true, true)
+    tools_for(true, true, true, true)
 }
 
 /// `tools/list`'s tools: the files ones while `files`, `show_web` while
-/// `web`, `show_settings` while `settings`.
-pub fn tools_for(files: bool, web: bool, settings: bool) -> Value {
+/// `web`, `show_settings` while `settings`, `show_device` while `device`.
+pub fn tools_for(files: bool, web: bool, settings: bool, device: bool) -> Value {
     let mut list = Vec::new();
     if files {
         list.extend(files_tools());
@@ -149,6 +160,23 @@ pub fn tools_for(files: bool, web: bool, settings: bool) -> Value {
             },
             // Read-only: it shows the user something and changes nothing.
             "annotations": { "title": "Show Pitwall's Settings", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+        }));
+    }
+    if device {
+        list.push(json!({
+            "name": TOOL_SHOW_DEVICE,
+            "title": "Show a device's screen in Pitwall",
+            "description": SHOW_DEVICE_DESCRIPTION,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "device": { "type": "string", "description": "The device: its name as simctl or adb lists it (\"iPhone 17\"), a simulator's UDID, or an adb serial (emulator-5554). Leave it out to show the one booted device." }
+                },
+                "additionalProperties": false
+            },
+            // Read-only: it shows the user something and changes nothing
+            // (it never boots or stops a device).
+            "annotations": { "title": "Show a device's screen in Pitwall", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
         }));
     }
     Value::Array(list)
@@ -203,15 +231,15 @@ fn files_tools() -> Vec<Value> {
 /// This build's tools, instructions and stamp (all of them: what stands in
 /// when Pitwall can't be asked).
 pub fn own() -> McpTools {
-    served(true, true, true)
+    served(true, true, true, true)
 }
 
 /// The tools a Pitwall serves with showing files (`files`), web pages
-/// (`web`) and Settings (`settings`) on or off, its instructions and their
-/// stamp.
-pub fn served(files: bool, web: bool, settings: bool) -> McpTools {
-    let tools = tools_for(files, web, settings);
-    let instructions = instructions(files, web, settings);
+/// (`web`), Settings (`settings`) and devices (`device`) on or off, its
+/// instructions and their stamp.
+pub fn served(files: bool, web: bool, settings: bool, device: bool) -> McpTools {
+    let tools = tools_for(files, web, settings, device);
+    let instructions = instructions(files, web, settings, device);
     McpTools { stamp: stamp(&tools, &instructions), tools, instructions }
 }
 
@@ -235,6 +263,8 @@ pub enum Request {
     Web(WebOpen),
     /// `show_settings`: `settings.open`.
     Settings(SettingsOpen),
+    /// `show_device`: `device.open`.
+    Device(DeviceOpen),
 }
 
 /// A tool's arguments as its request (the agent's own id from its
@@ -257,6 +287,9 @@ pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Reques
             })?),
         };
         return Ok(Request::Settings(SettingsOpen { agent_id: agent, page, extension: text("extension")?, secret: None, connection: None, proto: Some(crate::settings_open::SETTINGS_PROTO) }));
+    }
+    if tool == TOOL_SHOW_DEVICE {
+        return Ok(Request::Device(DeviceOpen { agent_id: agent, device: text("device")?.map(|d| d.trim().to_string()), proto: Some(crate::device_open::DEVICE_PROTO) }));
     }
     let place = match text("where")? {
         None => None,
@@ -415,22 +448,35 @@ mod tests {
     /// and words; the files tools while showing files is on.
     #[test]
     fn the_tools_listed_follow_the_settings() {
-        assert_eq!(names(&tools()), ["show_files", "show_folder", "show_web", "show_settings"]);
-        assert_eq!(names(&served(true, false, false).tools), ["show_files", "show_folder"]);
-        assert_eq!(names(&served(false, true, false).tools), ["show_web"]);
-        assert_eq!(names(&served(false, false, true).tools), ["show_settings"]);
-        assert!(names(&served(false, false, false).tools).is_empty());
-        assert_eq!(own(), served(true, true, true));
+        assert_eq!(names(&tools()), ["show_files", "show_folder", "show_web", "show_settings", "show_device"]);
+        assert_eq!(names(&served(true, false, false, false).tools), ["show_files", "show_folder"]);
+        assert_eq!(names(&served(false, true, false, false).tools), ["show_web"]);
+        assert_eq!(names(&served(false, false, true, false).tools), ["show_settings"]);
+        assert_eq!(names(&served(false, false, false, true).tools), ["show_device"]);
+        assert!(names(&served(false, false, false, false).tools).is_empty());
+        assert_eq!(own(), served(true, true, true, true));
         // Each setting has its own stamp (the agent is told to list again).
-        let all: Vec<(bool, bool, bool)> = (0..8).map(|n| (n & 1 == 1, n & 2 == 2, n & 4 == 4)).collect();
-        let stamps: std::collections::HashSet<String> = all.iter().map(|(f, w, s)| served(*f, *w, *s).stamp).collect();
-        assert_eq!(stamps.len(), 8);
-        assert!(!served(true, false, false).instructions.contains("show_web"));
-        assert!(served(false, true, false).instructions.contains("show_web") && !served(false, true, false).instructions.contains("show_files"));
-        // show_settings: one sentence of its own, only while listed.
-        assert!(!served(true, true, false).instructions.contains("show_settings"));
-        assert_eq!(served(true, true, true).instructions, format!("{}{SETTINGS_INSTRUCTIONS}", served(true, true, false).instructions));
-        assert!(served(false, false, false).instructions.contains("turned off"));
+        let all: Vec<(bool, bool, bool, bool)> = (0..16).map(|n| (n & 1 == 1, n & 2 == 2, n & 4 == 4, n & 8 == 8)).collect();
+        let stamps: std::collections::HashSet<String> = all.iter().map(|(f, w, s, d)| served(*f, *w, *s, *d).stamp).collect();
+        assert_eq!(stamps.len(), 16);
+        assert!(!served(true, false, false, false).instructions.contains("show_web"));
+        assert!(served(false, true, false, false).instructions.contains("show_web") && !served(false, true, false, false).instructions.contains("show_files"));
+        // show_settings and show_device: a sentence each, only while listed.
+        assert!(!served(true, true, false, false).instructions.contains("show_settings"));
+        assert_eq!(served(true, true, true, false).instructions, format!("{}{SETTINGS_INSTRUCTIONS}", served(true, true, false, false).instructions));
+        assert!(!served(true, true, true, false).instructions.contains("show_device"));
+        assert_eq!(served(true, true, true, true).instructions, format!("{}{DEVICE_INSTRUCTIONS}", served(true, true, true, false).instructions));
+        assert!(served(false, false, false, false).instructions.contains("turned off"));
+        // The user asking to see it on a simulator is when to use it.
+        assert!(DEVICE_INSTRUCTIONS.contains("\"show me on the simulator\"") && DEVICE_INSTRUCTIONS.contains("then call show_device"));
+        let dev = &tools()[4];
+        assert_eq!(dev["description"], SHOW_DEVICE_DESCRIPTION);
+        let d = dev["description"].as_str().unwrap();
+        assert!(d.contains("you get nothing back from it (no pixels, no state), and you cannot tap, type or do anything in it"), "{d}");
+        let keys: Vec<String> = dev["inputSchema"]["properties"].as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys, ["device"]);
+        assert!(dev["inputSchema"].get("required").is_none(), "device is optional");
+        assert_eq!(dev["annotations"]["readOnlyHint"], true);
         let set = &tools()[3];
         assert_eq!(set["description"], SHOW_SETTINGS_DESCRIPTION);
         let d = set["description"].as_str().unwrap();
@@ -478,6 +524,19 @@ mod tests {
         assert!(web(json!({"url": 3})).unwrap_err().contains("must be a string"));
         assert!(web(json!({"url": "example.com", "where": "tab"})).unwrap_err().contains("`where` is right, left"));
         assert!(matches!(request(TOOL_SHOW_FILES, &json!({"paths": ["a"]}), None), Ok(Request::Viewer(_))));
+    }
+
+    #[test]
+    fn a_show_device_call_is_checked_before_it_goes_anywhere() {
+        let dev = |args: Value| request(TOOL_SHOW_DEVICE, &args, Some("a1".into()));
+        let Ok(Request::Device(r)) = dev(json!({"device": " iPhone 17 "})) else { panic!() };
+        assert_eq!(r, DeviceOpen { agent_id: Some("a1".into()), device: Some("iPhone 17".into()), proto: Some(crate::device_open::DEVICE_PROTO) });
+        // None named (or blank): the one booted device.
+        let Ok(Request::Device(r)) = dev(json!({})) else { panic!() };
+        assert_eq!(r.device, None);
+        let Ok(Request::Device(r)) = dev(json!({"device": "  "})) else { panic!() };
+        assert_eq!(r.device, None);
+        assert!(dev(json!({"device": 5})).unwrap_err().contains("must be a string"));
     }
 
     #[test]

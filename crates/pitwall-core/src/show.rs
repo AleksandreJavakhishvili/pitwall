@@ -1,6 +1,7 @@
 //! Agents showing files to the user (`agents.showFiles`, `viewer.open`),
 //! web pages (`agents.showWeb`, `web.open`) and Pitwall's Settings
-//! (`agents.showSettings`, `settings.open`): whether each is on, the
+//! (`agents.showSettings`, `settings.open`) and device screens
+//! (`agents.showDevice`, `device.open`): whether each is on, the
 //! MCP server the agents Pitwall starts are given (while either is),
 //! and turning what an agent asked for (`src/a.rs:42`, a folder, a
 //! worktree's name) into full paths on the agent's machine that exist.
@@ -29,13 +30,17 @@ pub(crate) struct State {
     web_pages: AtomicBool,
     /// `agents.showSettings`.
     settings: AtomicBool,
+    /// `agents.showDevice`.
+    device: AtomicBool,
+    /// `general.devicePreviews`.
+    device_previews: AtomicBool,
     cli: RwLock<Option<PathBuf>>,
 }
 
 impl Default for State {
     fn default() -> State {
         // On by default, as the settings.
-        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), settings: AtomicBool::new(true), cli: RwLock::new(None) }
+        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), settings: AtomicBool::new(true), device: AtomicBool::new(true), device_previews: AtomicBool::new(true), cli: RwLock::new(None) }
     }
 }
 
@@ -67,6 +72,35 @@ impl Engine {
         }
     }
 
+    /// `agents.showDevice` and `general.devicePreviews`, as the host
+    /// follows them: agents may show devices while both are on.
+    pub fn set_show_device(&self, tool: bool, previews: bool) {
+        let was = self.show_device_on();
+        self.show.device.store(tool, Ordering::Relaxed);
+        self.show.device_previews.store(previews, Ordering::Relaxed);
+        if was != self.show_device_on() {
+            self.sync_show_rule();
+        }
+    }
+
+    /// Agents may show the user a device's screen (`agents.showDevice` and
+    /// `general.devicePreviews`).
+    pub fn show_device_on(&self) -> bool {
+        self.show.device.load(Ordering::Relaxed) && self.show.device_previews.load(Ordering::Relaxed)
+    }
+
+    /// Why agents can't show devices now, in the user's words (`None`:
+    /// they can).
+    pub fn show_device_off(&self) -> Option<&'static str> {
+        if !self.show.device_previews.load(Ordering::Relaxed) {
+            return Some("Device screens are turned off in Pitwall (general.devicePreviews, or `pitwall settings set general.devicePreviews true`). Nothing was opened.");
+        }
+        if !self.show.device.load(Ordering::Relaxed) {
+            return Some("Showing devices is turned off in Pitwall (Settings → Agents → “Agents can show you a device”, agents.showDevice). Nothing was opened.");
+        }
+        None
+    }
+
     /// Agents may show the user Pitwall's Settings (`agents.showSettings`).
     pub fn show_settings_on(&self) -> bool {
         self.show.settings.load(Ordering::Relaxed)
@@ -75,7 +109,7 @@ impl Engine {
     /// The built-in rule for agents without an MCP way, in step.
     fn sync_show_rule(&self) {
         let cli = self.show_files_wiring().map(|m| m.command);
-        let what = crate::rules::ShowWhat { files: self.show_files_on(), web: self.show_web_on(), settings: self.show_settings_on() };
+        let what = crate::rules::ShowWhat { files: self.show_files_on(), web: self.show_web_on(), settings: self.show_settings_on(), device: self.show_device_on() };
         crate::rules::sync_show_files_rule(&crate::rules::Dirs::of(self.paths()), cli.as_deref(), what);
     }
 
@@ -110,7 +144,7 @@ impl Engine {
     /// The MCP server for an agent starting now: none when showing files
     /// and web pages are both off, or there is no CLI.
     pub fn show_files_wiring(&self) -> Option<McpWiring> {
-        if !self.show_files_on() && !self.show_web_on() {
+        if !self.show_files_on() && !self.show_web_on() && !self.show_device_on() {
             return None;
         }
         self.show_files_server()

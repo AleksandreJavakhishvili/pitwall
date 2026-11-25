@@ -154,6 +154,9 @@ pub const THEMES: &[&str] = &["system", "dark", "light"];
 pub const LOOKS: &[&str] = &["flat", "glass"];
 pub const DENSITIES: &[&str] = &["comfortable", "compact", "dense"];
 pub const SIDEBAR_GROUPS: &[&str] = &["project", "account"];
+/// What Pitwall does when an agent starts a simulator or emulator
+/// (`general.deviceAutoOpen`).
+pub const DEVICE_AUTO_OPEN: &[&str] = &["beside", "offer", "off"];
 /// What Pitwall does with agents that started before an extension's update
 /// (`extensions.restartAfterUpdate`).
 pub const RESTARTS_AFTER_UPDATE: &[&str] = &["ask", "whenIdle", "never"];
@@ -227,6 +230,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "general.deviceAutoOpen",
+        kind: Kind::Choice(DEVICE_AUTO_OPEN),
+        default: DefaultValue::Str("beside"),
+        description: "When an agent starts an iOS Simulator or an Android emulator (or a phone comes online while it installs an app): beside opens the device's screen in a tile next to that agent's terminal; offer only says so, with Open in Pitwall; off does neither (the device is still in Open device… in the command palette). A device Pitwall can't tie to one agent is only offered. Pitwall looks only while an agent runs a tool that starts devices (simctl, xcodebuild, flutter, expo, react-native, emulator, adb, gradle's install tasks) or prints that it does; it never starts adb's server to look. Needs general.devicePreviews.",
+        page: Page::General,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "deviceAutoOpen", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "general.cliTool",
         kind: Kind::Bool,
         default: DefaultValue::Bool(false),
@@ -284,6 +297,16 @@ pub const SETTINGS: &[Setting] = &[
         page: Page::Agents,
         sensitivity: Sensitivity::Safe,
         stored: Stored::Ui { key: "agentsShowSettings", invert: false },
+        only_on: false,
+    },
+    Setting {
+        key: "agents.showDevice",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Agents can show you a device's screen in Pitwall when you ask to see the app on a simulator or an emulator (\"show me on the simulator\"): the `show_device` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --device` from a shell. The iOS Simulator, Android emulator or phone opens in a device tile next to the agent's terminal; one still booting is waited for up to a minute. The agent gets nothing back from the screen and can't tap or type in it. Needs general.devicePreviews. false: the tool is gone from the agents' list and `pitwall open --device` refuses.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "agentsShowDevice", invert: false },
         only_on: false,
     },
     Setting {
@@ -759,7 +782,7 @@ mod tests {
         assert!(agent.validate(&json!(3)).is_err());
         assert_eq!(find("engineer.command").unwrap().sensitivity, Sensitivity::Approval, "it runs a command");
         // Web pages for agents are as sensitive as showing them files.
-        for k in ["agents.showWeb", "general.webPages", "agents.showSettings"] {
+        for k in ["agents.showWeb", "general.webPages", "agents.showSettings", "agents.showDevice"] {
             assert_eq!(find(k).unwrap().sensitivity, find("agents.showFiles").unwrap().sensitivity, "{k}");
             assert_eq!(find(k).unwrap().sensitivity, Sensitivity::Safe, "{k}");
             assert_eq!(find(k).unwrap().default_value(), json!(true), "{k}");

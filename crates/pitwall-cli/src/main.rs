@@ -164,6 +164,11 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Extension(e) => extension::setup(e, &mut c)?,
         Command::Events(_) => unreachable!("streamed by main (events::follow)"),
         Command::Mcp => unreachable!("served by main (mcp::serve)"),
+        Command::Open(a) if a.device.is_some() => {
+            let req = open::device_request(a).expect("a device");
+            let (opened, text) = open::open_device(&mut c, &req)?;
+            out(&opened, text)
+        }
         Command::Open(a) if a.settings.is_some() => {
             let req = open::settings_request(a).expect("Settings");
             let (opened, text) = open::open_settings(&mut c, &req)?;

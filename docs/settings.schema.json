@@ -8,6 +8,11 @@
       "description": "`agents.editFiles`: You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB, and an SVG's source. Files of agents on other machines, other images, binary files (PDFs too) and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.",
       "type": "boolean"
     },
+    "agentsShowDevice": {
+      "default": true,
+      "description": "`agents.showDevice`: Agents can show you a device's screen in Pitwall when you ask to see the app on a simulator or an emulator (\"show me on the simulator\"): the `show_device` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --device` from a shell. The iOS Simulator, Android emulator or phone opens in a device tile next to the agent's terminal; one still booting is waited for up to a minute. The agent gets nothing back from the screen and can't tap or type in it. Needs general.devicePreviews. false: the tool is gone from the agents' list and `pitwall open --device` refuses.",
+      "type": "boolean"
+    },
     "agentsShowFiles": {
       "default": true,
       "description": "`agents.showFiles`: Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server per launch where the tool has a way (Claude Code, Codex, Copilot CLI, Qwen Code, Amp, opencode; your own config files are never edited), Aider gets a rule to run `pitwall-cli open`, and `pitwall open` does the same from a shell. Gemini CLI and Cursor Agent only read their own MCP files: see agents.showFilesGemini and agents.showFilesCursor. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.",
@@ -30,6 +35,16 @@
         "comfortable",
         "compact",
         "dense"
+      ],
+      "type": "string"
+    },
+    "deviceAutoOpen": {
+      "default": "beside",
+      "description": "`general.deviceAutoOpen`: When an agent starts an iOS Simulator or an Android emulator (or a phone comes online while it installs an app): beside opens the device's screen in a tile next to that agent's terminal; offer only says so, with Open in Pitwall; off does neither (the device is still in Open device… in the command palette). A device Pitwall can't tie to one agent is only offered. Pitwall looks only while an agent runs a tool that starts devices (simctl, xcodebuild, flutter, expo, react-native, emulator, adb, gradle's install tasks) or prints that it does; it never starts adb's server to look. Needs general.devicePreviews.",
+      "enum": [
+        "beside",
+        "offer",
+        "off"
       ],
       "type": "string"
     },

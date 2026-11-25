@@ -56,6 +56,15 @@ Device screens in Pitwall: an Android emulator's or phone's screen, or an iOS Si
 - **Stored in:** `ui.json` → `devicePreviews`
 - **When an agent changes it:** applies directly
 
+### `general.deviceAutoOpen`
+
+When an agent starts an iOS Simulator or an Android emulator (or a phone comes online while it installs an app): beside opens the device's screen in a tile next to that agent's terminal; offer only says so, with Open in Pitwall; off does neither (the device is still in Open device… in the command palette). A device Pitwall can't tie to one agent is only offered. Pitwall looks only while an agent runs a tool that starts devices (simctl, xcodebuild, flutter, expo, react-native, emulator, adb, gradle's install tasks) or prints that it does; it never starts adb's server to look. Needs general.devicePreviews.
+
+- **Values:** one of beside, offer, off
+- **Default:** `beside`
+- **Stored in:** `ui.json` → `deviceAutoOpen`
+- **When an agent changes it:** applies directly
+
 ### `general.cliTool`
 
 The `pitwall` command-line tool is installed (a link in a folder on PATH). true installs it; delete the link to remove it.
@@ -110,6 +119,15 @@ Agents can show you Pitwall's Settings at a page when you ask them to ("where do
 - **Values:** true or false
 - **Default:** `true`
 - **Stored in:** `ui.json` → `agentsShowSettings`
+- **When an agent changes it:** applies directly
+
+### `agents.showDevice`
+
+Agents can show you a device's screen in Pitwall when you ask to see the app on a simulator or an emulator ("show me on the simulator"): the `show_device` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --device` from a shell. The iOS Simulator, Android emulator or phone opens in a device tile next to the agent's terminal; one still booting is waited for up to a minute. The agent gets nothing back from the screen and can't tap or type in it. Needs general.devicePreviews. false: the tool is gone from the agents' list and `pitwall open --device` refuses.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsShowDevice`
 - **When an agent changes it:** applies directly
 
 ### `agents.editFiles`

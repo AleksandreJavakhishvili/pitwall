@@ -182,6 +182,12 @@ pub mod method {
     /// to the user at a page, in the Settings tile (`pitwall open
     /// --settings` and the `show_settings` tool).
     pub const SETTINGS_OPEN: &str = "settings.open";
+    /// (`caps::SHOW_DEVICE`) [`DeviceOpen`](crate::DeviceOpen) →
+    /// [`DeviceOpened`](crate::DeviceOpened): a device's screen shown to
+    /// the user in a device tile next to the agent's terminal (`pitwall
+    /// open --device` and the `show_device` tool); waits for a device
+    /// still booting.
+    pub const DEVICE_OPEN: &str = "device.open";
 
     // Setting up extensions (`caps::EXTENSIONS`): read freely; acting
     // waits for the user's approval in Pitwall. Never an extension's own.
@@ -237,6 +243,8 @@ pub mod caps {
     pub const WEB: &str = "web";
     /// `settings.open` (with `viewer`).
     pub const SHOW_SETTINGS: &str = "showSettings";
+    /// `device.open` (with `viewer`).
+    pub const SHOW_DEVICE: &str = "showDevice";
     /// `extension.*`: extensions' state and setup for agents.
     pub const EXTENSIONS: &str = "extensions";
 }

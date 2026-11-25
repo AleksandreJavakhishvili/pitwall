@@ -17,11 +17,16 @@
 //! `settings.open` (and `show_settings`): Pitwall's Settings shown to the
 //! user at a page, in the Settings tile. Nothing of what Settings holds
 //! comes back.
+//!
+//! `device.open` (and `show_device`): a device's screen shown to the user
+//! in a device tile next to the agent's terminal. The host finds the
+//! device (and waits for one still booting); nothing of the screen comes
+//! back.
 
 use serde_json::Value;
 
 use pitwall_proto::mcp::{self, McpCall, McpCalled, McpTools};
-use pitwall_proto::{code, AgentFocused, ErrorBody, SettingsOpen, SettingsOpened, SettingsShow, SettingsShown, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, WebOpen, WebOpened, WebShow, WebShown, SETTINGS_PROTO, VIEWER_PROTO, WEB_PROTO};
+use pitwall_proto::{code, AgentFocused, DeviceOpen, DeviceOpened, DeviceShow, DeviceShown, ErrorBody, SettingsOpen, SettingsOpened, SettingsShow, SettingsShown, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, WebOpen, WebOpened, WebShow, WebShown, DEVICE_PROTO, SETTINGS_PROTO, VIEWER_PROTO, WEB_PROTO};
 
 use crate::identity::Caller;
 use crate::server::Server;
@@ -49,6 +54,14 @@ pub trait ViewerBackend: Send + Sync {
     fn show_settings(&self, req: &SettingsShow) -> Result<SettingsShown, ErrorBody> {
         let _ = req;
         Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't show its Settings"))
+    }
+    /// Show `req.device` (the one booted device when `None`) in a device
+    /// tile next to `req.agent_id`'s terminal, waiting a while for one
+    /// still booting; never takes the keyboard or brings Pitwall forward.
+    /// May block (for the wait): called on a connection thread.
+    fn show_device(&self, req: &DeviceShow) -> Result<DeviceShown, ErrorBody> {
+        let _ = req;
+        Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't show devices"))
     }
     /// Move the focus to agent `id`'s tile in the window that shows it,
     /// only while Pitwall is the app in front: never brings Pitwall
@@ -107,7 +120,7 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
 
 /// The tools this Pitwall lists now (its settings).
 fn served(s: &Server) -> McpTools {
-    mcp::served(s.engine.show_files_on(), s.engine.show_web_on(), s.engine.show_settings_on())
+    mcp::served(s.engine.show_files_on(), s.engine.show_web_on(), s.engine.show_settings_on(), s.engine.show_device_on())
 }
 
 /// `mcp.tools`: this Pitwall's tools.
@@ -141,6 +154,13 @@ pub fn mcp_call(s: &Server, caller: &Caller, c: McpCall) -> Res {
         Ok(mcp::Request::Settings(req)) => match settings(s, caller, req) {
             Ok(o) => {
                 let text = o.text.clone().unwrap_or_else(|| pitwall_proto::settings_open::text(&o));
+                mcp::result(&text, serde_json::to_value(&o).ok(), false)
+            }
+            Err(e) => failed(e),
+        },
+        Ok(mcp::Request::Device(req)) => match device(s, caller, req) {
+            Ok(o) => {
+                let text = o.text.clone().unwrap_or_else(|| pitwall_proto::device_open::text(&o));
                 mcp::result(&text, serde_json::to_value(&o).ok(), false)
             }
             Err(e) => failed(e),
@@ -244,6 +264,70 @@ pub(crate) fn settings(s: &Server, caller: &Caller, r: SettingsOpen) -> Result<S
         text: None,
     };
     o.text = Some(pitwall_proto::settings_open::text(&o));
+    Ok(o)
+}
+
+/// `device.open`'s params, read (a newer asker's word this Pitwall
+/// doesn't know is said plainly, as for `viewer.open`).
+pub fn device_params(p: Value) -> Result<DeviceOpen, ErrorBody> {
+    let newer = p.get("proto").and_then(Value::as_u64).is_some_and(|v| v > u64::from(DEVICE_PROTO));
+    serde_json::from_value(p).map_err(|e| {
+        if newer {
+            ErrorBody::new(code::BAD_PARAMS, format!("This Pitwall is older than its command-line tool ({e}): quit Pitwall and open it again to update it. Nothing was opened."))
+        } else {
+            ErrorBody::new(code::BAD_PARAMS, e.to_string())
+        }
+    })
+}
+
+/// `device.open`.
+pub fn device_open(s: &Server, caller: &Caller, r: DeviceOpen) -> Res {
+    let o = device(s, caller, r)?;
+    serde_json::to_value(o).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+}
+
+/// A device's screen shown to the user: the setting checked, the agent
+/// resolved; the host finds the device. What comes back says which and
+/// where, never anything of the screen.
+pub(crate) fn device(s: &Server, caller: &Caller, r: DeviceOpen) -> Result<DeviceOpened, ErrorBody> {
+    let Some(backend) = s.viewer.as_deref() else {
+        return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to show devices in"));
+    };
+    if let Some(off) = s.engine.show_device_off() {
+        return Err(ErrorBody::new(code::OFF, off));
+    }
+    let key = r
+        .agent_id
+        .clone()
+        .filter(|a| !a.trim().is_empty())
+        .or_else(|| caller.agent.as_ref().map(|(id, _)| id.clone()))
+        .ok_or_else(|| ErrorBody::new(code::BAD_PARAMS, "say whose terminal the device goes next to (--agent NAME): this doesn't run inside an agent Pitwall started"))?;
+    let agent = match agent_named(s, &key, "") {
+        Ok(a) => a,
+        Err(e) => {
+            if let Some(name) = backend.mirrored(key.trim()) {
+                return Err(ErrorBody::new(code::UNSUPPORTED, format!("{name} runs on another machine and is only shown here, read-only: it can't show a device here")));
+            }
+            return Err(e);
+        }
+    };
+    let device = r.device.as_deref().map(str::trim).filter(|d| !d.is_empty()).map(String::from);
+    let shown = backend.show_device(&DeviceShow { agent_id: agent.id.clone(), device })?;
+    let mut o = DeviceOpened {
+        proto: DEVICE_PROTO,
+        agent_id: agent.id,
+        agent_name: agent.name,
+        window: shown.window,
+        in_background: shown.in_background,
+        device: shown.device,
+        name: shown.name,
+        reused: shown.reused,
+        waited: shown.waited,
+        shown_in: shown.at,
+        note: shown.note,
+        text: None,
+    };
+    o.text = Some(pitwall_proto::device_open::text(&o));
     Ok(o)
 }
 
