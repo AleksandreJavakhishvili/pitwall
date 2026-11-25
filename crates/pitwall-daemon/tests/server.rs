@@ -976,9 +976,69 @@ fn an_extension_never_sends_approves_or_grants_itself() {
     let mut agent = w.client_as(agent_caller("eng", "Race Engineer"));
     assert_eq!(server_error(agent.call("agent.focus", json!({"agentId": a.id})).unwrap_err()).code, code::DENIED);
     assert_eq!(server_error(w.client().call("agent.focus", json!({"agentId": a.id})).unwrap_err()).code, code::DENIED);
-    // `prompt` on agent.create is an extension's alone.
-    let e = server_error(w.client().call("agent.create", json!({"kind": "shell", "project": dir.path(), "prompt": "go"})).unwrap_err());
+    // Anyone else's `prompt` is their own item, as `queue.add` would put it
+    // (agent_create_with_a_first_instruction).
+    let v = w.client().call("agent.create", json!({"kind": "shell", "project": dir.path(), "prompt": "go"})).unwrap();
+    assert!(v["queue"][0].get("origin").is_none(), "{v}");
+}
+
+/// `agent.create` with a `prompt`: made and queued in one request, as
+/// `queue.add` would (the caller's own item, Auto-send's usual rules); a
+/// blank one creates nothing; an older client reads the view as before.
+#[test]
+fn agent_create_with_a_first_instruction() {
+    let w = world(Duration::from_secs(10));
+    let dir = TempDir::new("proj");
+    let project = dir.path().to_string_lossy().into_owned();
+    // An agent asks, as `pitwall agent new` from inside one would.
+    let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
+    let v = c.call("agent.create", json!({"kind": "shell", "project": project, "name": "worker", "prompt": "run the tests\nand fix them"})).unwrap();
+    let item = &v["queue"][0];
+    assert_eq!((item["text"].as_str(), v["queue"].as_array().unwrap().len()), (Some("run the tests\nand fix them"), 1));
+    assert!(item.get("origin").is_none(), "the caller's own item, as queue.add: {v}");
+    assert_eq!(v["queued"], json!({"id": item["id"], "position": 1}));
+    assert!(v.get("queueError").is_none());
+    assert_eq!(v["autoSend"], true, "sent when it is first free");
+    assert!(w.approvals.pending().is_empty(), "nothing more is asked than without a prompt");
+    let listed = c.agents().unwrap();
+    assert_eq!(listed.iter().find(|a| a.name == "worker").unwrap().queue.len(), 1);
+
+    // Blank: refused before anything is made.
+    for blank in ["", " \n "] {
+        let e = server_error(c.call("agent.create", json!({"kind": "shell", "project": project, "name": "nope", "prompt": blank})).unwrap_err());
+        assert_eq!(e.code, code::BAD_PARAMS, "{e}");
+    }
+    assert_eq!(c.agents().unwrap().len(), 1, "nothing was created");
+
+    // An older client (no prompt, reads an AgentView): as before.
+    let old = c.create_agent(&AgentCreate { kind: "shell".into(), project: project.clone(), name: Some("old".into()), ..Default::default() }).unwrap();
+    assert!(old.queue.is_empty());
+    let raw = c.call("agent.create", json!({"kind": "shell", "project": project})).unwrap();
+    assert!(raw.get("queued").is_none() && raw.get("queueError").is_none(), "{raw}");
+    // A newer client reads what became of it.
+    let made = c.create_agent_queued(&AgentCreate { kind: "shell".into(), project: project.clone(), prompt: Some("go".into()), ..Default::default() }).unwrap();
+    assert_eq!(made.queued.as_ref().map(|q| q.position), Some(1));
+    assert_eq!(made.agent.queue[0].text, "go");
+
+    // On a platform's machine: still asked first, the instruction shown,
+    // then queued like on this Mac.
+    w.vm.set_caps(ProviderCaps { create: true, start: true, attach_existing: true, survives_detach: true, ..Default::default() });
+    w.vm.set_form(vm_form());
+    let asked = w.answer_when_asked(false);
+    let e = server_error(c.create_agent_queued(&AgentCreate { prompt: Some("deploy it".into()), ..create_on_vm("work") }).unwrap_err());
+    let view = asked.join().unwrap();
+    assert_eq!(e.code, code::DENIED);
+    assert!(view.details.iter().any(|d| d == "Its first instruction, put in its Next up:\ndeploy it"), "{:?}", view.details);
+    assert!(w.vm.created().is_empty());
+    let asked = w.answer_when_asked(true);
+    let made = c.create_agent_queued(&AgentCreate { prompt: Some("deploy it".into()), ..create_on_vm("work") }).unwrap();
+    asked.join().unwrap();
+    assert_eq!((made.agent.queue[0].text.as_str(), made.queued.map(|q| q.position)), ("deploy it", Some(1)));
+    // A blank one there is refused before anyone is asked.
+    let e = server_error(c.create_agent_queued(&AgentCreate { prompt: Some(" ".into()), ..create_on_vm("work") }).unwrap_err());
     assert_eq!(e.code, code::BAD_PARAMS);
+    assert!(w.approvals.pending().is_empty());
+    assert_eq!(w.vm.created().len(), 1);
 }
 
 /// `agents.queue`: the item is the extension's (its name on it), bounded

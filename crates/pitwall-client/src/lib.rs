@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use pitwall_proto::frame::{self, Frame};
 use pitwall_proto::{
-    method, AgentCreate, AgentView, ApprovalAnswer, ApprovalView, ClientHello, CreateForm, ErrorBody, Event, FormRequest, Hello, ProviderMachines, Range,
+    method, AgentCreate, AgentCreated, AgentView, ApprovalAnswer, ApprovalView, ClientHello, CreateForm, ErrorBody, Event, FormRequest, Hello, ProviderMachines, Range,
     Reject, Request, Role, ScannedPlace, ServerHello, ServerMsg, SessionAdd, SessionAdded, SessionFilter, Welcome,
 };
 
@@ -152,6 +152,12 @@ impl Client {
     }
 
     pub fn create_agent(&mut self, req: &AgentCreate) -> Result<AgentView> {
+        self.call_as(method::AGENT_CREATE, req)
+    }
+
+    /// [`create_agent`](Self::create_agent), with what became of its
+    /// `prompt` (queued, or why not).
+    pub fn create_agent_queued(&mut self, req: &AgentCreate) -> Result<AgentCreated> {
         self.call_as(method::AGENT_CREATE, req)
     }
 

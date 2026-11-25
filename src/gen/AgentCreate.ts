@@ -42,9 +42,11 @@ resume?: string | null,
  */
 account?: string | null, 
 /**
- * From an extension only (`agents.start`): its first prompt, shown in
- * full in the approval and put in the new agent's Next up as the
- * extension's item (sent as its other items are). Anyone else is
- * refused it: they queue with `queue.add`.
+ * Its first instruction, put in the new agent's Next up as it is
+ * created, as `queue.add` would (sent when it is first free, if
+ * Auto-send is on); the answer says what became of it
+ * ([`AgentCreated`]). Blank: refused, nothing created. From an
+ * extension (`agents.start`) it is shown in full in the approval and
+ * queued as the extension's item (sent as its other items are).
  */
 prompt?: string | null, cols?: number | null, rows?: number | null, };
