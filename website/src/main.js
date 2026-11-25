@@ -25,14 +25,14 @@ const motionIO =
   new IntersectionObserver((entries) => {
     for (const e of entries) e.target.classList.toggle("motion-off", !e.isIntersecting);
   });
-if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], [data-files], [data-accounts], [data-web], .board-wrap, .lanes")) motionIO.observe(el);
+if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], [data-files], [data-accounts], .board-wrap, .lanes")) motionIO.observe(el);
 
-// The feature loops (index.html: the carousel's stages; site.css: .fl-*, .sv-*, .ac-*, .wb-*) are
+// The feature loops (index.html: the carousel's stages; site.css: .fl-*, .sv-*, .ac-*) are
 // drawn at a fixed size and scaled to their frame: 960 px wide, and on phones 632 px (the
 // floating control's right part) or 500 px. The loops are CSS keyframes, so the pauses
 // above and the carousel's (only the shown slide runs) cover them.
 const narrow = matchMedia("(max-width: 600px)");
-for (const [sel, scene, phoneW] of [["[data-float]", ".fl-scene", 632], ["[data-files]", ".sv-scene", 500], ["[data-accounts]", ".ac-scene", 500], ["[data-web]", ".wb-scene", 500]]) {
+for (const [sel, scene, phoneW] of [["[data-float]", ".fl-scene", 632], ["[data-files]", ".sv-scene", 500], ["[data-accounts]", ".ac-scene", 500]]) {
   const stage = document.querySelector(sel);
   if (!stage) continue;
   const el = stage.querySelector(scene);
@@ -320,6 +320,13 @@ function setupDemo(demo) {
     }
     panel.setAttribute("aria-labelledby", tab.id);
     for (const c of copies) c.hidden = c.dataset.copy !== tab.dataset.view;
+    // On a phone the tab row scrolls on its own: bring the shown tab into it.
+    const list = tab.parentElement;
+    if (list.scrollWidth > list.clientWidth) {
+      const to = tab.offsetLeft - (list.clientWidth - tab.offsetWidth) / 2;
+      list.scrollTo({ left: to, behavior: reduceMotion.matches ? "auto" : "smooth" });
+    }
+    fit();
     if (!ready) return; // sent once the app says it's ready
     const keep = document.activeElement;
     send({ view: tab.dataset.view });
@@ -342,16 +349,32 @@ function setupDemo(demo) {
   });
 
   // The app lays out by window width and only shows its full sidebar from 1100 px, so it
-  // renders at 1120x700 and is scaled to the frame. Phones (frame 4:5) show its left half.
+  // renders at 1120x700 and is scaled to the frame. Phones (frame 4:5) show its left half,
+  // or its right half for views whose tab has data-phone="right" (a files or web tile
+  // beside the terminal, the details drawer).
   const APP_W = 1120;
   const APP_H = 700;
   const narrow = matchMedia("(max-width: 600px)");
   function fit() {
     if (!iframe) return;
     const scale = body.clientWidth / (narrow.matches ? APP_W / 2 : APP_W);
-    Object.assign(iframe.style, { width: `${APP_W}px`, height: `${APP_H}px`, transform: `scale(${scale})` });
+    const shift = narrow.matches && selected().dataset.phone === "right" ? -APP_W / 2 : 0;
+    Object.assign(iframe.style, { width: `${APP_W}px`, height: `${APP_H}px`, transform: `scale(${scale}) translateX(${shift}px)` });
   }
   new ResizeObserver(fit).observe(body);
+  narrow.addEventListener("change", fit);
+
+  // The overview cards below the demo (index.html: .layout-ov) show their view here.
+  for (const link of document.querySelectorAll("[data-demo-view]")) {
+    const tab = tabs.find((t) => t.dataset.view === link.dataset.demoView);
+    if (!tab) continue;
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      select(tab);
+      demo.scrollIntoView({ behavior: reduceMotion.matches ? "auto" : "smooth", block: "start" });
+      tab.focus({ preventScroll: true });
+    });
+  }
 
   // The app follows the page's theme toggle, not just the OS.
   const syncTheme = () => send({ theme: currentTheme() });

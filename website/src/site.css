@@ -485,6 +485,11 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .tabs [role="tab"][aria-selected="true"][data-view="needs-you"] { background: var(--amber-soft); }
 .tabs kbd { font-size: 0.72rem; letter-spacing: 0; text-transform: none; color: var(--text-2); }
 .tabs .g { color: var(--amber); }
+/* Phones: the row scrolls sideways (main.js keeps the shown tab in view); no shortcuts. */
+@media (max-width: 600px) {
+  .demo .tabs [role="tab"] { padding: 8px 11px; }
+  .demo .tabs kbd { display: none; }
+}
 
 .demo-panel { display: grid; gap: 18px; padding-top: 18px; }
 .copy { min-height: 3.2em; max-width: 62ch; margin: 0 auto; text-align: center; }
@@ -500,7 +505,8 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .frame-title .dim { color: var(--text-3); }
 /* The live app (website/public/demo, the app's browser mock) renders at the size the
    site was designed around, 1120x700, and main.js scales it to the frame. Phones show
-   its left half (sidebar and first tile) at a readable size instead of the whole window. */
+   its left half (sidebar and first tile) at a readable size instead of the whole window,
+   or its right half for Files, Web and Next up (the tile or the details drawer). */
 .frame-body { position: relative; aspect-ratio: 16 / 10; background: var(--app-bg); border-radius: var(--radius); overflow: hidden; }
 .frame-body iframe { position: absolute; left: 0; top: 0; border: 0; display: block; transform-origin: 0 0; }
 @media (max-width: 600px) { .frame-body { aspect-ratio: 4 / 5; } .frame { padding: 0 4px 4px; } }
@@ -1102,175 +1108,6 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 @keyframes sv-ping-3 { 0%, 78.7% { opacity: 0; transform: scale(0.3); } 78.9% { opacity: 0.6; transform: scale(0.4); } 82.3%, 100% { opacity: 0; transform: scale(1.4); } }
 
 
-/* ---------- web pages in tiles (index.html: [data-web]) ----------
-   The agent's terminal, then "open the docs on the left": the show_web call and its
-   answer, and a web tile slides in left of the terminal (phones: above it). Then the
-   dev server starts, its Preview chip shows in the terminal's header, a click opens the
-   Preview as a tile right of the terminal. Drawn at 960x600 (phones: 500x690), scaled
-   by main.js (--s). One 18 s timeline; the tiles' places come from the --wb-*
-   variables so phones reuse the keyframes. Without animation (reduced motion) the base
-   styles are the end: docs, terminal and Preview side by side. */
-.wb-stage {
-  position: relative; aspect-ratio: 960 / 600; max-width: 960px; margin: clamp(28px, 4vw, 44px) auto 0;
-  border-radius: var(--radius); overflow: hidden; pointer-events: none; user-select: none;
-}
-.wb-scene {
-  position: absolute; left: 0; top: 0; width: 960px; height: 600px; transform-origin: 0 0; transform: scale(var(--s, 1));
-  font: 400 12px/1.4 var(--font-ui); color: var(--text); font-variant-ligatures: none;
-  --wb: 18s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
-  /* The terminal's inset: alone, beside the docs tile, beside the Preview too. */
-  --wb-t0: 42px 8px 8px 8px; --wb-t1: 42px 8px 8px 266px; --wb-t2: 42px 340px 8px 266px;
-  --wb-docs-out: translateX(-260px); --wb-prev-out: translateX(340px);
-  --wb-cx: 846px; --wb-cy: 56px; --wb-rest: translate(560px, 420px);
-}
-.wb-scene i { display: block; font-style: normal; }
-@media (max-width: 600px) {
-  .wb-stage { aspect-ratio: 500 / 690; }
-  .wb-scene {
-    width: 500px; height: 690px;
-    --wb-t0: 42px 8px 8px 8px; --wb-t1: 230px 8px 8px 8px; --wb-t2: 230px 196px 8px 8px;
-    --wb-docs-out: translateY(-210px); --wb-prev-out: translateX(200px);
-    --wb-cx: 406px; --wb-cy: 244px; --wb-rest: translate(300px, 560px);
-  }
-}
-.wb-win {
-  position: absolute; left: 20px; top: 16px; right: 20px; bottom: 16px; overflow: hidden;
-  border-radius: 10px; background: var(--bezel); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
-}
-@media (max-width: 600px) { .wb-win { left: 10px; top: 10px; right: 10px; bottom: 10px; } }
-
-.wb-term {
-  position: absolute; inset: var(--wb-t2); border-radius: 6px; background: var(--app-bg); border: 1px solid var(--app-line); overflow: hidden;
-  animation: wb-term var(--wb);
-}
-.wb-head { height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.wb-head .fl-logo { margin: 0; }
-.wb-head b { font-weight: 600; }
-.wb-head > span { color: var(--text-3); }
-.wb-head .wb-chip {
-  margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px;
-  background: var(--chip-on); color: var(--text-2); font: 500 10.5px/1.4 var(--font-mono); animation: wb-chip var(--wb);
-}
-.wb-lines { padding: 8px 12px; font: 11px/16px var(--font-mono); }
-.wb-lines > span { display: block; height: 16px; white-space: pre; }
-.wb-lines b { font-weight: 700; }
-.wb-lines .d { color: var(--text-3); }
-.wb-type1, .wb-type2 { display: inline-block; vertical-align: top; clip-path: inset(0 0 0 0); }
-.wb-type1 { animation: wb-type1 var(--wb); }
-.wb-type2 { animation: wb-type2 var(--wb); }
-.wb-l1 { animation: wb-l1 var(--wb); }
-.wb-l2 { animation: wb-l2 var(--wb); }
-.wb-l3 { animation: wb-l3 var(--wb); }
-.wb-p2 { animation: wb-p2 var(--wb); }
-.wb-l4 { animation: wb-l4 var(--wb); }
-.wb-l5 { animation: wb-l5 var(--wb); }
-
-/* The tiles: a bar as the app's (grip, back, forward, reload, address, title, then
-   window of its own, open in browser, close; a Preview also phone width). */
-.wb-docs, .wb-prev {
-  position: absolute; overflow: hidden; border-radius: 6px; background: var(--app-bg);
-  border: 1px solid var(--line-strong); box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
-}
-.wb-docs { left: 8px; top: 42px; width: 250px; bottom: 8px; animation: wb-docs var(--wb); }
-.wb-prev { left: 586px; top: 42px; right: 8px; bottom: 8px; animation: wb-prev var(--wb); }
-@media (max-width: 600px) {
-  .wb-docs { right: 8px; width: auto; bottom: auto; height: 180px; }
-  .wb-prev { left: 288px; top: 230px; }
-}
-.wb-bar {
-  height: 32px; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-bottom: 1px solid var(--line);
-  background: var(--glass-solid); white-space: nowrap;
-}
-.wb-ico { flex: none; color: var(--text-2); }
-.wb-ico.dim { color: var(--text-3); opacity: 0.6; }
-.wb-grip { flex: none; display: grid; grid-template-columns: repeat(2, 3px); gap: 2px; padding: 0 3px; }
-.wb-scene .wb-grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
-.wb-addr {
-  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 3px 7px; border-radius: 6px;
-  background: var(--app-bg); border: 1px solid var(--line); font: 10.5px/1.3 var(--font-mono); color: var(--text-2);
-}
-.wb-title { flex: none; font-size: 11px; color: var(--text-3); }
-/* The page's browser profile (not on a Preview). */
-.wb-prof { flex: none; display: flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 6px; background: var(--chip-on); font-size: 10.5px; font-weight: 600; color: var(--text-2); }
-
-/* Pages: shapes, a heading each. */
-.wb-page { position: absolute; left: 0; right: 0; top: 33px; bottom: 0; overflow: hidden; }
-.wb-docs-page { display: grid; grid-template-columns: 70px 1fr; grid-template-rows: 32px 1fr; }
-.wb-pnav { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
-.wb-pnav b { font: 700 12px/1 var(--font-ui); margin-right: auto; }
-.wb-scene .wb-pnav i { width: 30px; height: 6px; border-radius: 3px; background: var(--line-strong); }
-.wb-pside { padding: 12px 8px; display: grid; align-content: start; gap: 9px; border-right: 1px solid var(--line); }
-.wb-scene .wb-pside i { height: 6px; border-radius: 3px; background: var(--line-strong); }
-.wb-scene .wb-pside i.on { background: var(--primary); opacity: 0.8; }
-.wb-pbody { padding: 14px; display: grid; align-content: start; gap: 9px; }
-.wb-pbody b { font: 700 15px/1.2 var(--font-ui); margin-bottom: 4px; }
-.wb-scene .wb-pbody i { width: calc(var(--w) * 1%); height: 6px; border-radius: 3px; background: var(--line-strong); }
-.wb-code { display: grid; gap: 7px; padding: 10px; border-radius: 6px; background: var(--chip-on); margin: 4px 0; }
-.wb-scene .wb-code i { background: var(--text-3); opacity: 0.55; }
-.wb-app { padding: 14px; display: grid; align-content: start; gap: 14px; }
-.wb-app-nav { display: flex; align-items: center; gap: 10px; }
-.wb-scene .wb-app-nav i { width: 34px; height: 6px; border-radius: 3px; background: var(--line-strong); }
-.wb-scene .wb-app-nav i.logo { width: 18px; height: 18px; border-radius: 5px; background: var(--primary); margin-right: auto; }
-.wb-scene .wb-app-nav i.btn { width: 44px; height: 18px; border-radius: 9px; background: var(--chip-on); }
-.wb-app-hero { display: grid; gap: 10px; padding: 16px 14px; border-radius: 10px; background: var(--chip-on); }
-.wb-app-hero b { font: 700 18px/1.1 var(--font-ui); }
-.wb-scene .wb-app-hero i { width: calc(var(--w) * 1%); height: 6px; border-radius: 3px; background: var(--line-strong); }
-.wb-scene .wb-app-hero i.btn { width: 80px; height: 22px; border-radius: 11px; background: var(--primary); opacity: 0.85; }
-.wb-app-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.wb-scene .wb-app-cards i { height: 64px; border-radius: 8px; border: 1px solid var(--line-strong); }
-@media (max-width: 600px) {
-  .wb-prev .wb-title { display: none; }
-  .wb-app-cards { grid-template-columns: 1fr; }
-  .wb-scene .wb-app-cards i { height: 40px; }
-}
-
-.wb-pointer { animation: wb-pointer var(--wb); }
-.wb-ping { left: var(--wb-cx); top: var(--wb-cy); animation: wb-ping var(--wb); }
-.motion-paused .wb-scene * { animation-play-state: paused; }
-
-@keyframes wb-type1 {
-  0%, 2.2% { clip-path: inset(0 100% 0 0); animation-timing-function: steps(28, end); }
-  10%, 95% { clip-path: inset(0 0 0 0); }
-  96.5%, 100% { clip-path: inset(0 100% 0 0); }
-}
-@keyframes wb-type2 {
-  0%, 29% { clip-path: inset(0 100% 0 0); animation-timing-function: steps(20, end); }
-  34%, 95% { clip-path: inset(0 0 0 0); }
-  96.5%, 100% { clip-path: inset(0 100% 0 0); }
-}
-@keyframes wb-l1 { 0%, 12.9% { opacity: 0; } 13%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-l2 { 0%, 15.9% { opacity: 0; } 16%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-l3 { 0%, 23.9% { opacity: 0; } 24%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-p2 { 0%, 27.9% { opacity: 0; } 28%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-l4 { 0%, 36.9% { opacity: 0; } 37%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-l5 { 0%, 41.9% { opacity: 0; } 42%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-chip { 0%, 42.4% { opacity: 0; } 42.5%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
-@keyframes wb-term {
-  0%, 18% { inset: var(--wb-t0); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
-  22%, 52% { inset: var(--wb-t1); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
-  56%, 92% { inset: var(--wb-t2); animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.2); }
-  96%, 100% { inset: var(--wb-t0); }
-}
-@keyframes wb-docs {
-  0%, 18% { opacity: 0; transform: var(--wb-docs-out); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
-  22%, 92% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.2); }
-  96%, 100% { opacity: 0; transform: var(--wb-docs-out); }
-}
-@keyframes wb-prev {
-  0%, 52% { opacity: 0; transform: var(--wb-prev-out); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
-  56%, 92% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.2); }
-  96%, 100% { opacity: 0; transform: var(--wb-prev-out); }
-}
-@keyframes wb-pointer {
-  0%, 43% { opacity: 0; transform: var(--wb-rest); }
-  44.5% { opacity: 1; transform: var(--wb-rest); }
-  49.5%, 50.6% { transform: translate(var(--wb-cx), var(--wb-cy)); }
-  51.1% { transform: translate(var(--wb-cx), var(--wb-cy)) scale(0.86); }
-  51.7%, 56% { opacity: 1; transform: translate(var(--wb-cx), var(--wb-cy)); }
-  60%, 100% { opacity: 0; transform: var(--wb-rest); }
-}
-@keyframes wb-ping { 0%, 50.9% { opacity: 0; transform: scale(0.3); } 51.1% { opacity: 0.6; transform: scale(0.4); } 54.5%, 100% { opacity: 0; transform: scale(1.4); } }
-
 /* ---------- one layout: the kinds of tiles (index.html: .layout-ov) ---------- */
 .layout-ov { padding: clamp(8px, 2vw, 20px) 0 0; }
 .layout-ov h2 { margin: 0 0 14px; text-align: center; }
@@ -1480,10 +1317,10 @@ html:not(.js) .feat-track { scrollbar-width: auto; }
   grid-row: 1 / span 3; display: grid; grid-template-rows: subgrid; min-width: 0;
   padding: 0 var(--gutter); scroll-snap-align: start; scroll-snap-stop: always;
 }
-.feat-slide .fl-stage, .feat-slide .sv-stage, .feat-slide .ac-stage, .feat-slide .wb-stage { width: 100%; }
+.feat-slide .fl-stage, .feat-slide .sv-stage, .feat-slide .ac-stage { width: 100%; }
 .feat-facts { align-self: stretch; margin-top: clamp(20px, 3vw, 32px); }
 /* An inactive slide shows its scene's still (no animation); shown, it starts from 0 s. */
-.feat-idle .fl-scene *, .feat-idle .sv-scene *, .feat-idle .ac-scene *, .feat-idle .wb-scene * { animation: none !important; }
+.feat-idle .fl-scene *, .feat-idle .sv-scene *, .feat-idle .ac-scene * { animation: none !important; }
 @media (max-width: 600px) {
   .feat-nav { gap: 6px; }
   .feat-arrow { width: 34px; height: 34px; }

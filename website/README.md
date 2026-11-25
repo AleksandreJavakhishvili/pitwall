@@ -73,16 +73,18 @@ public/apple-touch-icon.png   the chequered Apex P, full bleed (180 px)
 ## Features carousel
 
 Below the demo, a row of four cards ("One layout": terminals, files, source control,
-web; `.layout-ov`) links to the slides and docs, then one section shows features as
-slides of equal size: "Web pages in tiles", "Files next to the agent", "Answer from
-anywhere" and "Accounts per project". Each slide has a heading and
+web; `.layout-ov`) shows the demo's view for each (`data-demo-view` on the card; without
+JavaScript they are links to `#demo`). Then one section shows, as slides of equal size,
+what the demo can't: "Agents show you files" (an agent opening files for you, with the
+web pages' facts), "Answer from anywhere" and "Accounts per project". Keep it to what
+the demo doesn't show; a feature the demo shows gets a demo tab instead. Each slide has a heading and
 lead, an animated mock-up (decorative, `aria-hidden`, CSS keyframes only) and a details
 panel. The track is a CSS scroll-snap row (swipe, trackpad, ←/→, the arrows or the tabs);
 it is a grid and each slide a subgrid of its three rows, so all slides are as tall as the
 tallest and their stages line up. `src/main.js` (`setupCarousel`) marks the shown tab and
 makes the other slides `inert`; they show their still (`.feat-idle` turns their animation
 off), so a slide's loop starts from the beginning when it is shown. There is no
-auto-advance. A link to a slide's id or to anything in it (`#web`, `#files`, `#away`,
+auto-advance. A link to a slide's id or to anything in it (`#files`, `#away`,
 `#accounts`) shows that slide. Without JavaScript the tabs are plain links and the track
 scrolls sideways.
 
@@ -101,10 +103,11 @@ scrolls sideways.
    `site.css`, add its scene to the `.feat-idle` rule and to the `.motion-paused` pauses.
    Its base styles (no animation) are the still shown with reduced motion.
 
-**The "New in" pill.** The newest feature's tab carries
-`<span class="feat-new">%NEW_LABEL%</span>`; the text comes from `NEW_LABEL` in
-`site.config.js` (filled in at build time like `%REPO_URL%`). Set it to the release that
-ships that feature, and move the span to the next new feature's tab when there is one.
+**The "New in" pill.** The newest feature's tab (a demo tab or a slide's; now the
+demo's Web tab) carries `<span class="feat-new">%NEW_LABEL%</span>`; the text comes
+from `NEW_LABEL` in `site.config.js` (filled in at build time like `%REPO_URL%`). Set it
+to the release that ships that feature, and move the span to the next new feature's tab
+when there is one.
 
 ## Downloads
 
@@ -130,11 +133,18 @@ The landing page's demo is the web demo of the UI, live: the React build of the 
   If `public/demo/` isn't in the build, the frame says so.
 - **Size.** The app renders at 1120×700 (it shows its full sidebar from 1100 px) and
   is scaled to the frame. Below 600 px the frame is 4:5 and shows the app's left half
-  (sidebar and first tile) at twice the scale, so text stays legible on phones.
-- **Tabs.** Needs you / Wall / Next up / Review / Terminals / Rules post
-  `{ type: "pitwall-demo", view }` to the app; `src/lib/demoBridge.ts` (inert outside
-  the browser mock and without `?demo=1`) clicks the app's own controls and replies
-  `{ type: "pitwall-demo-ready" }` once agents are on screen.
+  (sidebar and first tile) at twice the scale, so text stays legible on phones; a tab
+  with `data-phone="right"` (Files, Web, Next up) shows the right half instead, where its
+  tile or the details drawer is.
+- **Tabs.** It is the page's one main demo, strongest views first: Needs you / Files /
+  Web / Review / Wall / Next up post `{ type: "pitwall-demo", view }` to the app;
+  `src/lib/demoBridge.ts` (inert outside the browser mock and without `?demo=1`) clicks
+  the app's own controls and replies `{ type: "pitwall-demo-ready" }` once agents are on
+  screen. Files opens api-fix's `src/orders/handler.ts` from the Files tab of its details:
+  a files tile beside its terminal, with git status. Web clicks Preview on the docs
+  agent, whose terminal printed a local address: a web tile beside it with a made-up
+  page drawn in HTML (`src/components/WebTile.tsx`, `src/mockWeb.ts`; no iframe, no
+  network). On phones the tab row scrolls and drops the shortcuts.
 - **Theme.** The page's theme goes in as `?theme=` and again as
   `{ type: "pitwall-demo", theme }` whenever the toggle (or the OS setting) changes.
 - **State.** Each load clears the mock's `pitwall.*` localStorage keys, so every
@@ -147,4 +157,4 @@ CDP at 1120×700; encode at 10 fps, 1120 px wide, `img2webp -lossy -q 55`.
 
 ## TODO
 
-- Re-record the README animation when the UI changes (see Demo); the current one predates the Apex P top-bar logo.
+- Re-record the README animation when the UI changes (see Demo); the current one predates the Apex P top-bar logo, and the files and web tiles beside a terminal.
