@@ -765,7 +765,6 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .away-copy { display: grid; justify-items: center; align-content: start; text-align: center; }
 .feat-slide h2 { max-width: 26ch; text-wrap: balance; }
 .feat-slide h2 .dim { color: var(--text-3); }
-.away-copy p { margin: 18px 0 0; max-width: 60ch; color: var(--text-2); text-wrap: pretty; }
 .fl-stage {
   position: relative; aspect-ratio: 960 / 600; max-width: 960px; margin: clamp(28px, 4vw, 44px) auto 0;
   border-radius: var(--radius); overflow: hidden; pointer-events: none; user-select: none;
@@ -808,7 +807,9 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   animation: fl-glow 9s ease-in-out infinite alternate;
 }
 @keyframes fl-glow { to { transform: translate(9%, -6%) rotate(8deg) scale(1.15); } }
-.fl-time { position: absolute; left: 14px; bottom: 20px; font: 500 11px/1 var(--font-mono); color: var(--text-2); }
+.fl-ctl { position: absolute; left: 14px; bottom: 19px; display: flex; gap: 3px; }
+.fl-ctl i { width: 3px; height: 11px; border-radius: 1px; background: var(--text-2); }
+.fl-time { position: absolute; left: 30px; bottom: 20px; font: 500 11px/1 var(--font-mono); color: var(--text-2); }
 .fl-prog { position: absolute; left: 14px; right: 14px; bottom: 9px; height: 3px; border-radius: 2px; background: var(--line-strong); overflow: hidden; }
 .fl-prog i { height: 100%; width: 100%; border-radius: 2px; background: var(--text-2); transform-origin: 0 50%; animation: fl-prog 12s linear infinite; }
 @keyframes fl-prog { from { transform: scaleX(0.38); } to { transform: scaleX(0.52); } }
@@ -1127,7 +1128,8 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 
 /* ---------- accounts per project (index.html: [data-accounts]) ----------
    The sidebar grouped by account: orders-api is dragged from Personal to Work (both
-   Claude Code logins), its agents restart there; then its Accounts… dialog, where
+   Claude Code logins), its agents restart there and their terminals' account chips
+   turn from Personal to Work; then its Accounts… dialog, where
    Codex is set to Work too. Drawn at 960x600 (phones: 500x690, the sidebar full width
    and the dialog over its lower part), scaled by main.js. One 16 s timeline. Without
    animation (reduced motion) the base styles are the sidebar after the move. Row tops
@@ -1155,8 +1157,23 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .ac-side { position: absolute; left: 0; top: 0; bottom: 0; width: 300px; }
 .ac-side::before { content: ""; position: absolute; right: 0; top: 34px; bottom: 0; width: 1px; background: var(--line); }
 .ac-main { position: absolute; left: 300px; right: 0; top: 34px; bottom: 0; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 8px; padding: 8px; }
-.ac-scene .ac-main i { border-radius: 6px; background: var(--app-bg); border: 1px solid var(--app-line); }
-.ac-scene .ac-main i:nth-child(5) { display: none; }
+/* The terminals: each header carries the account chip it runs on, as in the app. Base
+   styles are after the move (orders-api's two on Work). */
+.ac-pane { position: relative; min-width: 0; overflow: hidden; border-radius: 6px; background: var(--app-bg); border: 1px solid var(--app-line); }
+.ac-ph { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-bottom: 1px solid var(--app-line); white-space: nowrap; }
+.ac-ph b { font-weight: 600; }
+.ac-ph .g { width: 12px; font-size: 11px; }
+.ac-pm { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.ac-acct { position: relative; margin-left: auto; display: grid; height: 22px; padding: 0 9px; border-radius: 999px; background: var(--chip-on); border: 1px solid var(--line-strong); font-size: 11.5px; }
+.ac-acct b { grid-area: 1 / 1; align-self: center; justify-self: center; font-weight: 600; }
+.ac-was { opacity: 0; animation: ac-was var(--ac); }
+.ac-now { animation: ac-now var(--ac); }
+.ac-mv .ac-acct { animation: ac-acct var(--ac); }
+.ac-tl { display: flex; flex-direction: column; gap: 11px; padding: 14px 12px; }
+.ac-scene .ac-tl i { height: 7px; width: calc(var(--w) * 1%); border-radius: 4px; background: var(--text-3); opacity: 0.5; }
+.ac-scene .ac-tl i.s { background: var(--line-strong); opacity: 1; }
+.ac-mv .ac-tl { animation: ac-tl var(--ac); }
+.ac-prs { position: absolute; left: 12px; top: 44px; font: 11px/1 var(--font-mono); color: var(--text-3); opacity: 0; animation: ac-rs var(--ac); }
 @media (max-width: 600px) { .ac-side { width: auto; right: 0; } .ac-side::before, .ac-main { display: none; } }
 .ac-pers, .ac-ord { position: absolute; inset: 0; }
 .ac-row { position: absolute; left: 8px; right: 8px; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 8px; white-space: nowrap; border-radius: 6px; }
@@ -1264,6 +1281,10 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 @keyframes ac-pers { 0%, 27% { transform: none; } 30%, 89% { transform: translateY(76px); } 92%, 100% { transform: none; } }
 @keyframes ac-n-a { 0%, 27% { opacity: 1; } 27.1%, 91% { opacity: 0; } 91.1%, 100% { opacity: 1; } }
 @keyframes ac-n-b { 0%, 27% { opacity: 0; } 27.1%, 91% { opacity: 1; } 91.1%, 100% { opacity: 0; } }
+@keyframes ac-was { 0%, 27% { opacity: 1; } 27.1%, 91% { opacity: 0; } 91.1%, 100% { opacity: 1; } }
+@keyframes ac-now { 0%, 27% { opacity: 0; } 27.1%, 91% { opacity: 1; } 91.1%, 100% { opacity: 0; } }
+@keyframes ac-acct { 0%, 27% { box-shadow: 0 0 0 0 transparent; } 28.5%, 36% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 45%, transparent); } 40%, 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes ac-tl { 0%, 27.5% { opacity: 1; } 29%, 37% { opacity: 0; } 39.5%, 100% { opacity: 1; } }
 @keyframes ac-rs { 0%, 30% { opacity: 0; } 31%, 37% { opacity: 1; } 38.5%, 100% { opacity: 0; } }
 @keyframes ac-menu {
   0%, 42.9% { opacity: 0; transform: scale(0.96); }
@@ -1287,7 +1308,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 
 /* ---------- features carousel (index.html: [data-carousel], main.js: setupCarousel) ----------
    Slides sit side by side in one scroll-snap track. The track is a grid and each slide a
-   subgrid of its three rows (copy, stage, details), so every slide has the same height
+   subgrid of its three rows (heading, stage, docs link), so every slide has the same height
    and its stage starts at the same place: switching never moves the page. Without JS it
    is a plain horizontal scroller (the tabs are links to the slides). */
 .features { padding: clamp(64px, 9vw, 112px) 0 0; }
@@ -1318,7 +1339,7 @@ html:not(.js) .feat-track { scrollbar-width: auto; }
   padding: 0 var(--gutter); scroll-snap-align: start; scroll-snap-stop: always;
 }
 .feat-slide .fl-stage, .feat-slide .sv-stage, .feat-slide .ac-stage { width: 100%; }
-.feat-facts { align-self: stretch; margin-top: clamp(20px, 3vw, 32px); }
+.feat-more { margin: clamp(14px, 2vw, 20px) 0 0; text-align: center; font-size: 14px; }
 /* An inactive slide shows its scene's still (no animation); shown, it starts from 0 s. */
 .feat-idle .fl-scene *, .feat-idle .sv-scene *, .feat-idle .ac-scene * { animation: none !important; }
 @media (max-width: 600px) {

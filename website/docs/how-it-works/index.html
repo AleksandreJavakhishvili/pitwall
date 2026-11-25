@@ -48,6 +48,7 @@
 
         <ul class="toc" aria-label="On this page">
           <li><a href="#flags">Flags</a></li>
+          <li><a href="#away">Answering from another app</a></li>
           <li><a href="#wall">Wall</a></li>
           <li><a href="#next-up">Next up</a></li>
           <li><a href="#review">Review</a></li>
@@ -95,6 +96,15 @@
           <li><strong>Activity.</strong> For any other CLI: output in the last ~1.2 s means working, otherwise unknown.</li>
         </ol>
         <p>Hooks are never required.</p>
+
+        <h2 id="away">Answering from another app</h2>
+        <p>When an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it. When nothing is waiting, it's gone. Turn it off in Settings → General.</p>
+        <ul>
+          <li><strong>Answer</strong>: Accept and Reject for plain yes/no prompts, Accept all when several ask, Open for anything else. Or use the keyboard once the cards are open: arrows, Enter, Esc and text go to the first card's agent, and Pitwall still doesn't come forward.</li>
+          <li><strong>Nothing blind</strong>: Pitwall reads the agent's screen again before it sends a key, and sends nothing if the prompt is no longer the one you saw.</li>
+          <li><strong>Your size</strong>: drag the tile anywhere, and the cards' edges or corner for wider cards or more of each terminal. The size is kept, and a double click on an edge goes back to the default. Liquid Glass on macOS 26 with the Glass look.</li>
+          <li><strong>Tested</strong>: Accept and Reject keys were checked against Claude Code and Codex; the other agents' are written from their prompts and not yet checked against the real CLIs. Run on macOS; the Linux and Windows builds have the control, but it hasn't been run there.</li>
+        </ul>
 
         <h2 id="wall">Wall</h2>
         <p><kbd>⌘E</kbd> shows every agent's terminal, grouped by project, blocked first. Tiles show the bottom rows of each terminal, where prompts wait. The Wall is view-only: it never resizes a terminal and never types. Click a tile to take over that agent; <kbd>Esc</kbd> comes back. A window left in Wall mode stays that way across restarts.</p>
@@ -169,11 +179,14 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
         <p>Claude Code and Codex can start in their own worktree through the CLI's own flag (<code>claude --worktree &lt;name&gt;</code>, <code>codex --worktree</code>); Pitwall creates no branches or folders. Add your own kind with a TOML file in <code>~/.pitwall/agents/</code> (<a href="/docs/agents/">agent definitions</a>); override detection rules in <code>~/.pitwall/detect/</code> (<a href="/docs/detection/">detection rules</a>).</p>
 
         <h2 id="accounts">Accounts</h2>
-        <p>Claude Code and Codex can run on more than one login, say a work and a personal subscription. Each account is its own login folder (the agent's <code>CLAUDE_CONFIG_DIR</code> or <code>CODEX_HOME</code>); Default is your own <code>~/.claude</code> or <code>~/.codex</code>.</p>
+        <p>Claude Code, Codex, Gemini CLI and Copilot CLI can run on more than one login, say a work and a personal subscription. An account is one login of one tool: a name and the folder the tool keeps its login in (<code>CLAUDE_CONFIG_DIR</code>, <code>CODEX_HOME</code>, <code>GEMINI_CLI_HOME</code>, <code>COPILOT_HOME</code>); Default is your own. A work Claude Code and a work Codex are two accounts, each picked on its own. Cursor Agent, opencode, Amp, Aider and Qwen Code have no setting that moves their login, so they run on one.</p>
         <ul>
           <li><strong>Add one</strong> in Settings → Accounts, or from a project's right-click menu → Accounts…. Log in opens the agent on that account so it asks for its login; Settings shows who each account is logged in as.</li>
-          <li><strong>Per project:</strong> right-click a project → Accounts… sets the account its new agents use, and offers to move the agents already there.</li>
-          <li><strong>Per agent:</strong> New agent has an account choice, and an agent's right-click menu → Run on account moves it. It restarts on the new login with its conversation carried over, so it resumes where it was. An account that isn't logged in yet is refused instead of leaving the agent stuck.</li>
+          <li><strong>Per project:</strong> right-click a project → Accounts… sets the account its new agents use for each tool, a git identity for its commits and pushes, and a browser account for its web pages, and offers to move the agents already there. A profile (Settings → Profiles) bundles these picks under one name, such as Work, and a project then picks the profile.</li>
+          <li><strong>By dragging:</strong> with the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</li>
+          <li><strong>Per agent:</strong> New agent has an account choice, and an agent's right-click menu → Run on account moves it. Moved agents restart on the new login at once; Claude Code and Codex resume their conversation, the other tools start a new one. An account that isn't logged in yet is refused instead of leaving the agent stuck.</li>
+          <li><strong>Usage:</strong> Settings → Accounts shows Codex's plan limits and Claude Code's tokens, read from the tools' own files.</li>
+          <li><strong>Stays here:</strong> accounts are login folders on this computer, listed in <code>~/.pitwall/accounts.json</code>. There is no Pitwall account, and nothing is sent anywhere. Agents on this computer only.</li>
         </ul>
         <p>Any agent kind whose definition names a login folder variable (<code>account_env</code>) gets the same support.</p>
 
