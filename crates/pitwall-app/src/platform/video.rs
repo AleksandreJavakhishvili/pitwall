@@ -69,6 +69,21 @@ impl Decoder {
 #[cfg(not(target_os = "macos"))]
 const UNSUPPORTED: &str = "Device screens need a video decoder Pitwall doesn't have on this system yet";
 
+/// The picture as an element filling its parent, its aspect kept
+/// (letterboxed, as `device::geometry::fit` assumes).
+pub fn picture(frame: &Frame) -> gpui::AnyElement {
+    use gpui::{IntoElement, Styled};
+    #[cfg(target_os = "macos")]
+    {
+        gpui::surface(frame.buffer.clone()).object_fit(gpui::ObjectFit::Contain).size_full().into_any_element()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = frame;
+        gpui::div().size_full().into_any_element()
+    }
+}
+
 /// Whether device screens can be shown here.
 pub fn supported() -> bool {
     cfg!(target_os = "macos")

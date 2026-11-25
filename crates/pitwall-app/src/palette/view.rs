@@ -541,6 +541,9 @@ impl PaletteHost {
         if self.is_open() {
             return;
         }
+        // Devices for "Open device: …", listed again in the background
+        // (shown as soon as they are, while typing).
+        crate::main_screen::device_tile::refresh(cx);
         self.restore = window.focused(cx);
         self.serial += 1;
         let (screen, explorer, serial) = (self.screen.clone(), self.explorer.clone(), self.serial);

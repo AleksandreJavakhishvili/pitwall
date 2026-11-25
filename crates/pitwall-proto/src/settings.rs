@@ -217,6 +217,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "general.devicePreviews",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Device screens in Pitwall: an Android emulator's or phone's screen, or an iOS Simulator's, in a tile of the layout next to your terminals (Open device… in the command palette), where you can tap and type into it. Android needs adb and scrcpy-server; iOS Simulators need Xcode, and touch goes through Xcode's own simulator frameworks in a helper process. Agents can't see or use these screens. false: no device tile opens and none is offered.",
+        page: Page::General,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "devicePreviews", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "general.cliTool",
         kind: Kind::Bool,
         default: DefaultValue::Bool(false),
