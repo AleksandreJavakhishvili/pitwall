@@ -25,6 +25,7 @@ pub mod secrets;
 pub mod sidecar;
 pub mod single_instance;
 pub mod visible;
+pub mod video;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -32,6 +33,8 @@ mod linux;
 mod macos;
 #[cfg(target_os = "macos")]
 mod pdf_macos;
+#[cfg(target_os = "macos")]
+mod video_macos;
 #[cfg(target_os = "linux")]
 mod secrets_linux;
 #[cfg(target_os = "macos")]
