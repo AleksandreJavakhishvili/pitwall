@@ -70,6 +70,8 @@ pub struct Plan {
     pub files: Vec<(String, Option<At>)>,
     /// The folder to open in the tree ("" for the root).
     pub folder: Option<String>,
+    /// Why the viewer isn't rooted where it was asked to be.
+    pub note: Option<String>,
 }
 
 /// `req`'s viewer: see the module. `agents` are Pitwall's.
@@ -82,15 +84,31 @@ pub fn plan(req: &ViewerShow, agents: &[AgentView]) -> Result<Plan, ErrorBody> {
         return Err(ErrorBody::new(code::UNSUPPORTED, format!("{} runs on another machine: Pitwall can't show its files", agent.name)));
     }
     let local = agent.machine.provider == pitwall_core::provider::ProviderId::LOCAL;
+    let mut note = None;
     // The viewer's folder: the root the server settled on (asked for, or
-    // the worktree the agent works in now), else the folder asked for.
-    let wanted = req.root.as_deref().or(req.folder.as_deref()).map(Path::new);
-    let (key, root, rel) = match wanted {
-        None => (agent.id.clone(), root_of(agent), None),
-        Some(f) => viewer_of(agent, f, agents, local)?,
+    // the worktree the agent works in now) exactly, also inside the
+    // agent's own folder; else the folder asked for.
+    let (key, root, rel) = match (req.root.as_deref().map(Path::new), req.folder.as_deref().map(Path::new)) {
+        (None, None) => (agent.id.clone(), root_of(agent), None),
+        (None, Some(f)) => viewer_of(agent, f, agents, local)?,
+        (Some(r), _) => match rooted_at(agent, r, agents, local) {
+            Some((key, root)) => (key, root, None),
+            // Another machine: its own folder is read whole (a folder in
+            // it is revealed there).
+            None => {
+                let (key, root, rel) = viewer_of(agent, r, agents, local)?;
+                note = Some(format!(
+                    "{} runs on another machine, where the viewer shows its whole folder: {} is opened in it as a folder, not as the root.",
+                    agent.name,
+                    r.display()
+                ));
+                (key, root, rel)
+            }
+        },
     };
     let folder = match (req.folder.as_deref().map(Path::new), req.root.is_some()) {
-        (None, _) => None,
+        (None, false) => None,
+        (None, true) => rel.filter(|r| !r.is_empty()),
         (Some(_), false) => rel,
         (Some(f), true) => rel_in(&root, f),
     };
@@ -110,7 +128,27 @@ pub fn plan(req: &ViewerShow, agents: &[AgentView]) -> Result<Plan, ErrorBody> {
             (relative_to(&root, p).unwrap_or_else(|| f.path.clone()), target(f.line, f.column))
         })
         .collect();
-    Ok(Plan { key, root, files, folder })
+    Ok(Plan { key, root, files, folder, note })
+}
+
+/// The viewer rooted exactly at `r` for `agent`: its own (`r` is its
+/// folder), another agent's on the same machine working there, else (on
+/// this computer) `r` itself, also when it lies inside the agent's folder.
+/// `None`: another machine's folder in it, which can't be a root of its
+/// own there.
+fn rooted_at(agent: &AgentView, r: &Path, agents: &[AgentView], local: bool) -> Option<(String, PathBuf)> {
+    if root_of(agent) == r {
+        return Some((agent.id.clone(), r.to_path_buf()));
+    }
+    let there = agents
+        .iter()
+        .filter(|o| !crate::agents::mirrored(o) && o.machine.provider == agent.machine.provider && o.machine.id == agent.machine.id && o.caps.explorer)
+        .find(|o| root_of(o) == r);
+    match there {
+        Some(o) => Some((o.id.clone(), r.to_path_buf())),
+        None if local => Some((path_key(&r.to_string_lossy()), r.to_path_buf())),
+        None => None,
+    }
 }
 
 /// Where agent `agent`'s files go for `asked`: a window, or a tile on
@@ -199,7 +237,7 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
     let tile = dock::holder(agent, cx).is_some() && dock::viewer(agent, cx).is_some();
     let window = crate::windows::viewer_window(agent, cx).is_some();
     let root = plan.root.to_string_lossy().into_owned();
-    let mut note = None;
+    let mut note = plan.note.clone();
     let goal = goal(req.place, tile, window);
     let err = |e: String| ErrorBody::new(code::OTHER, e);
     // The terminal the files took the place of, if they did.
@@ -219,7 +257,7 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
                 }
                 Err(_) => {
                     let whose = of.map_or_else(|| name.clone(), name_of);
-                    note = Some(format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
+                    note = joined(note, format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
                     None
                 }
             }
@@ -237,7 +275,7 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
                 Err(_) if tile => Some(tile_viewer(agent, &plan.key, cx).map_err(err)?),
                 Err(_) => {
                     let whose = of.map_or_else(|| name.clone(), name_of);
-                    note = Some(format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
+                    note = joined(note, format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
                     None
                 }
             }
@@ -289,6 +327,14 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
         })
         .map_err(|_| ErrorBody::new(code::OTHER, "the file viewer window went away"))??;
     Ok(ViewerShown { agent_id: agent.to_string(), window: title, in_background: !in_front, place: ViewerPlace::Window, at: None, root, note })
+}
+
+/// `more` said after `note`.
+fn joined(note: Option<String>, more: String) -> Option<String> {
+    Some(match note {
+        Some(n) => format!("{n} {more}"),
+        None => more,
+    })
 }
 
 /// Agent `agent`'s files tile is on side `side` of agent `anchor`'s
@@ -396,13 +442,19 @@ fn viewer_of(agent: &AgentView, f: &Path, agents: &[AgentView], local: bool) -> 
 
 /// `a`'s folder as the server's resolved paths spell it: links followed on
 /// this computer; elsewhere as recorded.
-fn root_of(a: &AgentView) -> PathBuf {
-    let cwd = PathBuf::from(&a.cwd);
+pub(crate) fn root_of(a: &AgentView) -> PathBuf {
     if a.machine.provider == pitwall_core::provider::ProviderId::LOCAL {
-        std::fs::canonicalize(&cwd).unwrap_or(cwd)
+        real(&a.cwd)
     } else {
-        cwd
+        PathBuf::from(&a.cwd)
     }
+}
+
+/// `p` on this computer with links followed, spelt as the server spells
+/// resolved paths (no `\\?\` on Windows); as given when it isn't there.
+pub(crate) fn real(p: &str) -> PathBuf {
+    use pitwall_core::exec::Exec as _;
+    PathBuf::from(pitwall_core::exec::LocalExec.real_path(p).unwrap_or_else(|_| p.to_string()))
 }
 
 /// `path` relative to `root` ("" for the root itself).
@@ -412,6 +464,10 @@ fn rel_in(root: &Path, path: &Path) -> Option<String> {
     }
     relative_to(root, path)
 }
+
+#[cfg(test)]
+#[path = "show_roots_tests.rs"]
+pub(crate) mod roots_tests;
 
 #[cfg(test)]
 mod tests {
@@ -451,7 +507,7 @@ mod tests {
     }
 
     fn req(folder: Option<String>, files: Vec<OpenedFile>) -> ViewerShow {
-        ViewerShow { agent_id: "a1".into(), files, folder, root: None, place: None, of: None }
+        ViewerShow { agent_id: "a1".into(), files, folder, root: None, place: None, of: None, note: None }
     }
 
     #[test]
@@ -522,9 +578,19 @@ mod tests {
         // Where a2 works: a2's; a folder in it, revealed.
         let p = plan(&rooted("api-fix", Some(d.at("api-fix/lib")), vec![]), &agents).unwrap();
         assert_eq!((p.key.as_str(), p.folder.as_deref()), ("a2", Some("lib")));
-        // Its own folder (or one in it): as without a root.
-        let p = plan(&rooted("api/src", None, vec![file("api/src/a.rs")]), &agents).unwrap();
+        // Its own folder: its own viewer.
+        let p = plan(&rooted("api", None, vec![file("api/src/a.rs")]), &agents).unwrap();
         assert_eq!((p.key.as_str(), p.files[0].0.as_str()), ("a1", "src/a.rs"));
+        // A folder in it: rooted there all the same (a root is the root).
+        let p = plan(&rooted("api/src", None, vec![file("api/src/a.rs")]), &agents).unwrap();
+        assert_eq!((p.key, p.files[0].0.as_str(), p.note), (path_key(&d.at("api/src")), "a.rs", None));
+        // Another machine's agent: its folder is read whole, the folder
+        // revealed in it, and the answer says so.
+        let mut far = agents.clone();
+        far[0].machine.provider = "agw".into();
+        let p = plan(&rooted("api/src", None, vec![]), &far).unwrap();
+        assert_eq!((p.key.as_str(), p.folder.as_deref()), ("a1", Some("src")));
+        assert!(p.note.unwrap_or_default().contains("another machine"));
     }
 
     #[test]

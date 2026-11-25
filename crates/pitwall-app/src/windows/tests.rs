@@ -691,6 +691,7 @@ fn files_replace_a_terminal_that_comes_back_when_shown(cx: &mut TestAppContext) 
         root: None,
         place: Some(ViewerPlace::Replace),
         of: Some("web".into()),
+        note: None,
     };
     let shown = cx.update(|cx| crate::explorer::show::show(&req, cx)).expect("shown");
     cx.run_until_parked();
@@ -770,5 +771,92 @@ fn files_replace_a_terminal_that_comes_back_when_shown(cx: &mut TestAppContext) 
     assert_eq!(crate::platform::FLOAT_DRAGS.with(|n| n.get()), drags + 1, "the window moves with the pointer");
     assert!(wcx.cx.update(|cx| crate::windows::viewer_window("api", cx).is_some()));
     assert!(wcx.cx.update(|cx| crate::ui_state::get(cx).files_tile("api").is_none()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What `v`'s tree lists: each entry's path and change letter.
+fn tree_listing(v: &Entity<crate::explorer::viewer::Viewer>, cx: &App) -> Vec<String> {
+    let tree = v.read(cx).tree();
+    let rows = tree.read(cx).state().rows();
+    rows.iter().filter_map(|r| r.entry()).map(|e| format!("{}{}", e.path, e.status.map(|s| format!(" {s:?}")).unwrap_or_default())).collect()
+}
+
+/// The report: an agent whose viewer is rooted at its home folder, its
+/// repository and the repository's worktrees two levels below. Asked for a
+/// worktree (by its branch from a files tile on the right, by its path in
+/// a window of its own), the viewer is rooted at that worktree, not at the
+/// home folder with the worktree a folder in it, and shows its git status.
+#[gpui::test]
+fn a_worktree_below_the_agents_folder_is_the_root_in_a_tile_and_in_a_window(cx: &mut TestAppContext) {
+    use crate::explorer::show::roots_tests::Fixture;
+    use pitwall_core::exec::LocalExec;
+    use pitwall_proto::show::{ViewerOpen, ViewerPlace};
+    let fx = Fixture::new("tile-window");
+    let dir = std::env::temp_dir().join(format!("pw-wt-root-ui-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let home = dir.clone();
+    let agent_home = fx.home.clone();
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::main_screen::init(cx);
+        crate::code_view::register(cx);
+        crate::ui_state::init(Some(home.clone()), cx);
+        let mut road = agent("road", &agent_home, "idle", 1, true);
+        road.caps.explorer = true;
+        let store = cx.new(|_| AgentStore::new(vec![road]));
+        cx.set_global(Main(None, store.clone()));
+        cx.set_global(crate::AppState { host: None, content: Content::Live { store: store.clone() }, root: None, main: None });
+        let source: std::sync::Arc<dyn crate::explorer::source::Source> = crate::explorer::source::fake::DiskSource::new(&[("road", &agent_home)]);
+        cx.set_global(crate::explorer::source::ExplorerSource(source.clone()));
+        crate::explorer::dock::remember_env(Some(source), &store, cx);
+        init(Content::Live { store: store.clone() }, Some(home.clone()), show_main, cx);
+        show_main(cx);
+        restore(cx);
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let (ui, id) = crate::ui_state::get(cx).create_custom_space(MAIN);
+        let ui = ui.place_agent(&id, "road", None, None);
+        crate::ui_state::update(cx, |s| *s = ui);
+        screen_of(MAIN, cx).update(cx, |s, cx| s.show_space(&id, cx));
+    });
+    cx.run_until_parked();
+    // As the server resolves it (the agent works in the repository).
+    let resolved = |req: ViewerOpen| {
+        let x = LocalExec;
+        let req = ViewerOpen { cwd: Some(fx.repo.clone()), ..req };
+        let (worktrees, inside) = pitwall_core::show::names_for(&x, &fx.home, Some(&fx.repo), &req);
+        let place = pitwall_core::show::Place { exec: &x, cwd: &fx.home, now: Some(&fx.repo), worktrees: &worktrees, inside: &inside, local: true };
+        pitwall_core::show::resolve(&place, "road", &req).expect("resolved").0
+    };
+    let key = crate::explorer::source::path_key(&fx.chicken);
+    let check = |v: &Entity<crate::explorer::viewer::Viewer>, cx: &mut TestAppContext| {
+        assert_eq!(v.read_with(cx, |v, cx| (v.agent_id().to_string(), v.root(cx))), (key.clone(), Some(fx.chicken.clone())));
+        v.read_with(cx, |v, _| v.tree()).update(cx, |t, cx| t.expand("src", cx));
+        cx.run_until_parked();
+        let listed = cx.update(|cx| tree_listing(v, cx));
+        assert!(listed.contains(&"src/game.rs M".to_string()) && listed.contains(&"README.md".to_string()), "{listed:?}");
+    };
+
+    // (2), (3): its branch; a files tile right of the terminal.
+    let show = resolved(ViewerOpen { root: Some("feat/chicken-town".into()), place: Some(ViewerPlace::Right), ..Default::default() });
+    let shown = cx.update(|cx| crate::explorer::show::show(&show, cx)).expect("shown");
+    cx.run_until_parked();
+    assert_eq!((shown.place, shown.root.as_str()), (ViewerPlace::Right, fx.chicken.as_str()));
+    let tile = cx.update(|cx| crate::explorer::dock::viewer("road", cx)).expect("a files tile");
+    check(&tile, cx);
+    // Kept with the tile for the next start.
+    assert_eq!(cx.update(|cx| crate::ui_state::get(cx).docked_files["road"].key.clone()), key);
+
+    // (1), (4): its path; a window of its own (the tile's viewer, moved).
+    let show = resolved(ViewerOpen { root: Some(fx.chicken.clone()), place: Some(ViewerPlace::Window), ..Default::default() });
+    let shown = cx.update(|cx| crate::explorer::show::show(&show, cx)).expect("shown");
+    cx.run_until_parked();
+    assert_eq!((shown.place, shown.root.as_str()), (ViewerPlace::Window, fx.chicken.as_str()));
+    let w = cx.update(|cx| crate::windows::viewer_window("road", cx)).expect("a files window");
+    let v = w.read_with(cx, |w, _| w.viewer().clone()).unwrap();
+    check(&v, cx);
+    assert_eq!(w.read_with(cx, |w, _| w.key().to_string()).unwrap(), key);
     let _ = std::fs::remove_dir_all(&dir);
 }
