@@ -16,7 +16,8 @@ use crate::views::{AgentView, ScannedPlace};
 pub mod method {
     /// → `AgentView[]`
     pub const AGENT_LIST: &str = "agent.list";
-    /// [`AgentCreate`](super::AgentCreate) → `AgentView`
+    /// [`AgentCreate`](super::AgentCreate) → [`AgentCreated`](super::AgentCreated):
+    /// an `AgentView`, and what became of its `prompt`.
     pub const AGENT_CREATE: &str = "agent.create";
     /// [`AgentRef`](super::AgentRef) → `AgentView`: its git numbers read
     /// now, whatever the polling pace (`refresh_changes`).
@@ -320,16 +321,43 @@ pub struct AgentCreate {
     /// (default: the project's account, else the user's own).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
-    /// From an extension only (`agents.start`): its first prompt, shown in
-    /// full in the approval and put in the new agent's Next up as the
-    /// extension's item (sent as its other items are). Anyone else is
-    /// refused it: they queue with `queue.add`.
+    /// Its first instruction, put in the new agent's Next up as it is
+    /// created, as `queue.add` would (sent when it is first free, if
+    /// Auto-send is on); the answer says what became of it
+    /// ([`AgentCreated`]). Blank: refused, nothing created. From an
+    /// extension (`agents.start`) it is shown in full in the approval and
+    /// queued as the extension's item (sent as its other items are).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cols: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rows: Option<u16>,
+}
+
+/// What `agent.create` answers: the new agent (an `AgentView`'s fields, so
+/// a client that reads only those still can) and, when it was given a
+/// `prompt`, what became of it: `queued`, or `queueError` when the agent
+/// was created but the prompt couldn't be queued (the agent stays; queue
+/// it again with `queue.add`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCreated {
+    #[serde(flatten)]
+    pub agent: AgentView,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<Queued>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_error: Option<String>,
+}
+
+/// A prompt put in an agent's Next up: its item, and where it stands
+/// (1 = the next to go).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Queued {
+    pub id: String,
+    pub position: usize,
 }
 
 /// Narrow `session.list` to one provider and/or machine.
@@ -542,6 +570,38 @@ mod tests {
         assert_eq!(serde_json::from_value::<AgentCreate>(wire).unwrap(), create);
         let answer: ApprovalAnswer = serde_json::from_value(json!({"id":"a1","allow":true})).unwrap();
         assert!(!answer.remember);
+        // An older request (no prompt) reads as before; a prompt is optional.
+        let with = json!({"kind":"claude","project":"/p","prompt":"run the tests"});
+        assert_eq!(serde_json::from_value::<AgentCreate>(with).unwrap().prompt.as_deref(), Some("run the tests"));
+    }
+
+    /// `agent.create`'s answer is an `AgentView` with what became of its
+    /// prompt beside it: a client that reads only the view still can.
+    #[test]
+    fn agent_created_is_an_agent_view() {
+        let mut v = json!({
+            "id": "a1", "name": "api", "kind": "claude", "kindName": "Claude Code", "terminal": false, "sessionId": null,
+            "cwd": "/p", "cwdDisplay": "/p", "project": "/p", "projectDisplay": "/p",
+            "branch": null, "worktree": false, "worktreePending": false, "location": "local",
+            "agentInTerminal": false, "restartAs": null, "status": "unknown",
+            "statusSource": "screen", "statusDetail": null, "running": true, "cols": 120, "rows": 40,
+            "added": 0, "removed": 0, "filesChanged": 0, "autoSend": true, "lastSent": null,
+            "lastSentAt": null, "createdAt": 1, "currentTaskId": null
+        });
+        v["machine"] = json!({"provider": "local", "id": "this-mac", "label": "This Mac", "canCreate": true});
+        v["queue"] = json!([{"id": "q1", "text": "go"}]);
+        v["caps"] = json!({"input": true, "restart": true, "resume": false, "stop": true, "removeWorktree": false,
+                 "diff": false, "review": false, "merge": false, "rules": false, "hooks": false, "removeKeepsSession": true});
+        let view: AgentView = serde_json::from_value(v).unwrap();
+        let made = AgentCreated { agent: view.clone(), queued: Some(Queued { id: "q1".into(), position: 1 }), queue_error: None };
+        let wire = serde_json::to_value(&made).unwrap();
+        assert_eq!((wire["id"].clone(), wire["queued"].clone()), (json!("a1"), json!({"id": "q1", "position": 1})));
+        assert!(wire.get("queueError").is_none());
+        assert_eq!(serde_json::from_value::<AgentView>(wire.clone()).unwrap(), view, "an older client reads the view");
+        assert_eq!(serde_json::from_value::<AgentCreated>(wire).unwrap(), made);
+        // An older server's answer (the view alone) reads as nothing queued.
+        let old: AgentCreated = serde_json::from_value(serde_json::to_value(&view).unwrap()).unwrap();
+        assert_eq!((old.queued, old.queue_error), (None, None));
     }
 
     #[test]

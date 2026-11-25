@@ -9,7 +9,7 @@ use pitwall_core::engine::{changes, lifecycle};
 use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
 use pitwall_core::onboarding::{self, places};
 use pitwall_core::provider::{Locator, MachineId, ProviderId};
-use pitwall_proto::{code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
+use pitwall_proto::{code, method, AgentCreate, AgentCreated, AgentRef, AgentView, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Queued, Risk, SessionAdd, SessionAdded, SessionFilter};
 use pitwall_core::extensions::permissions::AGENTS_FOCUS;
 
 use crate::approvals::{Ask, Decision};
@@ -404,17 +404,19 @@ fn beside_only(caller: &Caller, place: Option<pitwall_proto::ViewerPlace>) -> Re
     }
 }
 
-fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
+fn agent_create(s: &Server, caller: &Caller, mut req: AgentCreate) -> Res {
     if caller.extension.is_some() {
         return crate::actions::start(s, caller, req);
     }
-    if req.prompt.is_some() {
-        return Err(ErrorBody::new(code::BAD_PARAMS, "`prompt` is for extensions' requests: put a first prompt in its Next up with `pitwall queue add` once it runs"));
+    // Its first instruction: checked before anything is made.
+    let prompt = req.prompt.take();
+    if prompt.as_deref().is_some_and(|p| p.trim().is_empty()) {
+        return Err(ErrorBody::new(code::BAD_PARAMS, "the first instruction (prompt) is empty: nothing was created"));
     }
     if req.provider.is_some() || req.machine.is_some() {
         let form = s.engine.create_form(req.provider.as_deref(), req.machine.as_deref()).map_err(other)?;
         if !form.folder {
-            return create_on_platform(s, caller, req, form);
+            return create_on_platform(s, caller, req, form, prompt);
         }
     }
     if req.kind.trim().is_empty() || req.project.trim().is_empty() {
@@ -446,13 +448,28 @@ fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
     )
     .map_err(other)?;
     onboarding::add_agent_project(&s.engine, &view);
-    ok(view)
+    ok(first_instruction(view, prompt, |id, text| s.engine.queue_add(id, text)))
+}
+
+/// The new agent, with its first instruction (`prompt`) put in its Next up
+/// by `queue` as `queue.add` does: the user's item, sent by Auto-send's
+/// usual rules. When that fails the agent stays and the answer says why.
+pub(crate) fn first_instruction(view: AgentView, prompt: Option<String>, queue: impl FnOnce(&str, String) -> Result<AgentView, String>) -> AgentCreated {
+    let Some(text) = prompt else { return AgentCreated { agent: view, queued: None, queue_error: None } };
+    match queue(&view.id, text) {
+        Ok(after) => {
+            // queue.add puts it last.
+            let queued = after.queue.last().map(|q| Queued { id: q.id.clone(), position: after.queue.len() });
+            AgentCreated { agent: after, queued, queue_error: None }
+        }
+        Err(e) => AgentCreated { agent: view, queued: None, queue_error: Some(e) },
+    }
 }
 
 /// A new session on a platform's machine (agw): it changes that machine,
 /// so the user approves what the form's summary says first — every time
 /// when it also makes a workspace or an agent user there.
-fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: CreateForm) -> Res {
+fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: CreateForm, prompt: Option<String>) -> Res {
     let name = req.name.as_deref().map(str::trim).unwrap_or_default().to_string();
     if name.is_empty() {
         return Err(ErrorBody::new(code::BAD_PARAMS, format!("a name is required: the session's name on {}", form.machine_label)));
@@ -463,6 +480,9 @@ fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: Creat
     let mut details = vec![summary.text.clone()];
     details.extend(summary.creates.iter().map(|c| format!("Also creates {c} on {}.", form.machine_label)));
     details.push("It keeps running there after Pitwall quits; removing it from Pitwall leaves it there.".into());
+    if let Some(p) = &prompt {
+        details.push(format!("Its first instruction, put in its Next up:\n{p}"));
+    }
     let risk = if summary.creates.is_empty() { Risk::Low } else { Risk::High };
     let decision = s.approvals.ask(Ask {
         action: method::AGENT_CREATE.into(),
@@ -496,7 +516,7 @@ fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: Creat
         },
     )
     .map_err(other)?;
-    ok(view)
+    ok(first_instruction(view, prompt, |id, text| s.engine.queue_add(id, text)))
 }
 
 /// Adopt a session (only tracks it: nothing changes there), then — when
@@ -733,6 +753,40 @@ mod tests {
         assert_eq!(v["profiles"][0]["name"], "Work");
         let p = own_slots(method::PROJECT_ACCOUNTS, "ci", serde_json::json!({"project": "/p", "slots": [{"slot": "git"}, {"slot": "ext:ci"}]}));
         assert_eq!(p["slots"], serde_json::json!([{"slot": "ext:ci"}]));
+    }
+
+    fn new_view() -> AgentView {
+        let mut v = serde_json::json!({
+            "id": "a1", "name": "api", "kind": "shell", "kindName": "Shell", "terminal": true, "sessionId": null,
+            "cwd": "/p", "cwdDisplay": "/p", "project": "/p", "projectDisplay": "/p",
+            "branch": null, "worktree": false, "worktreePending": false, "location": "local",
+            "agentInTerminal": false, "restartAs": null, "status": "unknown",
+            "statusSource": "screen", "statusDetail": null, "running": true, "cols": 120, "rows": 40,
+            "added": 0, "removed": 0, "filesChanged": 0, "queue": [], "autoSend": true, "lastSent": null,
+            "lastSentAt": null, "createdAt": 1, "currentTaskId": null
+        });
+        v["machine"] = serde_json::json!({"provider": "local", "id": "this-mac", "label": "This Mac", "canCreate": true});
+        v["caps"] = serde_json::json!({"input": true, "restart": true, "resume": false, "stop": true, "removeWorktree": false,
+            "diff": false, "review": false, "merge": false, "rules": false, "hooks": false, "removeKeepsSession": true});
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// The first instruction is queued as `queue.add` does; when that
+    /// fails the agent is still answered, with why.
+    #[test]
+    fn a_first_instruction_is_queued_or_its_failure_said() {
+        let none = first_instruction(new_view(), None, |_, _| panic!("nothing to queue"));
+        assert_eq!((none.queued, none.queue_error), (None, None));
+        let made = first_instruction(new_view(), Some("run the tests".into()), |id, text| {
+            let mut after = new_view();
+            assert_eq!(id, "a1");
+            after.queue.push(pitwall_proto::QueueItem { id: "q1".into(), text, origin: None });
+            Ok(after)
+        });
+        assert_eq!(made.queued, Some(Queued { id: "q1".into(), position: 1 }));
+        assert_eq!(made.agent.queue[0].text, "run the tests");
+        let failed = first_instruction(new_view(), Some("run the tests".into()), |_, _| Err("no agent \"a1\"".into()));
+        assert_eq!((failed.agent.id.as_str(), failed.queued, failed.queue_error.as_deref()), ("a1", None, Some("no agent \"a1\"")));
     }
 
     #[test]
