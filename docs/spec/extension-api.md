@@ -8,7 +8,11 @@ that exist today (docs/spec/extensions.md: one manifest, one adapter
 process, one kind of view, the inbox) into a small public API.
 
 Third-party tiles in Rust/WebAssembly, signed packages and the
-marketplace: [tile-sdk.md](tile-sdk.md).
+marketplace: [tile-sdk.md](tile-sdk.md). It also proposes one extension
+model (tile-sdk.md §15): a wasm component becomes the way an extension
+runs its own code, and the adapter process described here is removed
+in the release that ships components, with the bundled first-party
+extensions ported to components in that release.
 
 Marks used below: **[today]** is built and described in extensions.md or
 profiles.md; **[proposed]** is new here.
@@ -104,6 +108,8 @@ curated list.
 ## Principles
 
 ### A separate process, not code in the app
+*Proposed to change: see [tile-sdk.md](tile-sdk.md) §15 (sandboxed
+wasm components in the app; native code only in a managed service).*
 For. Pitwall is Rust and GPUI. Loading a dynamic library means one crash
 takes the app down and the extension shares the app's memory, keychain
 access and windows. The real alternative is WebAssembly, Zed's choice:
