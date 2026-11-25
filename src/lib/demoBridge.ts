@@ -10,7 +10,7 @@
 
 import { applyTheme } from "./theme";
 
-type View = "needs-you" | "wall" | "next-up" | "review" | "terminals" | "rules";
+type View = "needs-you" | "files" | "web" | "review" | "wall" | "next-up";
 
 const enabled =
   typeof window !== "undefined" &&
@@ -19,11 +19,22 @@ const enabled =
 
 const $ = (sel: string) => document.querySelector<HTMLElement>(sel);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The element once it's on screen (the mock answers after a short delay), or null. */
+async function until(sel: string, ms = 2000): Promise<HTMLElement | null> {
+  for (let t = 0; t < ms; t += 50) {
+    const el = $(sel);
+    if (el) return el;
+    await wait(50);
+  }
+  return null;
+}
 
 function clickBack() {
   for (const b of document.querySelectorAll<HTMLButtonElement>("button.small-btn")) {
     if (b.textContent?.trim().startsWith("Back")) b.click();
   }
+  // A files or web tile beside the space.
+  $(".side-tile [data-tile-close]")?.click();
 }
 
 function selectAgent(name: string) {
@@ -33,27 +44,50 @@ function selectAgent(name: string) {
 
 const preset = (label: string) => $(`.preset-btn[title="Tile ${label}"]`)?.click();
 
+/** The focused agent's details (a drawer at the demo's width), on its Changes or Files tab. */
+async function details(tab: "Changes" | "Files") {
+  if (!$("aside.right")) $('button[title^="Show details"]')?.click();
+  await wait(50);
+  const tabs = [...document.querySelectorAll<HTMLElement>("aside.right .panel-tab")];
+  tabs.find((t) => t.textContent?.trim().startsWith(tab))?.click();
+}
+
+/** Open a folder of the details' Files tree, unless it is open already. */
+async function unfold(path: string) {
+  const row = await until(`aside.right [data-ex-row="${path}"]`);
+  if (row && row.closest("li")?.getAttribute("aria-expanded") !== "true") row.click();
+}
+
 const views: Record<View, () => void | Promise<void>> = {
   "needs-you": () => {
     preset("2×2");
     selectAgent("tests");
   },
+  // api-fix's files, opened from its Files tab: a files tile beside its terminal.
+  files: async () => {
+    preset("1");
+    selectAgent("api-fix");
+    await wait(100);
+    await details("Files");
+    await unfold("src");
+    await unfold("src/orders");
+    (await until('aside.right [data-ex-row="src/orders/handler.ts"]'))?.click();
+  },
+  // docs' Preview of the dev server its terminal printed: a web tile beside it.
+  web: async () => {
+    preset("1");
+    selectAgent("docs");
+    // Not the button of the tile that was there before the layout changed.
+    await wait(150);
+    (await until('.pane[data-agent-id="a-docs"] [data-preview]'))?.click();
+  },
+  review: () => $('button[title^="Review"]')?.click(),
   wall: () => $('button[title^="Wall"]')?.click(),
   "next-up": async () => {
     preset("2×2");
     selectAgent("api-fix");
     await wait(100);
-    if (!$("aside.right")) $('button[title^="Show details"]')?.click();
-  },
-  review: () => $('button[title^="Review"]')?.click(),
-  terminals: () => preset("3×2"),
-  rules: async () => {
-    $('button[title="Settings"]')?.click();
-    await wait(200);
-    const label = [...document.querySelectorAll<HTMLElement>(".modal .setting-head .label")].find(
-      (l) => l.textContent === "Rules",
-    );
-    label?.scrollIntoView({ block: "start" });
+    await details("Changes");
   },
 };
 
