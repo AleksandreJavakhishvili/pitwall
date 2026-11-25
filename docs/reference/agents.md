@@ -123,10 +123,10 @@ Files are shown from the folder the agent works in **now**: the `root` it gives,
 
 | `mcp` | What it does |
 |---|---|
-| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and its tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`, `mcp__pitwall__show_web`, `mcp__pitwall__show_settings`) in the `--settings` Pitwall passes, so they don't ask each time. |
+| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and its tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`, `mcp__pitwall__show_web`, `mcp__pitwall__show_settings`, `mcp__pitwall__show_device`) in the `--settings` Pitwall passes, so they don't ask each time. |
 | `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them (`show_web` too: it shows you a page and changes nothing where the agent works). |
 | `copilot-config` | `copilot --additional-mcp-config '{"mcpServers":{"pitwall":{…,"type":"local","tools":["*"]}}}' --allow-tool pitwall`: augments `~/.copilot/mcp-config.json` for this run, and the server's tools are allowed. |
-| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web --allowed-tools mcp__pitwall__show_settings`: merged with your and the project's servers. |
+| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web --allowed-tools mcp__pitwall__show_settings --allowed-tools mcp__pitwall__show_device`: merged with your and the project's servers. |
 | `amp-config` | `amp --mcp-config '{"pitwall":…}'`: merged with your servers; Amp doesn't ask to approve servers given this way. |
 | `opencode-env` | `OPENCODE_CONFIG_CONTENT='{"mcp":{"pitwall":{"type":"local","command":[…],"enabled":true}},"permission":{"pitwall_*":"allow"}}'` in the agent's environment: opencode's inline config, merged with your and the project's. |
 | `none` | No server at launch (the default). |
@@ -186,6 +186,17 @@ With **Agents can show you Settings** on (Settings → Agents, `agents.showSetti
 - It never takes the keyboard or brings Pitwall forward.
 - Off, the tool isn't listed (running agents are told), and `pitwall open --settings` refuses. It can be changed with `pitwall settings set` without asking.
 - Extensions can't use it: their "Show you files and pages" permission doesn't cover Settings.
+
+### Showing a simulator or emulator
+
+With **Agents can show you a device** on (Settings → Agents, `agents.showDevice`, on by default) and device previews on (`general.devicePreviews`), the same server has `show_device`, and `pitwall open --device [<name|udid|serial>]` does it from a shell. Ask an agent to show you the app on a simulator ("show me on the simulator", "run it on the simulator") and it boots one with its usual tools if none is running, then opens that device's screen in a device tile ([device tiles](../spec/device.md)) right of its terminal. Without a name, the one booted device; with several booted, the agent is told which there are. A device still booting is waited for, up to a minute.
+
+- **It only shows you the screen.** The agent gets nothing back from it (which device and where it opened, never a picture) and can't tap or type in it; you can.
+- It never takes the keyboard or brings Pitwall forward. A device whose tile is open isn't opened twice.
+- Off (either setting), the tool isn't listed (running agents are told), and `pitwall open --device` refuses. It can be changed with `pitwall settings set` without asking.
+- Extensions can't use it.
+
+A simulator or emulator an agent starts opens beside it **on its own**, without the agent asking: Pitwall sees the tools that start devices running under the agent (`simctl boot`, `flutter run`, `expo run:ios`, `emulator -avd`, …) or the lines they print, and opens the device that comes up right of that agent's terminal. A boot it can't tie to one agent is only offered ("iPhone 17 started", **Open in Pitwall**). A tile you close doesn't come back for the same boot. `general.deviceAutoOpen`: `beside` (default), `offer` (always only offer) or `off`. Pitwall leaves Simulator.app alone; `xcrun simctl boot` by itself keeps the simulator headless, so its only window is the tile.
 
 ## Accounts
 

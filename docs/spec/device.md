@@ -5,14 +5,17 @@ terminal: an Android emulator or a phone on a cable, or an iOS Simulator.
 You watch the app the agent is building and tap and type into it, without
 an emulator or Simulator window. Agents never see or drive the screen.
 
-Status: first slice built (GPUI, macOS). The iOS Simulator path runs end to
-end on this machine; the Android path is built and tested only against a
-fake adb (no device and no scrcpy-server were available, see "How it was
-checked"). `show_device` and the terminal's "Preview device" offer are
-designed here but not built.
+Status: built (GPUI, macOS). The iOS Simulator path runs end to end on
+this machine; the Android path is built and tested only against a fake adb
+(no device and no scrcpy-server were available, see "How it was
+checked"). A device an agent starts opens beside it on its own, and agents
+have `show_device`; both are built (see below), checked with fakes and one
+real headless simulator boot, not yet seen on screen.
 
-Setting: `general.devicePreviews` (on by default). Off: no device tile
-opens, none is offered, nothing is listed.
+Settings: `general.devicePreviews` (on by default). Off: no device tile
+opens, none is offered, nothing is listed. `general.deviceAutoOpen`
+(`beside`, the default; `offer`; `off`) and `agents.showDevice` (on by
+default) below.
 
 ## What the user sees
 - **Open device…** in the command palette (⌘K): one row per device that can
@@ -210,20 +213,119 @@ send a new size and the picture follows; a manual "turn the picture"
 (`geometry::Turn`, mapped and tested) is left unused until there is a
 rotated draw.
 
-## Agents: `show_device` (designed, not built)
-Beside `show_web` and `show_settings` in Pitwall's `pitwall` MCP server:
-`show_device { device?: "android:<serial>" | "ios:<udid>" }`. It opens
-that device's tile next to the agent's terminal (or the only booted device
-when none is named). It only shows: the agent gets back "shown" or why not,
-never pixels, and has no input tool. A setting `agents.showDevice` (needs
-`general.devicePreviews`) removes it. Not built in this slice.
+## Opening on its own
+The owner: "when agent starts the simulator to open here". When an agent
+starts an iOS Simulator or an Android emulator (or a phone comes online
+while it installs), the device's tile opens right of that agent's
+terminal, as a web tile does, without the keyboard and without bringing
+Pitwall forward. `general.deviceAutoOpen`: `beside` (default), `offer`
+(only the notice below) or `off` (the palette still lists it).
 
-## "Preview device" offer (designed, not built)
-Like the terminal header's "Preview :port": when a terminal prints a line
-that native tools print on start (`adb` "Installing APK", `flutter run`
-"Launching … on <device>", Expo "Opening on iPhone…", `xcrun simctl
-launch`), the header offers "Preview <device>" for that device. Matched on
-the tools' own output, not on a mode we invent. Not built.
+**Signals** (`crates/pitwall-core/src/devices.rs`), the tools' own, nothing
+an agent has to do for Pitwall:
+- *A launcher in the agent's process tree*: `xcrun simctl boot|bootstatus|
+  install|launch|openurl`, `xcodebuild … Simulator…`, `xcrun devicectl`,
+  `open -a Simulator`, `flutter run` (its script or the Dart snapshot),
+  `expo run:ios|run:android` / `expo start --ios|--android`,
+  `react-native run-ios|run-android`, `emulator` (and its `qemu-system-*
+  -avd`), `adb install|install-multiple|wait-for-device`, gradle's
+  `install<Variant>` tasks. Looking (`simctl list`, `adb devices`) is not
+  starting. Found among the descendants of the agent's process in one
+  `ps -axww` of the whole table (the same parser as the "Elsewhere" scan),
+  read only when some agent's output changed since the last look or a
+  launcher was running then.
+- *A line its terminal printed* in the last two minutes, read by the
+  terminal's existing line scanner (the one that finds dev-server
+  addresses): the command as the agent's screen echoes it (`simctl boot
+  "iPhone 17"`, `emulator -avd Pixel_8`, `adb -s emulator-5554 install`,
+  `platform=iOS Simulator,name=…`, `npx expo run:ios`, `flutter run`),
+  flutter's "Launching … on iPhone 17 in debug mode", Expo's "Opening on
+  …", React Native's "Found booted …", gradle's "Installing APK … on '…'",
+  an `emulator-NNNN` serial. History replayed when a terminal is attached
+  again doesn't count.
+
+**Looking cheaply** (`crates/pitwall-app/src/main_screen/device_auto.rs`,
+every 1.5 s): a platform's devices are listed only while some agent gives
+a signal for it, and for three minutes after the last one. iOS: `xcrun
+simctl list devices -j` (each simulator's state and `lastBootedAt`).
+Android: the adb server's own socket (`host:devices-l` on 127.0.0.1:5037,
+or `ANDROID_ADB_SERVER_PORT`), so Pitwall never starts the server to look;
+no server, no device online.
+
+**What counts as a boot** (`crates/pitwall-app/src/device/auto.rs`): the
+first listing of a watch is the baseline; a device that comes online after
+it is a boot. A simulator that booted at most 30 s before the watch began
+(a quick `simctl boot` that finished before the first listing) counts too,
+by its `lastBootedAt`.
+
+**Whose it is**, strongest first:
+1. the agent asked (`show_device`, below): nothing more happens for that
+   boot;
+2. exactly one agent had a launcher for that system running from two
+   minutes before the boot to 15 s after it;
+3. several did: the one whose printed line names this device, else the
+   only one of them that printed a device line;
+4. none did: the only agent whose line names it, else the only agent that
+   printed a device line.
+A line naming another device doesn't count. Anything else is nobody's.
+
+**What happens**: someone's boot opens beside that agent (`beside`); a
+boot that is nobody's, any boot with `offer`, or one whose agent's
+terminal isn't in an open window gets a notice in the main window: "iPhone
+17 started", "<agent> started it. Open its screen in Pitwall…", with
+**Open in Pitwall** (beside that agent, else in the space shown) and **Not
+now**. A device whose tile is already open stays where it is (no second
+tile). Each boot is acted on once: a tile the user closes doesn't come back
+for the same boot (a later boot of the same device is a new one).
+
+**Simulator.app**: `open -a Simulator`, Xcode, `flutter run` and `expo run`
+usually open Simulator.app's window too; Pitwall leaves it alone (never
+closes or hides it). The tile works alongside it. `xcrun simctl boot`
+alone keeps the simulator headless: no window but the tile.
+
+Limits: a boot by the user's own hand while an agent happens to run a
+launcher for that system is taken as the agent's. A TUI that repaints an
+old command line makes that line count again for two minutes. Signals come
+only from agents on this computer. A launcher that lives less than the
+1.5 s between looks (a plain `simctl boot`) is seen through its echoed
+command line (the agent's screen shows it) or not at all; the boot is then
+nobody's and only offered.
+
+## Agents: `show_device`
+The owner, again: "or when I ask show em on simulator to open on pitwall".
+Beside `show_web` and `show_settings` in Pitwall's `pitwall` MCP server:
+`show_device { device?: string }`, and `pitwall open --device [<name|udid|
+serial>]` from a shell (`device.open`). The device is named as simctl or
+adb lists it ("iPhone 17", "iPhone 17 (iOS 26.1)"), by UDID, adb serial or
+key (`ios:<udid>`, `android:<serial>`), case aside; a part of a name works
+when it fits one booted device. None named: the one booted device; several
+booted: an error that lists them. A device still booting (or, none named,
+none booted yet) is waited for, listing again each second, up to 60 s; a
+name nothing has yet (an emulator not up), up to 20 s; then a plain error
+that says what there is.
+
+It opens that device's tile right of the agent's terminal (in the space
+Pitwall shows when that terminal isn't in an open window, said so), or
+brings the tile's space into view where it already is. It only shows: the
+answer says which device and where (`device`, `name`, `shownIn`, `reused`,
+`waited`), never pixels or state, and there is no input tool. Never an
+extension's (as Settings).
+
+When to use it is in the tool's description and the server's instructions
+(the same place `show_web`'s are): when the user asks to see or run the
+app on a simulator or emulator ("show me on the simulator", "run it on the
+simulator"), boot or start one with the tools the agent normally uses if
+none is running, then call `show_device`. Agents get no new ability: they
+already boot devices with simctl, flutter, expo; the tool only shows.
+
+`agents.showDevice` (needs `general.devicePreviews`) removes the tool and
+makes `pitwall open --device` refuse. Agents that show files through the
+built-in rule (Aider) get a line about `open --device`.
+
+## A "Preview device" offer in the terminal's header (not built)
+Designed before opening on its own was: the header offers "Preview
+<device>" when the terminal prints a device line. The notice above covers
+the same moment; a header chip would add a second place for it. Left out.
 
 ## Other systems (designed, not built)
 - **Windows**: Media Foundation's H.264 decoder (part of Windows, no extra
@@ -276,7 +378,26 @@ Read in sources, not run:
 - idb's sources, for the private interfaces above (then verified by
   running).
 
+Opening on its own and `show_device`, run here:
+- `PITWALL_TEST_SIM_SET=<dir> PITWALL_TEST_SIM=<udid> cargo test -p
+  pitwall-app --lib device::auto::tests::a_real_boot -- --ignored`, with a
+  device created in a private set (`xcrun simctl --set <dir> create …`):
+  `xcrun simctl --set <dir> boot` run under the test process was found in
+  the real process table as an iOS launcher under it, the real `simctl
+  list` was the baseline, and the boot (by `lastBootedAt`) opened beside
+  "the agent". Shut down and deleted afterwards; no window appeared.
+- `xcrun simctl list -j devices` on Xcode 26.1.1 has `lastBootedAt`.
+
 Tested only against fakes:
+- Attribution (one agent, two agents told apart by their lines, an
+  ambiguous boot only offered, lines alone, lines naming another device,
+  old signals), Android boots as devices coming online, each boot once,
+  the three settings, `show_device`'s resolution and wait (fake listings
+  and a fake sleep), the adb server's socket protocol (a fake wire), the
+  tile placed right of the agent without the keys, never twice, the
+  notice's Open in Pitwall (GPUI test windows, not drawn on screen), the
+  tool and `pitwall open --device` against a running server with a fake
+  app.
 - The whole Android path: listing (parser on captured `adb devices -l`
   text), the connect sequence and its order, touch/key/text/back/home
   bytes, the dummy byte, a missing or wrong server file (nothing runs),
@@ -285,6 +406,11 @@ Tested only against fakes:
   real (no devices); no emulator was booted and no scrcpy-server used.
 
 Not checked at all:
+- Opening on its own in a running Pitwall with a real agent (Claude Code
+  booting a simulator); the notice as drawn; the real outputs of flutter,
+  Expo and React Native (their lines are from their sources and docs, not
+  captured here); an Android emulator or the adb socket against a real
+  server.
 - The tile drawn in a window (tests may not open visible windows here):
   `gpui::surface` with these buffers, the letterboxing against
   `geometry::fit`, clicks landing where they should on screen.
