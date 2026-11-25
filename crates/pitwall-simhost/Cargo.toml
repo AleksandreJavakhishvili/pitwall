@@ -1,0 +1,22 @@
+[package]
+name = "pitwall-simhost"
+version = "0.8.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "An iOS Simulator's screen and input for Pitwall's device tiles (docs/spec/device.md), in a process of its own: it loads Xcode's private CoreSimulator and SimulatorKit frameworks at run time from the user's Xcode, so neither the app nor pitwall-core links them, and a crash in them ends only this helper."
+
+[[bin]]
+name = "pitwall-simhost"
+path = "src/main.rs"
+
+[dependencies]
+pitwall-proto = { path = "../pitwall-proto" }
+
+# macOS only: the Objective-C runtime (objc2, block2: MIT, the family the
+# app already uses) and dlopen for Xcode's frameworks (libloading, ISC;
+# already in the tree). CoreVideo, CoreMedia, VideoToolbox and IOSurface
+# are public system frameworks, linked by name.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+libloading = "0.8"
