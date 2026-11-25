@@ -140,9 +140,8 @@
           <article class="feat-slide shows" id="files" role="tabpanel" aria-labelledby="ft-files" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="shows-h">“Open that for me.” <span class="dim">It opens next to the agent.</span></h2>
-              <p>Ask an agent to show you a file, a folder, a worktree or an image, and it opens in a files tile beside its terminal, at the line it means. Put it right, left, above or below, in a terminal's place or in a window of its own, and drag it between them. The terminal keeps the keyboard, and Pitwall doesn't jump in front of the app you're in.</p>
             </div>
-            <!-- Decorative: a loop of an agent opening two files in a files tile (site.css: .sv-*). The copy above and the list below say what it shows. -->
+            <!-- Decorative: a loop of an agent opening two files in a files tile (site.css: .sv-*). The heading says what it shows. -->
             <div class="sv-stage glass" data-files aria-hidden="true">
               <div class="sv-scene">
                 <div class="sv-win">
@@ -256,42 +255,20 @@
               </div>
             </div>
 
-            <div class="pit-panel feat-facts">
-              <div class="pit-row">
-                <p class="label">Read</p>
-                <p>Text and code with their colours and Find, Markdown as code or preview. Images (PNG, JPEG, GIF, WebP, SVG) fitted, at 100&nbsp;% or zoomed, and an SVG switches between its picture and its source. The tree and the Review list fold away or drag wider.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Quick fixes</p>
-                <p>Edit a text file where it's shown and save with <kbd>⌘S</kbd>, with undo and Replace. If the agent changes it while you have edits, choose Keep mine, Take theirs or Show difference: nothing is overwritten without asking. Files of agents on this computer; agents still can't write through Pitwall.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Web pages</p>
-                <p>Ask for a page, a local dev server or an empty browser (Pitwall's MCP tool <code>show_web</code>, or <code>pitwall open --web</code>). The agent gets nothing back from the page and can't click, type or read anything in it. Pages use the system's web view, not a browser: WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux; one page per tile, no tabs. Off in Settings → Agents. <a href="/docs/how-it-works/#web">More</a></p>
-              </div>
-              <div class="pit-row">
-                <p class="label">PDFs</p>
-                <p>macOS only for now: pages, zoom and Find, drawn by the system's PDF engine. On Windows and Linux a PDF says it can't be shown yet and offers Open in default app.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Where it works</p>
-                <p>The files come from where the agent works now, also a worktree it moved into, with that branch, its git status and Show diff. Claude Code, Codex, Copilot CLI, Qwen Code, Amp and opencode get Pitwall's MCP server (<code>show_files</code>, <code>show_folder</code>) at each launch, without edits to your config files; Gemini CLI and Cursor Agent get an entry in their own MCP file when you ask in Settings → Agents; Aider and shells use <code>pitwall open</code>. <span class="dim-copy">Tried by hand with Claude Code on macOS; the other agents' routes are tested in code, not yet against each CLI.</span> <a href="/docs/agents/#showing-files">How</a></p>
-              </div>
-            </div>
+            <p class="feat-more"><a href="/docs/how-it-works/#files">How files and web tiles work</a></p>
           </article>
           <article class="feat-slide away" id="away" role="tabpanel" aria-labelledby="ft-away" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="away-h">Go do something else. <span class="dim">Answer from there.</span></h2>
-              <p>Browsing, scrolling a feed, watching a video: when an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it, then accept or reject right there, or just press Enter. Drag it wherever suits you, and its edges to give the cards more room; when nothing is waiting, it's gone.</p>
             </div>
-            <!-- Decorative: a loop of the floating control over a browser with a video playing (site.css: .fl-*). The copy above says what it shows. -->
+            <!-- Decorative: a loop of the floating control over a browser with a video playing (site.css: .fl-*). The heading says what it shows. -->
             <div class="fl-stage glass" data-float aria-hidden="true">
               <div class="fl-scene">
                 <div class="fl-menubar"><i></i><i></i><i></i><i></i><i></i></div>
                 <div class="fl-win">
                   <div class="fl-win-bar"><span class="fl-dots"><i></i><i></i><i></i></span><span class="fl-url"><i></i></span></div>
                   <div class="fl-watch">
-                    <div class="fl-video"><i class="fl-glow"></i><span class="fl-time">12:47</span><i class="fl-prog"><i></i></i></div>
+                    <div class="fl-video"><i class="fl-glow"></i><span class="fl-ctl"><i></i><i></i></span><span class="fl-time">12:47</span><i class="fl-prog"><i></i></i></div>
                     <i class="fl-vt" style="--w:58"></i>
                     <i class="fl-vt s" style="--w:30"></i>
                   </div>
@@ -340,31 +317,13 @@
                 <svg class="fl-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
               </div>
             </div>
-            <div class="pit-panel feat-facts">
-              <div class="pit-row">
-                <p class="label">Answer</p>
-                <p>Accept and Reject for plain yes/no prompts, Accept all when several ask, Open for anything else. Or use the keyboard once the cards are open: arrows, Enter, Esc and text go to the first card's agent, and Pitwall still doesn't come forward.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Nothing blind</p>
-                <p>Pitwall reads the agent's screen again before it sends a key, and sends nothing if the prompt is no longer the one you saw.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Your size</p>
-                <p>Drag the tile anywhere, and the cards' edges or corner for wider cards or more of each terminal; the size is kept, and a double click on an edge goes back to the default. Liquid Glass on macOS 26 with the Glass look. Off in Settings → General.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Tested</p>
-                <p>Accept and Reject keys were checked against Claude Code and Codex; the other agents' are written from their prompts and not yet checked against the real CLIs. Run on macOS; the Linux and Windows builds have the control, but it hasn't been run there.</p>
-              </div>
-            </div>
+            <p class="feat-more"><a href="/docs/how-it-works/#away">How answering from anywhere works</a></p>
           </article>
           <article class="feat-slide accounts" id="accounts" role="tabpanel" aria-labelledby="ft-accounts" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="accounts-h">Work login, personal login. <span class="dim">Each project on the right one.</span></h2>
-              <p>Run Claude Code, Codex, Gemini CLI and Copilot CLI on more than one login, say a work and a personal subscription. Each project picks the login its agents run on, per tool: in its Accounts…, or by dragging it onto another account in the sidebar. Its running agents of that tool restart on the new login right away, and Claude Code and Codex pick up their conversations there. The project's web pages open in the browser account it picks there too.</p>
             </div>
-            <!-- Decorative: a project dragged from one Claude Code account to another in the sidebar (grouped by account), then its Accounts… dialog (site.css: .ac-*). The copy above and the list below say what it shows. -->
+            <!-- Decorative: a project dragged from one Claude Code account to another in the sidebar (grouped by account), its terminals' account chips turning from Personal to Work, then its Accounts… dialog (site.css: .ac-*). The heading says what it shows. -->
             <div class="ac-stage glass" data-accounts aria-hidden="true">
               <div class="ac-scene">
                 <div class="ac-win">
@@ -389,7 +348,12 @@
                     <span class="ac-row ac-group" style="top:348px"><span class="ac-chev">▾</span>blog</span>
                     <span class="ac-row ac-agent" style="top:372px"><span class="g g-idle">●</span><svg class="ac-k" viewBox="0 0 14 14" width="11" height="11"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>notes</b></span>
                   </div>
-                  <div class="ac-main"><i></i><i class="s"></i><i></i><i class="s"></i><i></i></div>
+                  <div class="ac-main">
+                    <div class="ac-pane"><span class="ac-ph"><span class="g g-working">◐</span><b>refactor</b><span class="ac-pm">billing</span><span class="ac-acct"><b>Work</b></span></span><span class="ac-tl"><i style="--w:62"></i><i style="--w:84"></i><i class="s" style="--w:40"></i><i style="--w:72"></i><i class="s" style="--w:54"></i></span></div>
+                    <div class="ac-pane ac-mv"><span class="ac-ph"><span class="g g-working">◐</span><b>api-fix</b><span class="ac-pm">orders-api</span><span class="ac-acct"><b class="ac-was">Personal</b><b class="ac-now">Work</b></span></span><span class="ac-tl"><i style="--w:76"></i><i class="s" style="--w:48"></i><i style="--w:66"></i><i style="--w:88"></i><i class="s" style="--w:36"></i></span><span class="ac-prs">restarting</span></div>
+                    <div class="ac-pane"><span class="ac-ph"><span class="g g-idle">●</span><b>notes</b><span class="ac-pm">blog</span><span class="ac-acct"><b>Personal</b></span></span><span class="ac-tl"><i style="--w:58"></i><i class="s" style="--w:70"></i><i style="--w:44"></i></span></div>
+                    <div class="ac-pane ac-mv"><span class="ac-ph"><span class="g g-idle">●</span><b>tests</b><span class="ac-pm">orders-api</span><span class="ac-acct"><b class="ac-was">Personal</b><b class="ac-now">Work</b></span></span><span class="ac-tl"><i style="--w:68"></i><i class="s" style="--w:52"></i><i style="--w:80"></i></span><span class="ac-prs">restarting</span></div>
+                  </div>
                   <span class="ac-ghost"><span class="ac-chev">▾</span>orders-api</span>
                   <div class="ac-menu"><span>New terminal here</span><span>New agent…</span><span class="on">Accounts…</span></div>
                   <div class="ac-dlg">
@@ -410,24 +374,7 @@
                 </div>
               </div>
             </div>
-            <div class="pit-panel feat-facts">
-              <div class="pit-row">
-                <p class="label">An account</p>
-                <p>One login of one tool: a name and the folder the tool keeps its login in (<code>CLAUDE_CONFIG_DIR</code>, <code>CODEX_HOME</code>, <code>GEMINI_CLI_HOME</code>, <code>COPILOT_HOME</code>); Default is your own. A work Claude Code and a work Codex are two accounts, each picked on its own. Cursor Agent, opencode, Amp, Aider and Qwen Code have no setting that moves their login, so they run on one.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Per project</p>
-                <p>A project's right-click → Accounts… sets the account its new agents use for each tool, a git identity for its commits and pushes, and a browser account for its web pages. A profile (Settings → Profiles) bundles these picks under one name, such as Work, and a project then picks the profile. New agent can pick another, and an agent's right-click → Run on account moves just that one. With the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Running agents</p>
-                <p>Moved agents restart on the new login at once. Claude Code and Codex resume their conversation; the other tools start a new one. Settings → Accounts shows who each account is logged in as, Codex's plan limits and Claude Code's tokens.</p>
-              </div>
-              <div class="pit-row">
-                <p class="label">Stays here</p>
-                <p>Accounts are login folders on this computer, listed in <code>~/.pitwall/accounts.json</code>. There is no Pitwall account: logins and usage are read from the tools' own files, and nothing is sent anywhere. Agents on this computer only.</p>
-              </div>
-            </div>
+            <p class="feat-more"><a href="/docs/how-it-works/#accounts">How accounts work</a></p>
           </article>
         </div>
       </div>

@@ -75,11 +75,12 @@ public/apple-touch-icon.png   the chequered Apex P, full bleed (180 px)
 Below the demo, a row of four cards ("One layout": terminals, files, source control,
 web; `.layout-ov`) shows the demo's view for each (`data-demo-view` on the card; without
 JavaScript they are links to `#demo`). Then one section shows, as slides of equal size,
-what the demo can't: "Agents show you files" (an agent opening files for you, with the
-web pages' facts), "Answer from anywhere" and "Accounts per project". Keep it to what
-the demo doesn't show; a feature the demo shows gets a demo tab instead. Each slide has a heading and
-lead, an animated mock-up (decorative, `aria-hidden`, CSS keyframes only) and a details
-panel. The track is a CSS scroll-snap row (swipe, trackpad, ←/→, the arrows or the tabs);
+what the demo can't: "Agents show you files" (an agent opening files for you),
+"Answer from anywhere" and "Accounts per project". Keep it to what
+the demo doesn't show; a feature the demo shows gets a demo tab instead. Each slide has a heading,
+an animated mock-up (decorative, `aria-hidden`, CSS keyframes only) and one link to the
+docs. No paragraphs or fact lists: the animation has to say it, and the details belong in
+`/docs/how-it-works/`. The track is a CSS scroll-snap row (swipe, trackpad, ←/→, the arrows or the tabs);
 it is a grid and each slide a subgrid of its three rows, so all slides are as tall as the
 tallest and their stages line up. `src/main.js` (`setupCarousel`) marks the shown tab and
 makes the other slides `inert`; they show their still (`.feat-idle` turns their animation
@@ -94,8 +95,8 @@ scrolls sideways.
    `<a role="tab" id="ft-<id>" href="#<id>" aria-controls="<id>" aria-selected="false">Name</a>`.
 2. Add a slide to `.feat-track`, in the same order:
    `<article class="feat-slide" id="<id>" role="tabpanel" aria-labelledby="ft-<id>" aria-roledescription="slide">`
-   holding, in this order, `<div class="away-copy">` (an `h2` and a `p`), the stage, and
-   `<div class="pit-panel feat-facts">` with `pit-row`s.
+   holding, in this order, `<div class="away-copy">` (an `h2` only), the stage, and
+   `<p class="feat-more">` with one link to the feature's docs section.
 3. The stage: `<div class="<x>-stage glass" data-<x> aria-hidden="true"><div class="<x>-scene">…`,
    drawn at 960×600 (and 500×690 on phones, so every stage has the same shape), with its
    keyframes in `site.css` under its own prefix. In `src/main.js`, add `[data-<x>]`, its
