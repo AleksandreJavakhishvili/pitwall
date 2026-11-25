@@ -55,6 +55,52 @@ fn simctl_lists_available_ios_simulators_booted_first() {
 }
 
 #[test]
+fn simctl_says_when_each_simulator_last_booted() {
+    let json = r#"{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-1":[
+        {"udid":"AAAA","isAvailable":true,"state":"Booted","name":"iPhone 17","lastBootedAt":"2026-11-22T21:18:41Z"},
+        {"udid":"BBBB","isAvailable":true,"state":"Shutdown","name":"iPad"}]}}"#;
+    let d = super::list::parse_simctl_booted(json).unwrap();
+    assert_eq!(d[0].1, Some(1_795_382_321_000));
+    assert_eq!(d[1].1, None);
+    assert_eq!(super::list::utc_ms("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(super::list::utc_ms("2000-03-01T00:00:01.250Z"), Some(951_868_801_000));
+    assert_eq!(super::list::utc_ms("2026-13-01T00:00:00Z"), None);
+    assert_eq!(super::list::utc_ms("2026-11-22 21:18:41"), None, "UTC only, as simctl writes it");
+}
+
+/// The adb server is asked over its socket (never started): the request
+/// as adb sends it, its answer read as `adb devices -l`'s.
+#[test]
+fn the_adb_server_is_asked_without_starting_it() {
+    struct Wire {
+        sent: Vec<u8>,
+        answer: std::io::Cursor<Vec<u8>>,
+    }
+    impl Read for Wire {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            self.answer.read(b)
+        }
+    }
+    impl Write for Wire {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.sent.extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let list = "emulator-5554\tdevice product:sdk model:sdk_gphone64 device:emu transport_id:1\n";
+    let mut w = Wire { sent: vec![], answer: std::io::Cursor::new(format!("OKAY{:04x}{list}", list.len()).into_bytes()) };
+    let out = android::ask_server(&mut w).unwrap();
+    assert_eq!(w.sent, b"000ehost:devices-l");
+    let d = parse_adb(&out);
+    assert_eq!((d[0].id.as_str(), d[0].state.clone()), ("emulator-5554", State::Ready));
+    let mut w = Wire { sent: vec![], answer: std::io::Cursor::new(b"FAIL0004nope".to_vec()) };
+    assert_eq!(android::ask_server(&mut w), Err("nope".into()));
+}
+
+#[test]
 fn keys_name_a_platform_and_an_id() {
     assert_eq!(parse_key("android:emulator-5554"), Some((Platform::Android, "emulator-5554".into())));
     assert_eq!(parse_key("android:10.0.0.2:5555"), Some((Platform::Android, "10.0.0.2:5555".into())));

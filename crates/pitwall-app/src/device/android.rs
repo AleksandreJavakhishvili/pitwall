@@ -181,6 +181,38 @@ fn drain(mut r: Box<dyn Read + Send>) {
     while r.read(&mut buf).is_ok_and(|n| n > 0) {}
 }
 
+/// The devices a running adb server knows, asked over its socket
+/// (`host:devices-l`, adb's own protocol), so nothing starts the server:
+/// `None` when no server runs (and then there is no device online).
+/// `ANDROID_ADB_SERVER_PORT` moves it from 5037, as for adb.
+pub fn server_devices() -> Option<Vec<Device>> {
+    let port = std::env::var("ANDROID_ADB_SERVER_PORT").ok().and_then(|p| p.parse::<u16>().ok()).unwrap_or(5037);
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let s = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(300)).ok()?;
+    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
+    ask_server(s).ok().map(|out| super::list::parse_adb(&out))
+}
+
+/// One host request on an adb server connection: `<4 hex length><request>`,
+/// answered `OKAY<4 hex length><data>` (or `FAIL…`).
+pub fn ask_server(mut s: impl Read + Write) -> Result<String, String> {
+    let req = "host:devices-l";
+    s.write_all(format!("{:04x}{req}", req.len()).as_bytes()).map_err(|e| e.to_string())?;
+    let mut status = [0u8; 4];
+    s.read_exact(&mut status).map_err(|e| e.to_string())?;
+    let mut len = [0u8; 4];
+    s.read_exact(&mut len).map_err(|e| e.to_string())?;
+    let n = usize::from_str_radix(std::str::from_utf8(&len).map_err(|e| e.to_string())?, 16).map_err(|e| e.to_string())?;
+    let mut data = vec![0u8; n.min(1 << 20)];
+    s.read_exact(&mut data).map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&data).into_owned();
+    if &status != b"OKAY" {
+        return Err(text);
+    }
+    Ok(text)
+}
+
 /// adb on this computer: `ANDROID_HOME`/`ANDROID_SDK_ROOT`, the SDK's
 /// usual place, or `PATH`.
 pub fn find_adb() -> Option<PathBuf> {
