@@ -312,25 +312,73 @@ fixes, not an IDE.
   Save and Discard; once saved or discarded they close the same way. An
   agent on another machine has nothing editable here: its files just
   close. A restart or resume keeps the agent's id: nothing happens.
-- **Which folder** an agent's files are shown from: the `root` it gives
-  (a path, or a worktree of its repository by folder name or branch), else
-  where it works **now**, else where it started. "Now" is the `cwd` of its
-  latest hook (it follows Claude Code into a worktree it enters
+- **Which folder** an agent's files are shown from: the `root` it gives,
+  else where it works **now**, else where it started. "Now" is the `cwd` of
+  its latest hook (it follows Claude Code into a worktree it enters
   mid-session), else the newest folder it said it works in (`pitwall agent
   track`), else its process's folder where the provider can tell (a shell
   the user `cd`s in); the hook's is kept in memory only, so after a
-  restart it is known again from the next hook. Relative paths are taken
-  from that folder itself; the tree shows the git worktree holding it
-  (its own branch, index and status, read with `git -C` there), unless that
-  is the worktree the agent started in (then its own folder, as always). A
-  folder that is gone (a removed worktree) is an error that says so,
-  never a quiet fallback to the start folder. A files view already showing
-  another root for that agent is replaced by the new one: tabs whose file
-  is there under the new root by the same path stay open (the same file in
-  the other worktree), the rest close; while it has unsaved edits the call
-  is refused, telling the agent the user has to save or discard first.
-  Agents are told (tool descriptions, server instructions) to give `root`
-  when they work in another worktree than the one they started in.
+  restart it is known again from the next hook. An agent that started in
+  a folder that isn't a repository (its home folder, a projects folder)
+  and works in a repository below it is shown that repository.
+  - **`root`** is always the root, also when it is inside the agent's own
+    folder (a worktree two levels below the home folder the agent started
+    in is the root, with its own branch, index and git status, not a
+    folder revealed in the home folder's tree). It is a path (absolute, or
+    relative to where the agent works), a worktree's folder name or a
+    branch. A name is looked up in the worktrees of the agent's repository
+    and of the projects Pitwall knows; when none is found and the agent's
+    folder isn't a repository, in those of the repositories directly
+    inside it (hidden folders, and in the home folder those an OS guards
+    such as Desktop and Documents, passed over). The answer names the
+    worktree chosen (`note`: "\"feat/x\" is the worktree … on branch …").
+    A name two worktrees match is an error listing their paths; an unknown
+    one an error listing the worktrees there are.
+  - **A folder** given without `root` (`show_folder`, `pitwall open
+    --folder`): in another git worktree than the one shown, the viewer is
+    rooted at that worktree with the folder open in its tree, and the
+    answer says so; in the same worktree it is revealed in the tree, as
+    any folder; a repository directly below an agent folder that isn't one
+    is its own root.
+  - **Another machine**'s agent's viewer reads its whole folder there: a
+    root inside it is opened as a folder in that tree, and the answer
+    says so (`note`).
+  - The answer (`ViewerOpened`) gives the `root` actually shown, and a
+    `note` whenever that isn't plainly what was asked.
+  Relative paths are taken from where the agent works. A folder that is
+  gone (a removed worktree) is an error that says so, never a quiet
+  fallback to the start folder. A files view already showing another root
+  for that agent is replaced by the new one: tabs whose file is there
+  under the new root by the same path stay open (the same file in the
+  other worktree), the rest close; while it has unsaved edits the call is
+  refused, telling the agent the user has to save or discard first.
+  Agents are told (tool descriptions, server instructions, the built-in
+  rule, the `pitwall` skill) to give `root` when they work in another
+  worktree than the one they started in.
+- **Switching the root yourself**, in a files tile or window on this
+  computer (the main area's viewer and another machine's agent's have
+  none of it): the folder in the bar is a button (a chevron after it)
+  opening a menu under it:
+  - **Worktrees**: `git worktree list` of the repository shown (else of
+    the repositories directly inside the folder): folder name and branch,
+    the one shown ticked, the main checkout first; it scrolls, and typing
+    filters by name, branch or path.
+  - **Open folder…**: a path field (`~` expanded, relative to the root;
+    Enter or Open opens it, a path that isn't a folder is said under it)
+    and a folder button, the system's folder picker.
+  - **Up to parent folder**, and **Back to the agent's folder** when the
+    root isn't it.
+  A folder's right-click menu in the tree has **Open as root**. The
+  command palette has "Files: open folder…" and "Files: switch worktree…"
+  for the focused files tile (else the focused agent's files tile or
+  window), opening the same menu. A switch follows the rules above for a
+  new root: refused while there are unsaved edits (said in the menu, or
+  in the viewer with OK), tabs there by the same path carried over, the
+  tree shown or hidden as it was. The root is kept with the tile
+  (`dockedFiles`) or window (`filesWindows`) as a `path:` key (the
+  agent's own folder is its id), and opened again after a restart. It
+  only reads folders on this computer, as `pitwall open` from this
+  computer could: it gives agents nothing more.
 - **Agents** can't write through Pitwall: `show_files` / `show_folder` and
   `pitwall open` only display, and nothing is sent to an agent when the user
   saves.
