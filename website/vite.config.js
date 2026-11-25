@@ -1,14 +1,14 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, NEW_LABEL } from "./site.config.js";
+import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, COMMUNITY_URL, NEW_LABEL } from "./site.config.js";
 import { renderPage, docsNavHtml, SOURCES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
 // <source>); this rewrites the rest after it, so the site also works from a
 // sub-path such as https://<owner>.github.io/<repo>/: anchors and data-* URLs.
-// It also fills in %REPO_URL%, %RELEASES_URL%, %RELEASE_API_URL%, %PAGES_URL% and %NEW_LABEL% from site.config.js.
+// It also fills in %REPO_URL%, %RELEASES_URL%, %RELEASE_API_URL%, %PAGES_URL%, %COMMUNITY_URL% and %NEW_LABEL% from site.config.js.
 function siteLinks() {
   let base = "/";
   return {
@@ -24,6 +24,7 @@ function siteLinks() {
           .replaceAll("%RELEASES_URL%", RELEASES_URL)
           .replaceAll("%REPO_URL%", REPO_URL)
           .replaceAll("%PAGES_URL%", PAGES_URL)
+          .replaceAll("%COMMUNITY_URL%", COMMUNITY_URL)
           .replaceAll("%NEW_LABEL%", NEW_LABEL);
         if (base === "/" || !base.startsWith("/")) return html;
         const already = base.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
