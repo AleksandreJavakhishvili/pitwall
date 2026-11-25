@@ -307,6 +307,49 @@ pub mod fake {
         }
     }
 
+    /// Folders on this disk, read as the app reads `path:` keys
+    /// (`core::local`, with their change letters); an agent's id reads its
+    /// folder.
+    pub struct DiskSource {
+        /// Agent id → its folder.
+        pub agents: Mutex<std::collections::HashMap<String, String>>,
+    }
+
+    impl DiskSource {
+        pub fn new(agents: &[(&str, &str)]) -> Arc<DiskSource> {
+            Arc::new(DiskSource { agents: Mutex::new(agents.iter().map(|(a, f)| (a.to_string(), f.to_string())).collect()) })
+        }
+
+        fn root(&self, key: &str) -> Res<String> {
+            match root_of_key(key) {
+                Some(r) => Ok(r.to_string()),
+                None => self.agents.lock().unwrap().get(key).cloned().ok_or(format!("no agent {key}")),
+            }
+        }
+    }
+
+    impl Source for DiskSource {
+        fn list_files(&self, key: &str, dir: &str, ignored: bool) -> Res<DirListing> {
+            core::local::list_files(&self.root(key)?, dir, ignored)
+        }
+        fn list_all_files(&self, key: &str) -> Res<FileIndex> {
+            core::local::list_all_files(&self.root(key)?)
+        }
+        fn read_file(&self, key: &str, path: &str, large: bool) -> Res<FileView> {
+            core::local::read_file(&self.root(key)?, path, large)
+        }
+        fn search(&self, _: &str, _: &SearchQuery) -> Res<SearchResult> {
+            Err("no search here".into())
+        }
+        fn cancel_search(&self, _: &str) {}
+        fn read_image(&self, key: &str, path: &str) -> Res<Vec<u8>> {
+            core::local::read_image(&self.root(key)?, path)
+        }
+        fn write_file(&self, key: &str, path: &str, text: &str, base: Option<&str>) -> Res<pitwall_core::explorer::Saved> {
+            core::local::write_file(&self.root(key)?, path, text, base)
+        }
+    }
+
     fn group_count(m: &[SearchMatch]) -> u32 {
         let mut p: Vec<&str> = m.iter().map(|m| m.path.as_str()).collect();
         p.dedup();
