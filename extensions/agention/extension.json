@@ -2,7 +2,7 @@
   "v": 2,
   "id": "agention",
   "name": "Agention",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "pitwall": ">=0.8.0",
   "docs": "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/extensions/agention",
   "source": {
@@ -49,22 +49,22 @@
       "id": "setup",
       "setup": true,
       "label": "Set up Agention in my agents",
-      "description": "Installs Agention's plugin, pinned to v0.6.0, in Claude Code and Codex (whichever you have).",
+      "description": "Installs Agention's plugin, pinned to v0.7.0, in Claude Code and Codex (whichever you have).",
       "steps": [
         { "for": "claude", "run": ["claude", "plugin", "marketplace", "remove", "agention"], "optional": true },
-        { "for": "claude", "run": ["claude", "plugin", "marketplace", "add", "WayfarerLabs/agention#v0.6.0"] },
+        { "for": "claude", "run": ["claude", "plugin", "marketplace", "add", "WayfarerLabs/agention#v0.7.0"] },
         { "for": "claude", "run": ["claude", "plugin", "install", "agention@agention"] },
         { "for": "codex", "run": ["codex", "plugin", "marketplace", "remove", "agention"], "optional": true },
-        { "for": "codex", "run": ["codex", "plugin", "marketplace", "add", "WayfarerLabs/agention", "--ref", "v0.6.0"] },
+        { "for": "codex", "run": ["codex", "plugin", "marketplace", "add", "WayfarerLabs/agention", "--ref", "v0.7.0"] },
         { "for": "codex", "run": ["codex", "plugin", "add", "agention@agention"] }
       ]
     },
     {
       "id": "server",
       "label": "Install Agention's server here",
-      "description": "Installs (or updates) Agention's server, v0.6.0, on this computer with npm. Pitwall then keeps it running while the extension is on.",
+      "description": "Installs (or updates) Agention's server, v0.7.0, on this computer with npm. Pitwall then keeps it running while the extension is on.",
       "steps": [
-        { "run": ["npm", "install", "-g", "@wayfarerlabs/agention@0.6.0"] }
+        { "run": ["npm", "install", "-g", "@wayfarerlabs/agention@0.7.0"] }
       ]
     },
     {
@@ -81,7 +81,7 @@
     "label": "Agention's server",
     "run": ["agention", "serve", "--data", "{data}", "--origin", "{setting:server}", "--listen", "{setting:listen}"],
     "install": "server",
-    "version": { "run": ["agention", "version"], "match": "(\\d+\\.\\d+\\.\\d+)", "requires": ">=0.6.0" },
+    "version": { "run": ["agention", "version"], "match": "(\\d+\\.\\d+\\.\\d+)", "requires": ">=0.7.0" },
     "ready": { "listen": "{setting:listen}" },
     "backup": {
       "run": ["agention", "backup", "--data", "{data}", "{backup}/agention.db"],

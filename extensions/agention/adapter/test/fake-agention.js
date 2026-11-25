@@ -190,6 +190,8 @@ export class FakeAgention {
       },
       status,
       credential_active: true,
+      // v0.7.0: the pull requests and branches its live messages name.
+      links: { pull_requests: 0, branches: 0 },
     };
   }
 
@@ -320,7 +322,7 @@ export class FakeAgention {
         .filter((t) => t.archived_through < this.lastSeq(t))
         .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
       const page = all.slice(offset, offset + limit).map((t) => this.summary(t));
-      const out = { threads: page, total: all.length };
+      const out = { threads: page, total: all.length, as_of: "fake-as-of" };
       if (offset + limit < all.length) out.next = Buffer.from(String(offset + limit)).toString("base64url");
       return out;
     }
@@ -427,6 +429,8 @@ export class FakeAgention {
           messages,
           cursors: { requester: this.lastSeq(t), audience: t.read_through },
           marks: { read_through: t.read_through, archived_through: t.archived_through },
+          pull_requests: { links: [], truncated: false },
+          branches: { links: [], truncated: false },
         };
       }
       if (method === "POST" && action === "/messages") {

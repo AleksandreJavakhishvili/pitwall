@@ -4,8 +4,10 @@
 // shipped in Agention v0.5.0 (WayfarerLabs/agention#41); when it changes,
 // this is the file to change.
 //
-// Contract: docs/api/openapi.json in Agention's repository, read at v0.6.0.
-// Fields this adapter doesn't know (files, attachments) are left out.
+// Contract: docs/api/openapi.json in Agention's repository, read at v0.7.0.
+// Fields this adapter doesn't know (files, attachments, pull requests and
+// branches) are left out. It never asks the list for a grouping, so v0.7.0's
+// new meaning of group=session doesn't reach it.
 
 import {
   BadData,

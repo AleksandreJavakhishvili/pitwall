@@ -15,9 +15,12 @@ agents.
 
 ## What you need
 
-- An Agention server, **v0.6.0 or later**, served at an `https` origin.
+- An Agention server, **v0.7.0 or later**, served at an `https` origin.
   Pitwall can install it and keep it running on this computer
-  (section 1), or you run your own.
+  (section 1), or you run your own. The inbox itself still works with a
+  v0.6.0 server, but the plugin this extension installs in your agents
+  (v0.7.0) refuses a server older than itself, so a server you run
+  yourself needs upgrading first.
 - Node.js 24 or later on the machine running Pitwall (the adapter runs with
   `node` from your login shell's PATH).
 - Agention's plugin in Claude Code and/or Codex (step 2), installed once by
@@ -39,7 +42,7 @@ Pitwall does the rest from the extension's checklist (section 4):
 
 1. **Install Agention's server**: while `agention` isn't on your login
    shell's PATH, the step's button runs
-   `npm install -g @wayfarerlabs/agention@0.6.0` after you confirm.
+   `npm install -g @wayfarerlabs/agention@0.7.0` after you confirm.
 2. **Confirm and start**: the card shows the exact command once,
    `agention serve --data <its data folder> --origin <Server address> --listen <Local server listens on>`,
    and Pitwall keeps it running while the extension is on. It is started
@@ -87,9 +90,12 @@ server runs only while Pitwall does. For agents and devices that need the
 server while Pitwall is closed, run your own (at login, if you like).
 
 **Too old?** Pitwall checks `agention version` before it starts the
-server. Below 0.6.0, the card says so ("Agention's server 0.5.0; this
-extension needs 0.6.0 or later") with one button. It installs 0.6.0 after
-you confirm, then starts the server again.
+server. Below 0.7.0, the card says so ("Agention's server 0.6.0; this
+extension needs 0.7.0 or later") with one button. It installs 0.7.0 after
+you confirm, then starts the server again. A server migrates its database
+forward when it starts and refuses one a newer release wrote, so going
+back to an older server also means putting the backup from before the
+update back (**Go back** offers it).
 
 ## 2. Install Agention's plugin in your agents (once)
 
@@ -102,11 +108,11 @@ don't have. Or run them yourself:
 
 ```bash
 # Claude Code
-claude plugin marketplace add WayfarerLabs/agention#v0.6.0
+claude plugin marketplace add WayfarerLabs/agention#v0.7.0
 claude plugin install agention@agention
 
 # Codex
-codex plugin marketplace add WayfarerLabs/agention --ref v0.6.0
+codex plugin marketplace add WayfarerLabs/agention --ref v0.7.0
 codex plugin add agention@agention
 ```
 
@@ -116,7 +122,7 @@ Claude Code refuses to add a marketplace again from another tag.
 **Remove Agention from my agents** removes the marketplace and plugin
 again.
 
-The `v0.6.0` pin lives in `extension.json` (the `setup` action's steps):
+The `v0.7.0` pin lives in `extension.json` (the `setup` action's steps):
 when you upgrade your Agention server, update that ref in both `add`
 steps to the new release's tag, then press the button again.
 
@@ -209,10 +215,10 @@ Pitwall updates this extension from this repository (`source` in
 
 1. Change what it needs (an adapter fix, the pinned Agention version in
    the setup action and the server action), and raise `version` in
-   `extension.json` (say to `1.4.0`). Commit it to `main`.
+   `extension.json` (say to `1.5.0`). Commit it to `main`.
 2. Tag that commit `agention-v<version>`, the same version as in
    `extension.json`, and push the tag:
-   `git tag agention-v1.4.0 && git push origin agention-v1.4.0`.
+   `git tag agention-v1.5.0 && git push origin agention-v1.5.0`.
 
 A tag is never moved once pushed: Pitwall records the commit a tag
 pointed at and refuses a tag that moved. Pitwall finds the new tag when it
