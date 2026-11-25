@@ -1219,8 +1219,8 @@ pitwall open [OPTIONS] [FILE]...
 | `--web [URL]` | A web page instead of files: its address (http or https; a bare host gets https://, localhost and LAN hosts http://). Alone, an empty page with its address field ready. It goes to the page the agent opened before unless --where names a place. |
 | `--settings [PAGE]` | Pitwall's Settings instead of files: at this page (general, agents, profiles, accounts, extensions, rules, appearance, folderAccess, peers, about; alone, the page shown last), in the Settings tile. |
 | `--extension <ID>` | With --settings: this extension's card unfolded on the Extensions page (its id). |
-| `--folder <DIR>` | A folder to show as a tree (relative to --root, default: this folder). With only --root, that folder is shown. |
-| `--root <DIR\|WORKTREE>` | What relative paths are in: a folder, or a worktree of the agent's repository by its folder name or branch. Default: this folder, shown in the git worktree it is in. |
+| `--folder <DIR>` | A folder to show as a tree (relative to --root, default: this folder). With only --root, that folder is shown. One in another git worktree than the one shown roots the viewer at that worktree. |
+| `--root <DIR\|WORKTREE>` | The folder the viewer's tree is rooted at (exactly, also inside the agent's own folder), and relative paths are in: a folder, or a git worktree by its folder name or branch (of the agent's repository, or of one directly inside the agent's folder). Default: this folder, shown in the git worktree it is in. |
 | `--agent <AGENT>` | Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this runs in). |
 | `--where <PLACE>` | right, left, above or below (a files tile on that side of the agent's terminal, in the Pitwall window that shows it), replace (a files tile in that terminal's place; the terminal leaves the layout and keeps running) or window (a window of its own). Default: where the agent's files are already, else right. (beside: right.). |
 | `--of <AGENT>` | With --where: next to (or, with replace, in place of) this agent's terminal (id or name, in the same space) instead. |

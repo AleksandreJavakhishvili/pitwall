@@ -798,12 +798,15 @@ pub struct OpenArgs {
     #[arg(long, value_name = "ID", requires = "settings")]
     pub extension: Option<String>,
     /// A folder to show as a tree (relative to --root, default: this
-    /// folder). With only --root, that folder is shown.
+    /// folder). With only --root, that folder is shown. One in another git
+    /// worktree than the one shown roots the viewer at that worktree.
     #[arg(long, value_name = "DIR")]
     pub folder: Option<String>,
-    /// What relative paths are in: a folder, or a worktree of the agent's
-    /// repository by its folder name or branch. Default: this folder, shown
-    /// in the git worktree it is in.
+    /// The folder the viewer's tree is rooted at (exactly, also inside the
+    /// agent's own folder), and relative paths are in: a folder, or a git
+    /// worktree by its folder name or branch (of the agent's repository, or
+    /// of one directly inside the agent's folder). Default: this folder,
+    /// shown in the git worktree it is in.
     #[arg(long, value_name = "DIR|WORKTREE")]
     pub root: Option<String>,
     /// Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this
