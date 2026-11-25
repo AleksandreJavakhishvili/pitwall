@@ -177,7 +177,9 @@ pub fn run() {
         engineer::register(cx, engine.as_ref());
         if let Some(e) = engine.clone() {
             follow_tool_updates(e.clone(), cx);
-            follow_show_files(e, root_for_cli(cx), cx);
+            follow_show_files(e.clone(), root_for_cli(cx), cx);
+            // A device an agent starts opens beside it (general.deviceAutoOpen).
+            main_screen::device_auto::start(e, cx);
         }
         // The floating "needs you" control (after `ui_state`: its setting).
         if let (Some(e), Content::Live { store }) = (engine.clone(), cx.global::<AppState>().content.clone()) {
@@ -392,6 +394,8 @@ fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>
         engine.set_show_files(crate::explorer::show::enabled(cx));
         engine.set_show_web(crate::web::show::enabled(cx), crate::web::page::enabled(cx));
         engine.set_show_settings(crate::main_screen::settings_tile::enabled(cx));
+        // `agents.showDevice` and `general.devicePreviews`: `show_device`.
+        engine.set_show_device(crate::main_screen::device_auto::show_enabled(cx), crate::main_screen::device_tile::enabled(cx));
     };
     follow(&engine, cx);
     let store = ui_state::store(cx);

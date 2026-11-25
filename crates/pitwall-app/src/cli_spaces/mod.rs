@@ -178,6 +178,21 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
         self.on_main(move |cx| crate::main_screen::settings_tile::show_for_agent(&req, cx))
     }
 
+    /// `device.open` (`crate::main_screen::device_auto`): the device found
+    /// here, on the connection's thread, waiting while it boots (listing
+    /// again each second, `device::auto::find_waiting`); then its tile on
+    /// the main thread.
+    fn show_device(&self, req: &pitwall_proto::DeviceShow) -> Result<pitwall_proto::DeviceShown, ErrorBody> {
+        use crate::main_screen::device_auto;
+        let on = self.on_main(|cx| Ok(crate::main_screen::device_tile::enabled(cx) && device_auto::show_enabled(cx)))?;
+        if !on {
+            return Err(ErrorBody::new(code::OFF, device_auto::OFF));
+        }
+        let (device, waited) = crate::device::auto::find_waiting(req.device.as_deref(), device_auto::devices_here, std::thread::sleep, Default::default()).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
+        let agent = req.agent_id.clone();
+        self.on_main(move |cx| device_auto::show_for_agent(&device, &agent, waited, cx))
+    }
+
     fn mirrored(&self, id: &str) -> Option<String> {
         let id = id.to_string();
         self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()

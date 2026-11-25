@@ -117,6 +117,11 @@ impl DeviceTile {
             self.status = Status::Ended("Not a device Pitwall knows".into());
             return;
         };
+        // Tests place tiles without this computer's adb or simulators.
+        if cfg!(test) {
+            self.status = Status::Ended("Not streamed in tests".into());
+            return;
+        }
         let backend: Arc<dyn device::stream::Backend> = match platform {
             Platform::Android => match device::android::LocalAdb::new() {
                 Ok(adb) => Arc::new(device::android::Android {
@@ -516,6 +521,18 @@ impl gpui::Global for Known {}
 /// The devices last listed.
 pub fn known(cx: &App) -> Vec<Device> {
     cx.try_global::<Known>().map(|k| k.devices.clone()).unwrap_or_default()
+}
+
+/// Devices listed elsewhere (opening on its own, `show_device`): kept
+/// with the others, newest wins.
+pub fn learn(devices: &[Device], cx: &mut App) {
+    let k = cx.default_global::<Known>();
+    for d in devices {
+        match k.devices.iter_mut().find(|x| x.key() == d.key()) {
+            Some(x) => *x = d.clone(),
+            None => k.devices.push(d.clone()),
+        }
+    }
 }
 
 /// Lists the devices again, off the UI thread (adb and simctl can take a

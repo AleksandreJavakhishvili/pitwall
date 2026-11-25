@@ -24,6 +24,7 @@ pub mod view_tile;
 pub mod settings_tile;
 pub mod device_tile;
 pub mod editor_tile;
+pub mod device_auto;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -2284,6 +2285,8 @@ mod side_edge_tests;
 mod settings_tile_tests;
 #[cfg(test)]
 mod editor_tile_tests;
+#[cfg(test)]
+mod device_auto_tests;
 
 impl Drop for MainScreen {
     /// A closed window shows no agent's changes any more.

@@ -660,6 +660,45 @@ pub fn extension_toast(ext: &str, title: String, body: String, open: Option<pitw
     });
 }
 
+/// "<device> started" in the main window, with Open in Pitwall (beside
+/// `agent`'s terminal when it is someone's, else in the space shown) and
+/// Not now. One per device; only while the main window is open (it isn't
+/// opened for this). Nothing comes forward.
+pub fn device_offer(key: &str, title: String, detail: String, agent: Option<String>, cx: &mut App) {
+    use crate::main_screen::strip::{Toast, ToastAction};
+    let key = key.to_string();
+    cx.defer(move |cx| {
+        let Some(handle) = main_window(MAIN, cx) else { return };
+        let _ = handle.update(cx, |view, _, cx| {
+            let Some(screen) = view.screen.clone() else { return };
+            let open = {
+                let key = key.clone();
+                std::rc::Rc::new(move |cx: &mut App| {
+                    let (key, agent) = (key.clone(), agent.clone());
+                    // Answered from inside the screen's own handler: later.
+                    cx.defer(move |cx| {
+                        let beside = agent.as_deref().is_some_and(|a| crate::main_screen::device_auto::show_beside(&key, a, true, cx).is_ok());
+                        if beside {
+                            return;
+                        }
+                        let Some(h) = main_window(MAIN, cx) else { return };
+                        let _ = h.update(cx, |view, window, cx| {
+                            if let Some(s) = view.screen.clone() {
+                                s.update(cx, |s, cx| s.open_device(&key, window, cx));
+                            }
+                        });
+                    });
+                })
+            };
+            let actions = vec![
+                ToastAction { label: "Open in Pitwall".into(), primary: true, run: open },
+                ToastAction { label: "Not now".into(), primary: false, run: std::rc::Rc::new(|_: &mut App| {}) },
+            ];
+            screen.update(cx, |s, cx| s.toast(Toast::ask(format!("device-offer-{key}"), title, Some(detail), actions), cx));
+        });
+    });
+}
+
 /// An agent was shown in window `from`; when it lives in another window,
 /// that window comes forward and focuses it (`focusRequest` + `focus_window`).
 fn route_agent(from: &str, agent: &str, cx: &mut App) {
