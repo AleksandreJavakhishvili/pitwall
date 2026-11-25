@@ -84,7 +84,10 @@ model and IME. The tile's code never touches a window.
     (effects outside the tile). `show` and `present` are allowed by
     default, `read` once per tile, `act` asks every time in the approval
     dialog. Built-in tiles follow the same model; the web tile stays
-    show-only on purpose.
+    show-only on purpose. A package may also bring an agent skill (a
+    Markdown file, through the existing rules path, per project) and
+    expose tools as commands (`pitwall tile run`, the palette); never
+    native scripts.
 12. **A tile app can have a server** (section 13). First, a tile plus
     the managed `service` that exists today (any language, runs as the
     user, disclosed as "runs a program on your computer"), with a
@@ -102,13 +105,14 @@ model and IME. The tile's code never touches a window.
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
-minimum platform services (5 wk) → 3 agent tools (3 wk) → 4 package,
+minimum platform services (5 wk) → 3 agent tools, skill and commands
+(4 wk) → 4 package,
 signing, install, update (3 wk) → 5 index and Browse (4 wk) → 6 seed
 tiles (in parallel from phase 2), with on-demand services as they
 trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus managed service: documented and wired
 during phase 2 (1 wk). Headless wasm services: after phase 7 (≈ 6 wk).
 
-**Owner decisions needed** are in 10.3, 11.11 and 13.6, each with a
+**Owner decisions needed** are in 10.3, 11.13 and 13.6, each with a
 recommendation.
 
 ---
@@ -1232,6 +1236,7 @@ tile.wasm             required; a component (not a core module)
 README.md             required; shown on the detail page
 LICENSE               required for the index
 CHANGELOG.md          optional; "What's new" on update
+agents/SKILL.md       optional; an agent skill, text only, ≤ 16 KiB (11.11)
 assets/               optional; svg, png, webp, fonts are refused
 screenshots/          optional; png/webp, ≤ 6, ≤ 2 MiB each
 ```
@@ -1599,7 +1604,7 @@ gap in the SDK.
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk |
 | 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core | 5 wk |
 | 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum (14.2): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; permission screen changes | 5 wk |
-| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds | 3 wk |
+| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync (11.11); commands, `pitwall tile run|commands` and palette entries (11.12) | 4 wk |
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk |
 | 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel |
@@ -1678,7 +1683,7 @@ gap in the SDK.
     licence must allow redistribution, and GPL-licensed ones need a
     licence review before Pitwall bundles any (installing them by the
     user's choice is simpler).
-13. **Agent tools.** Their own questions are in 11.11.
+13. **Agent tools.** Their own questions are in 11.13.
 
 ### 10.4 What gets in the way in today's code
 - `contributes` keys are checked against a fixed list; `tiles` must be
@@ -1812,7 +1817,8 @@ events.
   agent Pitwall started on this computer. Anyone else (the user's own
   shell outside Pitwall, an adapter, a peer's agent) gets `show` only;
   `present`, `read` and `act` are refused with "only agents Pitwall
-  started can use this tool".
+  started can use this tool". Commands run from a plain terminal
+  Pitwall runs for the user are the one exception (11.12).
 - **Instructions.** The server's instructions [today] gain one line per
   tile with tools ("Diagrams: show flowcharts to the user and read
   their edits"), within a fixed budget, so agents know what exists
@@ -1923,7 +1929,129 @@ project, tool, kind, a digest and the first 200 characters of the input
 duration. The agent's row offers "What it did in tiles" filtered from
 the same records.
 
-### 11.11 Open questions (each with a recommendation)
+### 11.11 A skill for agents
+Tools say *what* a tile can do; agents also do better when told *when*
+to use them. So a package may bring one agent skill:
+`agents/SKILL.md`, Markdown with the usual frontmatter (`name`,
+`description`), for example:
+
+```markdown
+---
+name: diagrams
+description: Show flowcharts to the user in Pitwall's Diagrams tile and continue from their edits.
+---
+When the user asks for a diagram, a flow or an architecture sketch, call
+`diagrams__show_diagram` with Mermaid flowchart text and an `item` id you
+reuse for later changes. Before changing a diagram the user may have
+edited, call `diagrams__current_diagram` and start from what it returns.
+Only call `diagrams__export_svg` when the user asks for a file.
+```
+
+**How it reaches agents: the existing channel, not a new one.** Pitwall
+already gives agents skills through rulesync ([rules.md](rules.md)
+[today]): a library of skills, assigned at two scopes only, project
+and agent, generated into the agent's working folder and kept out of
+git (`.git/info/exclude`), taking effect from the next session, with
+"Re-apply & restart" when they change. A tile's skill joins that
+library as a read-only entry of a new source kind, `ext:<id>`
+(`ext:diagrams:skills/diagrams`), and is applied like any skill:
+- **Scope: projects the user picks.** On install (and on the card), the
+  screen asks "Give agents Diagrams' skill in: ☑ my-app ☐ api", defaulting
+  to the project the user is in. It is a project-scope assignment kept
+  in Pitwall (like the project default set's fallback), never written
+  into the repository's tracked files and never account-wide or global
+  [rules.md: no account-wide rules]. It applies only while the extension
+  is on and its tools are offered to agents (11.5); turning either off
+  removes it at the next apply.
+- **Removable per project**, from the card or from Settings → Rules &
+  skills, where it shows as "from Diagrams (a tile)".
+- **Updated with the tile.** An update that changes the skill lists it
+  in the review, with the text's changes; the agents using it show the
+  usual "rules changed" mark until restarted [today].
+- **Agents without skills support** (rulesync has no skills target for
+  Gemini CLI or Aider [today]) get the skill's one-line `description`
+  only, through the MCP server instructions (11.4).
+
+**Limits.** Text only: one `SKILL.md`, ≤ 16 KiB, no other files (no
+scripts, no references), no per-tool sections that run anything
+(`pitwall tile check` refuses them). Its `name` is forced to the
+extension's id so it can't shadow another skill.
+
+**Prompt injection, honestly.** A skill is instructions to the user's
+agents, which act with their own permissions in the user's
+repositories. What Pitwall does:
+- shows the whole text before install and on every update that changes
+  it, and on the card;
+- marks it as the tile's: Pitwall adds a first line, "This skill comes
+  from the Diagrams tile installed in Pitwall; it describes that tile's
+  tools.";
+- never lets it grant anything: a skill is text; the tools' kinds and
+  approvals (11.5) apply whatever it says, and it can't name a tool of
+  another extension in a way that changes that tool's grants;
+- Verified review (7.3) reads it: it may only describe the tile's own
+  tools and when to use them, not tell agents to run commands, skip
+  confirmations or fetch other instructions.
+What Pitwall can't do: stop an agent from following persuasive text in
+a skill the user accepted, any more than in a README it reads.
+
+### 11.12 Commands for the shell and the palette
+"Scripts" in the sense of named things a user or an agent can run from
+a shell: `pitwall tile run <tile> <command> [args]`. They are **calls
+into the tile's wasm**, the same machinery as tools, not native
+programs.
+
+**A package can't ship native executables to run.** No shell scripts,
+binaries or interpreters' files are ever executed from a `.pwtile`. The
+only native-code route is the managed service (13.2), at its higher
+trust level ("Runs a program on your computer").
+
+**Declaring.** A tool becomes a command by saying where it is exposed:
+```json
+{ "name": "export_svg", "kind": "act", "expose": ["agents", "cli", "palette"],
+  "title": "Export diagram as SVG", "input": { … } }
+```
+- `expose` defaults to `["agents", "cli"]`. `palette` needs a `title`
+  and an input Pitwall can ask for in a small form (strings, numbers,
+  booleans, enums; nothing nested). Palette entries read
+  "Diagrams: Export diagram as SVG", with no keys [today's rule].
+- Same kinds, schemas, limits and grants as tools (11.2–11.7): a
+  command is a tool with another caller.
+
+**Running.**
+```
+pitwall tile run diagrams export_svg --item auth-flow --path docs/auth.svg
+pitwall tile run diagrams current_diagram --json '{"item":"auth-flow"}' > flow.json
+echo '{"mermaid":"flowchart LR; A-->B"}' | pitwall tile run diagrams show_diagram --json -
+pitwall tile commands [diagrams]        # what each tile offers, with their arguments
+```
+- Arguments: `--<property> <value>` for each top-level property of the
+  input schema, or `--json <text|->` for the whole input.
+- Output: the result's `json` on stdout with `--json`, otherwise its
+  text; problems on stderr, one per line, as agents see them (11.7).
+- Exit codes: 0 ok; 1 the tile answered with an error; 2 refused
+  (permission, approval denied, agent access off); 3 not available
+  (Pitwall not running, tile off or not installed); 4 timed out.
+- Time limits as tools: 10 s for `show`, `present` and `read`, 120 s for
+  `act` after approval; `--timeout` may only shorten them.
+
+**Who the caller is.** The daemon identifies the process as for tools
+(11.4):
+- from an agent's terminal: that agent, with exactly the agent rules
+  (11.5);
+- from a plain terminal Pitwall runs for the user (not an agent): the
+  user. `show`, `present` and `read` run; `act` still goes through the
+  approval dialog, so a script can't act behind the user's back
+  (whether plain terminals resolve apart from agents through their
+  holders today is *to confirm*);
+- from anywhere else (a shell outside Pitwall, cron): `show` only, as
+  for tools.
+
+**Minimum first.** Both the skill and commands are cheap: the skill is
+a text file through the existing rules path, and commands reuse the
+tool machinery and the CLI. They are part of v0.x, built with agent
+tools in phase 3.
+
+### 11.13 Open questions (each with a recommendation)
 1. **Should `present` really be allowed by default?** It can fill a
    tile with misleading content. *Recommend yes*: it only changes a
    sandboxed tile, is marked with the agent and undoable, and asking
@@ -1939,8 +2067,16 @@ the same records.
 5. **Agents calling `act` without the user present.** *Recommend* no
    "always allow" across projects, and none for `act` tools whose
    tile holds `git.remote` or `agents.queue` grants (asks every time).
-
-## 12. Alternatives considered
+6. **Skill scope default.** *Recommend* offering it on install for the
+   project the user is in, unticked for the others; never all projects
+   silently.
+7. **May a tile's skill mention other extensions' tools?** *Recommend
+   no* (refused by `check`): cross-tile advice is how a hostile skill
+   would steer agents to a more powerful tool.
+8. **Commands from cron or other programs outside Pitwall** (`show`
+   only today). *Recommend* keeping that until a seed tile needs
+   unattended runs; then a per-command "may run from outside Pitwall"
+   grant that still can't cover `act`.
 
 | Alternative | For | Against | Verdict |
 |---|---|---|---|
@@ -2399,7 +2535,7 @@ built only when its trigger happens.
 | OAuth sign-in (system browser, loopback redirect with PKCE as RFC 8252 describes, S23; tokens in the secure store, added to requests by Pitwall) | — | A seed tile's service has no personal-token option the user can paste into a secret setting |
 | Clipboard (write after a user action; read with `clipboard.read`) | 3.8 | The API client's "copy as curl" |
 | Drag and drop between tiles | 3.6 | The files tile dropping a file on the database browser |
-| Palette commands and sidebar badges without an adapter | [today for adapters] | A seed tile needs a command or badge and adding an adapter for it would be absurd |
+| Sidebar badges without an adapter (palette commands come with 11.12) | [today for adapters] | A seed tile needs a badge and adding an adapter for it would be absurd |
 | Per-project storage scopes | 14.2 | Two seed tiles key data by project by hand |
 | `net.ask` (hosts approved at run time) | 5.1 | The API client seed tile |
 
