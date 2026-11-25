@@ -279,3 +279,11 @@ name, Move…, Maximise, Open in a window of its own and Close).
   it is and which page (never a value). The agent changes nothing.
   Extensions are refused (`Ext::Never`): their `show` permission is for
   files and pages.
+
+## The editor tile
+
+A text editor in a tile of its own, one at most, beside the other tiles:
+the pane's `editor: true`, or `editorWindow` in a window of its own; its
+open files are `ui.json`'s `editor` (`tabs`, `active`). It moves,
+maximises and goes to a window of its own as the Settings tile does.
+See [editor.md](editor.md).
