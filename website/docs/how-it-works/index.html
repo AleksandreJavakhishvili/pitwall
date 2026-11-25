@@ -48,10 +48,9 @@
 
         <ul class="toc" aria-label="On this page">
           <li><a href="#flags">Flags</a></li>
-          <li><a href="#away">Answering from another app</a></li>
           <li><a href="#wall">Wall</a></li>
           <li><a href="#next-up">Next up</a></li>
-          <li><a href="#answer-elsewhere">Answering from another app</a></li>
+          <li><a href="#away">Answering from another app</a></li>
           <li><a href="#review">Review</a></li>
           <li><a href="#files">Files</a></li>
           <li><a href="#web">Web pages</a></li>
@@ -98,28 +97,20 @@
         </ol>
         <p>Hooks are never required.</p>
 
-        <h2 id="away">Answering from another app</h2>
-        <p>When an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it. When nothing is waiting, it's gone. Turn it off in Settings → General.</p>
-        <ul>
-          <li><strong>Answer</strong>: Accept and Reject for plain yes/no prompts, Accept all when several ask, Open for anything else. Or use the keyboard once the cards are open: arrows, Enter, Esc and text go to the first card's agent, and Pitwall still doesn't come forward.</li>
-          <li><strong>Nothing blind</strong>: Pitwall reads the agent's screen again before it sends a key, and sends nothing if the prompt is no longer the one you saw.</li>
-          <li><strong>Your size</strong>: drag the tile anywhere, and the cards' edges or corner for wider cards or more of each terminal. The size is kept, and a double click on an edge goes back to the default. Liquid Glass on macOS 26 with the Glass look.</li>
-          <li><strong>Tested</strong>: Accept and Reject keys were checked against Claude Code and Codex; the other agents' are written from their prompts and not yet checked against the real CLIs. Run on macOS; the Linux and Windows builds have the control, but it hasn't been run there.</li>
-        </ul>
-
         <h2 id="wall">Wall</h2>
         <p><kbd>⌘E</kbd> shows every agent's terminal, grouped by project, blocked first. Tiles show the bottom rows of each terminal, where prompts wait. The Wall is view-only: it never resizes a terminal and never types. Click a tile to take over that agent; <kbd>Esc</kbd> comes back. A window left in Wall mode stays that way across restarts.</p>
 
         <h2 id="next-up">Next up</h2>
         <p>Each agent has its own queue in the right panel (<kbd>⌘.</kbd>). With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text goes in as a bracketed paste, then Enter, exactly as written. Last sent stays under the queue.</p>
 
-        <h2 id="answer-elsewhere">Answering from another app</h2>
+        <h2 id="away">Answering from another app</h2>
         <p>While you're in another app and an agent's screen asks you something, a small pill floats over your desktop, on every Space and over full-screen apps. It never shows while Pitwall is in front, and it goes away when nothing waits.</p>
         <ul>
-          <li><strong>The pill.</strong> The agent that has waited longest: its logo, its name (and its project when two share a name), one plain line of what it wants, such as <code>Run: pnpm test</code>, <code>Edit src/cart/total.ts</code> or the question it asks, and <strong>+2</strong> when others wait. For a plain yes or no it has <strong>Accept</strong> and <strong>Reject</strong>; for anything more, <strong>Open</strong> brings Pitwall forward on the agent. A command too long to name in one line shows <strong>Show</strong> instead, so you see all of it before you answer. The pill never takes the keyboard.</li>
-          <li><strong>The card.</strong> Click the pill for one card at a time, oldest first, with <strong>1 of 3</strong> and arrows. It names what the prompt asks, in lines of the prompt itself, over the rows of the agent's terminal that ask, drawn live; <strong>Show all</strong> shows the whole prompt. When Pitwall can't read the action off the prompt reliably, you get the terminal rows alone. <kbd>⏎</kbd> accepts, <kbd>esc</kbd> rejects, <kbd>←</kbd>/<kbd>→</kbd> go between prompts; other keys go to the agent's terminal as in its pane. <strong>Accept all</strong> appears only when every prompt that waits is a plain yes or no.</li>
-          <li><strong>Nothing blind.</strong> Before typing an answer, Pitwall reads the agent's screen again and types only if the same prompt is still there. After an answer the control says <strong>Sent to api-fix</strong> for about a second and moves to the next prompt; if the prompt changed, it says <strong>The prompt changed: nothing was sent</strong> and shows the new one. An agent on another machine is shown, never answered from here.</li>
-          <li><strong>Where it sits.</strong> Drag it anywhere; it stays there, also after a restart. Resize the open card by any edge or corner, and double-click an edge for the default size. It slides in once when it appears, not with Reduce motion. Off with <a href="/docs/settings/#general-floatingprompts"><code>general.floatingPrompts</code></a>. Your extensions' inbox questions show up here too, after your agents'.</li>
+          <li><strong>The pill</strong>: The agent that has waited longest: its logo, its name (and its project when two share a name), one plain line of what it wants, such as <code>Run: pnpm test</code>, <code>Edit src/cart/total.ts</code> or the question it asks, and <strong>+2</strong> when others wait. For a plain yes or no it has <strong>Accept</strong> and <strong>Reject</strong>; for anything more, <strong>Open</strong> brings Pitwall forward on the agent. A command too long to name in one line shows <strong>Show</strong> instead, so you see all of it before you answer. The pill never takes the keyboard.</li>
+          <li><strong>The card</strong>: Click the pill for one card at a time, oldest first, with <strong>1 of 3</strong> and arrows. It names what the prompt asks, in lines of the prompt itself, over the rows of the agent's terminal that ask, drawn live; <strong>Show all</strong> shows the whole prompt. When Pitwall can't read the action off the prompt reliably, you get the terminal rows alone. <kbd>⏎</kbd> accepts, <kbd>esc</kbd> rejects, <kbd>←</kbd>/<kbd>→</kbd> go between prompts; other keys go to the agent's terminal as in its pane. <strong>Accept all</strong> appears only when every prompt that waits is a plain yes or no.</li>
+          <li><strong>Nothing blind</strong>: Before typing an answer, Pitwall reads the agent's screen again and types only if the same prompt is still there. After an answer the control says <strong>Sent to api-fix</strong> for about a second and moves to the next prompt; if the prompt changed, it says <strong>The prompt changed: nothing was sent</strong> and shows the new one. An agent on another machine is shown, never answered from here.</li>
+          <li><strong>Where it sits</strong>: Drag it anywhere; it stays there, also after a restart. Resize the open card by any edge or corner, and double-click an edge for the default size. It slides in once when it appears, not with Reduce motion. Off with <a href="/docs/settings/#general-floatingprompts"><code>general.floatingPrompts</code></a>. Your extensions' inbox questions show up here too, after your agents'. Liquid Glass on macOS 26 with the Glass look.</li>
+          <li><strong>Tested</strong>: Accept and Reject keys were checked against Claude Code and Codex; the other agents' are written from their prompts and not yet checked against the real CLIs. Run on macOS; the Linux and Windows builds have the control, but it hasn't been run there.</li>
         </ul>
 
         <h2 id="review">Review</h2>
