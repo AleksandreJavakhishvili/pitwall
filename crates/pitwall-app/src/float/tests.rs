@@ -89,6 +89,18 @@ fn click(v: &mut VisualTestContext, what: &'static str) {
 
 const BASH: &str = "Bash command\n  touch a.txt\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel";
 
+/// The pill's window.
+const PILL: (f32, f32) = (model::PILL_W + 2. * model::PAD, model::PILL_H + 2. * model::PAD);
+
+/// The key of the card shown.
+fn current(cx: &mut TestAppContext) -> String {
+    cx.update(|cx| {
+        let (list, questions) = (items(cx), asks(cx));
+        let entries = model::entries(&list, &questions);
+        entries[model::position(&entries, cx.global::<Float>().current.as_deref())].key()
+    })
+}
+
 #[gpui::test]
 fn it_is_up_only_while_a_screen_asks_the_user_who_is_elsewhere(cx: &mut TestAppContext) {
     let (store, _) = setup(vec![agent("api", "working", None)], None, cx);
@@ -102,7 +114,7 @@ fn it_is_up_only_while_a_screen_asks_the_user_who_is_elsewhere(cx: &mut TestAppC
 
     set_agents(&store, vec![agent("api", "blocked", Some((BASH, true, true)))], cx);
     assert!(up(cx));
-    assert_eq!(dims(cx), (model::PUCK + 2. * model::PAD, model::PUCK + 2. * model::PAD), "the mark alone at first");
+    assert_eq!(dims(cx), PILL, "the pill at first");
 
     // The user comes back to Pitwall: gone within a watch interval.
     cx.update(|cx| cx.set_global(InFront(true)));
@@ -139,49 +151,93 @@ fn the_setting_turns_it_off_and_on(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn every_asking_agent_has_its_own_card_and_buttons(cx: &mut TestAppContext) {
-    let (store, calls) = setup(
-        vec![agent("api", "blocked", Some((BASH, true, true))), agent("web", "blocked", Some(("rm -rf build?", true, true)))],
-        None,
-        cx,
-    );
+fn the_pill_answers_a_plain_yes_or_no_in_one_click(cx: &mut TestAppContext) {
+    let (store, calls) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
     let mut v = window(cx);
-    // The mark alone at first; a click opens both cards at once.
-    assert!(v.debug_bounds("float-accept-api").is_none());
-    click(&mut v, "float-puck");
-    for what in ["float-prompt-api", "float-accept-api", "float-reject-api", "float-prompt-web", "float-accept-web", "float-reject-web"] {
+    // Who and what, and the buttons, with no click before.
+    for what in ["float-pill-what", "float-pill-accept", "float-pill-reject"] {
         assert!(v.debug_bounds(what).is_some(), "{what}");
     }
+    assert!(v.debug_bounds("float-pill-count").is_none(), "one waits: no count");
+    assert!(v.debug_bounds("float-accept-api").is_none(), "not opened");
+    click(&mut v, "float-pill-accept");
+    assert_eq!(*calls.answers.lock().unwrap(), [("api".to_string(), true, BASH.to_string())]);
+    assert_eq!(dims(cx), PILL, "the pill stays the pill");
+    cx.update(|cx| assert!(!cx.global::<Float>().expanded));
+    // Sent: the pill says so, and offers nothing more.
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-pill-accept").is_none() && v.debug_bounds("float-pill-reject").is_none());
+
+    // A command on several lines: the pill shows it first, it doesn't answer it.
+    let multi = "Bash command\n  cat <<EOF > a.txt\n  hi\n  EOF\nDo you want to proceed?\n❯ 1. Yes\n  2. No";
+    set_agents(&store, vec![agent("api", "blocked", Some((multi, true, true)))], cx);
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-pill-accept").is_none());
+    click(&mut v, "float-pill-review");
+    cx.update(|cx| assert!(cx.global::<Float>().expanded));
+    assert!(window(cx).debug_bounds("float-accept-api").is_some(), "opened on it: its own Accept");
+    assert_eq!(calls.answers.lock().unwrap().len(), 1);
+
+    // A question: Open only.
+    set_agents(&store, vec![agent("docs", "blocked", Some(("Which color?\n❯ 1. Red\n  2. Blue", false, false)))], cx);
+    click(&mut window(cx), "float-collapse");
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-pill-accept").is_none() && v.debug_bounds("float-pill-review").is_none());
+    click(&mut v, "float-pill-open");
+    assert_eq!(*calls.opened.lock().unwrap(), ["docs"]);
+}
+
+#[gpui::test]
+fn one_card_at_a_time_oldest_first(cx: &mut TestAppContext) {
+    let (store, calls) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
+    // "web" begins to ask later, though the store lists it first.
+    set_agents(&store, vec![agent("web", "blocked", Some(("rm -rf build?", true, true))), agent("api", "blocked", Some((BASH, true, true)))], cx);
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-pill-count").is_some(), "the pill counts the others");
+    click(&mut v, "float-puck");
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-card-api").is_some() && v.debug_bounds("float-card-web").is_none(), "the oldest, alone");
+    assert!(v.debug_bounds("float-position").is_some());
     click(&mut v, "float-accept-api");
     assert_eq!(*calls.answers.lock().unwrap(), [("api".to_string(), true, BASH.to_string())]);
     // A second click while the agent hasn't moved on types nothing more.
-    click(&mut v, "float-accept-api");
+    click(&mut window(cx), "float-accept-api");
     assert_eq!(calls.answers.lock().unwrap().len(), 1);
-
-    // The other agent, rejected, without selecting anything first.
+    assert!(window(cx).debug_bounds("float-note-api").is_some(), "\"Sent to api\"");
+    // A moment later: the next one that waits.
+    cx.executor().advance_clock(CONFIRM + Duration::from_millis(50));
+    cx.run_until_parked();
+    assert_eq!(current(cx), "web");
+    let mut v = window(cx);
     click(&mut v, "float-reject-web");
     assert_eq!(calls.answers.lock().unwrap()[1], ("web".to_string(), false, "rm -rf build?".to_string()));
+    // Both answered: the card stays put.
+    cx.executor().advance_clock(CONFIRM + Duration::from_millis(50));
+    cx.run_until_parked();
+    assert_eq!(current(cx), "web");
+
+    // The arrows go round.
+    click(&mut window(cx), "float-next");
+    assert_eq!(current(cx), "api");
+    click(&mut window(cx), "float-prev");
+    assert_eq!(current(cx), "web");
 
     // "api" asks something new: it can be answered again.
-    set_agents(
-        &store,
-        vec![agent("api", "blocked", Some(("touch b.txt?", true, true))), agent("web", "blocked", Some(("rm -rf build?", true, true)))],
-        cx,
-    );
-    let mut v = window(cx);
-    click(&mut v, "float-accept-api");
+    set_agents(&store, vec![agent("web", "blocked", Some(("rm -rf build?", true, true))), agent("api", "blocked", Some(("touch b.txt?", true, true)))], cx);
+    click(&mut window(cx), "float-prev");
+    click(&mut window(cx), "float-accept-api");
     assert_eq!(calls.answers.lock().unwrap()[2], ("api".to_string(), true, "touch b.txt?".to_string()));
 
-    // The header's button closes the cards again.
-    click(&mut v, "float-collapse");
-    assert_eq!(dims(cx), (model::PUCK + 2. * model::PAD, model::PUCK + 2. * model::PAD));
+    // The header's button: back to the pill.
+    click(&mut window(cx), "float-collapse");
+    assert_eq!(dims(cx), PILL);
     let mut v = window(cx);
     assert!(v.debug_bounds("float-puck").is_some() && v.debug_bounds("float-accept-api").is_none());
 }
 
 #[gpui::test]
-fn accept_all_answers_every_yes_or_no_once(cx: &mut TestAppContext) {
-    let (_store, calls) = setup(
+fn accept_all_only_when_every_prompt_is_a_yes_or_no(cx: &mut TestAppContext) {
+    let (store, calls) = setup(
         vec![
             agent("api", "blocked", Some((BASH, true, true))),
             agent("docs", "blocked", Some(("Which color?\n❯ 1. Red\n  2. Blue", false, false))),
@@ -190,12 +246,17 @@ fn accept_all_answers_every_yes_or_no_once(cx: &mut TestAppContext) {
         None,
         cx,
     );
-    let mut v = window(cx);
-    click(&mut v, "float-puck");
-    click(&mut v, "float-accept-all");
+    click(&mut window(cx), "float-puck");
+    assert!(window(cx).debug_bounds("float-accept-all").is_none(), "a question waits too");
+    cx.update(accept_all);
+    assert!(calls.answers.lock().unwrap().is_empty());
+
+    set_agents(&store, vec![agent("api", "blocked", Some((BASH, true, true))), agent("web", "blocked", Some(("rm -rf build?", true, true)))], cx);
+    click(&mut window(cx), "float-accept-all");
     let ids = |calls: &Calls| calls.answers.lock().unwrap().iter().map(|(id, yes, _)| (id.clone(), *yes)).collect::<Vec<_>>();
-    assert_eq!(ids(&calls), [("api".to_string(), true), ("web".to_string(), true)], "the question is left alone");
-    click(&mut v, "float-accept-all");
+    assert_eq!(ids(&calls), [("api".to_string(), true), ("web".to_string(), true)]);
+    assert!(window(cx).debug_bounds("float-accept-all").is_none(), "nothing left to accept");
+    cx.update(accept_all);
     assert_eq!(ids(&calls).len(), 2, "nothing is typed twice");
 }
 
@@ -204,7 +265,9 @@ fn one_yes_or_no_has_no_accept_all(cx: &mut TestAppContext) {
     let (_store, _) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
     let mut v = window(cx);
     click(&mut v, "float-puck");
+    let mut v = window(cx);
     assert!(v.debug_bounds("float-accept-api").is_some() && v.debug_bounds("float-accept-all").is_none());
+    assert!(v.debug_bounds("float-position").is_none(), "nothing to go to");
 }
 
 #[gpui::test]
@@ -212,7 +275,9 @@ fn a_prompt_that_is_not_a_yes_or_no_only_opens(cx: &mut TestAppContext) {
     let (_store, calls) = setup(vec![agent("docs", "blocked", Some(("Which color?\n❯ 1. Red\n  2. Blue", false, false)))], None, cx);
     let mut v = window(cx);
     click(&mut v, "float-puck");
+    let mut v = window(cx);
     assert!(v.debug_bounds("float-prompt-docs").is_some(), "its prompt is shown");
+    assert!(v.debug_bounds("float-summary-docs").is_some(), "the question, read off it");
     assert!(v.debug_bounds("float-accept-docs").is_none() && v.debug_bounds("float-reject-docs").is_none());
     assert!(v.debug_bounds("float-note-docs").is_some());
     // Nothing is typed even if asked to.
@@ -226,20 +291,24 @@ fn a_prompt_that_is_not_a_yes_or_no_only_opens(cx: &mut TestAppContext) {
 #[gpui::test]
 fn an_answer_that_was_not_typed_says_why(cx: &mut TestAppContext) {
     let (store, _) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], Some("its prompt changed"), cx);
-    let mut v = window(cx);
-    click(&mut v, "float-puck");
-    let before = dims(cx).1;
-    let mut v = window(cx);
-    click(&mut v, "float-accept-api");
+    // From the pill: it says so in place, and shows the prompt before
+    // anything else (no Accept on it any more).
+    click(&mut window(cx), "float-pill-accept");
     cx.update(|cx| {
         let f = cx.global::<Float>();
-        assert_eq!(f.errors.get("api").map(|e| e.to_string()), Some("Not sent: its prompt changed.".to_string()));
+        assert_eq!(f.errors.get("api").map(|e| e.to_string()), Some("The prompt changed: nothing was sent.".to_string()));
         assert!(f.answered.is_empty(), "it can be tried again");
-        assert_eq!(f.size.1, before + model::NOTE_H, "the window makes room for the line");
     });
     let mut v = window(cx);
+    assert!(v.debug_bounds("float-pill-accept").is_none());
+    click(&mut v, "float-pill-review");
+    let mut v = window(cx);
     assert!(v.debug_bounds("float-note-api").is_some());
-    // The agent moved on: the error goes with its prompt.
+    let with = dims(cx).1;
+    // Tried again, it still fails; the agent moved on: the error goes with
+    // its prompt.
+    click(&mut v, "float-accept-api");
+    assert_eq!(dims(cx).1, with);
     set_agents(&store, vec![agent("api", "working", None)], cx);
     cx.update(|cx| assert!(cx.global::<Float>().errors.is_empty()));
 }
@@ -268,30 +337,47 @@ fn everything_drawn_fits_the_window(cx: &mut TestAppContext) {
     let mut agents = vec![agent("api", "blocked", Some((&long, true, true)))];
     agents.extend((0..6).map(|i| agent(&format!("a{i}"), "blocked", Some(("Which?", false, false)))));
     let (_store, _) = setup(agents, None, cx);
+    // Once it has slid in.
+    cx.executor().advance_clock(Duration::from_millis(500));
     let mut v = window(cx);
-    let puck = v.debug_bounds("float-puck").unwrap();
-    assert_eq!((puck.size.width, puck.size.height), (px(model::PUCK), px(model::PUCK)));
-    assert_eq!((puck.origin.x, puck.origin.y), (px(model::PAD), px(model::PAD)));
+    v.update(|window, _| window.refresh());
+    v.run_until_parked();
+    let pill = v.debug_bounds("float-puck").unwrap();
+    assert_eq!((pill.size.width, pill.size.height), (px(model::PILL_W), px(model::PILL_H)));
+    assert_eq!((pill.origin.x, pill.origin.y), (px(model::PAD), px(model::PAD)));
+    for what in ["float-pill-what", "float-pill-count", "float-pill-review"] {
+        let b = v.debug_bounds(what).unwrap_or_else(|| panic!("{what} is drawn"));
+        assert!(b.origin.x >= pill.origin.x && b.origin.x + b.size.width <= pill.origin.x + pill.size.width, "{what} inside the pill: {b:?}");
+    }
     click(&mut v, "float-puck");
     let (w, h) = dims(cx);
-    let list = cx.update(|cx| items(cx));
-    assert_eq!((w, h), model::size(&list, &[], true, model::Shape::default(), &|_| false, &|_| None));
     assert_eq!(w, model::WIDTH + 2. * model::PAD);
+    let check = |v: &mut VisualTestContext, list: &[&'static str]| {
+        for what in list {
+            let b = v.debug_bounds(what).unwrap_or_else(|| panic!("{what} is drawn"));
+            assert!(b.origin.y >= px(0.) && b.origin.y + b.size.height <= px(h), "{what} inside 0..{h}: {b:?}");
+            assert!(b.origin.x >= px(0.) && b.origin.x + b.size.width <= px(w), "{what} inside the width: {b:?}");
+        }
+    };
     let mut v = window(cx);
-    for what in [
-        "float-header", "float-collapse", "float-card-api", "float-prompt-api", "float-accept-api", "float-reject-api",
-        "float-open-api", "float-card-a0", "float-note-a0", "float-open-a0", "float-card-a1", "float-open-a1", "float-more",
-    ] {
-        let b = v.debug_bounds(what).unwrap_or_else(|| panic!("{what} is drawn"));
-        assert!(b.origin.y >= px(0.) && b.origin.y + b.size.height <= px(h), "{what} inside 0..{h}: {b:?}");
-        assert!(b.origin.x >= px(0.) && b.origin.x + b.size.width <= px(w), "{what} inside the width: {b:?}");
-    }
-    assert!(v.debug_bounds("float-card-a2").is_none(), "only the first {MAX_CARDS} have a card");
+    check(&mut v, &["float-header", "float-collapse", "float-position", "float-next", "float-card-api", "float-prompt-api", "float-accept-api", "float-reject-api", "float-open-api", "float-hints"]);
+    assert!(v.debug_bounds("float-card-a0").is_none(), "one card at a time");
     let prompt = v.debug_bounds("float-prompt-api").unwrap();
-    assert_eq!(prompt.size.height, px(model::LINES_SHARED as f32 * LINE_H + BOX_PAD));
-    // Each card is exactly as tall as the window was sized for.
+    assert_eq!(prompt.size.height, px(model::LINES_ALONE as f32 * LINE_H + BOX_PAD), "no summary: the rows, up to the default");
+    // The card is exactly as tall as the window was sized for.
     let card = v.debug_bounds("float-card-api").unwrap();
-    assert_eq!(card.size.height, px(model::card_height(model::LINES_SHARED, false)));
+    assert_eq!(card.size.height, px(model::card_height(model::Look { summary: None, rows: model::LINES_ALONE, note: false })));
+    assert_eq!(h, model::size(Some(f32::from(card.size.height)), model::Shape::default()).1);
+    // A question's card: its note too.
+    click(&mut v, "float-next");
+    let (_, h) = dims(cx);
+    let mut v = window(cx);
+    let card = v.debug_bounds("float-card-a0").expect("the next card");
+    assert_eq!(h, model::size(Some(f32::from(card.size.height)), model::Shape::default()).1);
+    for what in ["float-note-a0", "float-open-a0", "float-hints"] {
+        let b = v.debug_bounds(what).unwrap_or_else(|| panic!("{what} is drawn"));
+        assert!(b.origin.y + b.size.height <= px(h), "{what} inside 0..{h}: {b:?}");
+    }
 }
 
 /// A screen source that sends each watcher `frame` at once.
@@ -314,56 +400,104 @@ impl ScreenSource for Fake {
     }
 }
 
-#[gpui::test]
-fn a_card_shows_the_rows_of_the_terminal_that_ask(cx: &mut TestAppContext) {
+/// A screen with output above the prompt and blank rows under it.
+fn bash_screen() -> pitwall_proto::ScreenFrame {
     use pitwall_proto::{ScreenFrame, ScreenLine, ScreenRun};
-    // A screen with output above the prompt and blank rows under it.
     let rows = ["⏺ I'll create it.", "", "────────", " Bash command", "", "   touch a.txt", "", " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "", " Esc to cancel", "", ""];
-    let frame = ScreenFrame {
+    ScreenFrame {
         cols: 120,
         rows: rows.len() as u16,
         cursor: None,
         full: true,
         lines: rows.iter().enumerate().map(|(i, r)| ScreenLine(i as u16, vec![ScreenRun(r.to_string(), 0, 0, 0)])).collect(),
-    };
-    let fake = Arc::new(Fake { frame, watching: Mutex::new(Vec::new()) });
+    }
+}
+
+#[gpui::test]
+fn a_card_shows_a_summary_over_the_rows_of_the_terminal_that_ask(cx: &mut TestAppContext) {
+    let fake = Arc::new(Fake { frame: bash_screen(), watching: Mutex::new(Vec::new()) });
     cx.update(|cx| cx.set_global(Screens(fake.clone())));
     let (store, calls) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
     let mut v = window(cx);
-    assert!(fake.watching.lock().unwrap().is_empty(), "no screen is watched for the mark alone");
+    assert!(fake.watching.lock().unwrap().is_empty(), "no screen is watched for the pill");
     click(&mut v, "float-puck");
     let mut v = window(cx);
     assert_eq!(*fake.watching.lock().unwrap(), ["api"]);
-    // From "Bash command" to "Esc to cancel": 9 rows, and the window is sized for them.
+    // The summary ("Run touch a.txt"), and the first rows of the prompt
+    // (from "Bash command"), the window sized for them.
+    assert!(v.debug_bounds("float-summary-api").is_some());
     let term = v.debug_bounds("float-term-api").expect("the terminal is drawn");
-    assert_eq!(term.size.height, px(9. * LINE_H + BOX_PAD));
+    assert_eq!(term.size.height, px(model::RAW_FEW as f32 * LINE_H + BOX_PAD));
     assert!(v.debug_bounds("float-prompt-api").is_none(), "not the text as well");
-    assert_eq!(dims(cx).1, model::HEADER_H + RULE + model::card_height(9, false) + model::BORDER + 2. * model::PAD);
+    let card = model::card_height(model::Look { summary: Some(1), rows: model::RAW_FEW, note: false });
+    assert_eq!(dims(cx), model::size(Some(card), model::Shape::default()));
     // A row of the terminal is as tall as the window was sized for.
     let row = v.update(|window, _| crate::wall::paint::row_height(model::TERM_FONT, window));
     assert!(row <= LINE_H && row > LINE_H - 1., "a terminal row is {row} px, the card allows {LINE_H}");
+    // "Show all": the whole prompt, 9 rows.
+    click(&mut v, "float-show-all");
+    let mut v = window(cx);
+    assert_eq!(v.debug_bounds("float-term-api").unwrap().size.height, px(9. * LINE_H + BOX_PAD));
     let accept = v.debug_bounds("float-accept-api").unwrap();
     assert!(accept.origin.y + accept.size.height <= px(dims(cx).1));
 
-    // Opened: keys go to the first card's agent, with no click before.
-    v.simulate_keystrokes("down enter 2 escape");
+    // Opened, the panel has the keys: other keys go to the agent's
+    // terminal, Enter is Accept (re-checked, as the button).
+    let mut v = window(cx);
+    v.simulate_keystrokes("down 2");
     let typed = calls.typed.lock().unwrap().clone();
-    assert_eq!(typed.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["api"; 4]);
-    assert_eq!(typed.iter().map(|(_, k)| k.as_slice()).collect::<Vec<_>>(), [b"\x1b[B".as_slice(), b"\r", b"2", b"\x1b"]);
+    assert_eq!(typed.iter().map(|(id, k)| (id.as_str(), k.as_slice())).collect::<Vec<_>>(), [("api", b"\x1b[B".as_slice()), ("api", b"2")]);
+    v.simulate_keystrokes("enter");
+    assert_eq!(*calls.answers.lock().unwrap(), [("api".to_string(), true, BASH.to_string())]);
+    assert_eq!(calls.typed.lock().unwrap().len(), 2, "Enter isn't typed as a key");
 
-    // Closed again, or gone: nothing is watched any more.
-    click(&mut v, "float-collapse");
+    // Closed again, or gone: nothing is watched any more, and keys go nowhere.
+    click(&mut window(cx), "float-collapse");
     let _ = window(cx);
     assert!(fake.watching.lock().unwrap().is_empty());
-    // Closed, keys go nowhere; opened again, to the agent once more.
     window(cx).simulate_keystrokes("down");
-    assert_eq!(calls.typed.lock().unwrap().len(), 4);
-    click(&mut window(cx), "float-puck");
-    assert_eq!(*fake.watching.lock().unwrap(), ["api"]);
-    window(cx).simulate_keystrokes("enter");
-    assert_eq!(calls.typed.lock().unwrap().len(), 5);
+    assert_eq!(calls.typed.lock().unwrap().len(), 2);
     set_agents(&store, vec![agent("api", "working", None)], cx);
     assert!(!up(cx) && fake.watching.lock().unwrap().is_empty());
+}
+
+#[gpui::test]
+fn the_keys_answer_go_round_and_close(cx: &mut TestAppContext) {
+    let (store, calls) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
+    set_agents(&store, vec![agent("api", "blocked", Some((BASH, true, true))), agent("docs", "blocked", Some(("Which color?\n❯ 1. Red\n  2. Blue", false, false)))], cx);
+    click(&mut window(cx), "float-puck");
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-hints").is_some());
+    // Esc on a yes/no is Reject.
+    v.simulate_keystrokes("escape");
+    assert_eq!(*calls.answers.lock().unwrap(), [("api".to_string(), false, BASH.to_string())]);
+    // → the next; on a question Enter and the arrows go to its terminal.
+    v.simulate_keystrokes("right");
+    assert_eq!(current(cx), "docs");
+    let mut v = window(cx);
+    v.simulate_keystrokes("down enter");
+    let typed = calls.typed.lock().unwrap().clone();
+    assert_eq!(typed.iter().map(|(id, k)| (id.as_str(), k.as_slice())).collect::<Vec<_>>(), [("docs", b"\x1b[B".as_slice()), ("docs", b"\r")]);
+    // ← back, → again; Esc on a question closes the panel (nothing typed).
+    v.simulate_keystrokes("left");
+    assert_eq!(current(cx), "api");
+    v.simulate_keystrokes("right escape");
+    cx.update(|cx| assert!(!cx.global::<Float>().expanded));
+    assert_eq!(calls.typed.lock().unwrap().len(), 2);
+    assert_eq!(dims(cx), PILL);
+}
+
+#[gpui::test]
+fn the_pill_names_the_project_when_names_clash(cx: &mut TestAppContext) {
+    let mut a = agent("a1", "blocked", Some((BASH, true, true)));
+    let mut b = agent("a2", "blocked", Some((BASH, true, true)));
+    (a.name, b.name) = ("tests".into(), "tests".into());
+    let (_store, _) = setup(vec![a, b], None, cx);
+    cx.update(|cx| {
+        let list = items(cx);
+        let e = model::entries(&list, &[]);
+        assert!(model::clashes(&e, "tests"));
+    });
 }
 
 /// Drag what `what` draws (a resize edge) by `dx`, `dy` as the pointer
@@ -412,7 +546,7 @@ fn its_edges_resize_the_open_panel(cx: &mut TestAppContext) {
     let long = long_prompt();
     let (_store, _) = setup(vec![agent("api", "blocked", Some((&long, true, true)))], None, cx);
     let mut v = window(cx);
-    assert!(v.debug_bounds("float-resize-left").is_none(), "the mark alone doesn't resize");
+    assert!(v.debug_bounds("float-resize-left").is_none(), "the pill doesn't resize");
     click(&mut v, "float-puck");
     let (w0, h0) = dims(cx);
     assert_eq!(w0, model::WIDTH + 2. * model::PAD);
@@ -447,10 +581,10 @@ fn its_edges_resize_the_open_panel(cx: &mut TestAppContext) {
     let resized = dims(cx);
     assert_eq!(resized, (w0 + 200., h0 + 6. * LINE_H));
 
-    // Closed to the mark and opened again: the same size.
+    // Back to the pill and opened again: the same size.
     let mut v = window(cx);
     click(&mut v, "float-collapse");
-    assert_eq!(dims(cx), (model::PUCK + 2. * model::PAD, model::PUCK + 2. * model::PAD), "the mark doesn't change");
+    assert_eq!(dims(cx), PILL, "the pill doesn't change");
     click(&mut window(cx), "float-puck");
     assert_eq!(dims(cx), resized);
 
@@ -487,45 +621,22 @@ fn a_resize_stays_within_its_bounds(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn several_cards_share_a_height_drag(cx: &mut TestAppContext) {
-    let long = long_prompt();
-    let agents = (0..3).map(|i| agent(&format!("a{i}"), "blocked", Some((long.as_str(), true, true)))).collect();
-    let (_store, _) = setup(agents, None, cx);
-    click(&mut window(cx), "float-puck");
-    let h0 = dims(cx).1;
-    let out = if GROWS_UP { -1. } else { 1. };
-    // Three cards, 6 rows of travel: 2 rows more each.
-    let mut v = window(cx);
-    drag(&mut v, END, 0., out * 6. * LINE_H);
-    assert_eq!(dims(cx).1, h0 + 6. * LINE_H);
-    assert_eq!(cx.update(|cx| shape(cx.global::<Float>()).max_lines(3)), model::LINES_SHARED + 2);
-}
-
-#[gpui::test]
-fn a_taller_card_shows_the_terminal_above_a_short_prompt(cx: &mut TestAppContext) {
-    use pitwall_proto::{ScreenFrame, ScreenLine, ScreenRun};
+fn a_taller_card_shows_the_whole_prompt_and_the_terminal_above_it(cx: &mut TestAppContext) {
     // 3 rows of output over a 9-row prompt.
-    let rows = ["⏺ I'll create it.", "", "────────", " Bash command", "", "   touch a.txt", "", " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "", " Esc to cancel", "", ""];
-    let frame = ScreenFrame {
-        cols: 120,
-        rows: rows.len() as u16,
-        cursor: None,
-        full: true,
-        lines: rows.iter().enumerate().map(|(i, r)| ScreenLine(i as u16, vec![ScreenRun(r.to_string(), 0, 0, 0)])).collect(),
-    };
-    cx.update(|cx| cx.set_global(Screens(Arc::new(Fake { frame, watching: Mutex::new(Vec::new()) }))));
+    cx.update(|cx| cx.set_global(Screens(Arc::new(Fake { frame: bash_screen(), watching: Mutex::new(Vec::new()) }))));
     let (_store, _) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
     click(&mut window(cx), "float-puck");
     let mut v = window(cx);
     let h0 = dims(cx).1;
-    assert_eq!(v.debug_bounds("float-term-api").unwrap().size.height, px(9. * LINE_H + BOX_PAD), "the default: the prompt alone");
-    // One row taller than the default's 16: the 3 rows above the prompt
-    // come in, and no more (the screen has none).
+    assert_eq!(v.debug_bounds("float-term-api").unwrap().size.height, px(model::RAW_FEW as f32 * LINE_H + BOX_PAD), "under the summary: a few rows");
+    // Made taller: all of the prompt, and with a size of the user's the 3
+    // rows above it, and no more (the screen has none).
     let out = if GROWS_UP { -1. } else { 1. };
     drag(&mut v, END, 0., out * LINE_H);
     let mut v = window(cx);
     assert_eq!(v.debug_bounds("float-term-api").unwrap().size.height, px(12. * LINE_H + BOX_PAD));
-    assert_eq!(dims(cx).1, h0 + 3. * LINE_H, "the window is sized for them");
+    assert_eq!(dims(cx).1, h0 + (12 - model::RAW_FEW) as f32 * LINE_H, "the window is sized for them");
+    cx.update(|cx| assert!(cx.global::<Float>().show_all));
 }
 
 #[gpui::test]
@@ -645,7 +756,7 @@ fn without_room_a_drag_outward_keeps_the_size(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_header_offers_three_sizes_kept_with_the_place(cx: &mut TestAppContext) {
+fn the_three_sizes_are_kept_with_the_place(cx: &mut TestAppContext) {
     let dir = std::env::temp_dir().join(format!("pitwall-float-presets-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let file = place_file(&dir);
@@ -658,7 +769,9 @@ fn the_header_offers_three_sizes_kept_with_the_place(cx: &mut TestAppContext) {
     let preset = |cx: &mut TestAppContext| cx.update(|cx| model::Preset::of(cx.global::<Float>().width, cx.global::<Float>().rows));
     assert_eq!(preset(cx), Some(model::Preset::Medium), "the default is Medium");
 
-    click(&mut window(cx), "float-size-small");
+    assert!(window(cx).debug_bounds("float-size-small").is_none(), "no size buttons in the header: its edges size it");
+    cx.update(|cx| set_preset(model::Preset::Small, cx));
+    cx.run_until_parked();
     assert_eq!(user_size(cx), model::Preset::Small.size());
     assert_eq!(preset(cx), Some(model::Preset::Small));
     let small = dims(cx);
@@ -666,14 +779,15 @@ fn the_header_offers_three_sizes_kept_with_the_place(cx: &mut TestAppContext) {
     let kept = load_place(&file).unwrap();
     assert_eq!((kept.width, kept.rows), model::Preset::Small.size(), "kept for the next start");
 
-    click(&mut window(cx), "float-size-large");
+    cx.update(|cx| set_preset(model::Preset::Large, cx));
+    cx.run_until_parked();
     let large = dims(cx);
     assert_eq!(user_size(cx), model::Preset::Large.size());
     assert!(large.0 > medium.0 && large.1 > medium.1, "{large:?} > {medium:?}");
 
-    // Minimised to the mark and opened again: the same size.
+    // Back to the pill and opened again: the same size.
     click(&mut window(cx), "float-collapse");
-    assert_eq!(dims(cx), (model::PUCK + 2. * model::PAD, model::PUCK + 2. * model::PAD));
+    assert_eq!(dims(cx), PILL);
     click(&mut window(cx), "float-puck");
     assert_eq!(dims(cx), large);
 
@@ -681,7 +795,8 @@ fn the_header_offers_three_sizes_kept_with_the_place(cx: &mut TestAppContext) {
     let mut v = window(cx);
     drag(&mut v, "float-resize-left", -10., 0.);
     assert_eq!(preset(cx), None);
-    click(&mut window(cx), "float-size-medium");
+    cx.update(|cx| set_preset(model::Preset::Medium, cx));
+    cx.run_until_parked();
     assert_eq!((user_size(cx), dims(cx)), ((None, None), medium));
     let kept = load_place(&file).unwrap();
     assert_eq!((kept.width, kept.rows), (None, None));
@@ -773,11 +888,11 @@ fn an_inbox_question_is_a_card_answered_with_a_click(cx: &mut TestAppContext) {
     }
     let q = cx.update(|cx| asks(cx));
     assert_eq!((q.len(), q[0].who(), q[0].title.as_str(), q[0].ext_name.as_str()), (1, "api", "Which database?", "Demo inbox"));
-    assert_eq!(cx.update(|cx| model::title(&items(cx), &asks(cx))), "api asks you");
+    assert!(v.debug_bounds("float-position").is_none(), "one card");
     // The window is as tall as the card was drawn.
     let card = v.debug_bounds("float-ask-t1-1").unwrap();
     let (_, h_win) = dims(cx);
-    assert_eq!(h_win, model::HEADER_H + RULE + f32::from(card.size.height) + model::BORDER + 2. * model::PAD);
+    assert_eq!(h_win, model::size(Some(f32::from(card.size.height)), model::Shape::default()).1);
 
     // A suggestion, clicked: sent as the inbox sends it.
     let mut v = window(cx);
@@ -804,12 +919,12 @@ fn an_own_answer_is_typed_in_its_field_not_into_an_agent(cx: &mut TestAppContext
     connect(&h, cx);
     say(&h, thread_t1(true), cx);
     click(&mut window(cx), "float-puck");
-    // Agents first, then questions; the title says both.
+    // Agents first, then questions, a card at a time.
     let mut v = window(cx);
-    assert!(v.debug_bounds("float-card-web").is_some() && v.debug_bounds("float-ask-t1-1").is_some());
-    let card = v.debug_bounds("float-card-web").unwrap();
-    assert!(card.origin.y < v.debug_bounds("float-ask-t1-1").unwrap().origin.y);
-    assert_eq!(cx.update(|cx| model::title(&items(cx), &asks(cx))), "web and 1 question");
+    assert!(v.debug_bounds("float-card-web").is_some() && v.debug_bounds("float-ask-t1-1").is_none(), "the agent first");
+    click(&mut v, "float-next");
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-ask-t1-1").is_some(), "then the question");
 
     // The field, clicked: what is typed goes there, not to the agent the
     // keyboard went to when the cards opened.
@@ -877,8 +992,8 @@ fn answered_in_its_inbox_the_card_goes(cx: &mut TestAppContext) {
     connect(&h, cx);
     say(&h, thread_t1(true), cx);
     click(&mut window(cx), "float-puck");
+    click(&mut window(cx), "float-next");
     assert!(window(cx).debug_bounds("float-ask-t1-1").is_some());
-    let with = dims(cx).1;
     // The inbox answers it (through what its tile answers with).
     let ask = cx.update(|cx| asks(cx)[0].ask.clone());
     let req = cx.update(|cx| crate::main_screen::inbox_tile::answer_ask("demo", "t1", &ask, vec![0], None, false, cx)).expect("sent");
@@ -888,8 +1003,9 @@ fn answered_in_its_inbox_the_card_goes(cx: &mut TestAppContext) {
     say(&h, thread_t1(false), cx);
     let mut v = window(cx);
     assert!(v.debug_bounds("float-ask-t1-1").is_none(), "gone here");
-    assert!(v.debug_bounds("float-card-web").is_some(), "the agent's card stays");
-    assert!(dims(cx).1 < with);
+    assert!(v.debug_bounds("float-card-web").is_some(), "the agent's card is shown");
+    assert!(v.debug_bounds("float-position").is_none(), "it alone waits");
+
 }
 
 #[gpui::test]
