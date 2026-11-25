@@ -121,6 +121,10 @@ const screens: Record<string, string> = {
     `${green("⏺")} Done. The onboarding page now opens with a 6-step checklist,${NL}` +
     `  moves troubleshooting to the end, and links the new${NL}` +
     `  ${blue("docs/dev-env/checklist.md")}. I removed the outdated Vagrant section.${NL}${NL}` +
+    // The address Preview opens (mockWeb.ts).
+    `${green("⏺")} ${bold("Bash")}(mkdocs serve)${NL}` +
+    `  ${grey("⎿")}  Running in the background${NL}${NL}` +
+    `${green("⏺")} The handbook is up at ${blue("http://127.0.0.1:8000/onboarding/")}${NL}${NL}` +
     `${grey("─".repeat(60))}${NL}${grey(">")} ${NL}${grey("─".repeat(60))}${NL}` +
     `  ${grey("? for shortcuts")}${NL}`,
   refactor:

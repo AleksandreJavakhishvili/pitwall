@@ -1,0 +1,161 @@
+/* ── Web tile (WebTile.tsx): a made-up page, drawn in HTML ── */
+.web-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  flex: none;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+}
+.web-bar .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.web-addr {
+  min-width: 0;
+  margin-left: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.web-title {
+  min-width: 0;
+  margin-left: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.web-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #ffffff;
+}
+
+/* The page itself keeps its own (light) colours in either theme, as a site would. */
+.hb {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: #1d2430;
+  font: 13px/1.5 var(--font-ui);
+}
+.hb-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 20px;
+  height: 44px;
+  flex: none;
+  background: #2b4c7e;
+  color: #dbe4f3;
+  font-size: 12.5px;
+}
+.hb-nav b {
+  color: #fff;
+  font-size: 14px;
+  margin-right: 8px;
+}
+.hb-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.hb-side {
+  flex: none;
+  width: 150px;
+  padding: 18px 0 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #5b6575;
+  font-size: 12.5px;
+}
+.hb-side .on {
+  color: #2b4c7e;
+  font-weight: 600;
+}
+.hb-main {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 24px 18px 12px;
+}
+.hb-main h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.hb-lead {
+  margin: 0 0 12px;
+  color: #4a5363;
+}
+.hb-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 8px;
+}
+.hb-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 8px;
+}
+.hb-steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e5ecf7;
+  color: #2b4c7e;
+  font-size: 11px;
+  font-weight: 700;
+}
+.hb-steps b {
+  font-weight: 600;
+}
+.hb-steps span {
+  color: #4a5363;
+}
+.hb code {
+  font: 11.5px var(--font-mono);
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #f0f2f5;
+  color: #1d2430;
+}
+.hb-note {
+  margin: 12px 0 0;
+  color: #5b6575;
+}
+.hb-foot {
+  flex: none;
+  padding: 8px 20px;
+  border-top: 1px solid #e6e9ee;
+  color: #8a93a1;
+  font-size: 11px;
+}
+
+/* The pane header's Preview button (PaneHeader.tsx). */
+.pane-preview {
+  height: 22px;
+  padding: 0 8px;
+  gap: 5px;
+  flex: none;
+}

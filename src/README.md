@@ -14,4 +14,8 @@ Tauri shell). Since v0.2.0 the desktop app is the native GPUI app in
   `pnpm test` runs its unit tests (vitest). CI runs all of them.
 
 Keep it close to what the GPUI app shows when a visible change lands there;
-no new features go here.
+no new features go here. For that reason the file viewer opens as a files
+tile beside the space's terminals (not over them), and an agent whose
+terminal printed a local address (only `docs`, see `mockWeb.ts`) offers
+Preview, a web tile with a made-up page drawn in HTML (`components/WebTile.tsx`:
+no iframe, no network).
