@@ -76,6 +76,13 @@ pub struct Colors {
     pub menu_sep: Hsla,
     pub glyph_add_bg: Hsla,
     pub glyph_add_fg: Hsla,
+    /// The cursor's line (the editor).
+    pub line_hl: Hsla,
+    /// Lines added, changed and deleted since git's HEAD (the editor's
+    /// margin).
+    pub git_add: Hsla,
+    pub git_mod: Hsla,
+    pub git_del: Hsla,
     brackets: [Hsla; 3],
     stray: Hsla,
     keyword: Hsla,
@@ -138,6 +145,10 @@ impl Colors {
             menu_sep: pick(0xcccccc33, 0x61616133),
             glyph_add_bg: t.text_2,
             glyph_add_fg: t.bg,
+            line_hl: pick(0xffffff0b, 0x0000000a),
+            git_add: pick(0x48b97bcc, 0x2e9a5fcc),
+            git_mod: pick(0x3a8ee6cc, 0x2f74c4cc),
+            git_del: pick(0xdf6164cc, 0xc8484bcc),
             brackets: if dark {
                 [c(0xffd700ff), c(0xda70d6ff), c(0x179fffff)]
             } else {

@@ -331,6 +331,7 @@ impl CodeView {
         };
         let focused = self.focus.is_focused(window);
         let marked = self.marked_shown();
+        let sels = self.all_selections();
         let top_pad = self.top_pad();
         let first = self.rows.row_at(f32::from(self.scroll_y - top_pad));
         let last = self
@@ -435,6 +436,10 @@ impl CodeView {
                             text.under.push(fill(row_b, pattern_slash(c.fill, 2., 6.)));
                             continue;
                         };
+                        // The editor: the cursor's line, marked.
+                        if self.editor && !content.is_diff && sels.iter().any(|s| s.side == side && s.is_empty() && s.head.line == line) {
+                            text.under.push(fill(row_b, c.line_hl));
+                        }
                         let doc = content.doc(side);
                         let Some(l) = doc.line(line) else { continue };
                         let marks = if *changed {
@@ -546,8 +551,8 @@ impl CodeView {
                                 ));
                             }
                         }
-                        // Selection and cursor.
-                        if let Some(s) = self.sel.filter(|s| s.side == side) {
+                        // Selections and cursors (the primary one first).
+                        for (k, s) in sels.iter().enumerate().filter(|(_, s)| s.side == side) {
                             let (a, b) = s.range();
                             if !s.is_empty() && line >= a.line && line <= b.line {
                                 let x0 = if line == a.line {
@@ -569,7 +574,7 @@ impl CodeView {
                                     color,
                                 ));
                             }
-                            if let Some((ma, mb)) = marked.filter(|(a, b)| side == Side::New && a.line == line && b.line == line) {
+                            if let Some((ma, mb)) = marked.filter(|(a, b)| k == 0 && side == Side::New && a.line == line && b.line == line) {
                                 let (x0, x1) = (text_x + col_x(&shaped, ma.col), text_x + col_x(&shaped, mb.col));
                                 text.over.push(fill(
                                     Bounds::new(point(x0, y + px(LINE_H - 2.)), size((x1 - x0).max(px(1.)), px(1.))),
@@ -658,6 +663,18 @@ impl CodeView {
                         } else {
                             let x = gx + pane.num_right() - num.width - px(2.);
                             gutter.lines.push((num, point(x, y)));
+                        }
+                        // Lines changed since git's HEAD (the editor).
+                        if !content.is_diff && side == Side::New {
+                            for (r, m) in self.line_marks.iter().filter(|(r, _)| r.contains(&line) || r.start == line) {
+                                let (color, b) = match m {
+                                    super::LineMark::Added => (c.git_add, Bounds::new(point(gx + px(4.), y), size(px(3.), px(LINE_H)))),
+                                    super::LineMark::Changed => (c.git_mod, Bounds::new(point(gx + px(4.), y), size(px(3.), px(LINE_H)))),
+                                    super::LineMark::Deleted if r.start == line => (c.git_del, Bounds::new(point(gx + px(2.), y - px(2.)), size(px(7.), px(4.)))),
+                                    super::LineMark::Deleted => continue,
+                                };
+                                gutter.over.push(fill(b, color));
+                            }
                         }
                         // The comment glyph: a mark on commented lines, "+" on the hovered one.
                         if self.commentable && side == Side::New {
@@ -990,6 +1007,7 @@ impl CodeView {
                             s.side == side && p >= a && p <= b
                         });
                         if !inside {
+                            self.extra.clear();
                             self.sel = Some(Selection::caret(side, p));
                         }
                     }
@@ -1016,6 +1034,7 @@ impl CodeView {
                     // A click on the number puts the cursor on the line (⌘C then
                     // copies it); any click in the margin comments.
                     if on_number || on_glyph || !self.commentable {
+                        self.extra.clear();
                         self.sel = Some(Selection::caret(side, Pos::new(line, 0)));
                     }
                     if self.commentable && side == Side::New {
@@ -1030,6 +1049,7 @@ impl CodeView {
                 match e.click_count {
                     2 => {
                         let w = word_at(&text, p.col);
+                        self.extra.clear();
                         self.sel = Some(Selection {
                             side,
                             anchor: Pos::new(line, w.start),
@@ -1043,14 +1063,20 @@ impl CodeView {
                         } else {
                             Pos::new(line, text.len())
                         };
+                        self.extra.clear();
                         self.sel = Some(Selection {
                             side,
                             anchor: Pos::new(line, 0),
                             head,
                         });
                     }
+                    _ if e.modifiers.secondary(cx) && self.edit.is_some() && side == Side::New => {
+                        // ⌘-click: a cursor there too (or taken away).
+                        self.toggle_cursor_at(p);
+                    }
                     _ => {
                         let extend = e.modifiers.shift && self.sel.is_some_and(|s| s.side == side);
+                        self.extra.clear();
                         self.sel = Some(match (extend, self.sel) {
                             (true, Some(s)) => Selection {
                                 side,

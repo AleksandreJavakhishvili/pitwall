@@ -22,6 +22,7 @@
 
 pub mod buffer;
 pub mod diff;
+mod cursors;
 mod edit;
 pub mod find;
 mod brackets;
@@ -111,6 +112,16 @@ actions!(
         Save,
         /// ⌥⌘F / Ctrl+H: Find with Replace.
         Replace,
+        /// ⌘/: the lines commented out, or back in.
+        ToggleComment,
+        /// ⌘D: the word at the cursor selected, then a cursor at its next
+        /// match each time.
+        AddNextMatch,
+        /// ⌘⇧L: a cursor at every match of the selection.
+        SelectAllMatches,
+        /// ⌥⌘↑ / ⌥⌘↓: a cursor on the line above or below too.
+        AddCursorAbove,
+        AddCursorBelow,
     ]
 );
 
@@ -202,7 +213,15 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(m!("z"), Undo, e),
         KeyBinding::new(m!("shift-z"), Redo, e),
         KeyBinding::new(m!("s"), Save, e),
+        KeyBinding::new(m!("/"), ToggleComment, e),
+        KeyBinding::new(m!("d"), AddNextMatch, e),
+        KeyBinding::new(m!("shift-l"), SelectAllMatches, e),
     ]);
+    if mac {
+        b.extend([KeyBinding::new("alt-cmd-up", AddCursorAbove, e), KeyBinding::new("alt-cmd-down", AddCursorBelow, e)]);
+    } else {
+        b.extend([KeyBinding::new("ctrl-alt-up", AddCursorAbove, e), KeyBinding::new("ctrl-alt-down", AddCursorBelow, e)]);
+    }
     if mac {
         b.extend([
             KeyBinding::new("cmd-backspace", DeleteToLineStart, e),
@@ -278,6 +297,15 @@ impl Selection {
     pub fn is_empty(&self) -> bool {
         self.anchor == self.head
     }
+}
+
+/// A margin mark: lines added or changed since git's HEAD, or where
+/// lines were deleted (drawn between this line and the one before).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineMark {
+    Added,
+    Changed,
+    Deleted,
 }
 
 /// What the view shows.
@@ -358,6 +386,9 @@ pub struct CodeView {
     /// Widest line seen (for horizontal scrolling).
     max_width: Pixels,
     sel: Option<Selection>,
+    /// More cursors beside `sel` (the primary one): ⌘-click, ⌘D, ⌥⌘↑/↓.
+    /// On the file's side only; typing and the editing keys act at each.
+    extra: Vec<Selection>,
     goal_x: Option<Pixels>,
     hover_line: Option<usize>,
     hover_comment: Option<(usize, Point<Pixels>)>,
@@ -378,6 +409,12 @@ pub struct CodeView {
     /// Editing is wanted (a single file only).
     editable: bool,
     edit: Option<edit::Editing>,
+    /// The editor's way of editing (`crate::editor`): the cursor's line
+    /// marked, brackets and quotes typed in pairs, Enter indenting after an
+    /// opening bracket. Off in the viewer (quick fixes).
+    editor: bool,
+    /// Lines changed since git's HEAD, marked in the margin (the editor).
+    line_marks: Vec<(Range<usize>, LineMark)>,
     /// Scroll sideways to the caret at the next paint (after an edit).
     caret_x: bool,
     /// Drawn again when the keyboard comes or goes (the caret, and the
@@ -406,6 +443,7 @@ impl CodeView {
             scroll_x: px(0.),
             max_width: px(0.),
             sel: None,
+            extra: Vec::new(),
             goal_x: None,
             hover_line: None,
             hover_comment: None,
@@ -424,6 +462,8 @@ impl CodeView {
             escape_passes: false,
             editable: false,
             edit: None,
+            editor: false,
+            line_marks: Vec::new(),
             caret_x: false,
             _focus_subs: Vec::new(),
             _load: None,
@@ -465,6 +505,7 @@ impl CodeView {
         self.generation += 1;
         self.content = None;
         self.rows = Rows::default();
+        self.extra.clear();
         self.sel = None;
         self.find = None;
         self.menu = None;
@@ -571,6 +612,7 @@ impl CodeView {
             self.scroll_y = px(0.);
             self.scroll_x = px(0.);
             self.max_width = px(0.);
+            self.extra.clear();
             self.sel = None;
             self.find = None;
             self.menu = None;
@@ -580,6 +622,7 @@ impl CodeView {
         self.edit = None;
         self.start_editing();
         self.rebuild_rows();
+        self.extra.clear();
         if let Some(s) = self.sel {
             // Keep the selection inside the new text.
             let doc = self.doc(s.side);
@@ -624,6 +667,7 @@ impl CodeView {
         if layout == Layout::Unified {
             if let Some(s) = self.sel.filter(|s| s.side == Side::Old) {
                 let _ = s;
+                self.extra.clear();
                 self.sel = None;
             }
             if let Some(f) = self.find.as_mut() {
@@ -757,6 +801,7 @@ impl CodeView {
             ),
             None => (Pos::new(line, 0), Pos::new(line, 0)),
         };
+        self.extra.clear();
         self.sel = Some(Selection {
             side,
             anchor: a,
@@ -871,6 +916,7 @@ impl CodeView {
                 } else {
                     line
                 };
+                self.extra.clear();
                 self.sel = Some(Selection::caret(side, Pos::new(line, 0)));
             }
         }
@@ -920,6 +966,7 @@ impl CodeView {
                     let word = line.text[w.clone()].to_string();
                     if word.chars().any(text::is_word_char) {
                         seed = Some(word);
+                        self.extra.clear();
                         self.sel = Some(Selection {
                             side: s.side,
                             anchor: Pos::new(a.line, w.start),
@@ -1015,6 +1062,7 @@ impl CodeView {
             self.expanded.insert(region);
             self.rebuild_rows();
         }
+        self.extra.clear();
         self.sel = Some(Selection {
             side,
             anchor: m.start(),
@@ -1148,7 +1196,7 @@ impl CodeView {
     // ── keyboard ────────────────────────────────────────────────────────
 
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
-        if self.menu.take().is_some() || self.readonly_at.take().is_some() {
+        if self.menu.take().is_some() || self.readonly_at.take().is_some() || self.single_cursor() {
             cx.notify();
             return;
         }
@@ -1297,6 +1345,10 @@ impl CodeView {
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.sel else { return };
+        if let Some(text) = self.copied_text().filter(|_| !self.extra.is_empty()) {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            return;
+        }
         if self.content.is_none() {
             return;
         }
@@ -1319,6 +1371,7 @@ impl CodeView {
         }
         let side = self.sel.map_or(Side::New, |s| s.side);
         let end = self.doc(side).end();
+        self.extra.clear();
         self.sel = Some(Selection {
             side,
             anchor: Pos::default(),
@@ -1466,108 +1519,72 @@ impl Render for CodeView {
             // bindings run before key-down listeners).
             .on_action(cx.listener(|v, _: &MoveUp, w, cx| {
                 if !v.menu_step(-1, cx) {
-                    v.vertical(-1, false, w, cx)
+                    v.each(w, cx, |v, w, cx| v.vertical(-1, false, w, cx))
                 }
             }))
             .on_action(cx.listener(|v, _: &MoveDown, w, cx| {
                 if !v.menu_step(1, cx) {
-                    v.vertical(1, false, w, cx)
+                    v.each(w, cx, |v, w, cx| v.vertical(1, false, w, cx))
                 }
             }))
-            .on_action(cx.listener(|v, _: &SelectUp, w, cx| v.vertical(-1, true, w, cx)))
-            .on_action(cx.listener(|v, _: &SelectDown, w, cx| v.vertical(1, true, w, cx)))
-            .on_action(cx.listener(|v, _: &PageUp, w, cx| v.page(false, false, w, cx)))
-            .on_action(cx.listener(|v, _: &PageDown, w, cx| v.page(true, false, w, cx)))
-            .on_action(cx.listener(|v, _: &SelectPageUp, w, cx| v.page(false, true, w, cx)))
-            .on_action(cx.listener(|v, _: &SelectPageDown, w, cx| v.page(true, true, w, cx)))
-            .on_action(cx.listener(|v, _: &MoveLeft, _, cx| {
-                if let Some(s) = v.sel.filter(|s| !s.is_empty()) {
-                    let a = s.range().0;
-                    return v.set_head(a, false, false, cx);
-                }
-                v.horizontal(
-                    |t, c| {
-                        if c == 0 {
-                            usize::MAX - 1
-                        } else {
-                            text::prev_grapheme(t, c)
-                        }
-                    },
-                    false,
-                    cx,
-                )
+            .on_action(cx.listener(|v, _: &SelectUp, w, cx| v.each(w, cx, |v, w, cx| v.vertical(-1, true, w, cx))))
+            .on_action(cx.listener(|v, _: &SelectDown, w, cx| v.each(w, cx, |v, w, cx| v.vertical(1, true, w, cx))))
+            .on_action(cx.listener(|v, _: &PageUp, w, cx| {
+                v.single_cursor();
+                v.page(false, false, w, cx)
             }))
-            .on_action(cx.listener(|v, _: &MoveRight, _, cx| {
-                if let Some(s) = v.sel.filter(|s| !s.is_empty()) {
-                    let b = s.range().1;
-                    return v.set_head(b, false, false, cx);
-                }
-                v.horizontal(
-                    |t, c| {
-                        if c >= t.len() {
-                            usize::MAX
-                        } else {
-                            text::next_grapheme(t, c)
-                        }
-                    },
-                    false,
-                    cx,
-                )
+            .on_action(cx.listener(|v, _: &PageDown, w, cx| {
+                v.single_cursor();
+                v.page(true, false, w, cx)
             }))
-            .on_action(cx.listener(|v, _: &SelectLeft, _, cx| {
-                v.horizontal(
-                    |t, c| {
-                        if c == 0 {
-                            usize::MAX - 1
-                        } else {
-                            text::prev_grapheme(t, c)
-                        }
-                    },
-                    true,
-                    cx,
-                )
+            .on_action(cx.listener(|v, _: &SelectPageUp, w, cx| {
+                v.single_cursor();
+                v.page(false, true, w, cx)
             }))
-            .on_action(cx.listener(|v, _: &SelectRight, _, cx| {
-                v.horizontal(
-                    |t, c| {
-                        if c >= t.len() {
-                            usize::MAX
-                        } else {
-                            text::next_grapheme(t, c)
-                        }
-                    },
-                    true,
-                    cx,
-                )
+            .on_action(cx.listener(|v, _: &SelectPageDown, w, cx| {
+                v.single_cursor();
+                v.page(true, true, w, cx)
             }))
-            .on_action(
-                cx.listener(|v, _: &WordLeft, _, cx| v.horizontal(text::prev_word, false, cx)),
-            )
-            .on_action(
-                cx.listener(|v, _: &WordRight, _, cx| v.horizontal(text::next_word, false, cx)),
-            )
-            .on_action(
-                cx.listener(|v, _: &SelectWordLeft, _, cx| v.horizontal(text::prev_word, true, cx)),
-            )
-            .on_action(
-                cx.listener(|v, _: &SelectWordRight, _, cx| {
-                    v.horizontal(text::next_word, true, cx)
-                }),
-            )
-            .on_action(cx.listener(|v, _: &LineStart, _, cx| v.horizontal(|_, _| 0, false, cx)))
-            .on_action(cx.listener(|v, _: &LineEnd, _, cx| v.horizontal(|t, _| t.len(), false, cx)))
-            .on_action(
-                cx.listener(|v, _: &SelectLineStart, _, cx| v.horizontal(|_, _| 0, true, cx)),
-            )
-            .on_action(
-                cx.listener(|v, _: &SelectLineEnd, _, cx| v.horizontal(|t, _| t.len(), true, cx)),
-            )
+            .on_action(cx.listener(|v, _: &MoveLeft, w, cx| {
+                v.each(w, cx, |v, _, cx| {
+                    if let Some(s) = v.sel.filter(|s| !s.is_empty()) {
+                        let a = s.range().0;
+                        return v.set_head(a, false, false, cx);
+                    }
+                    v.horizontal(|t, c| if c == 0 { usize::MAX - 1 } else { text::prev_grapheme(t, c) }, false, cx)
+                })
+            }))
+            .on_action(cx.listener(|v, _: &MoveRight, w, cx| {
+                v.each(w, cx, |v, _, cx| {
+                    if let Some(s) = v.sel.filter(|s| !s.is_empty()) {
+                        let b = s.range().1;
+                        return v.set_head(b, false, false, cx);
+                    }
+                    v.horizontal(|t, c| if c >= t.len() { usize::MAX } else { text::next_grapheme(t, c) }, false, cx)
+                })
+            }))
+            .on_action(cx.listener(|v, _: &SelectLeft, w, cx| {
+                v.each(w, cx, |v, _, cx| v.horizontal(|t, c| if c == 0 { usize::MAX - 1 } else { text::prev_grapheme(t, c) }, true, cx))
+            }))
+            .on_action(cx.listener(|v, _: &SelectRight, w, cx| {
+                v.each(w, cx, |v, _, cx| v.horizontal(|t, c| if c >= t.len() { usize::MAX } else { text::next_grapheme(t, c) }, true, cx))
+            }))
+            .on_action(cx.listener(|v, _: &WordLeft, w, cx| v.each(w, cx, |v, _, cx| v.horizontal(text::prev_word, false, cx))))
+            .on_action(cx.listener(|v, _: &WordRight, w, cx| v.each(w, cx, |v, _, cx| v.horizontal(text::next_word, false, cx))))
+            .on_action(cx.listener(|v, _: &SelectWordLeft, w, cx| v.each(w, cx, |v, _, cx| v.horizontal(text::prev_word, true, cx))))
+            .on_action(cx.listener(|v, _: &SelectWordRight, w, cx| v.each(w, cx, |v, _, cx| v.horizontal(text::next_word, true, cx))))
+            .on_action(cx.listener(|v, _: &LineStart, w, cx| v.each(w, cx, |v, _, cx| v.line_start(false, cx))))
+            .on_action(cx.listener(|v, _: &LineEnd, w, cx| v.each(w, cx, |v, _, cx| v.horizontal(|t, _| t.len(), false, cx))))
+            .on_action(cx.listener(|v, _: &SelectLineStart, w, cx| v.each(w, cx, |v, _, cx| v.line_start(true, cx))))
+            .on_action(cx.listener(|v, _: &SelectLineEnd, w, cx| v.each(w, cx, |v, _, cx| v.horizontal(|t, _| t.len(), true, cx))))
             .on_action(cx.listener(|v, _: &DocStart, _, cx| {
+                v.single_cursor();
                 if v.content.is_some() {
                     v.set_head(Pos::default(), false, false, cx)
                 }
             }))
             .on_action(cx.listener(|v, _: &DocEnd, _, cx| {
+                v.single_cursor();
                 if v.content.is_some() {
                     let s = v.sel_or_start();
                     let end = v.doc(s.side).end();
@@ -1575,17 +1592,24 @@ impl Render for CodeView {
                 }
             }))
             .on_action(cx.listener(|v, _: &SelectDocStart, _, cx| {
+                v.single_cursor();
                 if v.content.is_some() {
                     v.set_head(Pos::default(), true, false, cx)
                 }
             }))
             .on_action(cx.listener(|v, _: &SelectDocEnd, _, cx| {
+                v.single_cursor();
                 if v.content.is_some() {
                     let s = v.sel_or_start();
                     let end = v.doc(s.side).end();
                     v.set_head(end, true, false, cx)
                 }
             }))
+            .on_action(cx.listener(|v, _: &ToggleComment, _, cx| v.toggle_comment(cx)))
+            .on_action(cx.listener(|v, _: &AddNextMatch, _, cx| v.add_next_match(cx)))
+            .on_action(cx.listener(|v, _: &SelectAllMatches, _, cx| v.select_all_matches(cx)))
+            .on_action(cx.listener(|v, _: &AddCursorAbove, w, cx| v.add_cursor_vertical(false, w, cx)))
+            .on_action(cx.listener(|v, _: &AddCursorBelow, w, cx| v.add_cursor_vertical(true, w, cx)))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::find_action))

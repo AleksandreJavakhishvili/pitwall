@@ -491,3 +491,124 @@ fn typing_in_a_large_file_touches_only_its_line(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(text_of(&view, cx).contains("xlet v10000"));
 }
+
+/// The editor's way of editing (the editor tile), in a view of its own.
+fn editor<'a>(cx: &'a mut TestAppContext, path: &str, text: &str) -> (Entity<CodeView>, &'a mut VisualTestContext) {
+    let (view, cx) = editable(cx, path, text);
+    view.update(cx, |v, cx| v.set_editor(true, cx));
+    (view, cx)
+}
+
+/// `M-` is ⌘ on macOS, Ctrl elsewhere.
+fn keys(cx: &mut VisualTestContext, k: &str) {
+    let m = if cfg!(target_os = "macos") { "cmd-" } else { "ctrl-" };
+    cx.simulate_keystrokes(&k.replace("M-", m));
+}
+
+/// ⌘D selects the word, then adds its next matches; typing replaces them
+/// all as one undo step; Esc leaves one cursor.
+#[gpui::test]
+fn add_next_match_and_type_at_every_cursor(cx: &mut TestAppContext) {
+    let (view, cx) = editor(cx, "a.rs", "let foo = 1;\nfoo += foo;\n");
+    caret(&view, 0, 5, cx);
+    keys(cx, "M-d");
+    assert_eq!(view.read_with(cx, |v, _| v.selection().map(|s| s.range())), Some((Pos::new(0, 4), Pos::new(0, 7))), "the word first");
+    keys(cx, "M-d M-d");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 3);
+    // A fourth press finds no new one.
+    keys(cx, "M-d");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 3);
+    cx.simulate_input("bar");
+    assert_eq!(text_of(&view, cx), "let bar = 1;\nbar += bar;\n");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_heads()), vec![(0, 7), (1, 3), (1, 10)]);
+    keys(cx, "M-z");
+    assert_eq!(text_of(&view, cx), "let foo = 1;\nfoo += foo;\n", "one undo step");
+    keys(cx, "M-shift-z");
+    assert_eq!(text_of(&view, cx), "let bar = 1;\nbar += bar;\n");
+    // ⌘⇧L: every match at once.
+    caret(&view, 1, 1, cx);
+    keys(cx, "M-shift-l");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 3);
+    keys(cx, "escape");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 1);
+}
+
+/// ⌘-click adds a cursor; moving keys move them all; typing and
+/// Backspace act at each, and cursors that meet become one.
+#[gpui::test]
+fn several_cursors_move_and_edit_together(cx: &mut TestAppContext) {
+    let (view, cx) = editor(cx, "a.py", "ab\ncd\nef\n");
+    caret(&view, 0, 1, cx);
+    view.update(cx, |v, cx| {
+        v.toggle_cursor_at(Pos::new(1, 1));
+        v.toggle_cursor_at(Pos::new(2, 1));
+        cx.notify();
+    });
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 3);
+    cx.simulate_keystrokes("right");
+    cx.simulate_input("!");
+    assert_eq!(text_of(&view, cx), "ab!\ncd!\nef!\n");
+    cx.simulate_keystrokes("backspace backspace");
+    assert_eq!(text_of(&view, cx), "a\nc\ne\n");
+    // Up from every line (the first line's goes to its start), then again:
+    // the two on the first line meet.
+    cx.simulate_keystrokes("up");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_heads()), vec![(0, 0), (0, 1), (1, 1)]);
+    cx.simulate_keystrokes("up");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_heads()), vec![(0, 0), (0, 1)]);
+    // ⌘-click on a cursor takes it away.
+    view.update(cx, |v, cx| {
+        v.toggle_cursor_at(Pos::new(0, 1));
+        cx.notify();
+    });
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 1);
+}
+
+/// ⌘/ comments the lines of every cursor out by the language and back;
+/// Tab and Shift-Tab indent the blocks; ⌥⌘↓ adds a cursor below.
+#[gpui::test]
+fn comment_toggle_and_block_indent(cx: &mut TestAppContext) {
+    let (view, cx) = editor(cx, "src/a.rs", "fn a() {\n    one();\n    two();\n}\n");
+    view.update(cx, |v, cx| {
+        v.sel = Some(Selection { side: Side::New, anchor: Pos::new(1, 2), head: Pos::new(2, 3) });
+        cx.notify();
+    });
+    keys(cx, "M-/");
+    assert_eq!(text_of(&view, cx), "fn a() {\n    // one();\n    // two();\n}\n");
+    keys(cx, "M-/");
+    assert_eq!(text_of(&view, cx), "fn a() {\n    one();\n    two();\n}\n");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(text_of(&view, cx), "fn a() {\n        one();\n        two();\n}\n");
+    cx.simulate_keystrokes("shift-tab shift-tab");
+    assert_eq!(text_of(&view, cx), "fn a() {\none();\ntwo();\n}\n");
+    caret(&view, 1, 0, cx);
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") { "alt-cmd-down" } else { "ctrl-alt-down" });
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_count()), 2);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(text_of(&view, cx), "fn a() {\n    one();\n    two();\n}\n");
+}
+
+/// The editor types brackets and quotes in pairs, steps over a closing
+/// one, takes an empty pair away with one Backspace, and Enter between
+/// braces opens an indented line.
+#[gpui::test]
+fn pairs_and_indenting_enter(cx: &mut TestAppContext) {
+    let (view, cx) = editor(cx, "a.ts", "\n");
+    caret(&view, 0, 0, cx);
+    cx.simulate_input("f(");
+    assert_eq!(text_of(&view, cx), "f()\n");
+    cx.simulate_input(")");
+    assert_eq!(text_of(&view, cx), "f()\n", "stepped over");
+    cx.simulate_input(" {");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(text_of(&view, cx), "f() {\n    \n}\n");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor_heads()), vec![(1, 4)]);
+    cx.simulate_input("\"");
+    assert_eq!(text_of(&view, cx), "f() {\n    \"\"\n}\n");
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text_of(&view, cx), "f() {\n    \n}\n", "the empty pair goes");
+    // The viewer's quick fixes stay plain.
+    view.update(cx, |v, cx| v.set_editor(false, cx));
+    cx.simulate_input("(");
+    assert_eq!(text_of(&view, cx), "f() {\n    (\n}\n");
+}
