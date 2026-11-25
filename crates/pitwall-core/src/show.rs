@@ -255,11 +255,20 @@ pub fn worktrees_near(x: &dyn Exec, dirs: &[&str]) -> Vec<Worktree> {
 
 /// The worktrees of the repositories directly inside `dir` (a folder that
 /// isn't one itself: `~`, a projects folder). Hidden folders are passed
-/// over; only a folder with a `.git` of its own counts.
+/// over, and in the home folder those an OS guards (looking into Desktop
+/// or Documents is what makes macOS ask for access: never done for a
+/// name); only a folder with a `.git` of its own counts.
 pub fn worktrees_inside(x: &dyn Exec, dir: &str) -> Vec<Worktree> {
+    const GUARDED: [&str; 9] = ["Desktop", "Documents", "Downloads", "Library", "Pictures", "Movies", "Music", "Public", "Applications"];
     let mut out: Vec<Worktree> = vec![];
     let Ok(entries) = x.list_dir(dir) else { return out };
-    let mut names: Vec<String> = entries.into_iter().filter(|e| e.kind == FileKind::Dir && !e.name.starts_with('.')).map(|e| e.name).collect();
+    let home = x.home().ok().map(|h| x.real_path(&h).unwrap_or(h));
+    let in_home = home.is_some_and(|h| x.real_path(dir).map_or(h.as_str() == dir, |d| d == h));
+    let mut names: Vec<String> = entries
+        .into_iter()
+        .filter(|e| e.kind == FileKind::Dir && !e.name.starts_with('.') && !(in_home && GUARDED.contains(&e.name.as_str())))
+        .map(|e| e.name)
+        .collect();
     names.sort();
     for n in names {
         let child = exec::join(dir, &n);
