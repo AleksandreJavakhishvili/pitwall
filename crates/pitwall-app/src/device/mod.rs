@@ -15,6 +15,7 @@
 //! Nothing here reaches an agent: `show_device` only opens a tile.
 
 pub mod android;
+pub mod auto;
 pub mod geometry;
 pub mod ios;
 pub mod list;

@@ -91,6 +91,7 @@ impl SettingsView {
                 Part::section("show-files", |s, ui, _, cx| any(s.show_files(ui, cx))),
                 Part::section("show-web", |_, ui, _, cx| any(Self::show_web(ui, cx))),
                 Part::section("show-settings", |_, ui, _, cx| any(Self::show_settings(ui, cx))),
+                Part::section("show-device", |_, ui, _, cx| any(Self::show_device(ui, cx))),
                 Part::section("edit-files", |_, ui, _, cx| any(Self::edit_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
@@ -390,6 +391,42 @@ impl SettingsView {
                         )),
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on && pages, !pages, 14., &ui.t))),
+        )
+    }
+
+    /// `agents.showDevice`: agents can show the user a device's screen
+    /// (`show_device`), the same way each kind gets files.
+    fn show_device(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::main_screen::device_auto::SHOW_SETTING);
+        let on = crate::main_screen::device_auto::show_enabled(cx);
+        section().child(
+            div()
+                .id("show-device")
+                .debug_selector(|| "show-device".into())
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Agents can show you a device"))
+                        .child(crate::kit::hint(
+                            "Ask an agent to show you the app on a simulator or an emulator and its screen opens in a device tile next to its terminal (it boots one first if none is running). It only shows you the screen: the agent gets nothing back from it and can’t tap or type in it. Each kind gets it the way it gets files, listed above.",
+                            &ui.t,
+                        )),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
     }
 
