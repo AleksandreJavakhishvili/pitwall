@@ -6,6 +6,7 @@
 //! - [`msg`]: the versioned handshake, requests, responses, events.
 //! - [`api`]: method names, their parameters and results, approvals.
 //! - [`create`]: the form a provider describes for new agents on a machine.
+//! - [`device`]: device previews' video stream and simulator input bytes.
 //! - [`explorer`]: the read-only code explorer (tree, file, search).
 //! - [`manage`]: managing agents, queues, spaces, projects, rules, review.
 //! - [`peer`]: what two Pitwalls say on the peer port (tailnet-peers.md).
@@ -26,6 +27,7 @@
 
 pub mod api;
 pub mod create;
+pub mod device;
 pub mod explorer;
 pub mod extensions;
 pub mod frame;
