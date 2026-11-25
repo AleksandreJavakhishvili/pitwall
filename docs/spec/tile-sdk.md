@@ -101,16 +101,19 @@ model and IME. The tile's code never touches a window.
     on the public SDK, can't reasonably do without it. The WIT stays 0.x
     (breaking changes with notice) until the seed tiles ship, and 1.0
     freezes only then. Never terminal contents, credentials or other
-    tiles' data; no hosted database, sync or accounts.
+    tiles' data; no hosted database, sync or accounts. The minimum
+    includes what today's extensions already have for agents' questions
+    (badges and row notes, questions in the floating control, Next up),
+    so inbox-style tiles are a v0.x target.
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
-minimum platform services (5 wk) → 3 agent tools, skill and commands
-(4 wk) → 4 package,
-signing, install, update (3 wk) → 5 index and Browse (4 wk) → 6 seed
-tiles (in parallel from phase 2), with on-demand services as they
-trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus managed service: documented and wired
-during phase 2 (1 wk). Headless wasm services: after phase 7 (≈ 6 wk).
+minimum platform services, with badges, floating-control questions and
+Next up (6.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
+package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
+6 seed tiles (in parallel from phase 2), with on-demand services as
+they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
+managed service: documented and wired during phase 2 (1 wk). Headless wasm services: after phase 7 (≈ 6 wk).
 
 **Owner decisions needed** are in 10.3, 11.13 and 13.6, each with a
 recommendation.
@@ -1603,7 +1606,7 @@ gap in the SDK.
 |---|---|---|
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk |
 | 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core | 5 wk |
-| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum (14.2): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; permission screen changes | 5 wk |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum (14.2): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group (14.2): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes | 6.5 wk |
 | 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync (11.11); commands, `pitwall tile run|commands` and palette entries (11.12) | 4 wk |
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk |
@@ -2482,6 +2485,60 @@ tile needs it.
 | Notifications and toasts | `pitwall` (notify), `ui.toast` | `notify` for notifications | on when asked for, ≤ 3 a minute [today] |
 | Open a file at a line, the editor, a web tile | `pitwall` (`viewer.open`, `web.open`) | `show` | off [today] |
 | Timers | `tasks` (3.8) | none | on; paused while hidden |
+| Agents and their status | `pitwall` (`agent.list`, `agent.status`, `events.subscribe`) | `agents.read` | on when asked for [today] |
+| Badges and row notes on sidebar rows | `contrib.badges` [new for tiles] | none for rows named by `matchAgents`; `agents.read` for an agent by id, `projects.read` for a project [today's rules] | on when the manifest says `"badges": true` |
+| Questions in the floating control | `asks` [new for tiles] | none (its own questions) | on when the manifest says `"asks": true` |
+| An answer or instruction into an agent's Next up | `pitwall` (`queue.add`) | `agents.queue` | off; items marked "From <name>" and waiting for Send [today] |
+
+**The agents' questions group: why it is in the minimum.** All four
+exist for today's extensions; tiles get the same host code with the
+same permission names, not new platform:
+- `queue.add` and the agent reads are methods of the daemon's table
+  ([methods.md](../extensions/methods.md) [today]), already reachable
+  through the `pitwall` interface (3.8).
+- Badges and row notes are the adapter's `badges` message
+  ([views.md](../extensions/views.md#badges-and-notes) [today]); a tile
+  sends the same set through `contrib.badges(list)`: the whole set each
+  time, ≤ 500, a note ≤ 16 characters, at most four sets a second, gone
+  when the extension is turned off.
+- Questions are what the floating control already shows for
+  extensions' inboxes ([extensions.md](extensions.md), "In the floating
+  control" [today]): a card with who asks, the question, suggestions,
+  a field, Send and Decline. Today they come from an adapter's inbox
+  threads, not from the method table.
+- `agents.read` comes along because Next up and badges by agent id need
+  agent ids; it is the existing read permission, with its existing risk
+  note. Projects, worktrees and the focused agent stay on demand.
+
+With these, an inbox-style tile (questions from a service or from
+agents, answered in the tile or the floating control, an answer sent to
+an agent's Next up) is a v0.x target.
+
+```wit
+interface asks {
+  record suggestion { label: string, description: option<string> }
+  record ask {
+    id: string,                 // the tile's own, stable while open
+    from: option<string>,       // an agent by matchAgents name, or by id with agents.read
+    title: string,              // ≤ 200
+    question: string,           // ≤ 2 000, Markdown drawn inertly
+    suggestions: list<suggestion>,   // ≤ 8
+    multiple: bool,
+    blocking: bool,             // holds an agent up: shown first, "Waiting on you"
+  }
+  /// The whole set of open questions, each time (≤ 50; the control shows
+  /// the first 6, as it does for an inbox).
+  set: func(open: list<ask>);
+  /// After an `ask-answered` event: accepted, or refused with a note the card shows.
+  result: func(id: string, refused: option<string>);
+}
+```
+The tile gets `ask-answered(id, picks, text, declined)` as an event.
+Pitwall keeps the last set while the tile is suspended or dropped (2.3),
+so questions stay in the control; an answer to a dropped tile
+instantiates it first. "Open in inbox" on the card becomes "Open
+<tile>". The same answer path and "Sending…" state as inbox asks apply
+[today], so the control doesn't learn a second model.
 
 Plus what every tile has anyway: its Log (`log`), the theme and
 appearance in `init` and the `theme` event (3.4), and its own `/data`
@@ -2529,13 +2586,12 @@ built only when its trigger happens.
 | Files in projects (`files.read`, `files.write`) | 3.8, 5.1 | Notes keeps notes as Markdown in a project, or Diagrams' `export_svg` writes into one |
 | Git (`git.read/write/remote`) | 3.8, 5.1 | The git client seed tile |
 | File and folder pickers (grant one item per pick) | — | A tile must open a file the user chooses without a project-wide `files` grant (database browser opening a SQLite file) |
-| Reads of Pitwall data: projects, agents and status, the focused agent | 3.8 (method table) | CI and pull requests must match runs to the agents that pushed them |
-| Next up (`agents.queue`), starting agents | 3.8 [today for adapters] | CI's "send the failure to the agent" |
+| Reads of Pitwall data beyond agents: projects, worktrees, the focused agent | 3.8 (method table) | A seed tile must place data by project or follow the focused agent |
+| Starting agents (`agents.start`) | 3.8 [today for adapters] | A seed tile's flow can't continue without a new agent |
 | Tile-to-tile tool calls | — (would reuse 11's kinds and grants, with a caller of kind `tile`) | Two seed tiles must cooperate and the user can't reasonably copy between them |
 | OAuth sign-in (system browser, loopback redirect with PKCE as RFC 8252 describes, S23; tokens in the secure store, added to requests by Pitwall) | — | A seed tile's service has no personal-token option the user can paste into a secret setting |
 | Clipboard (write after a user action; read with `clipboard.read`) | 3.8 | The API client's "copy as curl" |
 | Drag and drop between tiles | 3.6 | The files tile dropping a file on the database browser |
-| Sidebar badges without an adapter (palette commands come with 11.12) | [today for adapters] | A seed tile needs a badge and adding an adapter for it would be absurd |
 | Per-project storage scopes | 14.2 | Two seed tiles key data by project by hand |
 | `net.ask` (hosts approved at run time) | 5.1 | The API client seed tile |
 
