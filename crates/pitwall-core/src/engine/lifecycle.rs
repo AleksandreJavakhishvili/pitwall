@@ -1241,7 +1241,16 @@ mod tests {
         h.engine.set_show_files(false);
         restart(&h.engine, &v.id, None).unwrap();
         assert!(launched(&h).contains("--mcp-config"));
-        // Both off: the next start has none (agents already running keep
+        // Devices alone keep it too.
+        h.engine.set_show_web(false, true);
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(launched(&h).contains("--mcp-config"), "show_device");
+        assert_eq!(h.engine.show_device_off(), None);
+        h.engine.set_show_device(true, false);
+        assert!(h.engine.show_device_off().unwrap().contains("general.devicePreviews"));
+        h.engine.set_show_device(false, true);
+        assert!(h.engine.show_device_off().unwrap().contains("agents.showDevice"));
+        // All off: the next start has none (agents already running keep
         // theirs until they restart). Web pages off counts as off.
         h.engine.set_show_web(true, false);
         assert!(!h.engine.show_web_on());
@@ -1284,11 +1293,14 @@ mod tests {
         h.engine.set_show_files(false);
         assert!(std::fs::read_to_string(&rule).unwrap().contains("open --web"), "web pages still on");
         h.engine.set_show_web(false, true);
+        assert!(std::fs::read_to_string(&rule).unwrap().contains("open --device"), "devices still on");
+        h.engine.set_show_device(false, true);
         assert!(!rule.exists());
         restart(&h.engine, &v.id, None).unwrap();
         assert!(!launched(&h).contains("--read"));
         h.engine.set_show_files(true);
         h.engine.set_show_web(true, true);
+        h.engine.set_show_device(true, true);
         let line = |id: &str| {
             create(&h.engine, req(id, &dir, false)).unwrap();
             launched(&h)

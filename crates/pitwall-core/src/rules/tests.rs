@@ -374,13 +374,17 @@ fn aider_is_told_to_run_pitwall_open_while_showing_files_is_on() {
     assert!(text.contains("/h/bin/pitwall-cli open <file>"), "{text}");
     assert!(text.contains("/h/bin/pitwall-cli open --web <address>"), "and web pages: {text}");
     assert!(text.contains("/h/bin/pitwall-cli open --settings [page]"), "and Settings: {text}");
+    assert!(text.contains("/h/bin/pitwall-cli open --device [name, UDID or serial]"), "and devices: {text}");
+    assert!(text.contains("\"show me on the simulator\""), "when to: {text}");
     // Only what is on is said.
-    let files_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: true, web: false, settings: false });
-    assert!(files_only.contains("open <file>") && !files_only.contains("--web") && !files_only.contains("--settings"));
-    let web_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: true, settings: false });
+    let files_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: true, web: false, settings: false, device: false });
+    assert!(files_only.contains("open <file>") && !files_only.contains("--web") && !files_only.contains("--settings") && !files_only.contains("--device"));
+    let web_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: true, settings: false, device: false });
     assert!(!web_only.contains("open <file>") && web_only.contains("--web"));
-    let settings_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: false, settings: true });
+    let settings_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: false, settings: true, device: false });
     assert!(!settings_only.contains("open <file>") && !settings_only.contains("--web") && settings_only.contains("--settings"), "{settings_only}");
+    let device_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: false, settings: false, device: true });
+    assert!(device_only.starts_with("---") && device_only.contains("--device") && !device_only.contains("--settings"), "{device_only}");
     // No rules of its own: Pitwall's copy, read at launch.
     assert_eq!(show_files_args(&f.dirs, aider, "agent-1"), vec!["--read".to_string(), rule.to_string_lossy().into_owned()]);
     // Kinds with an MCP way don't get it.

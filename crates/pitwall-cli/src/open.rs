@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use pitwall_client::{Client, Error};
-use pitwall_proto::{caps, code, method, ErrorBody, SettingsOpen, ViewerOpen, ViewerPlace, WebOpen, SETTINGS_PROTO, VIEWER_PROTO, WEB_PROTO};
+use pitwall_proto::{caps, code, method, DeviceOpen, ErrorBody, SettingsOpen, ViewerOpen, ViewerPlace, WebOpen, DEVICE_PROTO, SETTINGS_PROTO, VIEWER_PROTO, WEB_PROTO};
 
 use crate::args::OpenArgs;
 
@@ -58,6 +58,30 @@ pub fn settings_request(a: &OpenArgs) -> Option<SettingsOpen> {
         connection: None,
         proto: Some(SETTINGS_PROTO),
     })
+}
+
+/// `pitwall open --device`'s request (`None`: not a device).
+pub fn device_request(a: &OpenArgs) -> Option<DeviceOpen> {
+    let device = a.device.as_deref()?;
+    Some(DeviceOpen {
+        agent_id: a.agent.clone().or_else(env_agent),
+        device: Some(device.trim().to_string()).filter(|d| !d.is_empty()),
+        proto: Some(DEVICE_PROTO),
+    })
+}
+
+/// What a Pitwall from before `device.open` is told it can't do.
+pub const NO_DEVICE: &str = "This Pitwall is older than its command-line tool and can't show devices: quit Pitwall and open it again to update it. Nothing was opened.";
+
+/// `device.open`: Pitwall's answer as it came, and in words. It may take
+/// up to a minute (a device still booting is waited for).
+pub fn open_device(c: &mut Client, req: &DeviceOpen) -> Result<(Value, String), Error> {
+    if !c.has(caps::SHOW_DEVICE) {
+        return Err(Error::Server(ErrorBody::new(code::UNSUPPORTED, NO_DEVICE)));
+    }
+    let v = c.call(method::DEVICE_OPEN, req)?;
+    let text = pitwall_proto::device_open::opened_text(&v);
+    Ok((v, text))
 }
 
 /// What a Pitwall from before `settings.open` is told it can't do.

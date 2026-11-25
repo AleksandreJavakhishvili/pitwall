@@ -18,6 +18,8 @@
 //! - [`web`]: agents showing web pages to the user (`web.open`).
 //! - [`settings_open`]: agents showing the user Pitwall's Settings
 //!   (`settings.open`).
+//! - [`device_open`]: agents showing the user a device's screen
+//!   (`device.open`).
 //! - [`extensions`]: an agent setting up the user's extensions
 //!   (`extension.*`): their state, and actions the user approves.
 //! - [`profiles`]: accounts, extension connections, profiles and what
@@ -28,6 +30,7 @@
 pub mod api;
 pub mod create;
 pub mod device;
+pub mod device_open;
 pub mod explorer;
 pub mod extensions;
 pub mod frame;
@@ -52,6 +55,7 @@ pub use profiles::*;
 pub use settings::{SettingKey, SettingSet, SettingView};
 pub use show::*;
 pub use views::*;
+pub use device_open::{DeviceOpen, DeviceOpened, DeviceShow, DeviceShown, DEVICE_PROTO};
 pub use settings_open::{SettingsOpen, SettingsOpened, SettingsShow, SettingsShown, SETTINGS_PROTO};
 pub use web::{WebOpen, WebOpened, WebShow, WebShown, WEB_PROTO};
 

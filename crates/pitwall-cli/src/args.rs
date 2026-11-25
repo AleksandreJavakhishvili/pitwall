@@ -87,9 +87,14 @@ pub enum Command {
     /// Settings tile (next to the agent's terminal unless it is open
     /// already); it only shows Settings to the user. Off with
     /// `agents.showSettings`.
+    /// With --device, a device's screen instead (an iOS Simulator, an
+    /// Android emulator or phone): in a device tile next to the agent's
+    /// terminal; one still booting is waited for (up to a minute). It only
+    /// shows the screen to the user. Off with `agents.showDevice`.
     Open(OpenArgs),
     /// Run Pitwall's MCP server on stdin/stdout (its tools `show_files`,
-    /// `show_folder`, `show_web` and `show_settings` do what `open` does).
+    /// `show_folder`, `show_web`, `show_settings` and `show_device` do what
+    /// `open` does).
     /// Pitwall adds it to the agents it starts; any MCP client can run it.
     Mcp,
     /// Follow Pitwall as it changes: the agent list, agents that need you
@@ -797,6 +802,11 @@ pub struct OpenArgs {
     /// page (its id).
     #[arg(long, value_name = "ID", requires = "settings")]
     pub extension: Option<String>,
+    /// A device's screen instead of files: its name ("iPhone 17"), a
+    /// simulator's UDID or an adb serial (emulator-5554). Alone, the one
+    /// booted device. Opens in a device tile next to the agent's terminal.
+    #[arg(long, value_name = "DEVICE", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["files", "folder", "root", "web", "settings", "place", "of"])]
+    pub device: Option<String>,
     /// A folder to show as a tree (relative to --root, default: this
     /// folder). With only --root, that folder is shown. One in another git
     /// worktree than the one shown roots the viewer at that worktree.
@@ -1060,6 +1070,7 @@ mod tests {
                 web: None,
                 settings: None,
                 extension: None,
+                device: None,
                 folder: None,
                 root: Some("fix/login".into()),
                 agent: Some("api".into()),
@@ -1090,6 +1101,15 @@ mod tests {
         assert!(parse(&["open", "--settings", "agents", "a.rs"]).is_err(), "files and Settings don't mix");
         assert!(parse(&["open", "--settings", "agents", "--web", "a.dev"]).is_err());
         assert!(parse(&["open", "--extension", "inbox"]).is_err(), "--extension needs --settings");
+        // A device: named, or alone (the one booted).
+        let Command::Open(o) = parse(&["open", "--device", "iPhone 17", "--agent", "api"]).unwrap().command else { panic!() };
+        assert_eq!((o.device.as_deref(), o.agent.as_deref()), (Some("iPhone 17"), Some("api")));
+        let Command::Open(o) = parse(&["open", "--device"]).unwrap().command else { panic!() };
+        assert_eq!((o.device.as_deref(), o.web.as_deref(), o.settings.as_deref()), (Some(""), None, None));
+        assert!(parse(&["open", "--device", "--web", "a.dev"]).is_err(), "a device and a page don't mix");
+        assert!(parse(&["open", "--device", "x", "--settings"]).is_err());
+        assert!(parse(&["open", "--device", "x", "--where", "left"]).is_err(), "it goes next to the terminal");
+        assert!(parse(&["open", "--device", "x", "--folder", "src"]).is_err());
         let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(
             c.command,

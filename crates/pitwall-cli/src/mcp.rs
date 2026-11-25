@@ -219,6 +219,7 @@ impl<'a> Proxy<'a> {
                     // `mcp.*` came before `settings.open`: an older Pitwall
                     // has neither.
                     Ok(mcp::Request::Settings(_)) => mcp::result(crate::open::NO_SETTINGS, None, true),
+                    Ok(mcp::Request::Device(_)) => mcp::result(crate::open::NO_DEVICE, None, true),
                     Ok(mcp::Request::Web(req)) => match self.up.open_web(&req) {
                         Ok((v, text)) => mcp::result(&text, Some(v), false),
                         Err(e) => {
@@ -435,7 +436,7 @@ mod tests {
         assert_eq!(out[0]["result"]["capabilities"]["tools"]["listChanged"], true);
         assert_eq!(out[0]["result"]["instructions"], "the app's words");
         let names: Vec<&str> = out[1]["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["show_files", "show_folder", "show_web", "show_settings"]);
+        assert_eq!(names, ["show_files", "show_folder", "show_web", "show_settings", "show_device"]);
         // A `where` this build doesn't know goes to Pitwall as it is, and
         // its answer comes back as it is.
         assert_eq!(out[2]["result"]["isError"], false);

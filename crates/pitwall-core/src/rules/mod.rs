@@ -275,10 +275,12 @@ pub struct ShowWhat {
     pub web: bool,
     /// Pitwall's Settings (`agents.showSettings`).
     pub settings: bool,
+    /// Device screens (`agents.showDevice` and `general.devicePreviews`).
+    pub device: bool,
 }
 
 impl ShowWhat {
-    pub const ALL: ShowWhat = ShowWhat { files: true, web: true, settings: true };
+    pub const ALL: ShowWhat = ShowWhat { files: true, web: true, settings: true, device: true };
 }
 
 /// The built-in rule for agents that can only show files (and web pages)
@@ -310,6 +312,13 @@ When the user asks to open a web page, a site, a local dev server or a browser i
             "{}# Showing Pitwall's Settings\n\n\
 When the user asks where one of Pitwall's own settings is, or to see one (\"where do I turn that on\", \"show me that extension's permissions\"), run `{cli} open --settings [page]` (`--extension <id>` unfolds that extension's card): it only shows Settings to the user, you get nothing back from it and can't change anything in it.\n",
             if what.files || what.web { "\n" } else { "" }
+        ));
+    }
+    if what.device {
+        s.push_str(&format!(
+            "{}# Showing a simulator or emulator in Pitwall\n\n\
+When the user asks to see the app on a simulator, an emulator or a phone, or to run or show it there (\"show me on the simulator\", \"run it on the simulator\"), start or boot the device with the tools you normally use if none is running, then run `{cli} open --device [name, UDID or serial]` (alone: the one booted device; one still booting is waited for): its screen opens next to this terminal for the user. It only shows the screen: you get nothing back from it and can't tap or type in it.\n",
+            if what.files || what.web || what.settings { "\n" } else { "" }
         ));
     }
     s

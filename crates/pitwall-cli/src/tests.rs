@@ -1151,7 +1151,7 @@ fn open_web_and_the_show_web_tool_end_to_end() {
     let up = mcp::SocketUpstream { socket: socket.clone() };
     use mcp::Upstream as _;
     let names = |t: &pitwall_proto::mcp::McpTools| t.tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
-    assert_eq!(names(&up.tools().unwrap()), ["show_files", "show_folder", "show_web", "show_settings"]);
+    assert_eq!(names(&up.tools().unwrap()), ["show_files", "show_folder", "show_web", "show_settings", "show_device"]);
     let proxy = mcp::Proxy::new(&up, Some(id.clone()));
     let call = |args: serde_json::Value| proxy.call(&json!({"name": "show_web", "arguments": args})).0;
     let r = call(json!({"url": "localhost:3000", "where": "window"}));
@@ -1167,7 +1167,7 @@ fn open_web_and_the_show_web_tool_end_to_end() {
     let before = up.tools().unwrap().stamp;
     engine.set_show_web(false, true);
     let now = up.tools().unwrap();
-    assert_eq!(names(&now), ["show_files", "show_folder", "show_settings"]);
+    assert_eq!(names(&now), ["show_files", "show_folder", "show_settings", "show_device"]);
     assert_ne!(now.stamp, before);
     let (r, told) = proxy.call(&json!({"name": "show_web", "arguments": {"url": "example.com"}}));
     assert_eq!(r["isError"], true);
@@ -1177,13 +1177,13 @@ fn open_web_and_the_show_web_tool_end_to_end() {
     let _ = told;
     // Web pages off: off too, said as that.
     engine.set_show_web(true, false);
-    assert_eq!(names(&up.tools().unwrap()), ["show_files", "show_folder", "show_settings"]);
+    assert_eq!(names(&up.tools().unwrap()), ["show_files", "show_folder", "show_settings", "show_device"]);
     let r = call(json!({}));
     assert!(r["content"][0]["text"].as_str().unwrap().contains("general.webPages"), "{r}");
     // Files off, web on: only show_web.
     engine.set_show_web(true, true);
     engine.set_show_files(false);
-    assert_eq!(names(&up.tools().unwrap()), ["show_web", "show_settings"]);
+    assert_eq!(names(&up.tools().unwrap()), ["show_web", "show_settings", "show_device"]);
     engine.set_show_files(true);
     assert_eq!(web.0.lock().unwrap().len(), 3, "nothing shown while off");
 
@@ -1303,6 +1303,119 @@ fn open_settings_and_the_show_settings_tool_end_to_end() {
     assert_eq!(failure(&e).0["error"]["code"], "off");
     assert_eq!(shown.0.lock().unwrap().len(), 3, "nothing shown while off");
     engine.set_show_settings(true);
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
+/// The app's device tiles, as a test sees them: what it was asked to show
+/// (the app finds the device; here, only "iPhone 17" exists).
+#[derive(Default)]
+struct MemDevices(std::sync::Mutex<Vec<pitwall_proto::DeviceShow>>);
+
+impl pitwall_daemon::ViewerBackend for MemDevices {
+    fn show(&self, _: &pitwall_proto::ViewerShow) -> Result<pitwall_proto::ViewerShown, pitwall_proto::ErrorBody> {
+        Err(pitwall_proto::ErrorBody::new(pitwall_proto::code::OTHER, "no files here"))
+    }
+    fn mirrored(&self, id: &str) -> Option<String> {
+        (id == "peer-agent").then(|| "api on studio".into())
+    }
+    fn show_device(&self, req: &pitwall_proto::DeviceShow) -> Result<pitwall_proto::DeviceShown, pitwall_proto::ErrorBody> {
+        let mut seen = self.0.lock().unwrap();
+        seen.push(req.clone());
+        if req.device.as_deref().is_some_and(|d| d != "iPhone 17") {
+            return Err(pitwall_proto::ErrorBody::new(pitwall_proto::code::NOT_FOUND, "no device \"Pixel\" (there are: iPhone 17 (iOS 26.1))"));
+        }
+        Ok(pitwall_proto::DeviceShown {
+            window: "main".into(),
+            in_background: false,
+            device: "ios:AAAA".into(),
+            name: "iPhone 17 (iOS 26.1)".into(),
+            at: "the device tile “iPhone 17 (iOS 26.1)” in space Main (window main), right of api's terminal".into(),
+            note: None,
+            reused: seen.len() > 1,
+            waited: seen.len() == 1,
+        })
+    }
+}
+
+/// `pitwall open --device` and the `show_device` tool against a running
+/// server: the setting followed (the tool listed or not), the app's
+/// answer in words, and nothing of the screen in it.
+#[test]
+fn open_device_and_the_show_device_tool_end_to_end() {
+    let dir = TempDir::new("cli-device");
+    let project = dir.path().join("api");
+    std::fs::create_dir_all(&project).unwrap();
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let shown = Arc::new(MemDevices::default());
+    let sock_dir = std::env::temp_dir().join(format!("pwd-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("d.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: Some(shown.clone()), events: None, extensions: None, ext_backend: None };
+    let server = serve(engine.clone(), Approvals::new(Duration::from_secs(5)), Arc::new(Outside), cfg).unwrap();
+    let cli = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let p = project.to_string_lossy().into_owned();
+    let id = cli(&["agent", "new", "--kind", "claude", "--project", &p, "--name", "api"]).unwrap().json["id"].as_str().unwrap().to_string();
+
+    // From a shell: the name goes to the app as given; it waited for it.
+    let o = cli(&["open", "--agent", "api", "--device", " iPhone 17 "]).unwrap();
+    assert_eq!((o.json["device"].as_str(), o.json["waited"].as_bool(), o.json["reused"].as_bool()), (Some("ios:AAAA"), Some(true), Some(false)));
+    assert!(o.human.starts_with("Showed iPhone 17 (iOS 26.1)'s screen in the device tile"), "{}", o.human);
+    assert!(o.human.contains("waited for it to finish booting"), "{}", o.human);
+    assert!(o.human.ends_with("you get nothing back from it.\n"), "{}", o.human);
+    assert_eq!(shown.0.lock().unwrap().last().unwrap().clone(), pitwall_proto::DeviceShow { agent_id: id.clone(), device: Some("iPhone 17".into()) });
+    let mut keys: Vec<&str> = o.json.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort();
+    assert_eq!(keys, ["agentId", "agentName", "device", "inBackground", "name", "proto", "reused", "shownIn", "text", "waited", "window"]);
+    // Alone: none named (the app picks the one booted).
+    let o = cli(&["open", "--agent", "api", "--device"]).unwrap();
+    assert_eq!(o.json["reused"], true);
+    assert_eq!(shown.0.lock().unwrap().last().unwrap().device, None);
+    // The app's refusal comes through; unknown and mirrored agents never
+    // reach it.
+    let e = cli(&["open", "--agent", "api", "--device", "Pixel"]).err().unwrap();
+    assert!(e.to_string().contains("no device \"Pixel\""), "{e}");
+    assert!(cli(&["open", "--agent", "nobody", "--device"]).err().unwrap().to_string().contains("no agent \"nobody\""));
+    assert!(cli(&["open", "--agent", "peer-agent", "--device"]).err().unwrap().to_string().contains("only shown here"));
+    assert_eq!(shown.0.lock().unwrap().len(), 3);
+
+    // The tool, through the proxy: listed with its instructions while on.
+    let up = mcp::SocketUpstream { socket: socket.clone() };
+    use mcp::Upstream as _;
+    let names = |t: &pitwall_proto::mcp::McpTools| t.tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert!(names(&up.tools().unwrap()).contains(&"show_device".to_string()));
+    assert!(up.tools().unwrap().instructions.contains("then call show_device"));
+    let proxy = mcp::Proxy::new(&up, Some(id.clone()));
+    let call = |args: serde_json::Value| proxy.call(&json!({"name": "show_device", "arguments": args})).0;
+    let r = call(json!({"device": "iPhone 17"}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["device"], "ios:AAAA");
+    let r = call(json!({"device": "Pixel"}));
+    assert_eq!(r["isError"], true);
+    assert!(r["content"][0]["text"].as_str().unwrap().starts_with("Nothing was opened: no device"), "{r}");
+
+    // agents.showDevice off (or device screens off): not listed, a call is
+    // refused with why, and the app is never asked.
+    let before = up.tools().unwrap().stamp;
+    engine.set_show_device(false, true);
+    let now = up.tools().unwrap();
+    assert!(!names(&now).contains(&"show_device".to_string()));
+    assert!(!now.instructions.contains("show_device"));
+    assert_ne!(now.stamp, before);
+    let r = call(json!({}));
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("agents.showDevice"), "{r}");
+    engine.set_show_device(true, false);
+    let e = cli(&["open", "--agent", "api", "--device"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "off");
+    assert!(e.to_string().contains("general.devicePreviews"), "{e}");
+    assert_eq!(shown.0.lock().unwrap().len(), 5, "nothing shown while off");
+    engine.set_show_device(true, true);
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
 }

@@ -128,6 +128,7 @@ pub fn build(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
         offered.push(caps::MCP);
         offered.push(caps::WEB);
         offered.push(caps::SHOW_SETTINGS);
+        offered.push(caps::SHOW_DEVICE);
     }
     if cfg.ext_backend.is_some() {
         offered.push(caps::EXTENSIONS);

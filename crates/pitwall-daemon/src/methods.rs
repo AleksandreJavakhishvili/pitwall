@@ -151,6 +151,10 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     // back and nothing in it changes (viewer.rs). Not an extension's: its
     // `show` permission is for files and pages.
     (method::SETTINGS_OPEN, Access::Open, Ext::Never),
+    // Only shows the user a device's screen (a simulator, an emulator, a
+    // phone) in a tile; nothing of it comes back and the caller can't
+    // touch it (viewer.rs). Not an extension's, as Settings.
+    (method::DEVICE_OPEN, Access::Open, Ext::Never),
     // Extensions' state and setup for agents (extension_setup.rs): reads
     // are open; every act asks the user (one at a time per extension), and
     // none is ever an extension's own.
@@ -380,6 +384,10 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::SETTINGS_OPEN => {
             let r = crate::viewer::settings_params(p)?;
             crate::viewer::settings_open(s, caller, r)
+        }
+        method::DEVICE_OPEN => {
+            let r = crate::viewer::device_params(p)?;
+            crate::viewer::device_open(s, caller, r)
         }
         method::MCP_CALL => crate::viewer::mcp_call(s, caller, required(p)?),
         method::EXTENSION_LIST => crate::extension_setup::list(s),
@@ -651,7 +659,7 @@ mod tests {
         assert!(matches!(access(method::RULES_LIBRARY_NEW), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::RULES_PROJECT_UPDATES), Some(Access::Open));
         // Read-only methods never ask.
-        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST, method::VIEWER_OPEN, method::MCP_TOOLS, method::MCP_CALL, method::WEB_OPEN, method::SETTINGS_OPEN] {
+        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST, method::VIEWER_OPEN, method::MCP_TOOLS, method::MCP_CALL, method::WEB_OPEN, method::SETTINGS_OPEN, method::DEVICE_OPEN] {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
         assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
@@ -689,6 +697,7 @@ mod tests {
         // Showing Settings isn't the `show` permission's (files and pages).
         assert_eq!(ext_access(method::SETTINGS_OPEN), Some(Ext::Never));
         assert_eq!(ext_allowed(method::SETTINGS_OPEN, &("ci".to_string(), "CI".to_string()), |_| true).unwrap_err().code, code::UNSUPPORTED);
+        assert_eq!(ext_access(method::DEVICE_OPEN), Some(Ext::Never));
         for m in [method::AGENT_STOP, method::SETTINGS_SET, method::SETTINGS_RESET, method::APPROVAL_ANSWER, method::APPROVAL_LIST, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD, method::QUEUE_SEND, method::QUEUE_REMOVE, method::SESSION_ADD, method::AGENT_RESTART, method::AGENT_REMOVE] {
             assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
         }

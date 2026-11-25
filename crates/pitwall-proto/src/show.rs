@@ -23,8 +23,10 @@ pub const TOOL_SHOW_FOLDER: &str = "show_folder";
 pub const TOOL_SHOW_WEB: &str = "show_web";
 /// The MCP tool that shows Pitwall's Settings (`settings.open`).
 pub const TOOL_SHOW_SETTINGS: &str = "show_settings";
+/// The MCP tool that shows a device's screen (`device.open`).
+pub const TOOL_SHOW_DEVICE: &str = "show_device";
 /// Every tool (what a launch pre-approves: they only show the user things).
-pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB, TOOL_SHOW_SETTINGS];
+pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB, TOOL_SHOW_SETTINGS, TOOL_SHOW_DEVICE];
 
 /// `viewer.open`'s shape: 1 had `beside` and `window` only (no `proto` on
 /// the wire); 2 has the sides, `replace`, `of`, and `text` in the answer.
