@@ -56,11 +56,13 @@ model and IME. The tile's code never touches a window.
    new tree back; the app applies it on the main thread. Anything the
    guest asks of the UI (open a web tile, focus an agent) is applied
    with `cx.defer`.
-6. **Host APIs are the existing method table plus a few new
-   capabilities**, each a named permission with the author's reason:
-   files in chosen projects, HTTPS to named hosts, git through Pitwall,
-   storage, timers, settings and secrets (own only), clipboard,
-   notifications, agents' status, Next up.
+6. **Host APIs start at a minimum** (section 14): key-value storage,
+   SQLite run by Pitwall, HTTPS to granted hosts, settings and secrets,
+   notifications, opening a file, the editor or a web tile, timers. The
+   rest (files, git, agents' status, Next up, clipboard, …) is designed
+   here but built only when a seed tile needs it. Each is a named
+   permission with the author's reason; Pitwall data comes through the
+   existing method table.
 7. **One file to install.** A `.pwtile` (zip): `extension.json`,
    `tile.wasm`, `assets/`, `README.md`, `screenshots/`, `LICENSE`. The
    index names its URL (usually a GitHub release asset), its SHA-256
@@ -91,12 +93,19 @@ model and IME. The tile's code never touches a window.
     runs an HTTP server and calls the component per request
     (`wasi:http/incoming-handler`), in a small host process of its own
     that keeps running when the window closes.
+13. **Platform services: the minimum, then on demand** (section 14).
+    A service is added only when a first-party seed tile, built solely
+    on the public SDK, can't reasonably do without it. The WIT stays 0.x
+    (breaking changes with notice) until the seed tiles ship, and 1.0
+    freezes only then. Never terminal contents, credentials or other
+    tiles' data; no hosted database, sync or accounts.
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
-WIT 0.1, core elements, dev mode (5 wk) → 2 components and host APIs
-(5 wk) → 3 agent tools (3 wk) → 4 package, signing, install, update
-(3 wk) → 5 index and Browse (4 wk) → 6 seed tiles (in parallel from
-phase 2) → 7 WIT 1.0. Tile plus managed service: documented and wired
+WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
+minimum platform services (5 wk) → 3 agent tools (3 wk) → 4 package,
+signing, install, update (3 wk) → 5 index and Browse (4 wk) → 6 seed
+tiles (in parallel from phase 2), with on-demand services as they
+trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus managed service: documented and wired
 during phase 2 (1 wk). Headless wasm services: after phase 7 (≈ 6 wk).
 
 **Owner decisions needed** are in 10.3, 11.11 and 13.6, each with a
@@ -710,6 +719,9 @@ do, with the same limits, approvals and activity log ([permissions.md]
 Not offered: running programs, raw sockets (TCP to databases is an
 open question, 10.3), other extensions' data, the agents' terminals or
 screens, Pitwall's own settings.
+
+Not all of this is built at once: section 14 says which services make
+the v0.x minimum and which wait until a seed tile needs them.
 
 ---
 
@@ -1585,13 +1597,14 @@ gap in the SDK.
 | Phase | Content | Size |
 |---|---|---|
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk |
-| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, tasks, storage, settings), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core | 5 wk |
-| 2. Components and APIs | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag; `net`, `files`, `pitwall` method table, `clipboard`; permission screen changes | 5 wk |
+| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core | 5 wk |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum (14.2): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; permission screen changes | 5 wk |
 | 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds | 3 wk |
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk |
 | 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel |
-| 7. Stabilise | `git` API, WIT 1.0, docs site, deprecation policy in force | 2 wk |
+| On demand | the services of 14.3, each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 |
+| 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk |
 
 ### 10.3 Risks and open questions (each with a recommendation)
 
@@ -2274,7 +2287,7 @@ extensions' data, or keep running after the extension is turned off
 |---|---|---|
 | A, during phase 2 | the automatic loopback grant, the tile's `service` interface and event, the "Runs a program" wording in install, Browse and Verified, a starter, docs | 1 wk |
 | B1, after phase 7 | `pitwall-svc` (process, socket, logs, rediscovery), the service world 0.1, incoming-handler over hyper, the HTTP front (Host check, key, caps), `net.listen` on loopback | 3 wk |
-| B2 | `sql`, backups and `migrate` in `safe_update`, limits and watchdog, the quit question | 2 wk |
+| B2 | backups and `migrate` in `safe_update` (the `sql` host code comes from tiles, 14.2), limits and watchdog, the quit question | 1 wk |
 | B3 | `interfaces` (Tailscale), service tools for agents, `tile new --service`, test harness | 1–2 wk |
 
 ### 13.6 Open questions (each with a recommendation)
@@ -2304,6 +2317,106 @@ extensions' data, or keep running after the extension is turned off
 7. **Other computers (`interfaces`).** *Recommend* allowed only on the
    Tailscale interface in the first version, named as such, never
    `0.0.0.0`.
+
+## 14. Platform services: what Pitwall gives every tile
+
+### 14.1 The rule: the minimum, then on demand
+Every tile author would otherwise build the same few things: somewhere
+to keep data, a way to call a service, a settings form. Pitwall gives
+those, inside the sandbox it controls, and nothing more until a real
+tile needs it.
+
+- **A service is added only when a first-party seed tile (10.1), built
+  solely on the public SDK, needs it and can't reasonably do without
+  it.** "Would be nice" is not a reason; a seed tile that can't ship is.
+- **The WIT stays 0.x until the seed tiles ship.** Breaking changes are
+  allowed in 0.x, announced in the changelog one release ahead (8.2).
+  **1.0 freezes only then**, with whatever the seed tiles proved they
+  need (phase 7).
+- Pitwall runs no servers of its own: it gives what runs on this
+  computer and is the same for every tile.
+
+### 14.2 The v0.x minimum (built in phases 1–2)
+| Service | WIT interface | Permission | Default |
+|---|---|---|---|
+| Key-value store | `storage` (3.8) | none (own data only) | on; 10 MiB |
+| SQLite database, run by Pitwall | `sql` (as designed for services, 13.3) | none (own data only) | on; 100 MiB |
+| HTTP client to granted hosts | `net` (3.8, 5.1) | `net` with its hosts | as declared |
+| Settings and secrets, form drawn by Pitwall | `settings` (3.8) | none (own only) | on [today's settings and secure store] |
+| Notifications and toasts | `pitwall` (notify), `ui.toast` | `notify` for notifications | on when asked for, ≤ 3 a minute [today] |
+| Open a file at a line, the editor, a web tile | `pitwall` (`viewer.open`, `web.open`) | `show` | off [today] |
+| Timers | `tasks` (3.8) | none | on; paused while hidden |
+
+Plus what every tile has anyway: its Log (`log`), the theme and
+appearance in `init` and the `theme` event (3.4), and its own `/data`
+folder through WASI, counted in the same quota.
+
+**Storage details.**
+- **SQLite run by Pitwall**, not compiled into the tile: SQLite in a
+  WASI guest is unproven and lacks file locking there (S22), and one
+  host-run database can later be shared safely between a tile and its
+  wasm service (13.3). The tile sends statements with parameters, gets
+  rows, and opens transactions as resources.
+  ```rust
+  let db = sql::open()?;
+  sql::migrations!(db, "migrations/")?;   // numbered .sql files, a version table
+  let rows = db.query("SELECT id, title FROM notes WHERE done = ?", (false,))?;
+  ```
+- **One scope in 0.x: per extension**, in
+  `<data>/extension-data/<id>/`, outside the installed folder, so
+  updates and Go back keep it [today's rule for `{data}`]. A tile that
+  needs data per project keys it by project itself. Per-project scopes
+  are a "later" item (14.3).
+- **Quotas** shown on the card with the current size and **Clear**;
+  the manifest may ask for more (≤ 2 GiB, shown on the permission
+  screen); over quota, writes fail with `quota`.
+- **Migrations on update** run inside a transaction on first open;
+  `safe_update` backs the databases up first (SQLite's online backup)
+  so Go back can restore them, and the review says the update changes
+  stored data.
+- **Uninstall** asks "Also delete its data (12 MiB)?", default keep
+  [today's rule for services' data].
+- **No other tile's data**: no interface takes another extension's id
+  or a path outside its folder.
+
+*Not done: "included in Pitwall's backups".* Pitwall has no backup or
+export of its own data today. Tile data sits in Pitwall's data folder,
+so the user's own backups cover it, and the per-update backups exist
+[today]. A Pitwall-wide backup is a separate feature.
+
+### 14.3 Later, on demand
+Each is designed enough to know it fits (the sections named), and is
+built only when its trigger happens.
+
+| Service | Where designed | Trigger that justifies it |
+|---|---|---|
+| Files in projects (`files.read`, `files.write`) | 3.8, 5.1 | Notes keeps notes as Markdown in a project, or Diagrams' `export_svg` writes into one |
+| Git (`git.read/write/remote`) | 3.8, 5.1 | The git client seed tile |
+| File and folder pickers (grant one item per pick) | — | A tile must open a file the user chooses without a project-wide `files` grant (database browser opening a SQLite file) |
+| Reads of Pitwall data: projects, agents and status, the focused agent | 3.8 (method table) | CI and pull requests must match runs to the agents that pushed them |
+| Next up (`agents.queue`), starting agents | 3.8 [today for adapters] | CI's "send the failure to the agent" |
+| Tile-to-tile tool calls | — (would reuse 11's kinds and grants, with a caller of kind `tile`) | Two seed tiles must cooperate and the user can't reasonably copy between them |
+| OAuth sign-in (system browser, loopback redirect with PKCE as RFC 8252 describes, S23; tokens in the secure store, added to requests by Pitwall) | — | A seed tile's service has no personal-token option the user can paste into a secret setting |
+| Clipboard (write after a user action; read with `clipboard.read`) | 3.8 | The API client's "copy as curl" |
+| Drag and drop between tiles | 3.6 | The files tile dropping a file on the database browser |
+| Palette commands and sidebar badges without an adapter | [today for adapters] | A seed tile needs a command or badge and adding an adapter for it would be absurd |
+| Per-project storage scopes | 14.2 | Two seed tiles key data by project by hand |
+| `net.ask` (hosts approved at run time) | 5.1 | The API client seed tile |
+
+### 14.4 Not provided
+- **A hosted database, sync between devices or users, accounts,
+  payments or push.** These need a server, and Pitwall runs none. A
+  tile that needs them talks to its own backend through `net`, or brings
+  a service (13).
+- **Terminal contents, at any grant.** Agents' screens and scrollback
+  carry what passes through them: secrets printed by tools, prompts,
+  approval text, other people's code. A tile that could read them would
+  be a keylogger with a reason field. The same limit holds for adapters
+  [today] and agents' tools (11.9).
+- **Other tiles' or extensions' data, settings or secrets.**
+- **Credentials**: account logins, tool logins, Pitwall's own settings.
+- **Background work while hidden** for a tile (2.3): that is a
+  service's job (13).
 
 ## What this replaces in extension-api.md
 
@@ -2448,6 +2561,8 @@ own repository unless marked.
   not tried. https://lib.rs/crates/rusqlite/features,
   https://awesome.ecosyste.ms/projects/github.com%2Ftegmentum%2Fsqlite-wasm,
   https://docs.rs/crate/sqlite-wasm-wasi/0.6.0/source/README.md
+- **S23** OAuth 2.0 for native apps: the system browser, a loopback
+  redirect and PKCE. RFC 8252, https://www.rfc-editor.org/rfc/rfc8252
 
 ### Not verified
 - That WIT has no recursive types (3).
