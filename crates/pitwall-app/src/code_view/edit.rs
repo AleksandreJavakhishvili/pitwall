@@ -16,9 +16,9 @@ use gpui::{
     Task, UTF16Selection, Window,
 };
 
-use super::buffer::{Buffer, Kind, Splice, SrcPos, SrcSel};
+use super::buffer::{Buffer, CursorEdit, Kind, Splice, SrcPos, SrcSel};
 use super::highlight::{self, Lang};
-use super::rows::{self, Rows};
+use super::rows;
 use super::text::{self, Line, Pos};
 use super::{CodeView, CodeViewEvent, Selection, Side};
 
@@ -174,7 +174,7 @@ impl CodeView {
     // ── changing the text ───────────────────────────────────────────────
 
     /// Apply `edits` as one undo step (`after`: the selection then, else a
-    /// caret after the last edit).
+    /// caret after the last edit). Other cursors go.
     pub(super) fn apply_edits(&mut self, edits: Vec<(SrcPos, SrcPos, String)>, kind: Kind, after: Option<SrcSel>, cx: &mut Context<Self>) {
         if self.edit.is_none() || edits.is_empty() {
             return;
@@ -182,21 +182,166 @@ impl CodeView {
         let before = self.src_sel();
         let ed = self.edit.as_mut().expect("editing");
         let (splices, sel) = ed.buf.edit(edits, kind, before, after);
-        self.changed(splices, sel, cx);
+        self.changed(splices, vec![sel], 0, cx);
     }
 
-    /// Replace the selection with `text` (from outside: its line breaks
-    /// become the file's).
+    /// Every cursor in order, as source selections (overlapping ones
+    /// merged), and which of them is the primary one.
+    pub(super) fn cursors(&self) -> (Vec<SrcSel>, usize) {
+        let primary = self.src_sel();
+        if self.extra.is_empty() {
+            return (vec![primary], 0);
+        }
+        let mut all: Vec<(SrcSel, bool)> = self.extra.iter().map(|s| (SrcSel { anchor: self.to_src(s.anchor), head: self.to_src(s.head) }, false)).collect();
+        all.push((primary, true));
+        all.sort_by_key(|(s, _)| s.range());
+        let mut out: Vec<(SrcSel, bool)> = Vec::with_capacity(all.len());
+        for (s, p) in all {
+            match out.last_mut() {
+                Some((last, lp)) if s.range().0 < last.range().1 || s.range() == last.range() => {
+                    // Overlapping: one selection over both.
+                    let (a, b) = (last.range().0, last.range().1.max(s.range().1));
+                    *last = if last.anchor <= last.head { SrcSel { anchor: a, head: b } } else { SrcSel { anchor: b, head: a } };
+                    *lp |= p;
+                }
+                _ => out.push((s, p)),
+            }
+        }
+        let primary = out.iter().position(|(_, p)| *p).unwrap_or(0);
+        (out.into_iter().map(|(s, _)| s).collect(), primary)
+    }
+
+    /// One edit at every cursor (`f` gives each cursor's, or none: that
+    /// cursor stays where it is), as one undo step.
+    pub(super) fn edit_each(&mut self, kind: Kind, f: impl Fn(&Buffer, SrcSel) -> Option<CursorEdit>, cx: &mut Context<Self>) {
+        let Some(ed) = self.edit.as_ref() else { return };
+        let (sels, primary) = self.cursors();
+        let mut edits: Vec<(usize, CursorEdit)> = sels.iter().enumerate().filter_map(|(i, s)| f(&ed.buf, *s).map(|e| (i, e))).collect();
+        edits.sort_by_key(|(_, e)| (e.from.min(e.to), e.from.max(e.to)));
+        // Two cursors can't change the same text (deleting toward each
+        // other): the first one does.
+        let mut kept: Vec<(usize, CursorEdit)> = Vec::with_capacity(edits.len());
+        for (i, e) in edits {
+            let a = e.from.min(e.to);
+            if kept.last().is_some_and(|(_, k)| a < k.from.max(k.to)) {
+                continue;
+            }
+            kept.push((i, e));
+        }
+        if kept.is_empty() {
+            return;
+        }
+        let primary_edit = kept.iter().position(|(i, _)| *i == primary).unwrap_or(0);
+        let raw: Vec<(SrcPos, SrcPos, String)> = kept.iter().map(|(_, e)| (e.from.min(e.to), e.from.max(e.to), e.text.clone())).collect();
+        let ed = self.edit.as_mut().expect("editing");
+        let (splices, moved) = ed.buf.edit_many(raw, primary_edit, kind, sels[primary]);
+        let out: Vec<SrcSel> = sels
+            .iter()
+            .enumerate()
+            .map(|(ci, s)| match kept.iter().position(|(i, _)| *i == ci) {
+                Some(k) => {
+                    let start = moved.range(k).map_or(s.head, |r| r.0);
+                    let e = &kept[k].1;
+                    let at = |off: usize| super::buffer::end_of(start, &e.text[..text::clamp_to_char(&e.text, off.min(e.text.len()))]);
+                    SrcSel { anchor: at(e.anchor), head: at(e.head) }
+                }
+                None => SrcSel { anchor: moved.map(s.anchor), head: moved.map(s.head) },
+            })
+            .collect();
+        ed.buf.set_after(out[primary]);
+        self.changed(splices, out, primary, cx);
+    }
+
+    /// Edits over the lines every cursor covers (`f` gets them in order),
+    /// as one undo step; the cursors keep their places in the text (a
+    /// line's start stays its start).
+    fn edit_lines(&mut self, f: impl Fn(&Buffer, &[usize]) -> Vec<(SrcPos, SrcPos, String)>, cx: &mut Context<Self>) {
+        let Some(ed) = self.edit.as_ref() else { return };
+        let (sels, primary) = self.cursors();
+        let mut lines: Vec<usize> = sels
+            .iter()
+            .flat_map(|s| {
+                let (a, b) = s.range();
+                let last = if b.line > a.line && b.col == 0 { b.line - 1 } else { b.line };
+                a.line..=last
+            })
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        let mut edits = f(&ed.buf, &lines);
+        if edits.is_empty() {
+            return;
+        }
+        edits.sort_by_key(|(a, b, _)| (*a, *b));
+        let ed = self.edit.as_mut().expect("editing");
+        let (splices, moved) = ed.buf.edit_many(edits, 0, Kind::Other, sels[primary]);
+        let keep = |p: SrcPos| {
+            let m = moved.map(p);
+            if p.col == 0 {
+                SrcPos::new(m.line, 0)
+            } else {
+                m
+            }
+        };
+        let out: Vec<SrcSel> = sels.iter().map(|s| SrcSel { anchor: keep(s.anchor), head: keep(s.head) }).collect();
+        ed.buf.set_after(out[primary]);
+        self.changed(splices, out, primary, cx);
+    }
+
+    /// Replace the selection (each cursor's) with `text` (from outside:
+    /// its line breaks become the file's).
     pub(super) fn insert(&mut self, text: &str, kind: Kind, cx: &mut Context<Self>) {
         let Some(ed) = self.edit.as_ref() else { return };
         let text = ed.buf.normalize(text);
-        let (a, b) = self.src_sel().range();
-        self.apply_edits(vec![(a, b, text)], kind, None, cx);
+        self.edit_each(
+            kind,
+            |_, s| {
+                let (a, b) = s.range();
+                Some(CursorEdit::new(a, b, text.clone()))
+            },
+            cx,
+        );
     }
 
-    /// The buffer changed: the shown lines, highlighting, rows, selection
-    /// and Find follow.
-    fn changed(&mut self, splices: Vec<Splice>, sel: SrcSel, cx: &mut Context<Self>) {
+    /// Text typed (not composed) at every cursor: in the editor, a bracket
+    /// or a quote comes with its partner.
+    pub(super) fn typed(&mut self, text: &str, cx: &mut Context<Self>) {
+        let Some(ed) = self.edit.as_ref() else { return };
+        let text = ed.buf.normalize(text);
+        let mut chars = text.chars();
+        let one = match (chars.next(), chars.next()) {
+            (Some(c), None) if c != '\n' && c != '\r' => Some(c),
+            _ => None,
+        };
+        let pairs = self.editor && one.is_some() && !self.no_quote_pair(one);
+        // A single character is typing (a run, the selection it replaced
+        // with it, undoes together).
+        let kind = if one.is_some() { Kind::Typing } else { Kind::Other };
+        self.edit_each(
+            kind,
+            |buf, s| {
+                let (a, b) = s.range();
+                let paired = one.filter(|_| pairs).and_then(|c| buf.typed_pair(a, b, c));
+                Some(paired.unwrap_or_else(|| CursorEdit::new(a, b, text.clone())))
+            },
+            cx,
+        );
+    }
+
+    /// An apostrophe isn't paired where it is mostly one (Rust's lifetimes,
+    /// prose).
+    fn no_quote_pair(&self, c: Option<char>) -> bool {
+        if c != Some('\'') {
+            return false;
+        }
+        let path = self.content.as_ref().map(|c| c.path.to_string()).unwrap_or_default();
+        matches!(Lang::for_path(&path), Some(Lang::Rust | Lang::Markdown | Lang::OCaml) | None)
+    }
+
+    /// The buffer changed: the shown lines, highlighting, rows, the
+    /// cursors and Find follow. `sels` are every cursor's, `primary` the
+    /// one the view follows.
+    fn changed(&mut self, splices: Vec<Splice>, sels: Vec<SrcSel>, primary: usize, cx: &mut Context<Self>) {
         let Some(ed) = self.edit.as_ref() else { return };
         let Some(c) = self.content.as_mut() else { return };
         let doc = Arc::make_mut(&mut c.new);
@@ -217,13 +362,15 @@ impl CodeView {
                 }
             }
         }
-        self.rows = Rows::file(doc.line_count());
-        let (anchor, head) = (self.to_shown(sel.anchor), self.to_shown(sel.head));
-        self.sel = Some(Selection { side: Side::New, anchor, head });
+        self.rebuild_rows();
+        let shown: Vec<Selection> = sels.iter().map(|s| Selection { side: Side::New, anchor: self.to_shown(s.anchor), head: self.to_shown(s.head) }).collect();
+        let head = shown.get(primary).map_or(Pos::default(), |s| s.head);
+        self.sel = shown.get(primary).copied();
+        self.extra = shown.iter().enumerate().filter(|(i, _)| *i != primary).map(|(_, s)| *s).collect();
         self.goal_x = None;
         self.readonly_at = None;
         self.caret_x = true;
-        if let Some(row) = self.rows.row_of(Side::New, head.line) {
+        if let Some(row) = self.row_of_pos(head) {
             self.scroll_to_row(row);
         }
         self.refind();
@@ -256,29 +403,48 @@ impl CodeView {
 
     // ── what keys do ────────────────────────────────────────────────────
 
-    /// Delete the selection, or from the caret to where `to` says (on the
-    /// caret's source line; `None`: across the line break).
+    /// Delete each selection, or from each caret to where `to` says (on
+    /// the caret's source line; `None`: across the line break).
     fn delete_by(&mut self, to: impl Fn(&str, usize) -> Option<usize>, forward: bool, cx: &mut Context<Self>) {
         let Some(ed) = self.edit.as_ref() else { return };
-        let s = self.src_sel();
-        let (a, b) = s.range();
-        if a != b {
-            return self.apply_edits(vec![(a, b, String::new())], Kind::Other, None, cx);
-        }
-        let line = ed.buf.line(a.line);
-        let other = match to(line, a.col) {
-            Some(col) => SrcPos::new(a.line, col),
-            None if forward && a.line + 1 < ed.buf.line_count() => SrcPos::new(a.line + 1, 0),
-            None if !forward && a.line > 0 => SrcPos::new(a.line - 1, ed.buf.line(a.line - 1).len()),
-            None => return,
-        };
-        if other == a {
-            return;
-        }
-        let (x, y) = if other < a { (other, a) } else { (a, other) };
-        // A single character is typing (a run of them undoes together).
-        let kind = if to(line, a.col).is_some() && line.get(x.col..y.col).is_some_and(|t| t.chars().count() == 1) { Kind::Typing } else { Kind::Other };
-        self.apply_edits(vec![(x, y, String::new())], kind, Some(SrcSel::caret(x)), cx);
+        let (sels, primary) = self.cursors();
+        // A single character from the primary caret is typing (a run of
+        // them undoes together).
+        let p = sels[primary].range();
+        let line = ed.buf.line(p.0.line);
+        let one = p.0 == p.1
+            && to(line, p.0.col).is_some_and(|c| {
+                let (x, y) = (c.min(p.0.col), c.max(p.0.col));
+                line.get(x..y).is_some_and(|t| t.chars().count() == 1)
+            });
+        let pairs = self.editor && !forward;
+        self.edit_each(
+            if one { Kind::Typing } else { Kind::Other },
+            |buf, s| {
+                let (a, b) = s.range();
+                if a != b {
+                    return Some(CursorEdit::new(a, b, String::new()));
+                }
+                let line = buf.line(a.line);
+                let other = match to(line, a.col) {
+                    Some(col) => SrcPos::new(a.line, col),
+                    None if forward && a.line + 1 < buf.line_count() => SrcPos::new(a.line + 1, 0),
+                    None if !forward && a.line > 0 => SrcPos::new(a.line - 1, buf.line(a.line - 1).len()),
+                    None => return None,
+                };
+                if other == a {
+                    return None;
+                }
+                let (x, mut y) = if other < a { (other, a) } else { (a, other) };
+                // Backspace inside an empty pair: both go.
+                if pairs && y == a && x.line == a.line && buf.empty_pair_at(a) && line.get(x.col..a.col).is_some_and(|t| t.chars().count() == 1) {
+                    let next = line[a.col..].chars().next().map_or(0, char::len_utf8);
+                    y = SrcPos::new(a.line, a.col + next);
+                }
+                Some(CursorEdit::new(x, y, String::new()))
+            },
+            cx,
+        );
     }
 
     pub(super) fn backspace(&mut self, cx: &mut Context<Self>) {
@@ -301,77 +467,132 @@ impl CodeView {
         self.delete_by(|_, c| (c > 0).then_some(0), false, cx);
     }
 
-    /// Enter: a line break and the line's indentation.
+    /// Enter: a line break and the line's indentation at each cursor (in
+    /// the editor, one step more after an opening bracket).
     pub(super) fn newline(&mut self, cx: &mut Context<Self>) {
-        let Some(ed) = self.edit.as_ref() else { return };
-        let (a, b) = self.src_sel().range();
-        let nl = ed.buf.newline_at(a);
-        self.apply_edits(vec![(a, b, nl)], Kind::Other, None, cx);
+        let smart = self.editor;
+        let colon = matches!(self.content.as_ref().and_then(|c| Lang::for_path(&c.path)), Some(Lang::Python | Lang::Yaml | Lang::Nix));
+        self.edit_each(
+            Kind::Other,
+            |buf, s| {
+                let (a, b) = s.range();
+                Some(if smart { buf.smart_newline(a, b, colon) } else { CursorEdit::new(a, b, buf.newline_at(a)) })
+            },
+            cx,
+        );
     }
 
-    /// The lines a selection covers (a selection ending at a line's start
-    /// leaves that line out).
-    fn sel_lines(&self) -> (usize, usize) {
-        let (a, b) = self.src_sel().range();
-        let last = if b.line > a.line && b.col == 0 { b.line - 1 } else { b.line };
-        (a.line, last)
-    }
-
-    /// Tab: one indentation step in (a selection over lines: each of them).
+    /// Tab: one indentation step in at each cursor; over selected lines,
+    /// each of them.
     pub(super) fn indent(&mut self, cx: &mut Context<Self>) {
         let Some(ed) = self.edit.as_ref() else { return };
-        let (a, b) = self.src_sel().range();
-        if a.line == b.line {
+        let multiline = self.cursors().0.iter().any(|s| s.anchor.line != s.head.line);
+        if !multiline {
             let unit = ed.buf.unit();
-            return self.apply_edits(vec![(a, b, unit)], Kind::Other, None, cx);
+            return self.edit_each(
+                Kind::Other,
+                |_, s| {
+                    let (a, b) = s.range();
+                    Some(CursorEdit::new(a, b, unit.clone()))
+                },
+                cx,
+            );
         }
-        let (first, last) = self.sel_lines();
-        let edits = ed.buf.indent_edits(first, last);
-        let unit = ed.buf.unit().len();
-        let end = SrcPos::new(last, ed.buf.line(last).len() + unit);
-        self.apply_edits(edits, Kind::Other, Some(SrcSel { anchor: SrcPos::new(first, 0), head: end }), cx);
+        self.edit_lines(|buf, lines| lines.iter().flat_map(|&l| buf.indent_edits(l, l)).collect(), cx);
     }
 
     /// Shift-Tab: one indentation step out on each line covered.
     pub(super) fn outdent(&mut self, cx: &mut Context<Self>) {
-        let Some(ed) = self.edit.as_ref() else { return };
-        let s = self.src_sel();
-        let (first, last) = self.sel_lines();
-        let edits = ed.buf.outdent_edits(first, last);
-        let removed_on = |line: usize| edits.iter().find(|(p, _, _)| p.line == line).map_or(0, |(_, q, _)| q.col);
-        let after = if first == last {
-            let n = removed_on(first);
-            SrcSel { anchor: SrcPos::new(s.anchor.line, s.anchor.col.saturating_sub(n)), head: SrcPos::new(s.head.line, s.head.col.saturating_sub(n)) }
-        } else {
-            let end_len = ed.buf.line(last).len() - removed_on(last);
-            SrcSel { anchor: SrcPos::new(first, 0), head: SrcPos::new(last, end_len) }
-        };
-        self.apply_edits(edits, Kind::Other, Some(after), cx);
+        self.edit_lines(|buf, lines| lines.iter().flat_map(|&l| buf.outdent_edits(l, l)).collect(), cx);
+    }
+
+    /// ⌘/: the lines of every cursor commented out, or back in (by the
+    /// file's language; nothing for a language without comments).
+    pub fn toggle_comment(&mut self, cx: &mut Context<Self>) {
+        let Some(c) = self.content.as_ref().and_then(|c| super::buffer::comment_syntax(&c.path)) else { return };
+        self.edit_lines(|buf, lines| buf.comment_edits(lines, c), cx);
+    }
+
+    /// What each cursor copies or cuts: its selection, or (nothing
+    /// selected) its whole line once; in order (`true`: a whole line).
+    fn cut_ranges(&self) -> Vec<(SrcPos, SrcPos, bool)> {
+        let Some(ed) = self.edit.as_ref() else { return Vec::new() };
+        let mut out: Vec<(SrcPos, SrcPos, bool)> = Vec::new();
+        for s in self.cursors().0 {
+            let (a, b) = s.range();
+            if a != b {
+                out.push((a, b, false));
+                continue;
+            }
+            if out.last().is_some_and(|l| l.2 && l.0.line == a.line) {
+                continue;
+            }
+            if a.line + 1 < ed.buf.line_count() {
+                out.push((SrcPos::new(a.line, 0), SrcPos::new(a.line + 1, 0), true));
+            } else {
+                out.push((SrcPos::new(a.line, 0), SrcPos::new(a.line, ed.buf.line(a.line).len()), true));
+            }
+        }
+        out
+    }
+
+    /// The text ⌘C copies with the cursors there are (editing only).
+    pub(super) fn copied_text(&self) -> Option<String> {
+        let ed = self.edit.as_ref()?;
+        let parts: Vec<String> = self
+            .cut_ranges()
+            .iter()
+            .map(|&(a, b, whole)| {
+                let mut t = ed.buf.slice(a, b).replace("\r\n", "\n");
+                if whole && !t.ends_with('\n') {
+                    t.push('\n');
+                }
+                t
+            })
+            .collect();
+        if parts.len() == 1 {
+            return parts.into_iter().next();
+        }
+        Some(parts.iter().map(|p| p.strip_suffix('\n').unwrap_or(p)).collect::<Vec<_>>().join("\n"))
     }
 
     pub(super) fn cut(&mut self, cx: &mut Context<Self>) {
-        let Some(ed) = self.edit.as_ref() else { return };
-        let (a, b) = self.src_sel().range();
-        let (from, to) = if a == b {
-            // Nothing selected: the whole line, as the editor's own cut.
-            if a.line + 1 < ed.buf.line_count() {
-                (SrcPos::new(a.line, 0), SrcPos::new(a.line + 1, 0))
-            } else {
-                (SrcPos::new(a.line, 0), SrcPos::new(a.line, ed.buf.line(a.line).len()))
-            }
-        } else {
-            (a, b)
-        };
-        let mut copied = ed.buf.slice(from, to).replace("\r\n", "\n");
-        if a == b && !copied.ends_with('\n') {
-            copied.push('\n');
+        let Some(text) = self.copied_text() else { return };
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        let ranges = self.cut_ranges();
+        let edits: Vec<(SrcPos, SrcPos, String)> = ranges.iter().map(|&(a, b, _)| (a, b, String::new())).collect();
+        if edits.len() == 1 && self.extra.is_empty() {
+            let from = edits[0].0;
+            return self.apply_edits(edits, Kind::Other, Some(SrcSel::caret(from)), cx);
         }
-        cx.write_to_clipboard(ClipboardItem::new_string(copied));
-        self.apply_edits(vec![(from, to, String::new())], Kind::Other, Some(SrcSel::caret(from)), cx);
+        let Some(ed) = self.edit.as_mut() else { return };
+        let before = SrcSel::caret(edits[0].0);
+        let (splices, moved) = ed.buf.edit_many(edits, 0, Kind::Other, before);
+        let out: Vec<SrcSel> = (0..ranges.len()).filter_map(|i| moved.range(i)).map(|r| SrcSel::caret(r.0)).collect();
+        self.changed(splices, out, 0, cx);
     }
 
+    /// ⌘V: the clipboard at each cursor; as many lines as cursors: a line
+    /// each.
     pub(super) fn paste(&mut self, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else { return };
+        let n = self.cursors().0.len();
+        let lines: Vec<&str> = text.strip_suffix('\n').unwrap_or(&text).split('\n').collect();
+        if n > 1 && lines.len() == n {
+            let Some(ed) = self.edit.as_ref() else { return };
+            let parts: Vec<String> = lines.iter().map(|l| ed.buf.normalize(l.strip_suffix('\r').unwrap_or(l))).collect();
+            let next = std::cell::Cell::new(0usize);
+            return self.edit_each(
+                Kind::Other,
+                |_, s| {
+                    let i = next.get();
+                    next.set(i + 1);
+                    let (a, b) = s.range();
+                    Some(CursorEdit::new(a, b, parts.get(i).cloned().unwrap_or_default()))
+                },
+                cx,
+            );
+        }
         self.insert(&text, Kind::Other, cx);
     }
 
@@ -379,7 +600,7 @@ impl CodeView {
         let Some(ed) = self.edit.as_mut() else { return };
         ed.marked = None;
         if let Some((splices, sel)) = ed.buf.undo() {
-            self.changed(splices, sel, cx);
+            self.changed(splices, vec![sel], 0, cx);
         }
     }
 
@@ -387,8 +608,67 @@ impl CodeView {
         let Some(ed) = self.edit.as_mut() else { return };
         ed.marked = None;
         if let Some((splices, sel)) = ed.buf.redo() {
-            self.changed(splices, sel, cx);
+            self.changed(splices, vec![sel], 0, cx);
         }
+    }
+
+    // ── the editor's way ────────────────────────────────────────────────
+
+    /// The editor's way of editing on or off ([`CodeView::is_editor`]).
+    pub fn set_editor(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.editor != on {
+            self.editor = on;
+            cx.notify();
+        }
+    }
+
+    /// The editor's way: the cursor's line marked, brackets and quotes in
+    /// pairs, Enter indenting after an opening bracket.
+    pub fn is_editor(&self) -> bool {
+        self.editor
+    }
+
+    /// The margin's marks of lines changed since git's HEAD.
+    pub fn set_line_marks(&mut self, marks: Vec<(Range<usize>, super::LineMark)>, cx: &mut Context<Self>) {
+        if self.line_marks != marks {
+            self.line_marks = marks;
+            cx.notify();
+        }
+    }
+
+    pub fn line_marks(&self) -> &[(Range<usize>, super::LineMark)] {
+        &self.line_marks
+    }
+
+    /// How many cursors there are.
+    pub fn cursor_count(&self) -> usize {
+        usize::from(self.sel.is_some()) + self.extra.len()
+    }
+
+    /// The primary cursor: its 0-based line and its character column
+    /// (`None`: no file, or no cursor yet).
+    pub fn caret(&self) -> Option<(usize, usize)> {
+        let s = self.sel?;
+        let line = self.content.as_ref()?.new.line(s.head.line)?;
+        let src = line.source();
+        let col = line.to_source(s.head.col).min(src.len());
+        Some((s.head.line, src[..text::clamp_to_char(src, col)].chars().count()))
+    }
+
+    /// The file's indentation, whether it breaks lines with CRLF, and its
+    /// line count (the editor's status line).
+    pub fn file_facts(&self) -> Option<(super::text::Indent, bool, usize)> {
+        let ed = self.edit.as_ref()?;
+        Some((ed.buf.indent, ed.buf.crlf(), ed.buf.line_count()))
+    }
+
+    /// Every cursor's head, in order: a line and a source byte column
+    /// (tests).
+    pub fn cursor_heads(&self) -> Vec<(usize, usize)> {
+        if self.content.is_none() || self.sel.is_none() {
+            return Vec::new();
+        }
+        self.cursors().0.iter().map(|s| (s.head.line, s.head.col)).collect()
     }
 
     // ── replace ─────────────────────────────────────────────────────────
@@ -519,6 +799,10 @@ impl EntityInputHandler for CodeView {
         let Some((a, b)) = self.ime_target(range.as_ref()) else { return };
         let Some(ed) = self.edit.as_mut() else { return };
         let composing = ed.marked.take().is_some();
+        if !composing && range.is_none() {
+            // Typed: at every cursor.
+            return self.typed(text, cx);
+        }
         let text = ed.buf.normalize(text);
         let one_char = text.chars().count() == 1 && !text.contains(['\n', '\r']);
         let kind = if composing { Kind::Compose } else if one_char && a == b { Kind::Typing } else { Kind::Other };
@@ -531,6 +815,8 @@ impl EntityInputHandler for CodeView {
     }
 
     fn replace_and_mark_text_in_range(&mut self, range: Option<Range<usize>>, text: &str, new_selected: Option<Range<usize>>, _: &mut Window, cx: &mut Context<Self>) {
+        // Composing happens at the primary cursor only.
+        self.extra.clear();
         let Some((a, b)) = self.ime_target(range.as_ref()) else { return };
         let Some(ed) = self.edit.as_ref() else { return };
         let text = ed.buf.normalize(text);
