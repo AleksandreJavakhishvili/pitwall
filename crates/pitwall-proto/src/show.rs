@@ -166,6 +166,10 @@ pub struct ViewerOpened {
     pub opened: Vec<OpenedFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// The folder the viewer's tree is rooted at now (what it shows; a
+    /// Pitwall from before it didn't say).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<Skipped>,
     /// Where it opened: a [`ViewerPlace`] word (one a newer Pitwall has
@@ -203,6 +207,10 @@ pub struct ViewerShow {
     /// The agent whose terminal `place` is next to (resolved id).
     #[serde(default)]
     pub of: Option<String>,
+    /// What resolving said besides (which worktree a name was read as,
+    /// why the viewer is rooted where it is), for the answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Where the app showed a [`ViewerShow`].

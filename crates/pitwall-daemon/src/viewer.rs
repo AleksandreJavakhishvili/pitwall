@@ -370,11 +370,16 @@ fn show(s: &Server, caller: &Caller, r: ViewerOpen) -> Result<ViewerOpened, Erro
         in_background: shown.in_background,
         opened: show.files,
         folder: show.folder,
+        root: Some(shown.root).filter(|r| !r.is_empty()),
         skipped,
         place: shown.place.word().into(),
         asked: show.place.map(|p| p.word().into()),
         shown_in,
-        note: shown.note,
+        // How the root was read (the server's), then where it went (the app's).
+        note: match (show.note, shown.note) {
+            (Some(a), Some(b)) => Some(format!("{a} {b}")),
+            (a, b) => a.or(b),
+        },
         text: None,
     };
     opened.text = Some(mcp::text(&opened));

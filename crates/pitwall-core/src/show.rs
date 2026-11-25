@@ -219,11 +219,81 @@ pub struct Place<'a> {
     /// the folder it said it works in, its process's): a worktree it
     /// entered mid-session, a folder it moved to.
     pub now: Option<&'a str>,
-    /// Worktrees of the agent's repository: (folder, its name, branch).
-    pub worktrees: &'a [(String, String, Option<String>)],
+    /// Worktrees a root may name ([`worktrees_near`]): those of the
+    /// agent's repository, of the one it works in now and of the caller's
+    /// folder (`pitwall open`'s shell).
+    pub worktrees: &'a [Worktree],
+    /// Worktrees of the repositories directly inside the agent's folder,
+    /// when that isn't in a repository itself (an agent started in `~` or
+    /// in a projects folder): looked in only when none of `worktrees` is
+    /// the one named.
+    pub inside: &'a [Worktree],
     /// The agent runs on this machine. Elsewhere only its own folder can
     /// be shown (the viewer reads other files from this disk).
     pub local: bool,
+}
+
+/// A git worktree a root may name: its folder, the folder's name and its
+/// branch (`None`: detached).
+pub type Worktree = (String, String, Option<String>);
+
+/// The worktrees of the repositories holding each of `dirs` (each
+/// repository once, its main checkout first; bare ones left out).
+pub fn worktrees_near(x: &dyn Exec, dirs: &[&str]) -> Vec<Worktree> {
+    let mut out: Vec<Worktree> = vec![];
+    for d in dirs.iter().filter(|d| !d.trim().is_empty()) {
+        let git = crate::vcs::git::Git::new(x, d);
+        let Some(top) = git.repo_root().filter(|t| !t.is_empty()) else { continue };
+        let top = x.real_path(&top).unwrap_or(top);
+        if out.iter().any(|(p, _, _)| *p == top) {
+            continue;
+        }
+        add_worktrees(x, &top, &mut out);
+    }
+    out
+}
+
+/// The worktrees of the repositories directly inside `dir` (a folder that
+/// isn't one itself: `~`, a projects folder). Hidden folders are passed
+/// over; only a folder with a `.git` of its own counts.
+pub fn worktrees_inside(x: &dyn Exec, dir: &str) -> Vec<Worktree> {
+    let mut out: Vec<Worktree> = vec![];
+    let Ok(entries) = x.list_dir(dir) else { return out };
+    let mut names: Vec<String> = entries.into_iter().filter(|e| e.kind == FileKind::Dir && !e.name.starts_with('.')).map(|e| e.name).collect();
+    names.sort();
+    for n in names {
+        let child = exec::join(dir, &n);
+        if !matches!(x.stat(&exec::join(&child, ".git")), Ok(Some(_))) {
+            continue;
+        }
+        let top = x.real_path(&child).unwrap_or(child);
+        if !out.iter().any(|(p, _, _)| *p == top) {
+            add_worktrees(x, &top, &mut out);
+        }
+    }
+    out
+}
+
+/// `git worktree list` of the repository at `top`, added to `out` (once
+/// each).
+fn add_worktrees(x: &dyn Exec, top: &str, out: &mut Vec<Worktree>) {
+    let Ok(list) = crate::vcs::git::Git::new(x, top).worktree_list() else { return };
+    for e in list.into_iter().filter(|e| !e.bare) {
+        let path = x.real_path(&e.path).unwrap_or(e.path);
+        if out.iter().any(|(p, _, _)| *p == path) {
+            continue;
+        }
+        let name = path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+        out.push((path, name, e.branch));
+    }
+}
+
+/// How a worktree is listed in an answer: its folder's name and branch.
+fn listed(w: &Worktree) -> String {
+    match &w.2 {
+        Some(b) if *b != w.1 => format!("{} ({b})", w.1),
+        _ => w.1.clone(),
+    }
 }
 
 /// `req`'s files and folder as full, resolved paths that exist on the
@@ -251,9 +321,15 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
     };
     let asked = req.root.as_deref().map(str::trim).filter(|r| !r.is_empty());
     let from = req.cwd.as_deref().filter(|c| absolute(c)).or(now.as_deref()).unwrap_or(place.cwd);
+    // What the answer says besides (how a name was read, why a root).
+    let mut notes: Vec<String> = vec![];
     let root = match asked {
         None => None,
-        Some(r) => Some(root_of(place, home, from, r)?),
+        Some(r) => {
+            let (path, note) = root_of(place, home, from, r)?;
+            notes.extend(note);
+            Some(path)
+        }
     };
     // Relative paths: from the root asked for, else the caller's folder,
     // else where the agent works now.
@@ -291,7 +367,26 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
     };
     // No root asked: the worktree it works in now, when that isn't the
     // one it started in (its tree and git state are that worktree's).
-    let root = root.or_else(|| moved_to(x, place.cwd, &base).filter(|r| !fenced(r)));
+    let root = match root {
+        Some(r) => Some(r),
+        None => {
+            let moved = moved_to(x, place.cwd, &base).filter(|r| !fenced(r));
+            // A folder asked for by its path, in another git worktree than
+            // the one shown: rooted at that worktree (and revealed in it).
+            let shown = moved.as_deref().unwrap_or(place.cwd);
+            let by_folder = folder.as_deref().filter(|_| wants_folder.is_some()).and_then(|f| other_worktree(x, shown, f).map(|t| (f, t))).filter(|(_, t)| !fenced(t));
+            match by_folder {
+                Some((f, t)) => {
+                    if f != t {
+                        notes.push(format!("{f} is in the git worktree {t}: the viewer is rooted there, with that folder open."));
+                    }
+                    Some(t)
+                }
+                // A folder outside the worktree it works in: as asked.
+                None => moved.filter(|m| folder.as_deref().is_none_or(|f| crate::explorer::inside(m, f))),
+            }
+        }
+    };
     if let Some(f) = folder.as_deref().filter(|f| fenced(f)) {
         return Err(format!("{f} is outside the agent's folder, on another machine: only its own folder can be shown"));
     }
@@ -304,7 +399,8 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
             ),
         });
     }
-    let show = ViewerShow { agent_id: agent_id.to_string(), files, folder, root, place: req.place, of: None };
+    let note = (!notes.is_empty()).then(|| notes.join(" "));
+    let show = ViewerShow { agent_id: agent_id.to_string(), files, folder, root, place: req.place, of: None, note };
     Ok((show, skipped))
 }
 
@@ -321,10 +417,38 @@ fn worktree_top(x: &dyn Exec, dir: &str) -> String {
         .map_or(real, |t| x.real_path(&t).unwrap_or(t))
 }
 
+/// The top of the git worktree holding `dir` (resolved); `None` outside
+/// git.
+fn git_top(x: &dyn Exec, dir: &str) -> Option<String> {
+    crate::vcs::git::Git::new(x, dir).repo_root().filter(|t| !t.is_empty()).map(|t| x.real_path(&t).unwrap_or(t))
+}
+
+/// The git worktree `here` is in, when the viewer showing `shown` doesn't
+/// show it as its own: `None` outside git, and for a folder inside
+/// `shown` when `shown` is in a repository (it is that worktree's, or a
+/// repository nested in it, revealed there). Inside a folder that isn't a
+/// repository (`~`, a projects folder): the worktree.
+fn other_worktree(x: &dyn Exec, shown: &str, here: &str) -> Option<String> {
+    let here_real = x.real_path(here).ok()?;
+    let top = git_top(x, &here_real)?;
+    let shown_real = x.real_path(shown).unwrap_or_else(|_| shown.trim_end_matches('/').to_string());
+    let shown_top = git_top(x, &shown_real);
+    if shown_top.is_some() && crate::explorer::inside(&shown_real, &here_real) {
+        return None;
+    }
+    (shown_top.as_deref() != Some(top.as_str())).then_some(top)
+}
+
 /// The folder to show for an agent that started in `start` and works in
-/// `here` now: `None` while that is inside `start` or the same worktree;
-/// else the top of `here`'s worktree (`here` itself outside git).
+/// `here` now: the top of `here`'s worktree when that isn't `start`'s
+/// (also when it lies inside `start`, a folder that isn't a repository: an
+/// agent started in `~` that works in a repository below it); `None` while
+/// it works in `start`'s worktree or a plain folder inside `start`;
+/// `here` itself outside git and outside `start`.
 fn moved_to(x: &dyn Exec, start: &str, here: &str) -> Option<String> {
+    if let Some(top) = other_worktree(x, start, here) {
+        return Some(top);
+    }
     let start_real = x.real_path(start).unwrap_or_else(|_| start.trim_end_matches('/').to_string());
     let here_real = x.real_path(here).ok()?;
     if crate::explorer::inside(&start_real, &here_real) {
@@ -334,14 +458,22 @@ fn moved_to(x: &dyn Exec, start: &str, here: &str) -> Option<String> {
     (top != worktree_top(x, &start_real)).then_some(top)
 }
 
+/// The worktrees in `list` named `r`: by folder name or branch, any case.
+fn named<'w>(list: &'w [Worktree], r: &str) -> Vec<&'w Worktree> {
+    list.iter().filter(|(_, name, branch)| name.eq_ignore_ascii_case(r) || branch.as_deref().is_some_and(|b| b.eq_ignore_ascii_case(r))).collect()
+}
+
 /// The folder `r` names: a path (from `from`: the caller's folder, else
-/// where the agent works now), else a worktree of the agent's repository by folder name or
-/// branch.
-fn root_of(place: &Place, home: Option<&str>, from: &str, r: &str) -> Result<String, String> {
+/// where the agent works now), else a worktree by folder name or branch:
+/// of the agent's repository (and the one it works in, and the caller's),
+/// else of a repository directly inside the agent's folder when that
+/// isn't one ([`Place::inside`]). With a note saying which worktree a
+/// name was read as.
+fn root_of(place: &Place, home: Option<&str>, from: &str, r: &str) -> Result<(String, Option<String>), String> {
     let x = place.exec;
     if let Ok(real) = x.real_path(&full(home, from, r)) {
         if is_dir(x, &real) {
-            return Ok(real);
+            return Ok((real, None));
         }
         return Err(format!("{r} is a file, not a folder"));
     }
@@ -349,19 +481,27 @@ fn root_of(place: &Place, home: Option<&str>, from: &str, r: &str) -> Result<Str
     if absolute(&expand_tilde_in(home, r)) {
         return Err(format!("{r}: no such folder (a removed worktree?)"));
     }
-    let named: Vec<&String> = place
-        .worktrees
-        .iter()
-        .filter(|(_, name, branch)| name.eq_ignore_ascii_case(r) || branch.as_deref().is_some_and(|b| b.eq_ignore_ascii_case(r)))
-        .map(|(p, _, _)| p)
-        .collect();
-    match named.as_slice() {
-        [one] => x.real_path(one).map_err(|_| format!("worktree {r} ({one}) is gone")),
-        [] => Err(format!("no folder or worktree \"{r}\" (a path, or a worktree of this agent's repository by folder name or branch)")),
+    let near = named(place.worktrees, r);
+    let (hits, among) = if near.is_empty() { (named(place.inside, r), true) } else { (near, false) };
+    match hits.as_slice() {
+        [one] => {
+            let path = x.real_path(&one.0).map_err(|_| format!("worktree {r} ({}) is gone", one.0))?;
+            let whose = if among { format!(", a repository in {}", place.cwd) } else { String::new() };
+            let branch = one.2.as_deref().map_or_else(|| " (detached)".to_string(), |b| format!(" on branch {b}"));
+            Ok((path.clone(), Some(format!("\"{r}\" is the worktree {path}{branch}{whose}."))))
+        }
+        [] => {
+            let all: Vec<String> = place.worktrees.iter().chain(place.inside.iter()).map(listed).collect();
+            Err(if all.is_empty() {
+                format!("no folder or worktree \"{r}\": it isn't a path from {from}, and no git repository holds the agent's folder ({}) or lies directly inside it; give the worktree's path as root", place.cwd)
+            } else {
+                format!("no folder or worktree \"{r}\" (a path, or a worktree by folder name or branch). Worktrees: {}", all.join(", "))
+            })
+        }
         more => Err(format!(
-            "{} worktrees match \"{r}\": give its path ({})",
+            "{} worktrees match \"{r}\": give the path of the one meant ({})",
             more.len(),
-            more.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", ")
+            more.iter().map(|w| format!("{}{}", w.0, w.2.as_deref().map(|b| format!(" on {b}")).unwrap_or_default())).collect::<Vec<_>>().join(", ")
         )),
     }
 }
@@ -376,19 +516,26 @@ pub fn resolve_for(engine: &Engine, agent_id: &str, req: &ViewerOpen) -> Result<
     }
     let x = engine.exec_for(agent_id);
     let now = working_folder(engine, agent_id);
-    // Worktrees only matter for a root that isn't a path.
-    let worktrees = match req.root.as_deref().filter(|r| !r.trim().is_empty()) {
-        Some(_) => crate::worktrees::list(engine)
-            .into_iter()
-            .filter(|p| {
-                p.agent_ids.iter().any(|a| a == agent_id)
-                    || p.worktrees.iter().any(|w| w.path == cwd || now.as_deref().is_some_and(|n| crate::explorer::inside(&w.path, n)))
-            })
-            .flat_map(|p| p.worktrees.into_iter().map(|w| (w.path, w.name, w.branch)))
-            .collect(),
-        None => vec![],
-    };
-    resolve(&Place { exec: &*x, cwd: &cwd, now: now.as_deref(), worktrees: &worktrees, local }, agent_id, req)
+    let (worktrees, inside) = names_for(&*x, &cwd, now.as_deref(), req);
+    resolve(&Place { exec: &*x, cwd: &cwd, now: now.as_deref(), worktrees: &worktrees, inside: &inside, local }, agent_id, req)
+}
+
+/// The worktrees a root that is a name may mean, for an agent started in
+/// `cwd` working in `now` ([`Place::worktrees`], [`Place::inside`]):
+/// asked of git only for a root that isn't a path there, and the
+/// repositories inside the agent's folder only when the nearer ones have
+/// none of that name. Blocking.
+pub fn names_for(x: &dyn Exec, cwd: &str, now: Option<&str>, req: &ViewerOpen) -> (Vec<Worktree>, Vec<Worktree>) {
+    let Some(r) = req.root.as_deref().map(str::trim).filter(|r| !r.is_empty()) else { return (vec![], vec![]) };
+    let home = x.home().ok();
+    let from = req.cwd.as_deref().filter(|c| absolute(c)).or(now).unwrap_or(cwd);
+    if absolute(&expand_tilde_in(home.as_deref(), r)) || x.real_path(&full(home.as_deref(), from, r)).is_ok() {
+        return (vec![], vec![]);
+    }
+    let dirs: Vec<&str> = [Some(cwd), now, req.cwd.as_deref().filter(|c| absolute(c))].into_iter().flatten().collect();
+    let near = worktrees_near(x, &dirs);
+    let inside = if named(&near, r).is_empty() && git_top(x, cwd).is_none() { worktrees_inside(x, cwd) } else { vec![] };
+    (near, inside)
 }
 
 /// Where agent `id` works now, when Pitwall knows: the folder its latest
@@ -446,7 +593,7 @@ mod tests {
     fn files_are_found_from_the_agents_folder() {
         let x = fake();
         let wt = vec![("/w/api-fix".to_string(), "api-fix".to_string(), Some("fix/login".to_string()))];
-        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &wt, local: true };
+        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &wt, inside: &[], local: true };
         let (show, skipped) = resolve(&place, "a1", &req(&["src/a.rs:3:2", "/w/api/README.md", "nope.rs", "src", "odd:12"])).unwrap();
         let paths: Vec<_> = show.files.iter().map(|f| (f.path.as_str(), f.line, f.column)).collect();
         assert_eq!(paths, vec![("/w/api/src/a.rs", Some(3), Some(2)), ("/w/api/README.md", None, None), ("/w/api/odd:12", None, None)]);
@@ -459,7 +606,7 @@ mod tests {
     fn a_root_is_a_path_or_a_worktree_name() {
         let x = fake();
         let wt = vec![("/w/api-fix".to_string(), "api-fix".to_string(), Some("fix/login".to_string()))];
-        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &wt, local: true };
+        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &wt, inside: &[], local: true };
         // "Show me the source of worktree fix/login": its folder as a tree.
         let r = ViewerOpen { root: Some("fix/login".into()), ..Default::default() };
         assert_eq!(resolve(&place, "a1", &r).unwrap().0.folder.as_deref(), Some("/w/api-fix"));
@@ -475,7 +622,7 @@ mod tests {
     #[test]
     fn folders_and_nothing_at_all() {
         let x = fake();
-        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &[], local: true };
+        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &[], inside: &[], local: true };
         let r = ViewerOpen { folder: Some("src".into()), place: Some(pitwall_proto::ViewerPlace::Window), ..Default::default() };
         let (show, _) = resolve(&place, "a1", &r).unwrap();
         assert_eq!((show.folder.as_deref(), show.place), (Some("/w/api/src"), Some(pitwall_proto::ViewerPlace::Window)));
@@ -492,7 +639,7 @@ mod tests {
     #[test]
     fn elsewhere_only_the_agents_own_folder() {
         let x = fake();
-        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &[], local: false };
+        let place = Place { exec: &*x, cwd: "/w/api", now: None, worktrees: &[], inside: &[], local: false };
         let (show, skipped) = resolve(&place, "a1", &req(&["src/a.rs", "/w/api-fix/b.rs"])).unwrap();
         assert_eq!(show.files.len(), 1);
         assert!(skipped[0].reason.contains("another machine"));
@@ -516,7 +663,7 @@ mod tests {
     fn the_worktree_it_works_in_now_is_shown() {
         let x = with_git();
         // Started in /w/api, now in a folder of worktree /w/api-fix.
-        let place = Place { exec: &*x, cwd: "/w/api", now: Some("/w/api-fix/sub"), worktrees: &[], local: true };
+        let place = Place { exec: &*x, cwd: "/w/api", now: Some("/w/api-fix/sub"), worktrees: &[], inside: &[], local: true };
         let (show, _) = resolve(&place, "a1", &req(&["c.rs"])).unwrap();
         // Relative paths from that folder itself; the tree is its worktree's.
         assert_eq!(show.files[0].path, "/w/api-fix/sub/c.rs");
@@ -540,6 +687,42 @@ mod tests {
         assert_eq!(resolve(&place, "a1", &r).unwrap().0.root.as_deref(), Some("/w/api-fix"));
     }
 
+    /// Started in a folder that isn't a repository (`~`, a projects
+    /// folder), working in a repository below it: that worktree is shown;
+    /// a folder asked for in another worktree roots the viewer there.
+    #[test]
+    fn a_repository_below_a_plain_folder_is_its_own_root() {
+        let x = with_git();
+        x.on_exit(&["git", "-C", "/w", "rev-parse", "--show-toplevel"], 128, "", "fatal: not a git repository");
+        let place = Place { exec: &*x, cwd: "/w", now: Some("/w/api/src"), worktrees: &[], inside: &[], local: true };
+        let (show, _) = resolve(&place, "a1", &req(&["a.rs"])).unwrap();
+        assert_eq!((show.files[0].path.as_str(), show.root.as_deref()), ("/w/api/src/a.rs", Some("/w/api")));
+        // A folder by its path in another worktree: rooted there.
+        let place = Place { now: None, ..place };
+        let r = ViewerOpen { folder: Some("/w/api-fix/sub".into()), ..Default::default() };
+        let (show, _) = resolve(&place, "a1", &r).unwrap();
+        assert_eq!((show.folder.as_deref(), show.root.as_deref()), (Some("/w/api-fix/sub"), Some("/w/api-fix")));
+        assert!(show.note.unwrap_or_default().contains("is in the git worktree /w/api-fix"));
+        // Started in the repository: a folder of it is revealed, no root.
+        let place = Place { cwd: "/w/api", ..place };
+        let r = ViewerOpen { folder: Some("/w/api/src".into()), ..Default::default() };
+        assert_eq!(resolve(&place, "a1", &r).unwrap().0.root, None);
+        // Names: the nearer worktrees first, then those inside the folder.
+        let near = vec![("/w/api".to_string(), "api".to_string(), Some("main".to_string()))];
+        let inside = vec![("/w/api-fix".to_string(), "api-fix".to_string(), Some("fix/login".to_string()))];
+        let place = Place { cwd: "/w", worktrees: &near, inside: &inside, ..place };
+        let r = ViewerOpen { root: Some("main".into()), ..Default::default() };
+        assert_eq!(resolve(&place, "a1", &r).unwrap().0.root.as_deref(), Some("/w/api"));
+        // (A name that is a path from the folder is that path.)
+        let r = ViewerOpen { root: Some("fix/login".into()), ..Default::default() };
+        let (show, _) = resolve(&place, "a1", &r).unwrap();
+        assert_eq!(show.root.as_deref(), Some("/w/api-fix"));
+        assert!(show.note.unwrap_or_default().contains("a repository in /w"));
+        let r = ViewerOpen { root: Some("nope".into()), ..Default::default() };
+        let e = resolve(&place, "a1", &r).unwrap_err();
+        assert!(e.contains("Worktrees: api (main), api-fix (fix/login)"), "{e}");
+    }
+
     #[test]
     fn a_root_asked_for_beats_where_it_works_now() {
         let x = with_git();
@@ -547,7 +730,7 @@ mod tests {
             ("/w/api".to_string(), "api".to_string(), Some("main".to_string())),
             ("/w/api-fix".to_string(), "api-fix".to_string(), Some("fix/login".to_string())),
         ];
-        let place = Place { exec: &*x, cwd: "/w/api", now: Some("/w/api-fix"), worktrees: &wt, local: true };
+        let place = Place { exec: &*x, cwd: "/w/api", now: Some("/w/api-fix"), worktrees: &wt, inside: &[], local: true };
         // By path, by folder name, by branch.
         for root in ["/w/api", "api", "main"] {
             let r = ViewerOpen { root: Some(root.into()), files: vec!["README.md".into()], ..Default::default() };
@@ -563,7 +746,7 @@ mod tests {
     fn a_removed_worktree_is_said_plainly() {
         let x = with_git();
         let wt = vec![("/w/old".to_string(), "old".to_string(), Some("old-branch".to_string()))];
-        let place = Place { exec: &*x, cwd: "/w/api", now: Some("/w/old"), worktrees: &wt, local: true };
+        let place = Place { exec: &*x, cwd: "/w/api", now: Some("/w/old"), worktrees: &wt, inside: &[], local: true };
         let e = resolve(&place, "a1", &req(&["a.rs"])).unwrap_err();
         assert!(e.contains("(/w/old) is gone") && e.contains("root"), "{e}");
         let place = Place { now: None, ..place };
