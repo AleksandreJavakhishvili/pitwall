@@ -181,8 +181,10 @@ impl ViewerWindow {
     fn hold(&mut self, viewer: Entity<Viewer>, cx: &mut Context<Self>) {
         let owner = self.store.read(cx).agent(&self.agent).map(|a| a.name.clone());
         let pinned = self.pinned;
+        let id = self.agent.clone();
         viewer.update(cx, |v, cx| {
             v.set_host(Host::Window, owner, cx);
+            v.set_owner_id(&id);
             v.set_pinned(pinned, cx);
         });
         let me = cx.entity().downgrade();

@@ -25,6 +25,8 @@ pub struct CommandState {
     pub projects: Vec<(String, String)>,
     /// Layout presets that fit the active space.
     pub presets: Vec<Preset>,
+    /// The focused tile's files' agent, when a files tile has the focus.
+    pub files: Option<String>,
 }
 
 impl MainScreen {
@@ -44,11 +46,13 @@ impl MainScreen {
             }
             None => Preset::ALL.to_vec(),
         };
+        let files = self.active_space().and_then(|sp| sp.layout.find_pane(sp.focused_pane_id.as_deref()?)?.files.clone());
         CommandState {
             agents,
             selected: self.focused_agent_id(),
             projects,
             presets,
+            files,
         }
     }
 

@@ -204,9 +204,94 @@ fn apply(v: &mut Viewer, plan: &Plan, cx: &mut Context<Viewer>) {
 }
 
 fn live_store(cx: &App) -> Option<gpui::Entity<crate::agents::AgentStore>> {
-    match &cx.try_global::<crate::AppState>()?.content {
-        crate::ui::Content::Live { store } => Some(store.clone()),
-        _ => None,
+    if let Some(crate::ui::Content::Live { store }) = cx.try_global::<crate::AppState>().map(|s| &s.content) {
+        return Some(store.clone());
+    }
+    dock::env_store(cx)
+}
+
+/// The folder `key` reads, on its agent's machine.
+fn key_root(key: &str, cx: &App) -> Option<PathBuf> {
+    match root_of_key(key) {
+        Some(r) => Some(PathBuf::from(r)),
+        None => live_store(cx).and_then(|s| s.read(cx).agent(key).map(root_of)),
+    }
+}
+
+/// The user roots viewer `v` (a files tile's or a window's) at `key` with
+/// its own controls (the root menu, a folder's "Open as root"): as an
+/// agent's call would, refused while it has unsaved edits, the tabs that
+/// are there under the new root too carried over. The new viewer (the
+/// same one when it reads `key` already).
+pub fn switch_root(v: &Entity<Viewer>, key: &str, cx: &mut App) -> Result<Entity<Viewer>, String> {
+    if v.read(cx).agent_id() == key {
+        return Ok(v.clone());
+    }
+    let unsaved = v.read(cx).unsaved(cx);
+    if !unsaved.is_empty() {
+        let what = unsaved.iter().map(|p| super::logic::split_path(p).1.to_string()).collect::<Vec<_>>().join(", ");
+        return Err(format!("Save or discard your changes to {what} first: they'd be lost."));
+    }
+    let owner = dock::owner_of(v, cx).ok_or("These files aren't in a files tile or window.")?;
+    let sized = |nv: Entity<Viewer>, cx: &mut App| {
+        let old = v.clone();
+        nv.update(cx, |n, cx| n.size_as(old.read(cx)));
+        nv
+    };
+    if dock::viewer(&owner, cx).as_ref() == Some(v) {
+        return tile_viewer(&owner, key, cx).map(|nv| sized(nv, cx));
+    }
+    let h = crate::windows::viewer_window(&owner, cx).ok_or("Its window is gone.")?;
+    let name = agent_name(&owner, cx).unwrap_or_else(|| owner.clone());
+    let title = super::window::title(&name, &root_display(key, cx));
+    let root = key_root(key, cx).ok_or("That folder can't be read from here.")?;
+    h.update(cx, |w, window, cx| {
+        let carry = replacing(w.viewer(), &name, &root, cx)?;
+        let nv = w.viewer_for(key, &title, window, cx);
+        nv.update(cx, |v, cx| v.restore(&carry, cx));
+        Ok(nv)
+    })
+    .map_err(|_| "Its window is gone.".to_string())?
+    .map(|nv| sized(nv, cx))
+}
+
+/// Agent `owner`'s files tile's viewer (with its Pitwall window), else
+/// its files window's viewer.
+fn files_of(owner: &str, cx: &App) -> Option<(Entity<Viewer>, gpui::AnyWindowHandle)> {
+    if let (Some(v), Some((label, _, _))) = (dock::viewer(owner, cx), dock::holder(owner, cx)) {
+        return Some((v, crate::windows::main_window_of(&label, cx)?.into()));
+    }
+    let h = crate::windows::viewer_window_of(owner, cx)?;
+    let v = h.read(cx).ok()?.viewer().clone();
+    Some((v, h.into()))
+}
+
+/// Agent `owner` has a files tile or window whose root the user can switch
+/// (on this computer).
+pub fn can_switch_root_of(owner: &str, cx: &App) -> bool {
+    files_of(owner, cx).is_some_and(|(v, _)| v.read(cx).can_switch_root(cx))
+}
+
+/// The command palette's "Files: open folder…" / "Files: switch
+/// worktree…": agent `owner`'s files tile's or window's root menu, open
+/// on `start` (a window of its own comes forward).
+pub fn open_root_menu_for(owner: &str, start: super::root_menu::Start, cx: &mut App) {
+    let Some((v, h)) = files_of(owner, cx) else { return };
+    let own_window = crate::windows::viewer_window_of(owner, cx).is_some_and(|w| gpui::AnyWindowHandle::from(w) == h);
+    let _ = h.update(cx, |_, window, cx| {
+        if own_window {
+            window.activate_window();
+        }
+        v.update(cx, |v, cx| v.open_root_menu(start, None, window, cx));
+    });
+}
+
+/// The key that reads folder `path` for agent `owner`'s viewer: its own
+/// id for its own folder, else the folder's `path:` key.
+pub fn key_for(owner: &str, path: &Path, cx: &App) -> String {
+    match live_store(cx).and_then(|s| s.read(cx).agent(owner).map(root_of)) {
+        Some(own) if own == path => owner.to_string(),
+        _ => path_key(&path.to_string_lossy()),
     }
 }
 

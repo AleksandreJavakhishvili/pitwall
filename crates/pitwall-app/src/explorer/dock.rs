@@ -90,6 +90,11 @@ pub fn remember_env(source: Option<Arc<dyn Source>>, store: &Entity<AgentStore>,
     }
 }
 
+/// The agents viewers are made with.
+pub fn env_store(cx: &App) -> Option<Entity<AgentStore>> {
+    cx.try_global::<Env>().map(|e| e.store.clone())
+}
+
 struct Tile {
     key: String,
     viewer: Entity<Viewer>,
@@ -191,6 +196,7 @@ pub fn adopt(owner: &str, key: &str, viewer: Entity<Viewer>, cx: &mut App) {
     let name = cx.try_global::<Env>().and_then(|e| e.store.read(cx).agent(owner).map(|a| a.name.clone()));
     viewer.update(cx, |v, cx| {
         v.set_host(Host::Tile, name, cx);
+        v.set_owner_id(owner);
         v.set_can_dock(true, cx);
     });
     let o = owner.to_string();

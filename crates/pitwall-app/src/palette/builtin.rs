@@ -361,6 +361,29 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         );
     }
 
+    // The root of the focused files tile (else the focused agent's files
+    // tile or window): its root menu, on this computer.
+    let files_of = st.files.clone().or_else(|| st.selected.clone()).filter(|id| crate::explorer::show::can_switch_root_of(id, cx));
+    if let Some(owner) = files_of {
+        use crate::explorer::root_menu::Start;
+        for (id, title, words, icon, start) in [
+            ("files-open-folder", "Files: open folder…", "files open folder root viewer tree path directory", "folder", Start::OpenFolder),
+            ("files-switch-worktree", "Files: switch worktree…", "files switch worktree root branch viewer tree", "branch", Start::Worktrees),
+        ] {
+            let owner = owner.clone();
+            out.push(
+                Command::new(id, title, words, move |_, cx| {
+                    let owner = owner.clone();
+                    // (After the palette's own update: the viewer may be in
+                    // this very window.)
+                    cx.defer(move |cx| crate::explorer::show::open_root_menu_for(&owner, start, cx));
+                })
+                .icon(icon)
+                .rank(rank::FILES),
+            );
+        }
+    }
+
     out.push(
         Command::new(
             "window",
