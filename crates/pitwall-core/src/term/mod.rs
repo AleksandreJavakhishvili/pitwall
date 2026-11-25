@@ -80,6 +80,9 @@ pub struct TermHost {
     watchers: Mutex<Vec<frames::Watcher>>,
     /// Dev-server addresses in the output ("Open preview").
     preview: Mutex<preview::PreviewScan>,
+    /// Lines that said a device is starting, live output only, with when
+    /// (mono ms): newest last, at most 8.
+    device_hints: Mutex<Vec<(u64, crate::devices::Hint)>>,
     clock: Arc<dyn Clock>,
 }
 
@@ -112,6 +115,7 @@ impl TermHost {
             ended: AtomicBool::new(false),
             watchers: Mutex::new(Vec::new()),
             preview: Mutex::new(preview::PreviewScan::default()),
+            device_hints: Mutex::new(Vec::new()),
             clock,
         });
         if !history.is_empty() {
@@ -153,8 +157,19 @@ impl TermHost {
             self.own_screen();
         }
         self.screen_changed();
-        lock(&self.preview).feed(chunk);
+        let hints = {
+            let mut p = lock(&self.preview);
+            p.feed(chunk);
+            p.take_devices()
+        };
         let now = self.clock.mono_ms();
+        // History replayed on attaching is old news.
+        if live && !hints.is_empty() {
+            let mut kept = lock(&self.device_hints);
+            kept.extend(hints.into_iter().map(|h| (now, h)));
+            let over = kept.len().saturating_sub(8);
+            kept.drain(..over);
+        }
         self.output_seq.fetch_add(1, Ordering::Relaxed);
         if live && now.saturating_sub(self.last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
             self.last_activity.store(now, Ordering::Relaxed);
@@ -259,6 +274,13 @@ impl TermHost {
     pub fn preview(&self) -> (Vec<String>, u32) {
         let p = lock(&self.preview);
         (p.urls().to_vec(), p.seen())
+    }
+
+    /// Lines it printed that said a device is starting
+    /// ([`crate::devices::hint`]), with how long ago (ms), oldest first.
+    pub fn device_hints(&self) -> Vec<(u64, crate::devices::Hint)> {
+        let now = self.clock.mono_ms();
+        lock(&self.device_hints).iter().map(|(at, h)| (now.saturating_sub(*at), h.clone())).collect()
     }
 
     /// The screen as styled rows (what the Wall draws).
@@ -510,6 +532,22 @@ mod tests {
         assert_eq!(host.last_activity.load(Ordering::Relaxed), 10_000);
         assert!(host.screen_text().0.contains("before live"));
         assert_eq!(host.pid(), Some(7));
+    }
+
+    /// A device line counts from when it is printed live; one in the
+    /// history replayed on attaching doesn't.
+    #[test]
+    fn device_lines_are_kept_with_their_age_live_only() {
+        let clock = crate::testing::ManualClock::new(10_000);
+        let (term, ctl) = FakeTerm::new(TermSize::new(80, 24), Some(7));
+        ctl.set_history(b"$ xcrun simctl boot \"iPad Air\"\r\n");
+        let host = TermHost::new(Box::new(term), TermSize::DEFAULT, clock.clone());
+        assert!(host.device_hints().is_empty(), "history is old news");
+        ctl.output(b"\x1b[1mLaunching lib/main.dart on \x1b[32miPhone 17\x1b[0m in debug mode...\r\n");
+        assert!(wait_until(|| !host.device_hints().is_empty()));
+        clock.advance(1_500);
+        let hints = host.device_hints();
+        assert_eq!(hints, vec![(1_500, crate::devices::Hint { os: None, device: Some("iPhone 17".into()) })]);
     }
 
     #[test]

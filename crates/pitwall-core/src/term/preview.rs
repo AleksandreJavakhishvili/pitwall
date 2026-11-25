@@ -46,6 +46,9 @@ pub struct PreviewScan {
     seen: u32,
     /// The addresses counted in the line being read.
     line_seen: Vec<String>,
+    /// Lines that said a device is starting (`crate::devices::hint`), not
+    /// taken yet.
+    devices: Vec<crate::devices::Hint>,
 }
 
 impl PreviewScan {
@@ -59,6 +62,11 @@ impl PreviewScan {
     /// address list stays the same. The preview reloads on it.
     pub fn seen(&self) -> u32 {
         self.seen
+    }
+
+    /// The device lines read since the last call (at most 8).
+    pub fn take_devices(&mut self) -> Vec<crate::devices::Hint> {
+        std::mem::take(&mut self.devices)
     }
 
     pub fn feed(&mut self, chunk: &[u8]) {
@@ -145,6 +153,12 @@ impl PreviewScan {
         let line = std::mem::take(&mut self.line);
         for url in find(&line, true) {
             self.note(url);
+        }
+        if let Some(h) = crate::devices::hint(&line) {
+            if self.devices.len() >= 8 {
+                self.devices.remove(0);
+            }
+            self.devices.push(h);
         }
         self.line_seen.clear();
     }

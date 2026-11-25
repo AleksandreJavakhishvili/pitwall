@@ -12,6 +12,7 @@
 
 pub mod accounts;
 pub mod clock;
+pub mod devices;
 pub mod engine;
 pub mod engineer;
 pub mod error;
