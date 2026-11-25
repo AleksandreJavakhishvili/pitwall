@@ -15,6 +15,9 @@ const PATHS: Record<string, string> = {
   branch: "M6 4v12M6 9c0-2 1.5-3 4-3h1M13 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 16",
   folder: "M3 5.5h5l1.5 1.5H17v8.5H3z",
   chevron: "M8 5l5 5-5 5",
+  back: "M12 5 7 10l5 5",
+  // A web tile (a globe).
+  globe: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM3 10h14M10 3c-2.2 2-2.2 12 0 14M10 3c2.2 2 2.2 12 0 14",
   grid: "M3.5 3.5h5.5v5.5H3.5zM11 3.5h5.5v5.5H11zM3.5 11h5.5v5.5H3.5zM11 11h5.5v5.5H11z",
   wall: "M2.5 4h4.5v5H2.5zM7.75 4h4.5v5h-4.5zM13 4h4.5v5H13zM2.5 11h4.5v5H2.5zM7.75 11h4.5v5h-4.5zM13 11h4.5v5H13z",
   maximize: "M4 8V4h4M16 8V4h-4M4 12v4h4M16 12v4h-4",

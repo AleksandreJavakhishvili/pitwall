@@ -43,9 +43,10 @@ const sessions = new Map<string, { tabs: string[]; active: string | null }>();
 const differs = (a: FileView | null, b: FileView) => !a || a.size !== b.size || a.kind !== b.kind || a.text !== b.text;
 
 /**
- * The read-only file viewer (docs/spec/explorer.md): full main area like
- * Review. Left: the agent's tree or Search; center: tabs of open files, each
- * in Review's read-only CodeMirror. Nothing here can change a file.
+ * The read-only file viewer (docs/spec/explorer.md): a files tile beside the
+ * space's terminals (App), as in the desktop app. Left: the agent's tree or
+ * Search; right: tabs of open files, each in Review's read-only CodeMirror.
+ * Nothing here can change a file.
  */
 export default function Viewer({
   agent,
@@ -228,15 +229,15 @@ export default function Viewer({
           <span className="rv-agent-label">{agent.name}</span>
         </span>
         <span className="muted-sm ex-bar-hint" title={agent.cwd}>
-          read-only · {agent.cwdDisplay}
+          {agent.cwdDisplay}
         </span>
         <span className="spacer" />
         <RefreshControl refreshing={state.refreshing} updatedAt={state.updatedAt} onRefresh={() => (void model.refresh(), recheck())} label="Refresh files" />
         <button className="small-btn" onClick={onQuickOpen} title={keys("Go to file (⌘P)")}>
           Go to file <Kbd>⌘P</Kbd>
         </button>
-        <button className="small-btn" onClick={onExit}>
-          Back <Kbd>esc</Kbd>
+        <button className="icon-btn icon-btn-sm" data-tile-close onClick={onExit} title="Close (esc)" aria-label="Close files">
+          <Icon name="x" size={13} />
         </button>
       </div>
 

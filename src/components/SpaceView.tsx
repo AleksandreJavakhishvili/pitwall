@@ -28,10 +28,12 @@ interface Props {
   maxPerRow: number;
   fontSize: number;
   onMoveToWindow?: () => void;
+  /** A files or web tile shown beside the space's tiles (App: the file viewer, a Preview). */
+  tile?: React.ReactNode;
 }
 
 
-export function SpaceView({ space, agents, ui, me, maxPerRow, fontSize, onMoveToWindow }: Props) {
+export function SpaceView({ space, agents, ui, me, maxPerRow, fontSize, onMoveToWindow, tile }: Props) {
   const { applyPreset, toggleMaximize, setDensity } = useActions();
   const density = densityOf(ui, space);
   const min = foldMin(density, fontSize);
@@ -113,19 +115,22 @@ export function SpaceView({ space, agents, ui, me, maxPerRow, fontSize, onMoveTo
           </button>
         )}
       </div>
-      <div className="space-area" ref={areaRef} data-drop="space" data-space-id={space.id}>
-        {tree && (
-          <LayoutView
-            node={tree}
-            agents={byId}
-            focusedPaneId={space.focusedPaneId}
-            maximized={!!maximized}
-            paneCount={paneCount}
-            spaceId={space.id}
-            members={chips}
-            fonts={fonts}
-          />
-        )}
+      <div className="space-area" data-drop="space" data-space-id={space.id}>
+        <div className="space-tiles" ref={areaRef}>
+          {tree && (
+            <LayoutView
+              node={tree}
+              agents={byId}
+              focusedPaneId={space.focusedPaneId}
+              maximized={!!maximized}
+              paneCount={paneCount}
+              spaceId={space.id}
+              members={chips}
+              fonts={fonts}
+            />
+          )}
+        </div>
+        {tile}
       </div>
       {chips.length > 0 && <ChipStrip agents={chips} ui={ui} me={me} spaceId={space.id} />}
     </div>

@@ -58,6 +58,7 @@ import { useWorktrees, WorktreesContext } from "./lib/useWorktrees";
 import { RemoveWorktreeDialog } from "./components/RemoveWorktreeDialog";
 import { findWorktree } from "./lib/worktrees";
 import { QuickOpen } from "./components/explorer/QuickOpen";
+import { WebTile } from "./components/WebTile";
 import { ProjectAccountsDialog } from "./components/ProjectAccountsDialog";
 import { accountOf, useAccounts } from "./lib/useAccounts";
 import type { ViewerTarget } from "./components/explorer/Viewer";
@@ -108,6 +109,8 @@ export default function App() {
   const [reviewAll, setReviewAll] = useState(false);
   /** The read-only file viewer (docs/spec/explorer.md), when shown. */
   const [explorer, setExplorer] = useState<ViewerTarget | null>(null);
+  /** A web tile beside the space: an agent's Preview (WebTile, mockWeb.ts), when shown. */
+  const [web, setWeb] = useState<{ agentId: string; url: string } | null>(null);
   const { toasts, push, dismiss } = useToasts();
 
   const groups = useMemo(() => groupByProject(agents), [agents]);
@@ -354,6 +357,15 @@ export default function App() {
   const openExplorer = (t: ExplorerTarget) => {
     if (!explorerAgent(t.agentId)) return;
     setExplorer({ ...t, nonce: Date.now() });
+    setWeb(null);
+    setReviewOn(false);
+    setOverlaySidebar(false);
+    setDrawerOpen(false);
+    if (wallOn) setWall(false);
+  };
+  const openWeb = (agentId: string, url: string) => {
+    setWeb({ agentId, url });
+    setExplorer(null);
     setReviewOn(false);
     setOverlaySidebar(false);
     setDrawerOpen(false);
@@ -514,6 +526,7 @@ export default function App() {
     openRemoveWorktree: (projectId, path) => setModal({ type: "removeWorktree", projectId, path }),
     openReview,
     openExplorer,
+    openWeb,
     openQuickOpen: (id) => openQuickOpen(typeof id === "string" ? id : undefined),
     openNewAgent: (p) => setModal({ type: "new", projectPath: typeof p === "string" ? p : undefined }),
     dropAgent: (agentId, t) => dropAgentOn(agentId, t),
@@ -727,8 +740,9 @@ export default function App() {
     resp.sidebar === "full" ? (sidebarCollapsed ? "hidden" : "full") : resp.sidebar;
   const explorerOn = !!explorer && !wallOn && !reviewOn;
   const viewerAgent = explorer ? (agents.find((a) => a.id === explorer.agentId && a.caps.explorer) ?? null) : null;
+  const webAgent = web && !wallOn && !reviewOn ? (agents.find((a) => a.id === web.agentId) ?? null) : null;
   const rightMode: "docked" | "drawer" | "hidden" =
-    !selected || wallOn || reviewOn || explorerOn ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
+    !selected || wallOn || reviewOn || explorerOn || webAgent ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
 
   const sidebarGroups = useMemo(() => withProjects(groups, projects), [groups, projects]);
   // Review lists the active space's agents (docs/spec/review.md), plus the one it was opened for.
@@ -813,22 +827,6 @@ export default function App() {
                 />
               </Suspense>
             </ErrorBoundary>
-          ) : explorerOn && viewerAgent ? (
-            <ErrorBoundary key={`files:${viewerAgent.id}`} where="Files" onClose={() => setExplorer(null)}>
-              <Suspense fallback={<p className="hint pad">Loading files…</p>}>
-                <Viewer
-                  key={viewerAgent.id}
-                  agent={viewerAgent}
-                  target={explorer!}
-                  onExit={() => {
-                    setExplorer(null);
-                    nextFrame(() => focusTerminal(viewerAgent.id));
-                  }}
-                  onShowDiff={(path) => openReview({ agentId: viewerAgent.id, path })}
-                  onQuickOpen={() => openQuickOpen(viewerAgent.id)}
-                />
-              </Suspense>
-            </ErrorBoundary>
           ) : activeSpace ? (
             <SpaceView
               key={activeSpace.id}
@@ -839,6 +837,29 @@ export default function App() {
               maxPerRow={resp.maxPerRow}
               fontSize={ui.fontSize}
               onMoveToWindow={activeSpace.id === W.ALL_SPACE ? undefined : () => moveSpaceToNewWindow(activeSpace.id)}
+              tile={
+                explorerOn && viewerAgent ? (
+                  <section className="side-tile" aria-label={`${viewerAgent.name}'s files`}>
+                    <ErrorBoundary key={`files:${viewerAgent.id}`} where="Files" onClose={() => setExplorer(null)}>
+                      <Suspense fallback={<p className="hint pad">Loading files…</p>}>
+                        <Viewer
+                          key={viewerAgent.id}
+                          agent={viewerAgent}
+                          target={explorer!}
+                          onExit={() => {
+                            setExplorer(null);
+                            nextFrame(() => focusTerminal(viewerAgent.id));
+                          }}
+                          onShowDiff={(path) => openReview({ agentId: viewerAgent.id, path })}
+                          onQuickOpen={() => openQuickOpen(viewerAgent.id)}
+                        />
+                      </Suspense>
+                    </ErrorBoundary>
+                  </section>
+                ) : webAgent ? (
+                  <WebTile agent={webAgent} url={web!.url} onClose={() => setWeb(null)} />
+                ) : undefined
+              }
             />
           ) : (
             <div className="empty">

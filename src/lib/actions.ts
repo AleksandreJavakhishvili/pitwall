@@ -39,6 +39,8 @@ export interface Actions {
   openReview(focus?: ReviewTarget): void;
   /** The read-only file viewer (docs/spec/explorer.md) for an agent, optionally at a file / line or on Search. */
   openExplorer(target: ExplorerTarget): void;
+  /** A web tile beside the space, showing `url` for an agent (its Preview; mockWeb.ts). */
+  openWeb(agentId: string, url: string): void;
   /** ⌘P: go to a file of an agent (default: the focused one). */
   openQuickOpen(agentId?: string): void;
   /** `projectPath` preselects the project (non-string args, e.g. click events, are ignored). */

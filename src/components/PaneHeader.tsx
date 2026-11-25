@@ -10,6 +10,8 @@ import { RulesStaleButton } from "./rules/RulesStaleButton";
 import { keys } from "../lib/host";
 import { accountOf, useAccounts } from "../lib/useAccounts";
 import { AgentLogo } from "./AgentLogo";
+import { portOf, previewOf } from "../mockWeb";
+import "./webTile.css";
 
 interface Props {
   agent: AgentView;
@@ -19,8 +21,10 @@ interface Props {
 }
 
 export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
-  const { run, openRemove, toggleMaximize, closePane } = useActions();
+  const { run, openRemove, toggleMaximize, closePane, openWeb } = useActions();
   const account = accountOf(useAccounts(), a.account);
+  // The dev server address its terminal printed, if any: Preview opens it in a web tile.
+  const preview = previewOf(a.id);
   return (
     <header
       className="pane-head"
@@ -64,6 +68,12 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
         <DiffStat added={a.added} removed={a.removed} />
       </span>
       <span className="spacer" />
+      {preview && (
+        <button className="small-btn pane-preview" data-preview onClick={() => openWeb(a.id, preview)} title={`Open ${preview} in a web tile`}>
+          <Icon name="globe" size={12} />
+          Preview {portOf(preview)}
+        </button>
+      )}
       <RulesStaleButton agentId={a.id} />
       <span className="pane-actions">
         {a.caps.stop && (
