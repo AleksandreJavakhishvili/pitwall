@@ -43,6 +43,7 @@
 //! setting is off. Nothing here polls while nothing asks: the check for
 //! "is Pitwall in front" runs only while something does.
 
+mod demo;
 pub mod model;
 
 use std::cell::Cell;
@@ -178,6 +179,10 @@ pub struct Float {
     bench_shown: bool,
     /// That view, made in the main window on its first draw.
     preview: Option<Entity<FloatView>>,
+    /// A bench instance's made-up agents (`float demo`), shown instead of
+    /// the store's, and their screens.
+    demo: Option<Vec<pitwall_proto::AgentView>>,
+    demo_screens: HashMap<String, pitwall_proto::ScreenFrame>,
 }
 
 impl Global for Float {}
@@ -343,6 +348,8 @@ pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Op
         shift: (0., 0.),
         bench_shown: false,
         preview: None,
+        demo: None,
+        demo_screens: HashMap::new(),
     });
     cx.observe(store, |_, cx| sync(cx)).detach();
     let ui = crate::ui_state::store(cx);
@@ -658,7 +665,11 @@ pub fn enabled(cx: &App) -> bool {
 }
 
 fn items(cx: &App) -> Vec<Item> {
-    cx.try_global::<Float>().map(|f| model::items(&f.store.read(cx).agents)).unwrap_or_default()
+    let Some(f) = cx.try_global::<Float>() else { return Vec::new() };
+    match &f.demo {
+        Some(agents) => model::items(agents),
+        None => model::items(&f.store.read(cx).agents),
+    }
 }
 
 /// The extensions that are on, have an inbox and whose adapter runs, with
@@ -1254,6 +1265,34 @@ pub fn bench(cmd: &str, cx: &mut App) {
                 open_ask(&a, cx);
             }
         }
+        // Made-up agents instead of the store's (`demo`), and the first
+        // one's answer as failed or sent.
+        "demo" => {
+            let name = words.next().unwrap_or_default();
+            let f = cx.global_mut::<Float>();
+            if name == "off" {
+                (f.demo, f.demo_screens) = (None, HashMap::new());
+            } else if let Some(list) = demo::scenario(name) {
+                f.demo_screens = list.iter().map(|(a, s)| (a.id.clone(), s.clone())).collect();
+                f.demo = Some(list.into_iter().map(|(a, _)| a).collect());
+            } else {
+                return eprintln!("pitwall-debug: float demo one|two|many|question|long|remote|off");
+            }
+            (f.errors, f.answered) = (HashMap::new(), HashMap::new());
+            sync(cx);
+            cx.refresh_windows();
+        }
+        "demo-error" | "demo-sent" => {
+            let Some(item) = items(cx).into_iter().next() else { return };
+            let f = cx.global_mut::<Float>();
+            if what == "demo-error" {
+                f.errors.insert(item.id, "Not sent: its prompt changed.".into());
+            } else {
+                f.answered.insert(item.id, item.ask.text);
+            }
+            sync(cx);
+            cx.refresh_windows();
+        }
         "state" => eprintln!("pitwall-debug: float: {}", state(cx)),
         _ => eprintln!("pitwall-debug: float {cmd}?"),
     }
@@ -1467,7 +1506,7 @@ pub struct FloatView {
 
 impl Drop for FloatView {
     fn drop(&mut self) {
-        self.watch(&[]);
+        self.watch(&[], &HashMap::new());
     }
 }
 
@@ -1512,23 +1551,32 @@ impl FloatView {
         }
     }
 
-    /// Watch the screens of exactly `ids`.
-    fn watch(&mut self, ids: &[&str]) {
-        let Some(source) = self.source.clone() else { return };
+    /// Watch the screens of exactly `ids` (a bench instance's made-up
+    /// agents: their made-up screens, `demo`).
+    fn watch(&mut self, ids: &[&str], demo: &HashMap<String, pitwall_proto::ScreenFrame>) {
+        let source = self.source.clone();
         self.watched.retain(|id, w| {
             let keep = ids.contains(&id.as_str());
-            if let (false, Some(wid)) = (keep, w.id) {
+            if let (false, Some(wid), Some(source)) = (keep, w.id, &source) {
                 source.unwatch(id, wid);
             }
             keep
         });
         for id in ids {
-            if !self.watched.contains_key(*id) {
-                self.tokens += 1;
-                let sink = forward(self.frames.clone(), id.to_string(), self.tokens);
-                let watch = source.watch(id, sink).ok();
-                self.watched.insert(id.to_string(), Watched { id: watch, token: self.tokens, screen: Screen::default() });
+            if self.watched.contains_key(*id) {
+                continue;
             }
+            if let Some(frame) = demo.get(*id) {
+                let mut screen = Screen::default();
+                screen.apply(frame);
+                self.watched.insert(id.to_string(), Watched { id: None, token: 0, screen });
+                continue;
+            }
+            let Some(source) = &source else { continue };
+            self.tokens += 1;
+            let sink = forward(self.frames.clone(), id.to_string(), self.tokens);
+            let watch = source.watch(id, sink).ok();
+            self.watched.insert(id.to_string(), Watched { id: watch, token: self.tokens, screen: Screen::default() });
         }
     }
 
@@ -2167,7 +2215,8 @@ impl Render for FloatView {
         let (max_lines, fill_rows) = (shape.max_lines(count), shape.fill());
         // The screens of this machine's agents that have a card.
         let cards = if expanded { model::shown(&list) } else { &[] };
-        self.watch(&cards.iter().filter(|i| i.local).map(|i| i.id.as_str()).collect::<Vec<_>>());
+        let demo = cx.try_global::<Float>().map(|f| f.demo_screens.clone()).unwrap_or_default();
+        self.watch(&cards.iter().filter(|i| i.local).map(|i| i.id.as_str()).collect::<Vec<_>>(), &demo);
         let terms: Vec<Option<(Screen, TermRows)>> = cards.iter().map(|i| self.term(i, max_lines, fill_rows)).collect();
         // The window is sized for the rows the cards show.
         let rows: HashMap<String, TermRows> = cards.iter().zip(&terms).filter_map(|(i, t)| Some((i.id.clone(), t.as_ref()?.1))).collect();
