@@ -11,8 +11,8 @@ Third-party tiles in Rust/WebAssembly, signed packages and the
 marketplace: [tile-sdk.md](tile-sdk.md). It also proposes one extension
 model (tile-sdk.md §15): a wasm component becomes the way an extension
 runs its own code, and the adapter process described here is removed
-in the release that ships components, with the bundled first-party
-extensions ported to components in that release.
+once each bundled extension has a component version, ported by Pitwall
+or built by its authors on the public SDK.
 
 Marks used below: **[today]** is built and described in extensions.md or
 profiles.md; **[proposed]** is new here.

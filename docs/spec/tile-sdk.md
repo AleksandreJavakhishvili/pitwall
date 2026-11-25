@@ -104,7 +104,8 @@ model and IME. The tile's code never touches a window.
     that keeps running when the window closes.
 13. **Platform services: the minimum, then on demand** (section 14).
     A service is added only when a first-party seed tile, built solely
-    on the public SDK, can't reasonably do without it. The WIT stays 0.x
+    on the public SDK, or an author on the SDK preview, can't reasonably
+    do without it. The WIT stays 0.x
     (breaking changes with notice) until the seed tiles ship, and 1.0
     freezes only then. Never terminal contents, credentials or other
     tiles' data; no hosted database, sync or accounts. The minimum
@@ -114,9 +115,11 @@ model and IME. The tile's code never touches a window.
 14. **One extension model** (section 15, proposed). The extension is
     the one concept; a tile is one thing it contributes. The component
     becomes the only way an extension runs its own code, with or
-    without a tile. Adapters are removed in the release that ships
-    components, with the bundled first-party extensions ported in that
-    release; native code only through a managed service.
+    without a tile. The extensions bundled today are ported by Pitwall
+    or handed to their authors, who build them on the public SDK and
+    docs; adapters are removed once each has a published component
+    version. Native code only through a managed service. Authors'
+    coding agents get a skill and a one-file reference (9.5).
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
@@ -126,8 +129,11 @@ package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
 6 seed tiles (in parallel from phase 2), with on-demand services as
 they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
 managed service: documented and wired during phase 2 (1 wk). If the
-one extension model is accepted: 8 port first-party extensions to
-components (≈ 4 wk) → 9 remove adapters (≈ 1 wk), in one release. Headless wasm services: after phase 7 (≈ 6 wk).
+one extension model is accepted: 8 port or hand over the bundled
+extensions (≈ 4 wk, less for those their authors build) → 9 remove
+adapters (≈ 1 wk) once each has a component version. The authoring
+skill and `llms.txt` reference come with the SDK docs from phase 1
+(≈ 0.5 wk, kept current after). Headless wasm services: after phase 7 (≈ 6 wk).
 
 **Owner decisions needed** are in 10.3, 11.13, 13.6 and 15.8, each
 with a recommendation.
@@ -1598,6 +1604,33 @@ reference with screenshots in both themes and looks, host APIs and
 permissions, keyboard rules, testing, packaging and signing, publishing
 and Verified, compatibility. API docs on docs.rs for `pitwall-tile`.
 
+### 9.5 Docs for authors' agents
+Many authors will build an extension with a coding agent (Claude Code,
+Codex, …). The docs are written so such an agent can build one from the
+docs alone, without Pitwall's source:
+- **An authoring skill**, `pitwall-extension-authoring/SKILL.md`,
+  shipped with the SDK: how to scaffold (`pitwall tile new`), the
+  manifest, the permission kinds and how to justify each, tools and
+  their kinds (`show`, `present`, `read`, `act`), the agent skill and
+  commands, the platform services and what is held back (14), testing
+  with the harness, `check`, packing and signing, publishing. Short, with
+  links into the full docs.
+- **`pitwall tile new` puts the skill into the new project**, where the
+  author's agents find it (`.claude/skills/…`, `.agents/skills/…`, as
+  rulesync names those folders [today, rules.md]), so the agent working
+  in the project has it from the first prompt.
+- **One file, `llms.txt`**, published on the website beside the docs:
+  a single reference generated from the WIT (every interface, record,
+  function, permission and limit) and the author docs, following the
+  proposed `llms.txt` convention for docs meant for language models
+  (S24). It is regenerated in CI on each release, so it never disagrees
+  with the WIT; a test fails if a WIT item has no doc comment.
+- Versioned like the WIT: `llms.txt` for the newest, and one per
+  published WIT version (`/sdk/0.2/llms.txt`), so an agent working on an
+  extension for an older world reads the matching reference.
+- Small: built with the SDK docs in phase 1 (about half a week), then
+  kept current by the generator and the doc-comment test.
+
 ---
 
 ## 10. Plan, risks and open questions
@@ -1620,7 +1653,7 @@ gap in the SDK.
 | Phase | Content | Size |
 |---|---|---|
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk |
-| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core | 5 wk |
+| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference (9.5), first shared with authors as the SDK preview | 5.5 wk |
 | 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum (14.2): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group (14.2): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes | 6.5 wk |
 | 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync (11.11); commands, `pitwall tile run|commands` and palette entries (11.12) | 4 wk |
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk |
@@ -2485,6 +2518,8 @@ tile needs it.
 - **A service is added only when a first-party seed tile (10.1), built
   solely on the public SDK, needs it and can't reasonably do without
   it.** "Would be nice" is not a reason; a seed tile that can't ship is.
+  Authors on the SDK preview (15.4) count the same: their extension that
+  can't ship without a service is the "a real tile needs it" signal.
 - **The WIT stays 0.x until the seed tiles ship.** Breaking changes are
   allowed in 0.x, announced in the changelog one release ahead (8.2).
   **1.0 freezes only then**, with whatever the seed tiles proved they
@@ -2655,10 +2690,11 @@ many.
    text in Next up, answer agent tools and commands.
 2. **Adapters are removed** in the release that ships the component
    runtime: the adapter process protocol (protocols 1 and 2, JSON over
-   stdio) goes, with no compatibility period. Pitwall is 0.x and every
-   extension that exists is first-party, so the first-party extensions
-   bundled with Pitwall are ported to components in that same release
-   (15.4). Until then, adapters get no new features.
+   stdio) goes, with no compatibility period. Pitwall is 0.x and the
+   only extensions are the ones it bundles, so each is ported by Pitwall
+   or handed to its authors, and adapters are removed once every one
+   has a published component version (15.4). Until then, adapters get
+   no new features.
 3. Native code remains only through the managed `service` (13.2), at
    its higher trust level.
 4. Pitwall-drawn views (today's `list`, `detail`, `markdown`, `status`)
@@ -2705,7 +2741,7 @@ Manifest changes in 0.x (breaking changes are allowed before 1.0,
 
 **Parity checklist.** Each adapter capability [today] and its component
 equivalent. Every row must be built before adapters are removed, because
-the first-party extensions bundled with Pitwall use them.
+the extensions bundled with Pitwall use them.
 
 | Adapter [today] | Component | Status in this document |
 |---|---|---|
@@ -2728,20 +2764,27 @@ use is first-party, so breaking is acceptable and a compatibility
 period would only keep two runtimes alive:
 1. **Until components ship:** adapters get fixes only. Author docs say
    adapters are going away.
-2. **Port first:** the first-party extensions bundled with Pitwall are
-   ported to components (the demo becomes the component starter), and
-   pass `pitwall extension check|test` as components.
-3. **Remove in the same release:** the release that ships the component
-   runtime removes the adapter protocol (protocols 1 and 2), the `adapter`
+2. **Ported or handed to their authors.** Each extension bundled with
+   Pitwall gets a component version, either ported by Pitwall or built
+   by the makers of the service it connects to, on the public SDK and
+   docs alone (with their own coding agents, 9.5). Pitwall offers those
+   authors the **SDK preview** while the WIT is 0.x: early builds, the
+   docs, the authoring skill, and a channel for feedback. What they
+   can't build without is the "a real tile needs it" signal of 14.1.
+   The demo becomes the component starter.
+3. **Remove once every bundled extension has a component version**,
+   published by Pitwall or its authors and passing
+   `pitwall extension check|test`. That release removes the adapter
+   protocol (protocols 1 and 2), the `adapter`
    manifest key (a manifest with one is refused with "needs an older
    Pitwall; this extension must be updated"), the adapter hub, its Log
    lines and `pitwall extension test`'s adapter parts. Process groups
    stay: services use them.
-4. Nothing third-party is listed in the index before then, so no one
-   else is broken; the index never accepts adapter-based extensions.
+4. The index never accepts adapter-based extensions, so no extension
+   from elsewhere is broken by the removal.
 
 **What users see.** Each bundled extension arrives as an ordinary
-update (6.4) in that release, whose review says "Now runs in Pitwall's
+update (6.4), from Pitwall's bundle or from its authors' source, whose review says "Now runs in Pitwall's
 sandbox; no longer runs a program on your computer" (unless it also has
 a managed service, which keeps running as before). Pitwall's existing
 install and update code carries settings, secrets, connections and
@@ -2785,13 +2828,15 @@ only tiles; a component that contributes anything above stays.
   become `pitwall-extension` and `pitwall extension …` (the CLI already
   has `pitwall extension check|test|new` [today]), before anything is
   published.
-- Two new steps after phase 7, shipped in one release:
-  **8. Port first-party extensions to components** (about 4 weeks):
-  component instances per connection, the `inbox` interface,
-  right-panel placement, `ws`, the headless lifecycle, then porting
-  each bundled extension and the demo. **9. Remove adapters** (about
-  1 week): the protocol, the hub, the manifest key, the CLI parts, the
-  docs. User-visible effect: one update of each bundled extension, with
+- Two new steps after phase 7:
+  **8. Port or hand over the bundled extensions** (about 4 weeks of
+  Pitwall's time, less for each one its authors build): component
+  instances per connection, the `inbox` interface, right-panel
+  placement, `ws`, the headless lifecycle, then porting the bundled
+  extensions their authors don't take, and the demo. **9. Remove
+  adapters** (about 1 week), once each bundled extension has a
+  component version: the protocol, the hub, the manifest key, the CLI
+  parts, the docs. User-visible effect: one update of each bundled extension, with
   settings, secrets and connections carried over.
 
 ### 15.8 Open questions (each with a recommendation)
@@ -2800,10 +2845,12 @@ only tiles; a component that contributes anything above stays.
 2. **Rename `pitwall-tile` and `pitwall tile …` now?** *Recommend yes*,
    before the first publish: renaming a published crate later costs
    every author.
-3. **Remove adapters in the same release as components?** Decided by
-   the owner: yes, no compatibility period. *Recommend* holding that
-   release until every bundled extension passes its checks as a
-   component, rather than shipping components first.
+3. **When do adapters go?** Decided by the owner: no compatibility
+   period. *Recommend* removing them in the first release after every
+   bundled extension has a published component version, whoever built
+   it, and setting a date with the authors who take theirs so the
+   removal doesn't wait on one of them indefinitely (Pitwall ports any
+   still missing by then).
 4. **Keep the inbox as a dedicated surface?** *Recommend yes*: it
    does more than generic components (asks, number keys, sending with
    take-back), and the floating control depends on its model.
@@ -2811,9 +2858,13 @@ only tiles; a component that contributes anything above stays.
    their component toolchains). *Recommend* Rust only in the docs and
    templates until 1.0; accept any component that passes `check`, but
    support only Rust.
-6. **Third-party extensions before adapters are removed?** *Recommend*
-   opening the index only after that release, so no third-party
-   extension is ever built on adapters.
+6. **When does the index open?** *Recommend* for component-based
+   extensions as soon as packages and the index ship (phases 4–5), so
+   authors on the preview can publish their versions; never for
+   adapter-based ones.
+7. **Who gets the SDK preview?** *Recommend* the makers of the services
+   the bundled extensions connect to first, then anyone who asks;
+   breaking changes announced to them one release ahead (8.2).
 
 ## What this replaces in extension-api.md
 
@@ -2824,7 +2875,8 @@ only tiles; a component that contributes anything above stays.
 - Phase 6 "Feeds, signatures, sandbox, list": signatures and the list
   are here; the opt-in OS sandbox for adapters stays as written there.
 - "Principles: A separate process, not code in the app": still true for
-  adapters and services; tiles are the exception argued in 10.3 (2).
+  services; adapters are removed (section 15) and components are the
+  exception argued in 10.3 (2).
 - Author experience "Dev mode": for tiles, reload on save (9.2);
   adapters' manual Reload is unchanged.
 - "Later: agents as callers" (extension commands as MCP tools): for
@@ -2960,6 +3012,9 @@ own repository unless marked.
   https://docs.rs/crate/sqlite-wasm-wasi/0.6.0/source/README.md
 - **S23** OAuth 2.0 for native apps: the system browser, a loopback
   redirect and PKCE. RFC 8252, https://www.rfc-editor.org/rfc/rfc8252
+- **S24** The `llms.txt` proposal: a Markdown file at a site's root
+  giving language models a concise guide to its docs.
+  https://llmstxt.org
 
 ### Not verified
 - That WIT has no recursive types (3).
