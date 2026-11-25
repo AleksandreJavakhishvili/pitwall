@@ -7,6 +7,9 @@ updates without waiting for a Pitwall release. It grows the extensions
 that exist today (docs/spec/extensions.md: one manifest, one adapter
 process, one kind of view, the inbox) into a small public API.
 
+Third-party tiles in Rust/WebAssembly, signed packages and the
+marketplace: [tile-sdk.md](tile-sdk.md).
+
 Marks used below: **[today]** is built and described in extensions.md or
 profiles.md; **[proposed]** is new here.
 
@@ -491,6 +494,7 @@ events for a slow reader). A topic without its permission is left out of
 the reply's `topics`, as unknown topics are today.
 
 ### Later: agents as callers
+*For tiles, designed in [tile-sdk.md](tile-sdk.md) §11.*
 As agents improve, an extension's commands are as useful to agents as to
 the user (re-run CI, look up a ticket). Pitwall's MCP server [today:
 `show_files`, `show_web`] could list an extension's commands as tools,
@@ -533,6 +537,8 @@ requests itself (no npm, no credentials, so no private packages) and
 unpacks the tarball itself, plain files under `package/` only. Like
 git, nothing runs and no dependency is installed.
 
+*Superseded by [tile-sdk.md](tile-sdk.md) §6 (signed `.pwtile`
+packages, keys in the index): the feed below is kept for the record.*
 Phase 6 adds a feed for authors who build archives:
 ```json
 "source": { "feed": "https://example.com/pitwall/ci-status.json", "key": "ed25519:4f1c…" }
@@ -592,7 +598,7 @@ pointing outside the folder are refused.
 - **Same source.** An update comes only from the `source` the user
   installed from. An update whose manifest names another source shows
   it and asks.
-- **Signatures**: phase 6, for feeds (ed25519, the key trusted on first
+- **Signatures** (*superseded by [tile-sdk.md](tile-sdk.md) §6.2*): phase 6, for feeds (ed25519, the key trusted on first
   install, rotation by a statement signed with the old key). Signed git
   tags could be checked too, but key distribution is the same problem
   and few authors sign tags; not before feeds.
@@ -636,6 +642,7 @@ No protocol change is needed for step 4: the adapter already says what is
 wrong in plain words [today].
 
 ### A curated list, later
+*Superseded by [tile-sdk.md](tile-sdk.md) §7 (the marketplace index).*
 Not until there are extensions by other people. Then a list in a
 repository (Zed's model): id, source and the pinned commit of each
 reviewed version, read by "Browse extensions". The list only points;
@@ -1029,6 +1036,8 @@ The plan as proposed:
 - Web views through the existing web tile (`web::place`).
 
 ### Phase 6 — Feeds, signatures, sandbox, list
+*Signatures and the list are superseded by [tile-sdk.md](tile-sdk.md);
+the opt-in OS sandbox for adapters stays here.*
 Release feeds with sha256 and ed25519; opt-in Restricted mode on macOS
 and Linux; a curated list once third-party extensions exist.
 
@@ -1103,7 +1112,8 @@ and Linux; a curated list once third-party extensions exist.
     for a sandbox? *Recommend ship with disclosure*, opt-in Restricted
     mode on macOS and Linux in phase 6.
 11. **Registry.** *Recommend none* until there are extensions by other
-    people; then a curated list pinned to commits.
+    people; then a curated list pinned to commits. (*Superseded by
+    [tile-sdk.md](tile-sdk.md) §7.*)
 12. **View updates.** Whole-view replace or patches? *Recommend
     replace* (≤ 500 items, as threads today); add patches only if a
     real extension needs them.
