@@ -98,6 +98,10 @@ notify-rust = "4.11"
 # The in-app preview's snapshot, drawn while an overlay covers the web
 # view (src/preview). MIT OR Apache-2.0; already in the tree via gpui.
 image = { version = "0.25", default-features = false }
+# Checking the scrcpy-server file a device tile pushes (src/device/scrcpy.rs)
+# against its pinned SHA-256. MIT OR Apache-2.0; already in the tree via
+# pitwall-core.
+sha2 = "0.10"
 
 # macOS: Liquid Glass (NSGlassEffectView), the window appearance and the
 # accessibility options (Settings → Appearance); Dock badge, attention bounce
