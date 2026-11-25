@@ -57,6 +57,23 @@ The app and the website bundle the fonts Barlow Condensed, Inter and JetBrains M
 (npm packages @fontsource/* and @fontsource-variable/*), licensed under the
 SIL Open Font License 1.1; see LICENSES/OFL-1.1-*.txt.
 
+crates/pitwall-simhost (the iOS Simulator helper) calls private interfaces of
+Apple's CoreSimulator and SimulatorKit frameworks, loaded at run time from the
+user's own Xcode and never bundled. Which interfaces to call, and the layout
+of the touch message it builds, were learned by reading idb
+(https://github.com/facebook/idb, FBSimulatorControl), Copyright (c) Meta
+Platforms, Inc. and affiliates, licensed under the MIT License. No idb code is
+copied; the helper is written in Rust for Pitwall (docs/spec/device.md lists
+each interface).
+
+Device tiles for Android talk to scrcpy-server
+(https://github.com/Genymobile/scrcpy), Copyright (C) Genymobile and Romain
+Vimeux, licensed under the Apache License, Version 2.0. Pitwall doesn't
+include it: the user provides the file, which Pitwall uses only when its
+SHA-256 matches the published release (docs/spec/device.md). Pitwall's
+reader of its stream and writer of its control messages are written from
+scrcpy's documented protocol (doc/develop.md and its sources).
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
 WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
