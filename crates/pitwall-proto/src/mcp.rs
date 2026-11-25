@@ -58,7 +58,7 @@ pub struct McpCalled {
 
 const INTRO: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents.";
 
-const FILES_INSTRUCTIONS: &str = " When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's.";
+const FILES_INSTRUCTIONS: &str = " When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. To show another git worktree or folder as the whole tree, give it as root (its path, or a worktree's folder name or branch): the viewer is rooted exactly there, with that worktree's git status, also when it lies inside the folder you started in. Do the same when you work in another worktree than the one you started in. The user can switch the viewer's root themselves too (click the folder in its bar: worktrees, Open folder…), so never tell them to collapse the tree or start a new agent to see a worktree.";
 
 const WEB_INSTRUCTIONS: &str = " When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), use show_web: it only shows the page to the user, you get nothing back from it and can't click or type in it.";
 
@@ -98,7 +98,7 @@ const WHERE: &str = "Where the user sees it: right, left, above or below (a file
 const WEB_WHERE: &str = "Where the user sees it: right, left, above or below (a web tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default), replace (a web tile in that terminal's place: the terminal leaves the layout but keeps running; only when the user asks for the page instead of a terminal) or window (a separate window of its own, when the user asks for one). Leave it out unless the user says where: a later call then goes to the page you opened before, wherever it is; naming a place moves it there. The user can drag it between the layout and a window either way.";
 const URL: &str = "The address: http or https only (example.com/docs gets https://; localhost:3000, 127.0.0.1 and LAN hosts get http://). No file:, javascript:, data: or other schemes, and no search words. Leave it out to open an empty page with its address field for the user to type in.";
 const OF: &str = "Whose terminal `where` is next to (or, with replace, in place of): another agent in the same Pitwall space, by name (\"put it above the web terminal\", \"show it instead of the web terminal\"). Default: yours.";
-const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: the folder you work in now, as far as Pitwall can tell (else the one you started in); when you work in another worktree or folder than the one you started in, give its path here.";
+const ROOT: &str = "The folder the viewer's tree is rooted at, and relative paths are in: a path (absolute, ~/…, or relative to where you are), or a git worktree by its folder name or branch (of your repository, or of a repository directly inside your folder). The tree is rooted exactly there, also when it lies inside your own folder, with that worktree's git status; the result says the root shown, and an unknown name lists the worktrees there are. Default: the git worktree you work in now, as far as Pitwall can tell (else the folder you started in).";
 
 /// `tools/list`'s tools, all of them.
 pub fn tools() -> Value {
@@ -184,11 +184,11 @@ fn files_tools() -> Vec<Value> {
         json!({
             "name": TOOL_SHOW_FOLDER,
             "title": "Show a folder in Pitwall",
-            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's file viewer, a tile next to your terminal in Pitwall's layout (or a window of its own). It only displays. Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
+            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's file viewer, a tile next to your terminal in Pitwall's layout (or a window of its own). It only displays. Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me worktree X\": give root X, its path, folder name or branch, and no folder). The result says what opened, or why not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "folder": { "type": "string", "description": "The folder to show: absolute, or relative to root. Leave it out to show root itself (or the folder you work in now)." },
+                    "folder": { "type": "string", "description": "The folder to show: absolute, or relative to root. Leave it out to show root itself (or the folder you work in now). A full path in another git worktree than the one shown roots the viewer at that worktree, with the folder open." },
                     "root": { "type": "string", "description": ROOT },
                     "where": { "type": "string", "enum": ViewerPlace::WORDS, "description": WHERE },
                     "of": { "type": "string", "description": OF }

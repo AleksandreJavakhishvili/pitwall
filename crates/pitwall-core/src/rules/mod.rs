@@ -291,8 +291,9 @@ pub fn show_files_rule_text(cli: &str, what: ShowWhat) -> String {
             "# Showing files in Pitwall\n\n\
 This session runs inside Pitwall. When the user asks to see a file, a folder or an image (\"open it\", \"show me that\"), run:\n\n```sh\n\
     {cli} open <file>[:line[:column]] [more files]\n\
-    {cli} open --folder <folder>\n```\n\n\
-It shows them in Pitwall's file viewer, a files tile next to this terminal in Pitwall's layout (`--where right|left|above|below`, right by default; `--of <agent>` next to another terminal) or a window of its own when the user asks for it separately (`--where window`), and says where. Only when the user asks; it changes nothing and gives you nothing back.\n"
+    {cli} open --folder <folder>\n\
+    {cli} open --root <worktree path, folder name or branch>\n```\n\n\
+`--root` roots the viewer's tree exactly at that worktree or folder (with its git status), also when it lies inside this session's folder: use it to show another worktree, never ask the user to collapse the tree. It shows them in Pitwall's file viewer, a files tile next to this terminal in Pitwall's layout (`--where right|left|above|below`, right by default; `--of <agent>` next to another terminal) or a window of its own when the user asks for it separately (`--where window`), and says where. Only when the user asks; it changes nothing and gives you nothing back.\n"
         ));
     }
     if what.web {

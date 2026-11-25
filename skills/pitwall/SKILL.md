@@ -169,6 +169,7 @@ at once in every window.
 pitwall open src/main.rs:42 README.md --agent api   # tabs in a files tile right of api's terminal (at a line, marked)
 pitwall open --folder src --agent api               # a folder as a tree, with git status
 pitwall open --root fix/login --agent api           # a whole worktree (by folder name or branch)
+pitwall open --root ../api-fix --agent api          # the same by its path: the tree is rooted there
 ```
 
 A files tile is a slot of its own in the space's layout, next to the
@@ -220,6 +221,19 @@ its hooks last said it was, so a worktree it entered mid-session), shown in
 the git worktree that holds it, with that worktree's branch and status. When
 you work in another worktree than the one you started in, give `--root`
 (its path) to be sure.
+
+To show the user another worktree or folder, give it as `--root` (MCP:
+`root`): its path, or a worktree's folder name or branch (of your
+repository, or of one directly inside your folder when that isn't a
+repository). The viewer's tree is rooted exactly there, also when it lies
+inside your own folder, with that worktree's git status. The answer names
+the root shown (and says how a name was read); an unknown name lists the
+worktrees there are, an ambiguous one their paths. A `--folder` given by
+its path in another worktree roots the viewer at that worktree too. The
+user can switch the root themselves (the folder in the viewer's bar:
+Worktrees, Open folder…, Up to parent folder; a folder's "Open as root"),
+so never tell them to collapse the tree or start another agent to see a
+worktree.
 
 ## Extensions (setting one up for the user)
 
