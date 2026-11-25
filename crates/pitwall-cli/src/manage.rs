@@ -34,7 +34,7 @@ fn err(code: &str, message: impl Into<String>) -> Error {
 }
 
 fn out<T: Serialize>(v: &T, human: String) -> Output {
-    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human }
+    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human, failed: None }
 }
 
 fn manage<R: DeserializeOwned>(c: &mut Client, method: &str, params: impl Serialize) -> Result<R, Error> {
@@ -113,7 +113,7 @@ pub fn agent_cmd(cmd: &AgentCmd, c: &mut Client) -> Result<Output, Error> {
             manage::<Value>(c, method::AGENT_REMOVE, AgentRemove { agent_id: a.id.clone(), delete_worktree: *worktree })?;
             let v = serde_json::json!({ "removed": a.id, "deletedWorktree": worktree });
             let extra = if *worktree { " and deleted its worktree" } else { "" };
-            Output { json: v, human: format!("Removed {}{extra}\n", a.name) }
+            Output { json: v, human: format!("Removed {}{extra}\n", a.name), failed: None }
         }
         AgentCmd::Rename { name, auto, .. } => {
             let req = AgentRename { agent_id: a.id.clone(), name: name.clone().unwrap_or_default(), auto: *auto };
@@ -172,7 +172,7 @@ fn tracked_text(name: &str, tracked: &[String]) -> String {
     tracked.iter().fold(format!("{name} works in:\n"), |s, p| s + "  " + p + "\n")
 }
 
-fn prompt_text(text: &str) -> Result<String, Error> {
+pub(crate) fn prompt_text(text: &str) -> Result<String, Error> {
     if text != "-" {
         return Ok(text.to_string());
     }

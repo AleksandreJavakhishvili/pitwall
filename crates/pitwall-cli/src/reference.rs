@@ -42,8 +42,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 Start an agent in a project and give it work:
 
 ```bash
-id=$(pitwall agent new --kind claude --project ~/code/api --name api | jq -r .id)
-pitwall queue add \"$id\" \"run the tests and fix what fails\"
+id=$(pitwall agent new --kind claude --project ~/code/api --name api --prompt \"run the tests and fix what fails\" | jq -r .id)
 pitwall wait \"$id\" --for done,blocked --fresh
 pitwall review changes \"$id\" --human
 ```
@@ -79,7 +78,7 @@ pitwall settings list --human
 
 /// Examples shown under a command, by its path without `pitwall`.
 const EXAMPLES: &[(&str, &str)] = &[
-    ("agent new", "pitwall agent new --kind claude --project ~/code/api --name api\npitwall agent new --kind claude --resume 7f3c2a90-…      # continue a conversation\npitwall agent new --kind shell                           # a terminal in this folder\npitwall agent new --machine my-vm --name fix --workspace work --as admin --template claude"),
+    ("agent new", "pitwall agent new --kind claude --project ~/code/api --name api\npitwall agent new --kind claude --name api --prompt \"run the tests and fix what fails\"\npitwall agent new --kind claude --name review --prompt-file task.md   # or --prompt - < task.md\npitwall agent new --kind claude --resume 7f3c2a90-…      # continue a conversation\npitwall agent new --kind shell                           # a terminal in this folder\npitwall agent new --machine my-vm --name fix --workspace work --as admin --template claude"),
     ("agent status", "pitwall agent status api --human"),
     ("agent move", "pitwall agent move api --space Review"),
     ("agent track", "pitwall agent track ../repo-feature          # inside an agent: this agent\npitwall agent track ~/code/repo-fix --agent api"),

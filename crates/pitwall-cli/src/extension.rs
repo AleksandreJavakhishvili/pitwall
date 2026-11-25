@@ -35,7 +35,7 @@ pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
             }
             human.push_str(&format!("\nNext:\n  pitwall extension check {shown}\n  pitwall extension test {shown}\n  In Pitwall: Settings → Extensions → Load from folder…, then turn it on.\n"));
             let files: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
-            (Output { json: json!({ "folder": folder, "id": m.id, "name": m.name, "files": files }), human }, true)
+            (Output { json: json!({ "folder": folder, "id": m.id, "name": m.name, "files": files }), human, failed: None }, true)
         }
         _ => unreachable!("run against Pitwall (setup)"),
     })
@@ -45,7 +45,7 @@ fn report(r: check::Report) -> (Output, bool) {
     let passed = r.passed();
     let mut json = serde_json::to_value(&r).unwrap_or_default();
     json["passed"] = json!(passed);
-    (Output { json, human: r.text() }, passed)
+    (Output { json, human: r.text(), failed: None }, passed)
 }
 
 /// `pitwall extension list|status|log|…` against the running Pitwall.

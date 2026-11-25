@@ -482,6 +482,61 @@ impl Drop for Host {
     }
 }
 
+/// `agent new --prompt`/`--prompt-file`: made and its first instruction
+/// queued in one request; the output says so; a blank one makes nothing.
+#[test]
+fn a_new_agent_with_its_first_instruction() {
+    let h = Host::new("fi", Duration::from_secs(10), false);
+    let project = TempDir::new("cli-fi-proj");
+    let p = project.path().to_string_lossy().into_owned();
+    let o = h.run(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "worker", "--prompt", "run the tests"]).unwrap();
+    let id = o.json["id"].as_str().unwrap().to_string();
+    assert_eq!(o.json["queue"][0]["text"], "run the tests");
+    assert_eq!(o.json["queued"], json!({"id": o.json["queue"][0]["id"], "position": 1}));
+    assert!(o.failed.is_none());
+    let started = format!("Started worker (Shell) in {} — id {id}\n", o.json["cwdDisplay"].as_str().unwrap());
+    assert_eq!(o.human, format!("{started}Queued its first instruction: it goes in when worker is first free.\n"));
+    let o = h.run(&["queue", "list", "worker"]).unwrap();
+    assert_eq!(o.json[0]["items"][0]["text"], "run the tests", "in its Next up, as queue add puts it");
+
+    // From a file (trailing newlines dropped, as from stdin).
+    let file = project.path().join("task.md");
+    std::fs::write(&file, "review the diff\nlist problems only\n\n").unwrap();
+    let o = h.run(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "reviewer", "--prompt-file", &file.to_string_lossy()]).unwrap();
+    assert_eq!(o.json["queue"][0]["text"], "review the diff\nlist problems only");
+    // Without one: the output is as it was.
+    let o = h.run(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "plain"]).unwrap();
+    assert!(o.json.get("queued").is_none() && o.json["queue"] == json!([]));
+    assert_eq!(o.human.lines().count(), 1);
+
+    // Blank, or a file that isn't there: refused (exit 2), nothing made.
+    for args in [&["--prompt", " \n"][..], &["--prompt-file", "/nonexistent/task.md"][..]] {
+        let e = h.run(&[&["agent", "new", "--kind", "shell", "--project", &p, "--name", "nope"], args].concat()).err().unwrap();
+        assert_eq!(failure(&e).1, 2, "{args:?}");
+    }
+    assert_eq!(h.run(&["agent", "list"]).unwrap().json.as_array().unwrap().len(), 3);
+}
+
+/// Made, but its first instruction wasn't queued: the agent is printed,
+/// then the error naming its id, and the exit status isn't 0.
+#[test]
+fn a_first_instruction_that_failed_to_queue() {
+    let a = agent("a-1", "work", true);
+    let made = pitwall_proto::AgentCreated { agent: a.clone(), queued: None, queue_error: Some("no agent \"a-1\"".into()) };
+    let o = agent_new_output(&made);
+    assert_eq!(o.json["id"], "a-1");
+    assert_eq!(o.json["queueError"], "no agent \"a-1\"");
+    assert_eq!(o.human, render::agent_new(&a), "the human output: only what was done");
+    let e = o.failed.unwrap();
+    assert_eq!(e.code, QUEUE_FAILED);
+    assert_eq!(e.message, "work was created (id a-1), but its first instruction couldn't be queued: no agent \"a-1\". Queue it with `pitwall queue add a-1 -`.");
+    assert_eq!(exit_status(&e.code), 1);
+    // Auto-send off: it says it waits.
+    let mut off = agent("a-1", "work", true);
+    off.auto_send = false;
+    assert_eq!(render::first_queued(&off), "Queued its first instruction; Auto-send is off for work, so it waits in Next up until you send it (`pitwall queue send a-1`).\n");
+}
+
 #[test]
 fn managing_agents_queues_and_spaces() {
     let h = Host::new("m", Duration::from_secs(10), true);

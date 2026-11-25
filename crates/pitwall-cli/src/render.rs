@@ -43,6 +43,15 @@ pub fn agent_new(a: &AgentView) -> String {
     format!("Started {} ({}) in {} — id {}\n", a.name, a.kind_name, a.cwd_display, a.id)
 }
 
+/// `agent new --prompt`: its first instruction is in its Next up.
+pub fn first_queued(a: &AgentView) -> String {
+    if a.auto_send {
+        format!("Queued its first instruction: it goes in when {} is first free.\n", a.name)
+    } else {
+        format!("Queued its first instruction; Auto-send is off for {}, so it waits in Next up until you send it (`pitwall queue send {}`).\n", a.name, a.id)
+    }
+}
+
 pub fn machines(list: &[ProviderMachines]) -> String {
     let mut out = String::new();
     for p in list {

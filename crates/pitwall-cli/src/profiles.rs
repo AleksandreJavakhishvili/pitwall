@@ -25,7 +25,7 @@ fn call<R: DeserializeOwned>(c: &mut Client, m: &str, params: impl Serialize) ->
 }
 
 fn out<T: Serialize>(v: &T, human: String) -> Output {
-    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human }
+    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human, failed: None }
 }
 
 fn folder(p: &str) -> String {

@@ -967,6 +967,14 @@ pub struct AgentNew {
     /// → Accounts), or `default` for your own (default: the project's).
     #[arg(long, value_name = "ACCOUNT", conflicts_with = "machine")]
     pub account: Option<String>,
+    /// Its first instruction: put in its Next up as it is created, as
+    /// `queue add` does, and sent when it is first free (if Auto-send is
+    /// on). `-` reads it from stdin.
+    #[arg(long, value_name = "TEXT", conflicts_with = "prompt_file")]
+    pub prompt: Option<String>,
+    /// Its first instruction, read from this file (as --prompt).
+    #[arg(long, value_name = "PATH")]
+    pub prompt_file: Option<String>,
     /// Create it on this machine (an agw VM; see `machine list` and
     /// `machine form <machine>`). It changes that machine, so it waits for
     /// your approval in Pitwall.
@@ -1117,6 +1125,18 @@ mod tests {
             panic!()
         };
         assert_eq!((n.new_workspace.as_deref(), n.run_as.as_deref()), (Some(""), Some("new-agent:bot")));
+        // Its first instruction: text, `-` (stdin) or a file; one of them.
+        let first = |args: &[&str]| match parse(&[&["agent", "new", "--kind", "claude", "--name", "api"], args].concat()).map(|c| c.command) {
+            Ok(Command::Agent(AgentCmd::New(n))) => Ok((n.prompt, n.prompt_file)),
+            Ok(other) => panic!("{other:?}"),
+            Err(e) => Err(e.kind()),
+        };
+        assert_eq!(first(&["--prompt", "run the tests"]), Ok((Some("run the tests".into()), None)));
+        assert_eq!(first(&["--prompt", "-"]), Ok((Some("-".into()), None)));
+        assert_eq!(first(&["--prompt-file", "task.md"]), Ok((None, Some("task.md".into()))));
+        assert_eq!(first(&["--prompt", "x", "--prompt-file", "task.md"]), Err(clap::error::ErrorKind::ArgumentConflict));
+        assert_eq!(first(&["--prompt"]), Err(clap::error::ErrorKind::InvalidValue));
+        assert!(parse(&["agent", "new", "--machine", "vm", "--name", "s", "--prompt", "deploy"]).is_ok(), "on a machine too");
         assert_eq!(
             parse(&["machine", "form", "my-vm"]).unwrap().command,
             Command::Machine(MachineCmd::Form { machine: "my-vm".into(), provider: None })
