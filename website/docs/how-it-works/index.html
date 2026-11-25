@@ -51,6 +51,7 @@
           <li><a href="#away">Answering from another app</a></li>
           <li><a href="#wall">Wall</a></li>
           <li><a href="#next-up">Next up</a></li>
+          <li><a href="#answer-elsewhere">Answering from another app</a></li>
           <li><a href="#review">Review</a></li>
           <li><a href="#files">Files</a></li>
           <li><a href="#web">Web pages</a></li>
@@ -111,6 +112,15 @@
 
         <h2 id="next-up">Next up</h2>
         <p>Each agent has its own queue in the right panel (<kbd>⌘.</kbd>). With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text goes in as a bracketed paste, then Enter, exactly as written. Last sent stays under the queue.</p>
+
+        <h2 id="answer-elsewhere">Answering from another app</h2>
+        <p>While you're in another app and an agent's screen asks you something, a small pill floats over your desktop, on every Space and over full-screen apps. It never shows while Pitwall is in front, and it goes away when nothing waits.</p>
+        <ul>
+          <li><strong>The pill.</strong> The agent that has waited longest: its logo, its name (and its project when two share a name), one plain line of what it wants, such as <code>Run: pnpm test</code>, <code>Edit src/cart/total.ts</code> or the question it asks, and <strong>+2</strong> when others wait. For a plain yes or no it has <strong>Accept</strong> and <strong>Reject</strong>; for anything more, <strong>Open</strong> brings Pitwall forward on the agent. A command too long to name in one line shows <strong>Show</strong> instead, so you see all of it before you answer. The pill never takes the keyboard.</li>
+          <li><strong>The card.</strong> Click the pill for one card at a time, oldest first, with <strong>1 of 3</strong> and arrows. It names what the prompt asks, in lines of the prompt itself, over the rows of the agent's terminal that ask, drawn live; <strong>Show all</strong> shows the whole prompt. When Pitwall can't read the action off the prompt reliably, you get the terminal rows alone. <kbd>⏎</kbd> accepts, <kbd>esc</kbd> rejects, <kbd>←</kbd>/<kbd>→</kbd> go between prompts; other keys go to the agent's terminal as in its pane. <strong>Accept all</strong> appears only when every prompt that waits is a plain yes or no.</li>
+          <li><strong>Nothing blind.</strong> Before typing an answer, Pitwall reads the agent's screen again and types only if the same prompt is still there. After an answer the control says <strong>Sent to api-fix</strong> for about a second and moves to the next prompt; if the prompt changed, it says <strong>The prompt changed: nothing was sent</strong> and shows the new one. An agent on another machine is shown, never answered from here.</li>
+          <li><strong>Where it sits.</strong> Drag it anywhere; it stays there, also after a restart. Resize the open card by any edge or corner, and double-click an edge for the default size. It slides in once when it appears, not with Reduce motion. Off with <a href="/docs/settings/#general-floatingprompts"><code>general.floatingPrompts</code></a>. Your extensions' inbox questions show up here too, after your agents'.</li>
+        </ul>
 
         <h2 id="review">Review</h2>
         <p><kbd>⌘R</kbd> lists changes by agent, then file, in a side-by-side or inline diff. Pick All changes or one task: a single prompt, from send until the agent is done.</p>
