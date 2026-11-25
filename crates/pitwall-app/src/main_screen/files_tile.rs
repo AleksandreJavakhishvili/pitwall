@@ -195,6 +195,7 @@ impl MainScreen {
             Content::View(_) => ("The view", "s"),
             Content::Settings => ("Settings", "s"),
             Content::Device(_) => ("The device", "s"),
+            Content::Editor => ("The editor", "s"),
         };
         // In a tile's place: what leaves it, said plainly.
         if let FilesSpot::Replace(pane) = spot {
@@ -205,6 +206,7 @@ impl MainScreen {
                 Some(p) if p.view.is_some() => return format!("{noun} swap{verb} places with the view"),
                 Some(p) if p.settings => return format!("{noun} swap{verb} places with Settings"),
                 Some(p) if p.device.is_some() => return format!("{noun} swap{verb} places with the device"),
+                Some(p) if p.editor => return format!("{noun} swap{verb} places with the editor"),
                 Some(p) if p.agent_id.is_some() => return format!("{noun} replace{verb} {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
                 _ => {}
             }
@@ -374,6 +376,7 @@ impl MainScreen {
                         (_, _, _, _, Some(v)) => format!("view {v}"),
                         _ if p.settings => "settings".into(),
                         _ if p.device.is_some() => format!("device {}", p.device.clone().unwrap_or_default()),
+                        _ if p.editor => "editor".into(),
                         _ => "empty".into(),
                     })
                 };

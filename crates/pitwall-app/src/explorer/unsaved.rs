@@ -1,5 +1,6 @@
 //! Unsaved edits across the app's file viewers (the full viewer, the files
-//! tiles in the layout, the windows of their own): quitting Pitwall asks
+//! tiles in the layout, the windows of their own) and the text editor
+//! (`crate::editor`): quitting Pitwall asks
 //! first (Save / Don't Save / Cancel), as closing a tab, a tile or a
 //! window does in the viewer itself. Moving files between a tile and a
 //! window asks nothing: the same viewer moves.
@@ -43,10 +44,12 @@ pub fn quit_guarded(cx: &mut App, then: impl FnOnce(&mut App) + 'static) {
 
 fn ask_then(cx: &mut App, then: impl FnOnce(&mut App) + 'static) {
     let dirty = unsaved(cx);
-    if dirty.is_empty() {
+    let editor = crate::main_screen::editor_tile::editor(cx).filter(|e| !e.read(cx).unsaved(cx).is_empty());
+    if dirty.is_empty() && editor.is_none() {
         return then(cx);
     }
-    let paths: Vec<String> = dirty.iter().flat_map(|(_, p)| p.clone()).collect();
+    let mut paths: Vec<String> = dirty.iter().flat_map(|(_, p)| p.clone()).collect();
+    paths.extend(editor.iter().flat_map(|e| e.read(cx).unsaved(cx)));
     let Some(win) = cx.active_window().or_else(|| cx.windows().into_iter().next()) else {
         return then(cx);
     };
@@ -58,7 +61,11 @@ fn ask_then(cx: &mut App, then: impl FnOnce(&mut App) + 'static) {
             Unsaved::Cancel => return,
             Unsaved::Discard => {}
             Unsaved::Save => {
-                let saves = cx.update(|cx| dirty.iter().map(|(v, _)| v.update(cx, |v, cx| v.save_all(cx))).collect::<Vec<_>>());
+                let saves = cx.update(|cx| {
+                    let mut saves: Vec<_> = dirty.iter().map(|(v, _)| v.update(cx, |v, cx| v.save_all(cx))).collect();
+                    saves.extend(editor.iter().map(|e| e.update(cx, |e, cx| e.save_all(cx))));
+                    saves
+                });
                 let mut ok = true;
                 for s in saves {
                     ok &= s.await;

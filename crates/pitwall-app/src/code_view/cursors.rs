@@ -209,6 +209,48 @@ impl CodeView {
         self.rows.row_of(Side::New, p.line)
     }
 
+    /// The bench's typing: `text` at every cursor, as typed (a line break
+    /// as Enter).
+    pub fn debug_type(&mut self, text: &str, cx: &mut Context<Self>) {
+        for (i, part) in text.split('\n').enumerate() {
+            if i > 0 {
+                self.newline(cx);
+            }
+            if !part.is_empty() {
+                self.typed(part, cx);
+            }
+        }
+    }
+
+    /// The bench's keys: `undo`, `redo`, `comment`, `next-match`,
+    /// `all-matches`, `cursor-above`, `cursor-below`, `escape`, `tab`,
+    /// `backspace`, `select-all`.
+    pub fn debug_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match key {
+            "undo" => self.undo(cx),
+            "redo" => self.redo(cx),
+            "comment" => self.toggle_comment(cx),
+            "next-match" => self.add_next_match(cx),
+            "all-matches" => self.select_all_matches(cx),
+            "cursor-above" => self.add_cursor_vertical(false, window, cx),
+            "cursor-below" => self.add_cursor_vertical(true, window, cx),
+            "escape" => {
+                self.single_cursor();
+            }
+            "tab" => self.indent(cx),
+            "backspace" => self.backspace(cx),
+            "select-all" => {
+                if let Some(c) = self.content.as_ref() {
+                    let end = c.doc(Side::New).end();
+                    self.extra.clear();
+                    self.sel = Some(Selection { side: Side::New, anchor: Pos::default(), head: end });
+                }
+            }
+            _ => {}
+        }
+        cx.notify();
+    }
+
     /// Every cursor's selection (the primary one first), for drawing.
     pub(super) fn all_selections(&self) -> Vec<Selection> {
         self.sel.iter().chain(self.extra.iter()).copied().collect()

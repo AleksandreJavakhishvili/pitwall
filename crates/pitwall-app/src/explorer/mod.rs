@@ -94,6 +94,7 @@ pub fn bindings() -> Vec<KeyBinding> {
     b.extend(quick_open::bindings());
     b.extend(search::bindings());
     b.extend(viewer::bindings());
+    b.extend(crate::editor::bindings());
     b
 }
 
