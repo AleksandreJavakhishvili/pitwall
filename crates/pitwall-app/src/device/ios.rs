@@ -16,8 +16,19 @@ use super::Device;
 
 /// The simulators Xcode knows (none, with why, without Xcode).
 pub fn list() -> Result<Vec<Device>, String> {
-    let out = Command::new("xcrun")
-        .args(["simctl", "list", "devices", "-j"])
+    Ok(list_in(None)?.into_iter().map(|(d, _)| d).collect())
+}
+
+/// The simulators of device set `set` (Xcode's own when `None`), each with
+/// when it last booted (ms since 1970).
+pub fn list_in(set: Option<&std::path::Path>) -> Result<Vec<(Device, Option<u64>)>, String> {
+    let mut cmd = Command::new("xcrun");
+    cmd.arg("simctl");
+    if let Some(s) = set {
+        cmd.arg("--set").arg(s);
+    }
+    let out = cmd
+        .args(["list", "devices", "-j"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -25,7 +36,7 @@ pub fn list() -> Result<Vec<Device>, String> {
     if !out.status.success() {
         return Err("Xcode's simctl didn't answer".into());
     }
-    super::list::parse_simctl(&String::from_utf8_lossy(&out.stdout))
+    super::list::parse_simctl_booted(&String::from_utf8_lossy(&out.stdout))
 }
 
 /// The HID keyboard usage (page 0x07) and whether Shift is held, for a
