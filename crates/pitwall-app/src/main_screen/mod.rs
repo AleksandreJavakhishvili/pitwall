@@ -22,6 +22,7 @@ pub mod inbox_tile;
 pub mod inbox_window;
 pub mod view_tile;
 pub mod settings_tile;
+pub mod device_tile;
 mod commands;
 #[doc(hidden)]
 pub mod demo;

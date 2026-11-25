@@ -151,6 +151,11 @@ pub fn finish_what(what: &Content, at: Point<Pixels>, from: From, cx: &mut App) 
             crate::main_screen::inbox_window::dock(key, &label, &space, &spot, cx)?;
             Ok(Some(crate::main_screen::inbox_window::described(key, cx)))
         }
+        (Some((label, space, spot)), _, Content::Device(d)) => {
+            let key = crate::main_screen::tree::Surface::Device(d.clone()).key();
+            crate::main_screen::inbox_window::dock(&key, &label, &space, &spot, cx)?;
+            Ok(Some(crate::main_screen::inbox_window::described(&key, cx)))
+        }
         (None, From::Tile, Content::Files(owner)) if outside => {
             super::dock::pop_out(owner, Some(at), cx)?;
             Ok(Some("a window of its own".into()))
@@ -168,6 +173,12 @@ pub fn finish_what(what: &Content, at: Point<Pixels>, from: From, cx: &mut App) 
         (None, From::Tile, Content::Settings) if outside => {
             let front = crate::platform::app_in_front(cx);
             crate::main_screen::inbox_window::pop_out(crate::main_screen::tree::SETTINGS_KEY, Some(at), front, cx)?;
+            Ok(Some("a window of its own".into()))
+        }
+        (None, From::Tile, Content::Device(d)) if outside => {
+            let front = crate::platform::app_in_front(cx);
+            let key = crate::main_screen::tree::Surface::Device(d.clone()).key();
+            crate::main_screen::inbox_window::pop_out(&key, Some(at), front, cx)?;
             Ok(Some("a window of its own".into()))
         }
         _ => Ok(None),

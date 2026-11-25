@@ -138,7 +138,7 @@ impl ViewTile {
         let (ext, view) = match &s {
             Surface::View(e, v) => (e.clone(), v.clone()),
             Surface::Inbox(e) => (e.clone(), String::new()),
-            Surface::Settings => (String::new(), String::new()),
+            Surface::Settings | Surface::Device(_) => (String::new(), String::new()),
         };
         let h = hub::hub(cx);
         h.update(cx, |h, cx| h.show_view(&ext, &view, cx));

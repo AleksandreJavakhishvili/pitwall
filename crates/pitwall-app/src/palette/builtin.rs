@@ -217,6 +217,47 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         .query_only()
         .rank(rank::TERMINALS),
     );
+    // Device screens (docs/spec/device.md): each device adb and simctl
+    // listed that can be shown now, from the list made when the palette
+    // opened.
+    if crate::main_screen::device_tile::enabled(cx) {
+        let devices: Vec<_> = crate::main_screen::device_tile::known(cx).into_iter().filter(|d| d.state == crate::device::State::Ready).collect();
+        for d in &devices {
+            let key = d.key();
+            let what = match (d.platform, d.virtual_device) {
+                (crate::device::Platform::Ios, _) => "iOS Simulator",
+                (crate::device::Platform::Android, true) => "Android emulator",
+                (crate::device::Platform::Android, false) => "Android device",
+            };
+            out.push(
+                Command::new(
+                    format!("device-{key}"),
+                    format!("Open device: {}", d.name),
+                    format!("open device screen phone emulator simulator android ios preview {} {}", d.name, d.id),
+                    on_screen(pc, move |s, w, cx| s.open_device(&key, w, cx)),
+                )
+                .label(vec![s(format!("Open device: {}", d.name)), sub(what)])
+                .icon("phone")
+                .query_only()
+                .rank(rank::TERMINALS),
+            );
+        }
+        if devices.is_empty() {
+            out.push(
+                Command::new(
+                    "device-none",
+                    "Open device…",
+                    "open device screen phone emulator simulator android ios preview",
+                    on_screen(pc, |s, _, cx| {
+                        s.toast(crate::main_screen::strip::Toast::info("No device to show", Some("Start an Android emulator, connect a phone with USB debugging, or boot an iOS Simulator, then open the palette again.".into())), cx)
+                    }),
+                )
+                .icon("phone")
+                .query_only()
+                .rank(rank::TERMINALS),
+            );
+        }
+    }
     // Each extension's inbox (the first one on ⌘I).
     for (i, m) in crate::extensions::inboxes(cx).into_iter().enumerate() {
         let id = m.id.clone();

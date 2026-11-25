@@ -7,7 +7,8 @@
 //! per extension), or one of an extension's views (a view tile: `view`,
 //! `<extension>/<view>`; one per view; an older Pitwall shows it empty),
 //! or Pitwall's Settings (a Settings tile: `settings: true`; one at most,
-//! its page is `ui.json`'s `settingsPage`).
+//! its page is `ui.json`'s `settingsPage`), or a device's screen (a device tile:
+//! `device`, `android:<serial>` or `ios:<udid>`; one per device).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -58,6 +59,10 @@ pub enum Node {
         /// The Settings tile.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         settings: bool,
+        /// A device tile: the device's key (`android:<serial>`,
+        /// `ios:<udid>`; docs/spec/device.md).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device: Option<String>,
     },
     Split {
         id: String,
@@ -83,12 +88,14 @@ pub struct Pane {
     pub view: Option<String>,
     /// The Settings tile.
     pub settings: bool,
+    /// A device tile: the device's key.
+    pub device: Option<String>,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings && self.device.is_none()
     }
 
     /// What a tile that isn't a terminal shows (a files or web tile).
@@ -99,7 +106,7 @@ impl Pane {
             (None, None, Some(x), _) => Some(Content::Inbox(x.clone())),
             (None, None, None, Some(v)) => Some(Content::View(v.clone())),
             _ if self.settings => Some(Content::Settings),
-            _ => None,
+            _ => self.device.clone().map(Content::Device),
         }
     }
 }
@@ -117,6 +124,9 @@ pub enum Content {
     View(String),
     /// Pitwall's Settings (one at most).
     Settings,
+    /// A device's screen (its key, `android:<serial>` or `ios:<udid>`; one
+    /// tile per device).
+    Device(String),
 }
 
 /// What is drawn in a tile or a window of its own by one view wherever
@@ -128,17 +138,22 @@ pub enum Surface {
     Inbox(String),
     View(String, String),
     Settings,
+    /// A device tile (the device's key).
+    Device(String),
 }
 
 /// Settings' surface key.
 pub const SETTINGS_KEY: &str = "@settings";
 
+/// A device tile's surface key: this, then the device's key.
+pub const DEVICE_PREFIX: &str = "@device:";
+
 impl Surface {
-    /// The extension it is of (none: Settings).
+    /// The extension it is of (none: Settings, a device).
     pub fn ext(&self) -> &str {
         match self {
             Surface::Inbox(e) | Surface::View(e, _) => e,
-            Surface::Settings => "",
+            Surface::Settings | Surface::Device(_) => "",
         }
     }
 
@@ -148,6 +163,7 @@ impl Surface {
             Surface::Inbox(e) => e.clone(),
             Surface::View(e, v) => format!("{e}/{v}"),
             Surface::Settings => SETTINGS_KEY.to_string(),
+            Surface::Device(d) => format!("{DEVICE_PREFIX}{d}"),
         }
     }
 
@@ -155,6 +171,9 @@ impl Surface {
     pub fn parse(key: &str) -> Surface {
         if key == SETTINGS_KEY {
             return Surface::Settings;
+        }
+        if let Some(d) = key.strip_prefix(DEVICE_PREFIX) {
+            return Surface::Device(d.to_string());
         }
         match key.split_once('/') {
             Some((e, v)) => Surface::View(e.to_string(), v.to_string()),
@@ -168,6 +187,7 @@ impl Surface {
             Surface::Inbox(e) => Content::Inbox(e.clone()),
             Surface::View(..) => Content::View(self.key()),
             Surface::Settings => Content::Settings,
+            Surface::Device(d) => Content::Device(d.clone()),
         }
     }
 
@@ -177,6 +197,7 @@ impl Surface {
             Content::Inbox(e) => Some(Surface::Inbox(e.clone())),
             Content::View(k) => Some(Surface::parse(k)),
             Content::Settings => Some(Surface::Settings),
+            Content::Device(d) => Some(Surface::Device(d.clone())),
             _ => None,
         }
     }
@@ -306,6 +327,7 @@ impl Node {
             inbox: None,
             view: None,
             settings: false,
+            device: None,
         }
     }
 
@@ -316,7 +338,7 @@ impl Node {
 
     /// A tile showing `c`.
     pub fn content_pane(c: &Content) -> Node {
-        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false }.showing(c)
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false, device: None }.showing(c)
     }
 
     /// This pane showing `c` instead (its id kept); a split is unchanged.
@@ -328,10 +350,14 @@ impl Node {
                     Content::Web(w) => (None, Some(w.clone()), None, None),
                     Content::Inbox(x) => (None, None, Some(x.clone()), None),
                     Content::View(v) => (None, None, None, Some(v.clone())),
-                    Content::Settings => (None, None, None, None),
+                    Content::Settings | Content::Device(_) => (None, None, None, None),
                 };
                 let settings = *c == Content::Settings;
-                Node::Pane { id, agent_id: None, files, web, inbox, view, settings }
+                let device = match c {
+                    Content::Device(d) => Some(d.clone()),
+                    _ => None,
+                };
+                Node::Pane { id, agent_id: None, files, web, inbox, view, settings, device }
             }
             n => n,
         }
@@ -377,7 +403,7 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view, settings } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings, device } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
@@ -385,6 +411,7 @@ impl Node {
                 inbox: inbox.clone(),
                 view: view.clone(),
                 settings: *settings,
+                device: device.clone(),
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -421,7 +448,7 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view, settings } => {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings, device } => {
                 let agent_id = f(id, agent_id);
                 // An agent put in a files, web, inbox, view or Settings tile
                 // takes it.
@@ -431,7 +458,8 @@ impl Node {
                 let inbox = if taken { None } else { inbox.clone() };
                 let view = if taken { None } else { view.clone() };
                 let settings = !taken && *settings;
-                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings }
+                let device = if taken { None } else { device.clone() };
+                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings, device }
             }
             Node::Split {
                 id,
@@ -1058,5 +1086,21 @@ mod tests {
         let (fit, hidden) = fit_layout(&t, (1700.0, 500.0), min, None);
         assert!(hidden.is_empty(), "{hidden:?}");
         assert!(fit.find_files("a").is_some());
+    }
+
+    #[test]
+    fn a_device_tile_keeps_its_device_across_a_restart() {
+        let c = Content::Device("ios:C1E0".into());
+        let s = Surface::of(&c).unwrap();
+        assert_eq!(s.key(), "@device:ios:C1E0");
+        assert_eq!(Surface::parse(&s.key()), s);
+        assert_eq!(s.content(), c);
+        let n = Node::content_pane(&c);
+        let json = serde_json::to_value(&n).unwrap();
+        assert_eq!(json["device"], "ios:C1E0");
+        let back: Node = serde_json::from_value(json).unwrap();
+        assert_eq!(back.leaves()[0].content(), Some(c));
+        // Other panes don't write it.
+        assert!(serde_json::to_value(Node::pane(Some("a".into()))).unwrap().get("device").is_none());
     }
 }

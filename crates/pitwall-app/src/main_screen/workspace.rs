@@ -313,6 +313,10 @@ pub struct UiState {
     /// start; `main_screen::settings_tile`).
     #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
     pub settings_window: bool,
+    /// Device tiles in windows of their own (device keys; opened in one
+    /// again at the next start; `main_screen::device_tile`).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub device_windows: Vec<String>,
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
@@ -395,6 +399,7 @@ impl Default for UiState {
             web_window: None,
             inbox_window: None,
             settings_window: false,
+            device_windows: Vec::new(),
             docked_files: BTreeMap::new(),
             files_windows: BTreeMap::new(),
             web_tiles: BTreeMap::new(),
@@ -625,6 +630,7 @@ impl UiState {
             Surface::Inbox(_) => e.is_some_and(|e| e.window),
             Surface::View(_, v) => e.is_some_and(|e| e.view_windows.contains(v)),
             Surface::Settings => self.settings_window,
+            Surface::Device(d) => self.device_windows.contains(d),
         }
     }
 
@@ -632,6 +638,13 @@ impl UiState {
     fn surface_window(mut self, s: &Surface, on: bool) -> UiState {
         if *s == Surface::Settings {
             self.settings_window = on;
+            return self;
+        }
+        if let Surface::Device(d) = s {
+            self.device_windows.retain(|x| x != d);
+            if on {
+                self.device_windows.push(d.clone());
+            }
             return self;
         }
         self.with_extension(s.ext(), |e| match s {
@@ -642,7 +655,7 @@ impl UiState {
                     e.view_windows.push(v.clone());
                 }
             }
-            Surface::Settings => {}
+            Surface::Settings | Surface::Device(_) => {}
         })
     }
 

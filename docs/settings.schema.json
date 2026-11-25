@@ -33,6 +33,11 @@
       ],
       "type": "string"
     },
+    "devicePreviews": {
+      "default": true,
+      "description": "`general.devicePreviews`: Device screens in Pitwall: an Android emulator's or phone's screen, or an iOS Simulator's, in a tile of the layout next to your terminals (Open device… in the command palette), where you can tap and type into it. Android needs adb and scrcpy-server; iOS Simulators need Xcode, and touch goes through Xcode's own simulator frameworks in a helper process. Agents can't see or use these screens. false: no device tile opens and none is offered.",
+      "type": "boolean"
+    },
     "engineerAgent": {
       "default": "auto",
       "description": "`engineer.agent`: What the Race Engineer (Pitwall's optional assistant) runs on: auto (Claude Code if installed, else the first installed agent), an agent id from New agent (claude, codex, gemini, opencode, aider, …) or custom (engineer.command). Applies the next time it starts.",
