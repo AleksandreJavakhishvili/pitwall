@@ -8,6 +8,7 @@
 //! machine with every symlink followed. It must still be inside the
 //! resolved root ([`inside`]). All calls are blocking.
 
+mod anywhere;
 mod read;
 mod search;
 mod tree;
@@ -215,6 +216,7 @@ pub fn read_local_image(path: &str) -> Res<Vec<u8>> {
 
 pub use read::{is_image, is_pdf, is_svg, MAX_IMAGE, MAX_PDF};
 pub use write::{refused_by_name, Saved};
+pub use anywhere::{create_local_file, local_git_file, write_local_file, GitFile};
 
 /// Save `text` the user edited in the viewer over `path` of agent
 /// `agent_id`'s folder: only for an agent on this computer, a text file
