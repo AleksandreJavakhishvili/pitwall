@@ -16,6 +16,12 @@ an extension can contribute. It reuses the manifest, the permission
 screen, grants, the activity log, sources, install, Go back and the
 one-step update.
 
+Terms (15.2): the **extension** is the package; a **tile** is a UI
+contribution; the **component** is the extension's wasm code, with or
+without tiles; a **service** is a long-running server; the **adapter**
+is today's process runtime. Section 15 proposes making the component
+the one way an extension runs its own code.
+
 Marks: **[today]** is built; **[new]** is proposed here.
 Claims about third-party software carry a source number (S1…, listed
 in "Sources" at the end) or the word *unverified*.
@@ -105,6 +111,12 @@ model and IME. The tile's code never touches a window.
     includes what today's extensions already have for agents' questions
     (badges and row notes, questions in the floating control, Next up),
     so inbox-style tiles are a v0.x target.
+14. **One extension model** (section 15, proposed). The extension is
+    the one concept; a tile is one thing it contributes. The component
+    becomes the only way an extension runs its own code, with or
+    without a tile. Adapters are removed in the release that ships
+    components, with the bundled first-party extensions ported in that
+    release; native code only through a managed service.
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
@@ -113,10 +125,12 @@ Next up (6.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
 package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
 6 seed tiles (in parallel from phase 2), with on-demand services as
 they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
-managed service: documented and wired during phase 2 (1 wk). Headless wasm services: after phase 7 (≈ 6 wk).
+managed service: documented and wired during phase 2 (1 wk). If the
+one extension model is accepted: 8 port first-party extensions to
+components (≈ 4 wk) → 9 remove adapters (≈ 1 wk), in one release. Headless wasm services: after phase 7 (≈ 6 wk).
 
-**Owner decisions needed** are in 10.3, 11.13 and 13.6, each with a
-recommendation.
+**Owner decisions needed** are in 10.3, 11.13, 13.6 and 15.8, each
+with a recommendation.
 
 ---
 
@@ -252,9 +266,10 @@ vendored GPUI [today].
 Why a separate host crate: Wasmtime is a large dependency with its own
 compile time; keeping it out of `pitwall-core` keeps the core fast to
 build and test, and keeps the "no Wasmtime in core" line easy to check.
-Why the model in core: the same element tree can later be what an
-adapter sends (protocol 3), so adapters and wasm tiles draw from one
-model instead of two.
+Why the model in core: it is pure data with limits and cleaning, like
+today's `extensions::view`, which it replaces (today's declarative
+views become SDK components, 15.1), and the CLI's `check` reads it
+without Wasmtime.
 
 OS code: Wasmtime handles its own per-OS memory mapping and trap
 handling (*unverified in detail*; its `signals-based-traps` feature,
@@ -2087,7 +2102,7 @@ tools in phase 3.
 |---|---|---|---|
 | **Native dynamic libraries** (Rust `cdylib` loaded with `libloading`) | Full GPUI, fastest | No stable Rust ABI across compiler versions, so every tile must be rebuilt per Pitwall release; a crash or a hang takes the app down; full access to memory, keychain and windows; per-OS binaries; code signing issues on macOS | Rejected (as extension-api.md [today]) |
 | **A separate process drawing its own window**, embedded in the layout | Any toolkit, crash isolation | Can't look native (fonts, glass, focus ring differ); embedding foreign windows is OS-specific and fragile; no shared keyboard model | Rejected |
-| **A separate process sending an element tree** (the adapter protocol, extended) | Any language, exists today | No sandbox (runs as the user); needs a runtime installed (Node); per-OS binaries for compiled languages; a pipe round trip per event | Not rejected outright: the element model lives in `pitwall-core` so adapters can send the same tree later (protocol 3). Wasm is the default for third-party tiles because it is enforced, portable and one file |
+| **A separate process sending an element tree** (the adapter protocol, extended) | Any language, exists today | No sandbox (runs as the user); needs a runtime installed (Node); per-OS binaries for compiled languages; a pipe round trip per event | Rejected: adapters are removed when components ship (section 15). Wasm is enforced, portable and one file; a native server stays possible as a managed service |
 | **Web tiles only** | Exists today; any web stack | Doesn't look or feel native; no Pitwall keyboard model; no bridge by policy, so no access to agents or files | Stays the escape hatch [today] |
 | **Lua or JavaScript scripting in process** | Easy for authors; hot reload | An engine to embed and secure (JS engines are large); no types; authors asked for Rust; sandboxing is per-engine and weaker than wasm's linear memory; slower for heavy work (parsing, diffing) | Rejected |
 | **Wasm, but with a different runtime** (Wasmer, WAMR, wasmi) | Smaller (WAMR, wasmi) | Wasmtime is the Bytecode Alliance's reference for the Component Model and WASI 0.2/0.3 (S15; that others are less complete is *unverified*); Zed's extensions and its wasm grammars run on Wasmtime (S18), so GPUI-adjacent prior art exists | Wasmtime |
@@ -2611,6 +2626,194 @@ built only when its trigger happens.
 - **Credentials**: account logins, tool logins, Pitwall's own settings.
 - **Background work while hidden** for a tile (2.3): that is a
   service's job (13).
+
+## 15. One extension model
+
+Status: proposed to the owner. Decided by the owner: breaking is fine
+(adapters are removed, not kept for compatibility). The rest awaits
+their answer (15.8).
+
+### 15.1 One concept, not two
+The owner asked why there would be both extensions and tiles. There
+shouldn't be. There is **one concept, the extension**: one package, one
+manifest, one install, update, permission and marketplace flow. A
+**tile** is one thing an extension can contribute, beside agent tools,
+a skill, commands, settings and a service. An extension with no tile is
+still an extension.
+
+The duplication that is real is the **code runtime**. Today an
+extension runs its own code as an **adapter**, a process in any
+language speaking JSON over stdio, and Pitwall draws its fixed views
+from that JSON [today]. This document adds a **component**, wasm code
+in Pitwall's sandbox. Two ways to run an extension's code is one too
+many.
+
+**Proposal.**
+1. The component becomes **the** way an extension runs its own code,
+   with or without a tile. A headless component can do everything an
+   adapter does: feed inbox questions, badges and notifications, put
+   text in Next up, answer agent tools and commands.
+2. **Adapters are removed** in the release that ships the component
+   runtime: the adapter process protocol (protocols 1 and 2, JSON over
+   stdio) goes, with no compatibility period. Pitwall is 0.x and every
+   extension that exists is first-party, so the first-party extensions
+   bundled with Pitwall are ported to components in that same release
+   (15.4). Until then, adapters get no new features.
+3. Native code remains only through the managed `service` (13.2), at
+   its higher trust level.
+4. Pitwall-drawn views (today's `list`, `detail`, `markdown`, `status`)
+   become SDK components; one renderer draws both. A tile is the general
+   case; a declarative view is a tile with a fixed shape.
+
+### 15.2 Terms used in this document
+| Term | Means |
+|---|---|
+| **Extension** | The package: its manifest (`extension.json`), id, version, source, signature, permissions and everything it contributes |
+| **Tile** | A UI contribution: a view the extension draws in the layout (or, later, in the right panel), built from the SDK's elements and components |
+| **Component** | The extension's own code: one wasm component, run sandboxed by Pitwall in the app, with or without tiles |
+| **Service** | A long-running server: a managed native program (13.2) or a wasm service in its own host process (13.3) |
+| **Adapter** | Today's process runtime; removed when components ship |
+
+### 15.3 What an extension can contain
+
+```mermaid
+flowchart TB
+  E["Extension (.pwtile package)<br/>extension.json: id, version, source,<br/>signature, permissions"]
+  E --> D["Declarations (no code)"]
+  E --> C["Component (extension.wasm)<br/>sandboxed, in the app"]
+  E --> S["Service (optional)"]
+  D --> D1["Settings and secrets"]
+  D --> D2["Agent skill (agents/SKILL.md)"]
+  D --> D3["Web views (a URL)"]
+  D --> D4["Setup actions and agent variables<br/>(confirmed native commands)"]
+  C --> C1["Tiles (views)"]
+  C --> C2["Agent tools and commands"]
+  C --> C3["Badges, notifications,<br/>floating-control questions, inbox"]
+  C --> C4["Next up, reads, by grant"]
+  S --> S1["Managed native program<br/>'Runs a program on your computer'"]
+  S --> S2["Wasm service<br/>(own host process)"]
+```
+
+Manifest changes in 0.x (breaking changes are allowed before 1.0,
+14.1):
+- One top-level `"component": "extension.wasm"` replaces the per-tile
+  `wasm` key; tiles name views the component renders.
+- A component that contributes no tile is **headless**. It runs while
+  the extension is on, not only while a tile shows it (15.5).
+
+### 15.4 From adapter to component
+
+**Parity checklist.** Each adapter capability [today] and its component
+equivalent. Every row must be built before adapters are removed, because
+the first-party extensions bundled with Pitwall use them.
+
+| Adapter [today] | Component | Status in this document |
+|---|---|---|
+| `hello` with settings, secrets, grants | `init` context, `settings`, `grants-changed` | 3.2, 3.8 |
+| One adapter per connection | One component instance per connection, with the connection in `init` | **new: to build** |
+| Inbox threads, messages, asks, replies | An `inbox` interface mirroring protocol 1's messages one for one, so a port is mechanical | **new: to build** |
+| Floating-control questions | `asks` (14.2), or through `inbox` as today | 14.2 |
+| Views (`list`, `detail`, `markdown`, `status`) | SDK components in a tile | 3.3, 4.1 |
+| Right-panel sections | A tile view placed in the panel (height-limited, as today's sections) | **new: to build** |
+| Commands | Commands (11.12) | 11.12 |
+| Badges and notes, notifications | `contrib.badges`, `notify` | 14.2 |
+| Method calls and events (`agents.read`, `queue.add`, …) | `pitwall` interface | 3.8, 14.2 |
+| Long-lived connections to a service (WebSocket, server-sent events) | Server-sent events work over a streamed `net` response; WebSocket needs a host `ws` interface (whether `wasi:http` covers WebSocket upgrades is *unverified*; assumed not) | **new: to build** |
+| Background work while no tile shows anything | Headless components (15.5) | **new: to build** |
+| Talks to its local service | The automatic loopback grant (13.2) | 13.2 |
+| Any language | Rust first; other languages that compile to components (*which work well with the SDK's WIT is unverified*) | — |
+
+**Removal, not deprecation.** Pitwall is 0.x and every extension in
+use is first-party, so breaking is acceptable and a compatibility
+period would only keep two runtimes alive:
+1. **Until components ship:** adapters get fixes only. Author docs say
+   adapters are going away.
+2. **Port first:** the first-party extensions bundled with Pitwall are
+   ported to components (the demo becomes the component starter), and
+   pass `pitwall extension check|test` as components.
+3. **Remove in the same release:** the release that ships the component
+   runtime removes the adapter protocol (protocols 1 and 2), the `adapter`
+   manifest key (a manifest with one is refused with "needs an older
+   Pitwall; this extension must be updated"), the adapter hub, its Log
+   lines and `pitwall extension test`'s adapter parts. Process groups
+   stay: services use them.
+4. Nothing third-party is listed in the index before then, so no one
+   else is broken; the index never accepts adapter-based extensions.
+
+**What users see.** Each bundled extension arrives as an ordinary
+update (6.4) in that release, whose review says "Now runs in Pitwall's
+sandbox; no longer runs a program on your computer" (unless it also has
+a managed service, which keeps running as before). Pitwall's existing
+install and update code carries settings, secrets, connections and
+grants over by key [today]; permissions keep their names, so nothing is
+asked again unless the component asks for something new. Go back to
+the adapter version is not offered once adapters are removed: the
+review says so. An extension installed by hand with an adapter shows
+as "needs updating" with why.
+
+### 15.5 Headless components
+A component without a tile, or with tiles that aren't shown, may need
+to keep working: poll a service, keep badges and questions current,
+answer agent tools. So:
+- A component whose manifest contributes badges, asks, an inbox or
+  agent tools, or declares `"background": true`, keeps its instance
+  while the extension is on and Pitwall runs, as an adapter is kept
+  running today. Renders stop while no tile shows it; events, timers,
+  `net` answers and tool calls continue.
+- The `background` permission (13.3) covers it, shown on the
+  permission screen as "Runs while you aren't looking at it".
+- Limits while nothing is shown: timers at most once a second, the CPU
+  watchdog of wasm services (13.3), the same memory limit.
+- It stops when Pitwall quits, as adapters do. Work that must continue
+  after that is a wasm service (13.3).
+This refines 2.3: "suspended when hidden" applies to components with
+only tiles; a component that contributes anything above stays.
+
+### 15.6 What stays different
+- **Native code** runs only in a managed service (any language, such as
+  a Node server; 13.2). Components never run programs.
+- **Declarations without code** stay declarations: settings, web views,
+  setup actions and agent variables (native commands confirmed by the
+  user [today]), the agent skill.
+- **Services** outlive the window or run native code; components don't.
+- **The inbox surface** stays Pitwall's own (decision 14 in
+  extension-api.md [today]): components feed it through `inbox`; they
+  don't redraw it as a tile.
+
+### 15.7 Effect on the plan
+- Names: the crate `pitwall-tile` and the CLI's `pitwall tile …` would
+  become `pitwall-extension` and `pitwall extension …` (the CLI already
+  has `pitwall extension check|test|new` [today]), before anything is
+  published.
+- Two new steps after phase 7, shipped in one release:
+  **8. Port first-party extensions to components** (about 4 weeks):
+  component instances per connection, the `inbox` interface,
+  right-panel placement, `ws`, the headless lifecycle, then porting
+  each bundled extension and the demo. **9. Remove adapters** (about
+  1 week): the protocol, the hub, the manifest key, the CLI parts, the
+  docs. User-visible effect: one update of each bundled extension, with
+  settings, secrets and connections carried over.
+
+### 15.8 Open questions (each with a recommendation)
+1. **One model, components as the only code runtime?** *Recommend
+   yes*, as proposed in 15.1; it is the owner's decision.
+2. **Rename `pitwall-tile` and `pitwall tile …` now?** *Recommend yes*,
+   before the first publish: renaming a published crate later costs
+   every author.
+3. **Remove adapters in the same release as components?** Decided by
+   the owner: yes, no compatibility period. *Recommend* holding that
+   release until every bundled extension passes its checks as a
+   component, rather than shipping components first.
+4. **Keep the inbox as a dedicated surface?** *Recommend yes*: it
+   does more than generic components (asks, number keys, sending with
+   take-back), and the floating control depends on its model.
+5. **Other languages for components** (JavaScript, Go, Python through
+   their component toolchains). *Recommend* Rust only in the docs and
+   templates until 1.0; accept any component that passes `check`, but
+   support only Rust.
+6. **Third-party extensions before adapters are removed?** *Recommend*
+   opening the index only after that release, so no third-party
+   extension is ever built on adapters.
 
 ## What this replaces in extension-api.md
 
