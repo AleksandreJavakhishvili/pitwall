@@ -106,6 +106,13 @@ export function versionsFor(f: FileChange | undefined, path: string): FileVersio
   return md ? { original: MD_ORIGINAL, modified: MD_MODIFIED, binary: false } : { original: ORIGINAL, modified: MODIFIED, binary: false };
 }
 
+/** The demo agents' latest prompts (each a task in Review), and how long ago they were sent. */
+const DEMO_TASKS: Record<string, { prompt: string; ago: number }> = {
+  tests: { prompt: "Run the test suite and fix the flaky cart spec. Don't touch the snapshot files.", ago: 4 * min },
+  "api-fix": { prompt: "Fix the 500 on /v2/orders when the cart is empty. Add a regression test.", ago: 11 * min },
+  docs: { prompt: "Rewrite the onboarding page so a new hire can get a dev env running in 15 minutes.", ago: 26 * min },
+};
+
 export function createReviewMock(d: Deps): ReviewApi {
   const tasks = new Map<string, Task[]>();
   const tasksFor = (id: string): Task[] => {
@@ -113,14 +120,15 @@ export function createReviewMock(d: Deps): ReviewApi {
     if (!t) {
       const a = d.find(id);
       const base = a.createdAt;
-      t = a.lastSent
+      const demo = DEMO_TASKS[a.name];
+      t = demo
         ? [
             { id: `${id}-t1`, prompt: "Read the code around this area and tell me what you'd change.", startedAt: base + 2 * min, endedAt: base + 5 * min, startTree: "t0", endTree: "t1" },
             {
               id: `${id}-t2`,
-              prompt: a.lastSent,
-              startedAt: a.lastSentAt ?? base + 6 * min,
-              endedAt: a.status === "working" || a.status === "blocked" ? null : (a.lastSentAt ?? base) + 3 * min,
+              prompt: demo.prompt,
+              startedAt: Date.now() - demo.ago,
+              endedAt: a.status === "working" || a.status === "blocked" ? null : Date.now() - demo.ago + 3 * min,
               startTree: "t1",
               endTree: a.status === "working" || a.status === "blocked" ? null : "t2",
             },

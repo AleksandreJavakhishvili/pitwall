@@ -50,7 +50,7 @@ image is rendered by `node scripts/og-image.mjs` (headless Chrome, demo content 
 ```
 index.html                    landing: hero, demo with tabs, features carousel, details, download / GitHub
 download/index.html           per-OS downloads, first-launch notes, build from source
-docs/how-it-works/index.html  flags, Wall, Next up, Review, files agents show you, terminals, agents, rules, agw, CLI, roadmap
+docs/how-it-works/index.html  flags, Wall, Review, files agents show you, terminals, agents, rules, agw, CLI, roadmap
 docs/quick-start/index.html   install, build from source, first steps
 changelog/index.html          page chrome; content from ../CHANGELOG.md
 roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Next / Later lanes)
@@ -135,13 +135,13 @@ The landing page's demo is the web demo of the UI, live: the React build of the 
 - **Size.** The app renders at 1120×700 (it shows its full sidebar from 1100 px) and
   is scaled to the frame. Below 600 px the frame is 4:5 and shows the app's left half
   (sidebar and first tile) at twice the scale, so text stays legible on phones; a tab
-  with `data-phone="right"` (Files, Web, Next up) shows the right half instead, where its
-  tile or the details drawer is.
+  with `data-phone="right"` (Files, Web) shows the right half instead, where its
+  tile is.
 - **Tabs.** It is the page's one main demo, strongest views first: Needs you / Files /
-  Web / Review / Wall / Next up post `{ type: "pitwall-demo", view }` to the app;
+  Web / Review / Wall post `{ type: "pitwall-demo", view }` to the app;
   `src/lib/demoBridge.ts` (inert outside the browser mock and without `?demo=1`) clicks
   the app's own controls and replies `{ type: "pitwall-demo-ready" }` once agents are on
-  screen. Files opens api-fix's `src/orders/handler.ts` from the Files tab of its details:
+  screen. Files opens api-fix's `src/orders/handler.ts` from the palette's Browse files:
   a files tile beside its terminal, with git status. Web clicks Preview on the docs
   agent, whose terminal printed a local address: a web tile beside it with a made-up
   page drawn in HTML (`src/components/WebTile.tsx`, `src/mockWeb.ts`; no iframe, no

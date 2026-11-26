@@ -516,15 +516,13 @@ export async function newAgentSize(): Promise<TermSize | undefined> {
 /**
  * Size for agent `index` of `count` about to be tiled into a space (onboarding
  * hand-over). Estimated from the space area (or the main area when no space is
- * shown yet), leaving room for a docked right panel that will appear.
+ * shown yet).
  */
 export async function tiledAgentSize(index: number, count: number): Promise<TermSize | undefined> {
   let area = boxOf(document.querySelector(".space-area"));
   if (!area) {
     const main = boxOf(document.querySelector("main.center"));
-    const willDock = responsive(window.innerWidth).rightDocked && !document.querySelector("aside.right:not(.right-drawer)");
-    const rightPx = willDock ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--right-w")) || 0 : 0;
-    if (main) area = { w: main.w - rightPx, h: main.h - 32 /* .space-bar */ };
+    if (main) area = { w: main.w, h: main.h - 32 /* .space-bar */ };
   }
   const cell = area ? await cellSize() : null;
   const fit = area && cell ? fitCells(tileBox(area, index, count), cell) : null;

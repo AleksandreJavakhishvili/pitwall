@@ -9,8 +9,8 @@ import { conflictPrompt } from "./comments";
 const busyStatus = (a: AgentView) => a.status === "working" || a.status === "blocked";
 
 /**
- * An editable prompt, shown in full before anything is sent. Sent verbatim:
- * now via send_prompt, or into Next up when the agent is busy / not running.
+ * An editable prompt, shown in full before anything is sent. Sent verbatim, now,
+ * via send_prompt; only while the agent is running.
  */
 export function PromptDialog({
   agent: a,
@@ -27,23 +27,14 @@ export function PromptDialog({
   onClose(): void;
   onSent?(): void;
 }) {
-  const { run, patch } = useActions();
+  const { run } = useActions();
   const [text, setText] = useState(initial);
   const [busy, setBusy] = useState(false);
-  const queueFirst = !a.running || busyStatus(a);
+  const canSend = a.running && !busy && !!text.trim();
 
-  const send = async (how: "now" | "queue") => {
+  const send = async () => {
     setBusy(true);
-    const ok =
-      how === "now"
-        ? await run(api.sendPrompt(a.id, text).then(() => true), `send to ${a.name}`)
-        : await run(
-            api.queueAdd(a.id, text).then((v) => {
-              patch(v);
-              return true;
-            }),
-            `add to ${a.name}'s Next up`,
-          );
+    const ok = await run(api.sendPrompt(a.id, text).then(() => true), `send to ${a.name}`);
     setBusy(false);
     if (ok) {
       onSent?.();
@@ -62,43 +53,27 @@ export function PromptDialog({
           spellCheck={false}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canSend) {
               e.preventDefault();
-              send(queueFirst ? "queue" : "now");
+              send();
             }
           }}
           data-autofocus
         />
         <p className="hint">
           Sent to <strong>{a.name}</strong> exactly as written above.{" "}
-          {queueFirst && (a.running ? `${a.name} is busy, so it goes to Next up.` : `${a.name} isn't running, so it goes to Next up.`)}
+          {!a.running
+            ? `${a.name} isn't running; start it to send this.`
+            : busyStatus(a) && `${a.name} is busy; it gets the text now, as if you typed it.`}
         </p>
       </div>
       <footer className="modal-foot">
         <button className="ghost-btn" onClick={onClose}>
           Cancel
         </button>
-        {queueFirst ? (
-          <>
-            {a.running && (
-              <button className="ghost-btn" onClick={() => send("now")} disabled={busy || !text.trim()}>
-                Send now anyway
-              </button>
-            )}
-            <button className="primary-btn" onClick={() => send("queue")} disabled={busy || !text.trim()}>
-              Add to Next up
-            </button>
-          </>
-        ) : (
-          <>
-            <button className="ghost-btn" onClick={() => send("queue")} disabled={busy || !text.trim()}>
-              Add to Next up
-            </button>
-            <button className="primary-btn" onClick={() => send("now")} disabled={busy || !text.trim()}>
-              Send now
-            </button>
-          </>
-        )}
+        <button className="primary-btn" onClick={() => send()} disabled={!canSend}>
+          Send
+        </button>
       </footer>
     </Modal>
   );

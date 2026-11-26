@@ -42,11 +42,10 @@ resume?: string | null,
  */
 account?: string | null, 
 /**
- * Its first instruction, put in the new agent's Next up as it is
- * created, as `queue.add` would (sent when it is first free, if
- * Auto-send is on); the answer says what became of it
- * ([`AgentCreated`]). Blank: refused, nothing created. From an
- * extension (`agents.start`) it is shown in full in the approval and
- * queued as the extension's item (sent as its other items are).
+ * Its first instruction, kept with the new agent as it is created and
+ * sent once, verbatim, when the agent is first free; the answer says
+ * what became of it ([`AgentCreated`]). Blank: refused, nothing
+ * created. From an extension (`agents.start`) it is shown in full in
+ * the approval the user answers first.
  */
 prompt?: string | null, cols?: number | null, rows?: number | null, };

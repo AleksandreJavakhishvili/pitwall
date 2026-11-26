@@ -8,11 +8,11 @@
   height: 100vh;
   display: grid;
   grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--statusbar-h);
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    "top top top"
-    "side center right"
-    "attn attn attn";
+    "top top"
+    "side center"
+    "attn attn";
   min-width: 640px;
   min-height: 480px;
   position: relative;
@@ -136,7 +136,7 @@
   background: var(--bg);
 }
 
-/* ── scrims for overlay sidebar / drawer ─────────────── */
+/* ── scrim for the overlay sidebar ─────────────── */
 .scrim {
   position: absolute;
   inset: var(--topbar-h) 0 0 0;

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>How Pitwall works: status flags, the Wall and Review</title>
-  <meta name="description" content="How Pitwall detects when an agent needs you, plus the Wall, Next up, Review, files agents show you, terminals that survive quitting, supported agents and detection rules." />
+  <meta name="description" content="How Pitwall detects when an agent needs you, plus the Wall, Review, files agents show you, terminals that survive quitting, supported agents and detection rules." />
   <meta name="color-scheme" content="dark light" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -49,7 +49,6 @@
         <ul class="toc" aria-label="On this page">
           <li><a href="#flags">Flags</a></li>
           <li><a href="#wall">Wall</a></li>
-          <li><a href="#next-up">Next up</a></li>
           <li><a href="#away">Answering from another app</a></li>
           <li><a href="#review">Review</a></li>
           <li><a href="#files">Files</a></li>
@@ -75,7 +74,7 @@
             <tbody>
               <tr data-status="blocked"><td class="pos">1</td><td class="agent">tests</td><td><span class="state w-blocked"><span class="g" aria-hidden="true">▲</span>Needs you</span></td><td class="detail">Bash: pnpm test --run src/cart</td></tr>
               <tr><td class="pos">2</td><td class="agent">docs</td><td><span class="state w-done"><span class="g" aria-hidden="true">⚑</span>Done <span class="chequer" aria-hidden="true"></span></span></td><td class="detail">finished a turn you haven't looked at</td></tr>
-              <tr><td class="pos">3</td><td class="agent">api-fix</td><td><span class="state w-working"><span class="g" aria-hidden="true">◐</span>Working</span></td><td class="detail">2 prompts in Next up</td></tr>
+              <tr><td class="pos">3</td><td class="agent">api-fix</td><td><span class="state w-working"><span class="g" aria-hidden="true">◐</span>Working</span></td><td class="detail">output is flowing</td></tr>
               <tr><td class="pos">4</td><td class="agent">refactor</td><td><span class="state w-idle"><span class="g" aria-hidden="true">●</span>Idle</span></td><td class="detail">waiting for a prompt</td></tr>
               <tr data-status="stopped"><td class="pos">5</td><td class="agent">scratch</td><td><span class="state w-idle"><span class="g" aria-hidden="true">■</span>Stopped</span></td><td class="detail">not running; Restart resumes it</td></tr>
             </tbody>
@@ -100,9 +99,6 @@
         <h2 id="wall">Wall</h2>
         <p><kbd>⌘E</kbd> shows every agent's terminal, grouped by project, blocked first. Tiles show the bottom rows of each terminal, where prompts wait. The Wall is view-only: it never resizes a terminal and never types. Click a tile to take over that agent; <kbd>Esc</kbd> comes back. A window left in Wall mode stays that way across restarts.</p>
 
-        <h2 id="next-up">Next up</h2>
-        <p>Each agent has its own queue in the right panel (<kbd>⌘.</kbd>). With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text goes in as a bracketed paste, then Enter, exactly as written. Last sent stays under the queue.</p>
-
         <h2 id="away">Answering from another app</h2>
         <p>While you're in another app and an agent's screen asks you something, a small pill floats over your desktop, on every Space and over full-screen apps. It never shows while Pitwall is in front, and it goes away when nothing waits.</p>
         <ul>
@@ -117,11 +113,10 @@
         <p><kbd>⌘R</kbd> lists changes by agent, then file, in a side-by-side or inline diff. Pick All changes or one task: a single prompt, from send until the agent is done.</p>
         <ul>
           <li>Per-task snapshots are written through a temporary index (<code>GIT_INDEX_FILE</code>), so your real index and working tree are never touched. Untracked files are included.</li>
-          <li>Click a line to comment. Send comments shows the composed prompt for editing first, or queues it if the agent is busy.</li>
+          <li>Click a line to comment. Send comments shows the composed prompt for editing first, then sends it to the agent exactly as written.</li>
           <li>Commit &amp; merge runs <code>git merge --no-ff</code> of the worktree's branch, only when you click. It refuses if your main checkout is dirty; on a conflict it runs <code>git merge --abort</code> and offers the agent an editable "rebase and resolve" prompt.</li>
           <li>The diff editor is bundled, so Review works offline.</li>
         </ul>
-        <p>The Changes panel in the right panel matches <code>git status</code>: staged and unstaged changes are listed apart, and each git repository inside the agent's folder, or linked into it, gets its own collapsible section with its branch. A file that is both staged and changed again shows both, and its diff opens on the part you clicked.</p>
 
         <h2 id="files">Files agents show you</h2>
         <p>Ask an agent to open a file, a folder, a worktree or an image ("open that file for me", "show me worktree fix-retry") and it opens in Pitwall's file viewer, in a <strong>files tile</strong>: a slot of its own in the layout of the window that shows the agent, right of its terminal unless you ask for left, above, below, another agent's terminal, or a terminal's place. A terminal it replaces keeps running and is back from the sidebar. Ask for a window and it gets a window of its own. Drag the files by their bar anywhere in a window's layout or out into a window and back; Move… and Dock… do the same without dragging. Pitwall doesn't come forward over the app you're in, and the terminal keeps the keyboard. Tiles come back after a restart with what they had open.</p>
@@ -203,22 +198,21 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
         <h2 id="agw">agw machines</h2>
         <p>If you use <code>agw</code> to run agents on VMs, its sessions show up in Pitwall next to your local agents, grouped by machine.</p>
         <ul>
-          <li><strong>Works today:</strong> add an existing session and get its live terminal, its flag (from screen detection), Next up, stop and start. Diffs and Review run git on the VM through agw. New agent → <em>Runs on</em> creates a session on a VM with agw's own workspaces, users and templates.</li>
+          <li><strong>Works today:</strong> add an existing session and get its live terminal, its flag (from screen detection), stop and start. Diffs and Review run git on the VM through agw. New agent → <em>Runs on</em> creates a session on a VM with agw's own workspaces, users and templates.</li>
           <li><strong>Not yet:</strong> hooks and rules on VMs (status comes from the screen only), merging from Review, and deleting a session on the VM. Removing an agw agent from Pitwall only detaches it; the session keeps running there.</li>
         </ul>
 
         <h2 id="cli">CLI and approvals</h2>
         <p>Settings → <em>Install command-line tool</em> links <code>pitwall</code> into <code>~/.local/bin</code> or <code>/usr/local/bin</code>. It talks to the running app over a local socket and prints JSON (<code>--human</code> for text).</p>
         <pre><code>pitwall agent list
-pitwall agent new --kind claude --project ~/code/api --name api [--account work]
+pitwall agent new --kind claude --project ~/code/api --name api [--account work] [--prompt "run the tests"]
 pitwall session list --provider agw
 pitwall session add agw &lt;vm&gt; &lt;session&gt; --start
 pitwall settings list
 pitwall settings set appearance.theme dark
-pitwall queue add api "run the tests"
 pitwall space move "API" --to-window new
 pitwall wait api --for done --fresh</code></pre>
-        <p>It does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review and settings, plus <code>wait</code> so agents can coordinate. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON in <code>~/.pitwall/ui.json</code> (with a <a href="%REPO_URL%/blob/main/docs/settings.schema.json">JSON Schema</a> for editors): edits apply live, and a value that isn't allowed is reported while the last good one stays. Settings that change something outside Pitwall, like installing Codex hooks, ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request. Every command and option is in the <a href="/docs/cli/">CLI reference</a>, every setting in the <a href="/docs/settings/">settings reference</a>.</p>
+        <p>It does what the UI does: agents (new, optionally with a first prompt; stop, restart, remove, rename, status), spaces and windows, projects, rules, read-only review and settings, plus <code>wait</code> so agents can coordinate. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON in <code>~/.pitwall/ui.json</code> (with a <a href="%REPO_URL%/blob/main/docs/settings.schema.json">JSON Schema</a> for editors): edits apply live, and a value that isn't allowed is reported while the last good one stays. Settings that change something outside Pitwall, like installing Codex hooks, ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request. Every command and option is in the <a href="/docs/cli/">CLI reference</a>, every setting in the <a href="/docs/settings/">settings reference</a>.</p>
         <p>The optional <strong>Race Engineer</strong> (the headset in the top bar, or ⌘K) is an agent that already knows all this: it runs on the agent you pick in Settings → Agents, in its own folder in Pitwall's data folder, with Pitwall's instructions and this CLI reference written there as <code>AGENTS.md</code>, <code>CLAUDE.md</code> and <code>GEMINI.md</code>, and <code>pitwall</code> on its PATH. Your <code>~/.claude</code> and <code>~/.codex</code> are not touched.</p>
 
         <h2 id="first-launch">First launch</h2>

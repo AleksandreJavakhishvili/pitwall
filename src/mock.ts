@@ -261,7 +261,7 @@ function withCaps(a: Omit<AgentView, "caps"> & { caps?: AgentView["caps"] }): Ag
     caps: {
       input: running,
       restart: true,
-      resume: a.terminal ? RESUMABLE.has(a.kind) && !!a.sessionId : RESUMABLE.has(kind) && !!a.lastSent,
+      resume: RESUMABLE.has(a.terminal ? a.kind : kind) && !!a.sessionId,
       stop: running,
       removeWorktree: a.worktree,
       diff,
@@ -296,10 +296,6 @@ function agent(p: Partial<AgentView> & Pick<AgentView, "id" | "name" | "status">
     added: 0,
     removed: 0,
     filesChanged: 0,
-    queue: [],
-    autoSend: true,
-    lastSent: null,
-    lastSentAt: null,
     createdAt: now - 60 * min,
     cols: 100,
     rows: 30,
@@ -330,8 +326,7 @@ let agents: AgentView[] = [
     branch: "worktree-tests",
     worktree: true,
     account: "claude-work",
-    lastSent: "Run the test suite and fix the flaky cart spec. Don't touch the snapshot files.",
-    lastSentAt: now - 4 * min,
+    sessionId: "3f6a9c12-tests-cart-4b7e",
     createdAt: now - 50 * min,
     ...totals("tests"),
   }),
@@ -347,12 +342,7 @@ let agents: AgentView[] = [
     account: "codex-side",
     cwd: "/Users/dev/.codex/worktrees/a1b2/orders-api",
     cwdDisplay: "~/.codex/worktrees/a1b2/orders-api",
-    queue: [
-      { id: "q1", text: "Now add the same guard to PATCH /v2/orders/:id and cover it with a test." },
-      { id: "q2", text: "Summarise the change in 3 bullets for the PR description." },
-    ],
-    lastSent: "Fix the 500 on /v2/orders when the cart is empty. Add a regression test.",
-    lastSentAt: now - 11 * min,
+    sessionId: "019a4e7b-api-fix-5d21",
     createdAt: now - 40 * min,
     ...totals("api-fix"),
   }),
@@ -368,8 +358,7 @@ let agents: AgentView[] = [
     branch: "worktree-docs",
     worktree: true,
     account: "claude-work",
-    lastSent: "Rewrite the onboarding page so a new hire can get a dev env running in 15 minutes.",
-    lastSentAt: now - 26 * min,
+    sessionId: "8d2c0f55-docs-onboard-91a3",
     createdAt: now - 30 * min,
     ...totals("docs"),
   }),
@@ -410,7 +399,7 @@ const agentSubs = new Set<(a: AgentView[]) => void>();
 const attnSubs = new Set<(e: AttentionEvent) => void>();
 
 function emitAgents() {
-  const snap = agents.map((a) => ({ ...a, queue: [...a.queue] }));
+  const snap = agents.map((a) => ({ ...a }));
   agentSubs.forEach((cb) => cb(snap));
 }
 function out(id: string, s: string) {
@@ -436,22 +425,23 @@ function setStatus(id: string, status: Status, detail: string | null = null) {
     if (detail) e.detail = detail;
     attnSubs.forEach((cb) => cb(e));
   }
-  if ((status === "done" || status === "idle") && a.autoSend) {
-    setTimeout(() => {
-      const cur = find(id);
-      if ((cur.status === "done" || cur.status === "idle") && cur.autoSend && cur.queue.length) {
-        deliver(id, cur.queue[0].text);
-        update(id, { queue: cur.queue.slice(1) });
-      }
-    }, 900);
-  }
+}
+/** A new agent's first prompt (`prompt` in createAgent): sent once, verbatim, when it is first free. */
+function sendWhenFree(id: string, text: string, ms: number) {
+  setTimeout(() => {
+    const cur = agents.find((x) => x.id === id);
+    if (!cur?.running) return;
+    if (cur.status === "idle" || cur.status === "done") deliver(id, text);
+    else sendWhenFree(id, text, 500);
+  }, ms);
 }
 const delay = <T>(v: T, ms = 60) => new Promise<T>((r) => setTimeout(() => r(v), ms));
 
 function deliver(id: string, text: string) {
   const a = find(id);
   out(id, `${NL}${grey(">")} ${text}${NL}${NL}`);
-  update(id, { lastSent: text, lastSentAt: Date.now() });
+  // A conversation to resume from now on.
+  if (!a.terminal && !a.sessionId) update(id, { sessionId: `mock-${a.kind}-${++seq}` });
   setStatus(id, "working");
   if (a.kind !== "shell") {
     setTimeout(() => out(id, `${green("⏺")} On it.${NL}`), 700);
@@ -796,6 +786,7 @@ export function createMockApi(): Api {
         changes[a.name] = [];
         emitAgents();
         setTimeout(() => out(a.id, claudeBanner(a.cwdDisplay)), 300);
+        if (req.prompt) sendWhenFree(a.id, req.prompt, 900);
         return a;
       }
       await delay(null, 300);
@@ -843,6 +834,7 @@ export function createMockApi(): Api {
         out(a.id, `${grey("─".repeat(60))}${NL}${grey(">")} `);
       }, 400);
       setTimeout(() => setStatus(a.id, "idle"), 1800);
+      if (req.prompt) sendWhenFree(a.id, req.prompt, 2400);
       if (req.worktree) {
         const wt = req.kind === "codex" ? `/Users/dev/.codex/worktrees/c0de/${projectDisplay}` : `${project}/.claude/worktrees/${req.name}`;
         setTimeout(() => {
@@ -923,25 +915,6 @@ export function createMockApi(): Api {
     },
     async sendPrompt(agentId, text) {
       deliver(agentId, text);
-    },
-    async queueAdd(agentId, text) {
-      const a = find(agentId);
-      return update(agentId, { queue: [...a.queue, { id: `q-${++seq}`, text }] });
-    },
-    async queueRemove(agentId, itemId) {
-      const a = find(agentId);
-      return update(agentId, { queue: a.queue.filter((q) => q.id !== itemId) });
-    },
-    async queueSendNow(agentId, itemId) {
-      const a = find(agentId);
-      const item = a.queue.find((q) => q.id === itemId);
-      if (!item) throw "queue item not found";
-      update(agentId, { queue: a.queue.filter((q) => q.id !== itemId) });
-      deliver(agentId, item.text);
-      return find(agentId);
-    },
-    async setAutoSend(agentId, enabled) {
-      return update(agentId, { autoSend: enabled });
     },
     async markSeen(agentId) {
       const a = find(agentId);

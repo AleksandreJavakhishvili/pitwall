@@ -20,7 +20,6 @@ interface Commands {
   newTerminalAt?(): void;
   nextBlocked(): void;
   toggleSidebar(): void;
-  toggleRight(): void;
   toggleWall(): void;
   toggleReview?(): void;
   /** The focused agent's files (only when they can be read). */
@@ -59,15 +58,6 @@ interface Props {
   onClose(): void;
 }
 
-/** "api-fix: do the thing" or "queue api-fix: do the thing" → target + verbatim text. */
-function parseQueue(q: string, agents: AgentView[]): { agent: AgentView; text: string } | null {
-  const m = /^(?:queue\s+(?:for\s+)?)?([a-z][a-z0-9_-]{0,31})\s*:\s?([\s\S]+)$/i.exec(q);
-  if (!m) return null;
-  const agent = agents.find((a) => a.name === m[1]);
-  if (!agent || !m[2].trim()) return null;
-  return { agent, text: m[2] };
-}
-
 function matches(search: string, q: string): boolean {
   const s = search.toLowerCase();
   return q
@@ -78,33 +68,13 @@ function matches(search: string, q: string): boolean {
 }
 
 export function CommandPalette({ agents, selectedId, projects = [], commands, onClose }: Props) {
-  const { showAgent, run, patch, openRemove } = useActions();
+  const { showAgent, openRemove } = useActions();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const items: Item[] = useMemo(() => {
-    const queue = parseQueue(q, agents);
-    if (queue) {
-      return [
-        {
-          id: "queue",
-          icon: <span className="pal-icon">↳</span>,
-          label: (
-            <>
-              Queue for <strong>{queue.agent.name}</strong>: <span className="pal-quote">{queue.text}</span>
-            </>
-          ),
-          search: "",
-          hint: <Kbd>↵</Kbd>,
-          run: () => {
-            run(api.queueAdd(queue.agent.id, queue.text), "queue prompt").then((a) => a && patch(a));
-          },
-        },
-      ];
-    }
-
     const blocked = agents.filter((a) => a.status === "blocked");
     const term = <span className="pal-icon"><Icon name="terminal" size={14} /></span>;
     const { newTerminal, newTerminalAt } = commands;
@@ -171,21 +141,6 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
         ? [{ id: "race-engineer", icon: <span className="pal-icon"><Icon name="headset" size={14} /></span>, label: "Race Engineer", search: "race engineer assistant preset help setup pitwall agw settings spaces rules", run: commands.engineer }]
         : []),
       ...terminals,
-      ...agents.map<Item>((a) => ({
-        id: `q-${a.id}`,
-        icon: <span className="pal-icon">↳</span>,
-        label: (
-          <>
-            Queue for {a.name}: <span className="pal-sub">…</span>
-          </>
-        ),
-        search: `queue prompt for ${a.name}`,
-        run: () => {
-          setQ(`${a.name}: `);
-          inputRef.current?.focus();
-          return false;
-        },
-      })),
       { id: "wall", icon: <span className="pal-icon">▦</span>, label: "Toggle Wall (all terminals)", search: "wall overview all terminals expose", hint: <Kbd>⌘E</Kbd>, run: commands.toggleWall },
       ...(commands.toggleReview
         ? [{ id: "review", icon: <span className="pal-icon">±</span>, label: "Review changes (diffs, comments, merge)", search: "review changes diff merge commit comments", hint: <Kbd>⌘R</Kbd>, run: commands.toggleReview }]
@@ -234,7 +189,6 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
         run: () => commands.density(null, "space"),
       },
       { id: "sidebar", icon: <span className="pal-icon">⇤</span>, label: "Toggle agents sidebar", search: "toggle sidebar agents panel hide show", hint: <Kbd>⌘B</Kbd>, run: commands.toggleSidebar },
-      { id: "right", icon: <span className="pal-icon">⇥</span>, label: "Toggle details panel", search: "toggle right panel details queue changes hide show", hint: <Kbd>⌘.</Kbd>, run: commands.toggleRight },
       { id: "settings", icon: <span className="pal-icon">⚙</span>, label: "Settings", search: "settings codex hooks preferences", hint: <Kbd>⌘,</Kbd>, run: commands.settings },
       { id: "quit", icon: <span className="pal-icon">⏻</span>, label: "Quit Pitwall (agents keep running)", search: "quit exit close app leave running", run: () => void api.quitApp(false).catch(() => {}) },
       { id: "quit-stop", icon: <span className="pal-icon">⏻</span>, label: "Quit and stop all agents", search: "quit exit stop all agents end", run: () => void api.quitApp(true).catch(() => {}) },
@@ -248,10 +202,10 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
           }))
         : []),
     ];
-    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-") && !i.id.startsWith("theme-"));
+    if (!q.trim()) return base.filter((i) => !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-") && !i.id.startsWith("theme-"));
     // A typed path: "Terminal at <path>" first.
     return base.filter((i) => i.id === "term-at" || matches(i.search, q)).sort((a, b) => Number(b.id === "term-at") - Number(a.id === "term-at"));
-  }, [q, agents, selectedId, projects, commands, showAgent, run, patch]);
+  }, [q, agents, selectedId, projects, commands, showAgent, openRemove]);
 
   const activeIdx = Math.min(active, Math.max(0, items.length - 1));
 
@@ -267,7 +221,7 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
         <input
           ref={inputRef}
           className="palette-input"
-          placeholder="Jump to an agent, or type  name: prompt  to queue it"
+          placeholder="Jump to an agent, or type a command"
           value={q}
           spellCheck={false}
           data-autofocus
@@ -289,7 +243,7 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
           }}
         />
         <ul className="palette-list" ref={listRef} role="listbox">
-          {items.length === 0 && <li className="palette-empty">No matches. Try “name: your prompt” to queue.</li>}
+          {items.length === 0 && <li className="palette-empty">No matches.</li>}
           {items.map((it, i) => (
             <li
               key={it.id}

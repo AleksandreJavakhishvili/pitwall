@@ -4,7 +4,6 @@
 // these replace the hand-written copies, step by step (architecture.md §6 step 5).
 export type { Status } from "./gen/Status";
 export type { AgentCaps } from "./gen/AgentCaps";
-export type { QueueItem } from "./gen/QueueItem";
 export type { ApprovalView } from "./gen/ApprovalView";
 export type { Requester } from "./gen/Requester";
 export type { CreateForm } from "./gen/CreateForm";
@@ -14,7 +13,6 @@ export type { NameRule } from "./gen/NameRule";
 export type { ProviderMachines } from "./gen/ProviderMachines";
 import type { Status } from "./gen/Status";
 import type { AgentCaps } from "./gen/AgentCaps";
-import type { QueueItem } from "./gen/QueueItem";
 
 /** What a kind can do on the machine new agents go to (architecture.md §3). */
 export interface KindCaps {
@@ -94,10 +92,6 @@ export interface AgentView {
   added: number;
   removed: number;
   filesChanged: number;
-  queue: QueueItem[];
-  autoSend: boolean;
-  lastSent: string | null;
-  lastSentAt: number | null;
   createdAt: number;
   /** Open task (review.md); null when idle or unknown. May be missing on older backends. */
   currentTaskId?: string | null;
@@ -134,6 +128,8 @@ export interface CreateAgentRequest {
   engineer?: boolean;
   /** The login it runs with (an account id; absent: the project's account, else the user's own). */
   account?: string | null;
+  /** Its first instruction: kept with the new agent and sent once, verbatim, when it is first free. */
+  prompt?: string;
 }
 
 /** Git status letter as in VS Code's SCM view (from `git diff --name-status`). */
@@ -153,7 +149,7 @@ export interface FileChange {
   repo?: string;
   /** That repository's branch ("HEAD": detached). */
   branch?: string;
-  /** What of it is staged and what isn't (the Changes list's two groups). */
+  /** What of it is staged and what isn't (staged / unstaged). */
   parts?: { staged: FilePart | null; unstaged: FilePart | null };
 }
 

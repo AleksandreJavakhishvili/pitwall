@@ -18,7 +18,6 @@ const row = (name) => `[...document.querySelectorAll('.agent-row')].find(r=>r.qu
 const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
 const backBtn = `[...document.querySelectorAll('button.small-btn')].find(b=>b.textContent.trim().startsWith('Back'))`;
 const jumpBtn = `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('Jump'))`;
-const queueBtn = `[...document.querySelectorAll('aside.right button.small-btn')].find(b=>b.textContent.trim().startsWith('Queue'))`;
 
 await click(q('.preset-btn[title="Tile 2×2"]'));
 await sleep(600);
@@ -52,19 +51,6 @@ mark("wall");
 await click(q('button[title^="Wall"]'));
 await sleep(3600);
 await click(backBtn);
-await sleep(300);
-
-mark("next-up");
-await click(row("api-fix"));
-await sleep(400);
-if (!(await ev(`!!document.querySelector('aside.right')`))) await click(q('button[title^="Show details"]'));
-await sleep(700);
-await click(q("aside.right textarea"));
-for (const ch of "Then run the full suite and fix anything red.") { await s("Input.insertText", { text: ch }); await sleep(35); }
-await sleep(400);
-await click(queueBtn);
-await sleep(2200);
-await click(q('aside.right button[aria-label="Close details"]'));
 await sleep(300);
 
 mark("review");

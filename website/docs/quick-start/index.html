@@ -52,7 +52,6 @@
           <li><a href="#first-launch">First launch</a></li>
           <li><a href="#agents">Start an agent</a></li>
           <li><a href="#status">Read the flags</a></li>
-          <li><a href="#next-up">Next up</a></li>
           <li><a href="#review">Review</a></li>
           <li><a href="#quitting">Quitting</a></li>
           <li><a href="#shortcuts">Shortcuts</a></li>
@@ -97,6 +96,7 @@ scripts/package-app.sh              <span class="c"># release bundles → target
           <li><strong>Separate worktree</strong> (off by default; Claude Code and Codex only) passes the agent's own flag — <code>claude --worktree &lt;name&gt;</code> or <code>codex --worktree</code>. Pitwall finds where the agent ends up working and uses that folder for status, diffs and Review. It creates no branches or folders of its own.</li>
           <li><strong>Rules</strong> picks a rule set to write through <code>rulesync</code> before launch. For agents in your main checkout this needs an explicit tick.</li>
           <li>Agents launch through <code>$SHELL -l -i -c</code>, so they see the same PATH and config as your terminal.</li>
+          <li>From a script or another agent, <code>pitwall agent new … --prompt "run the tests"</code> starts one with a first instruction, sent once, exactly as written, when the agent is first free.</li>
         </ul>
 
         <h2 id="status">Read the flags</h2>
@@ -108,9 +108,6 @@ scripts/package-app.sh              <span class="c"># release bundles → target
           <li><span class="g g-stopped" aria-hidden="true">■</span> <strong>exited / stopped</strong> — the process ended, or it was loaded after a restart and isn't running.</li>
         </ul>
         <p>Sources, in priority order: hooks (when the agent has sent one this run), then the terminal screen matched against per-agent rules, then output activity. When the window isn't focused, a blocked or done agent posts a native notification.</p>
-
-        <h2 id="next-up">Next up</h2>
-        <p>Type a follow-up in the right panel and press <kbd>⌘↵</kbd>. With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text is pasted exactly as written, then Enter.</p>
 
         <h2 id="review">Review</h2>
         <p><kbd>⌘R</kbd> opens every agent's changes. Choose All changes or a single task, click a line number to comment, then <strong>Send comments</strong> to deliver one editable prompt. <strong>Commit &amp; merge</strong> commits in the agent's worktree and merges its branch with <code>--no-ff</code>; it refuses if your main checkout is dirty and aborts cleanly on conflicts.</p>
@@ -129,14 +126,13 @@ scripts/package-app.sh              <span class="c"># release bundles → target
           <div><dt><kbd>⌘⏎</kbd></dt><dd>Maximise pane</dd></div>
           <div><dt><kbd>⌘⇧N</kbd></dt><dd>Space to new window</dd></div>
           <div><dt><kbd>⌘B</kbd></dt><dd>Sidebar</dd></div>
-          <div><dt><kbd>⌘.</kbd></dt><dd>Details panel</dd></div>
           <div><dt><kbd>⌘+</kbd> <kbd>⌘−</kbd> <kbd>⌘0</kbd></dt><dd>Tile font size</dd></div>
           <div><dt><kbd>⌘,</kbd></dt><dd>Settings</dd></div>
         </dl>
 
         <h2 id="files">Files</h2>
         <p>Everything lives in <code>~/.pitwall/</code>:</p>
-        <pre><code>state.json          <span class="c">agents, queues, session ids</span>
+        <pre><code>state.json          <span class="c">agents, session ids</span>
 ui.json             <span class="c">spaces, layouts, windows</span>
 agents/*.toml       <span class="c">your own agent kinds</span>
 detect/*.toml       <span class="c">status rule overrides</span>

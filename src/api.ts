@@ -53,10 +53,6 @@ export interface Api extends ReviewApi, WorktreesApi, ExplorerApi {
   writeInput(agentId: string, data: string): Promise<void>;
   resize(agentId: string, cols: number, rows: number): Promise<void>;
   sendPrompt(agentId: string, text: string): Promise<void>;
-  queueAdd(agentId: string, text: string): Promise<AgentView>;
-  queueRemove(agentId: string, itemId: string): Promise<AgentView>;
-  queueSendNow(agentId: string, itemId: string): Promise<AgentView>;
-  setAutoSend(agentId: string, enabled: boolean): Promise<AgentView>;
   markSeen(agentId: string): Promise<void>;
   getChanges(agentId: string): Promise<FileChange[]>;
   /** Its changes and branch read now, bypassing the backend's polling pace (back-off,

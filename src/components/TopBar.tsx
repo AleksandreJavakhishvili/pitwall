@@ -12,7 +12,6 @@ interface Props {
   activeSpaceId: string | null;
   wallOn: boolean;
   sidebarOpen: boolean;
-  rightOpen: boolean;
   compact: boolean;
   onSelectSpace(id: string): void;
   onNewSpace(): void;
@@ -20,7 +19,6 @@ interface Props {
   onRenameSpace(id: string, name: string): void;
   onMoveSpace(id: string): void;
   onToggleSidebar(): void;
-  onToggleRight(): void;
   onToggleWall(): void;
   reviewOn?: boolean;
   onToggleReview?(): void;
@@ -145,14 +143,6 @@ export function TopBar(p: Props) {
         </button>
         <button className="icon-btn" onClick={p.onSettings} title="Settings">
           <Icon name="gear" />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={p.onToggleRight}
-          title={keys(`${p.rightOpen ? "Hide" : "Show"} details (⌘.)`)}
-          aria-pressed={p.rightOpen}
-        >
-          <Icon name="panel" />
         </button>
       </div>
     </header>

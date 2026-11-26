@@ -1,6 +1,6 @@
 import { appChord } from "./host";
 
-const PLAIN = new Set(["k", "j", "n", "t", "b", "e", "r", "p", ".", ",", "=", "+", "-", "0", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+const PLAIN = new Set(["k", "j", "n", "t", "b", "e", "r", "p", ",", "=", "+", "-", "0", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
 const SHIFTED = new Set(["n", "t", "r", "f"]);
 
 /**
