@@ -1,17 +1,16 @@
 //! The read-only code explorer (docs/spec/explorer.md, inventory §14): the
-//! Files tab, the file viewer, ⌘P quick open and ⇧⌘F search, over
+//! file viewer, ⌘P quick open and ⇧⌘F search, over
 //! `pitwall-core`'s explorer module. Strictly read-only: nothing here can
 //! type into, save, create, rename or delete a file; "Copy path" is the one
 //! way out.
 //!
 //! [`Explorer`] is one window's coordinator: one tree model per agent
-//! (shared by the Files tab and the viewer), one viewer per agent (its tabs
+//! (the viewer's), one viewer per agent (its tabs
 //! and search kept for the window's session), the quick-open palette, the
 //! refresh rhythm (on open, ↻ / ⌘⇧R, the agent's change totals moving, every
-//! 10 s while shown). The main view mounts three things from it: the Files
-//! panel ([`Explorer::panel`]), the viewer in the main area
-//! ([`Explorer::main_view`]) and the Explorer itself as an overlay (quick
-//! open, notices); [`on_actions`] wires the shortcuts on its root. The
+//! 10 s while shown). The main view mounts two things from it: the viewer
+//! in the main area ([`Explorer::main_view`]) and the Explorer itself as an
+//! overlay (quick open, notices); [`on_actions`] wires the shortcuts on its root. The
 //! files tiles in the layout keep their viewers in [`dock`] (one per agent
 //! across windows, moved as it is between tiles and windows: [`drag`]); a
 //! viewer in a window of its own is that window's ([`window`]).
@@ -21,7 +20,6 @@ pub mod dock;
 pub mod drag;
 pub mod column;
 pub mod file_link;
-pub mod files_panel;
 pub mod image_view;
 
 
@@ -52,7 +50,6 @@ use gpui::{
 use crate::agents::AgentStore;
 use crate::theme::{self, RADIUS};
 
-use files_panel::{FilesPanel, FilesPanelEvent};
 use quick_open::{QuickOpen, QuickOpenEvent};
 pub use source::{ExplorerSource, Source};
 use tree::TreeModel;
@@ -139,7 +136,7 @@ pub enum ExplorerEvent {
     /// "Show diff" in a viewer reading a folder of its own (`path:`, a
     /// worktree an agent works in now): Review on that worktree and file.
     ShowWorktreeDiff { root: String, path: String },
-    /// The viewer opened or closed (the right panel hides while it shows).
+    /// The viewer opened or closed.
     ViewerToggled,
     /// Quick open (⌘P) opened: the window shows one modal at a time.
     QuickOpened,
@@ -152,7 +149,6 @@ pub struct Explorer {
     agent: Option<String>,
     show_ignored: bool,
     trees: HashMap<String, Entity<TreeModel>>,
-    panels: HashMap<String, Entity<FilesPanel>>,
     viewers: HashMap<String, Entity<Viewer>>,
     /// The agent whose viewer is shown in the main area.
     open: Option<String>,
@@ -211,7 +207,6 @@ impl Explorer {
             agent: None,
             show_ignored,
             trees: HashMap::new(),
-            panels: HashMap::new(),
             viewers: HashMap::new(),
             open: None,
             quick: None,
@@ -248,33 +243,6 @@ impl Explorer {
     pub fn main_view(&self) -> Option<AnyView> {
         let id = self.open.as_ref()?;
         self.viewers.get(id).map(|v| v.clone().into())
-    }
-
-    /// The focused agent's Files tab (none when its files can't be read).
-    pub fn panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyView> {
-        let id = self.agent.clone()?;
-        if let Some(p) = self.panels.get(&id) {
-            return Some(p.clone().into());
-        }
-        let tree = self.tree(&id, cx)?;
-        let store = self.store.clone();
-        let panel = cx.new(|cx| FilesPanel::new(id.clone(), store, tree, cx));
-        let agent = id.clone();
-        let sub = cx.subscribe_in(
-            &panel,
-            window,
-            move |this, _, e: &FilesPanelEvent, window, cx| match e {
-                FilesPanelEvent::OpenViewer { path, search } => {
-                    let pane = search.then_some(Pane::Search);
-                    this.open_viewer(&agent, path.clone(), None, pane, window, cx);
-                }
-                FilesPanelEvent::QuickOpen => this.quick_open(&agent, window, cx),
-                FilesPanelEvent::SetIgnored(on) => this.set_ignored(*on, cx),
-            },
-        );
-        self._subs.push(sub);
-        self.panels.insert(id, panel.clone());
-        Some(panel.into())
     }
 
     fn can_read(&self, id: &str, cx: &App) -> bool {
@@ -416,7 +384,6 @@ impl Explorer {
             .collect();
         for id in gone {
             self.trees.remove(&id);
-            self.panels.remove(&id);
             self.viewers.remove(&id);
             self.recents.remove(&id);
             self.sigs.remove(&id);

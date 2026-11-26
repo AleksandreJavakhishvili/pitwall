@@ -1,16 +1,15 @@
-//! Last sent (React `LastSent.tsx`): the last prompt sent through Pitwall,
-//! quoted, with how long ago (the absolute time in its tooltip), or a hint
-//! when nothing was sent yet. The relative time refreshes every 15 s
-//! (`useNow`).
+//! Last sent, as one line at the foot of the Next up popover: the last
+//! prompt sent through Pitwall, how long ago (the absolute time in its
+//! tooltip), and who queued it when an extension did.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use gpui::{div, prelude::*, px, Context, IntoElement, Task, Window};
+use gpui::{div, prelude::*, px, AnyElement, FontWeight, IntoElement};
 
 use pitwall_proto::AgentView;
 
-use crate::kit::{hint, label, tooltip, MONO_FONT};
-use crate::theme::{self, RADIUS};
+use crate::kit::{tooltip, Ellipsis as _, MONO_FONT};
+use crate::theme::Theme;
 
 /// Compact relative time (`relTime`): "just now", "42s ago", "4m ago",
 /// "2h ago", "3d ago".
@@ -44,123 +43,47 @@ pub fn absolute_time(ms: u64) -> String {
     }
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
 
-pub struct LastSent {
-    agent: Option<AgentView>,
-    _tick: Task<()>,
-}
-
-impl LastSent {
-    pub(super) fn new(cx: &mut Context<Self>) -> LastSent {
-        let tick = cx.spawn(async move |this, cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_secs(15))
-                .await;
-            if this.update(cx, |_, cx| cx.notify()).is_err() {
-                break;
-            }
-        });
-        LastSent {
-            agent: None,
-            _tick: tick,
-        }
-    }
-
-    pub(super) fn set_agent(&mut self, a: &AgentView, cx: &mut Context<Self>) {
-        let same = self.agent.as_ref().is_some_and(|x| {
-            x.id == a.id && x.last_sent == a.last_sent && x.last_sent_at == a.last_sent_at && x.last_sent_by == a.last_sent_by
-        });
-        if !same {
-            self.agent = Some(a.clone());
-            cx.notify();
-        }
-    }
-}
-
-impl Render for LastSent {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::panel(theme::theme(cx), cx);
-        let Some(a) = &self.agent else {
-            return div().into_any_element();
-        };
-        let head = div()
+/// "Last sent · 4m ago · from CI · <the prompt, on one line>", or nothing
+/// when nothing was sent through Pitwall yet.
+pub(super) fn line(a: &AgentView, now: u64, t: &Theme) -> Option<AnyElement> {
+    let text = a.last_sent.as_ref()?;
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(
+        div()
+            .id("last-sent")
+            .debug_selector(|| "next-up-last-sent".into())
             .flex()
             .items_center()
-            .gap(px(8.))
-            .pt(px(12.))
-            .px(px(14.))
-            .pb(px(6.))
-            .line_height(px(17.))
-            .child(label("Last sent", t.text_3, 12.))
-            // Text an extension queued says so.
-            .children(a.last_sent_by.as_ref().map(|o| {
-                div()
-                    .id("last-sent-by")
-                    .text_size(px(11.5))
-                    .text_color(t.focus)
-                    .tooltip(tooltip(format!("Queued by the extension {}", o.name)))
-                    .child(format!("from {}", o.name))
-            }))
-            .child(div().flex_1())
+            .gap(px(6.))
+            .min_w_0()
+            .px(px(10.))
+            .py(px(7.))
+            .border_t_1()
+            .border_color(t.line)
+            .text_size(px(11.5))
+            .line_height(px(15.))
+            .text_color(t.text_3)
+            .tooltip(tooltip(text.clone()))
+            .child(div().flex_none().font_weight(FontWeight::MEDIUM).child("Last sent"))
             .children(a.last_sent_at.map(|at| {
                 div()
                     .id("last-sent-at")
+                    .flex_none()
                     .font_family(MONO_FONT)
-                    .text_size(px(12.))
-                    .text_color(t.text_3)
                     .tooltip(tooltip(absolute_time(at)))
-                    .child(rel_time(at, now_ms()))
-            }));
-        let body = match &a.last_sent {
-            Some(text) => {
-                let text = text.clone();
-                crate::kit::scroll_area("last-sent-area", &t, move |h| {
-                    div()
-                        .id("last-sent")
-                        .track_scroll(h)
-                        .max_h(px(180.))
-                        .overflow_y_scroll()
-                        .py(px(9.))
-                        .pr(px(11.))
-                        .pl(px(11.))
-                        .child(text)
-                        .into_any_element()
-                })
-                .mx(px(14.))
-                .max_h(px(180.))
-                .rounded(RADIUS)
-                .bg(t.surface_2)
-                .border_l_2()
-                .border_color(t.line_strong)
-                .text_size(px(12.5))
-                .line_height(px(18.))
-                .text_color(t.text)
-                .into_any_element()
-            }
-            None => hint(
-                "Nothing sent through Pitwall yet. Prompts you type in the terminal aren't tracked.",
-                &t,
-            )
-            .mx(px(14.))
-            .line_height(px(17.))
+                    .child(rel_time(at, now))
+            }))
+            .children(a.last_sent_by.as_ref().map(|o| {
+                div().flex_none().text_color(t.focus).child(format!("from {}", o.name))
+            }))
+            .child(div().min_w_0().flex_1().ellipsis().text_color(t.text_2).child(crate::kit::one_line(flat)))
             .into_any_element(),
-        };
-        div()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .pb(px(12.))
-            // Changes above draws no bottom line of its own.
-            .border_t_1()
-            .border_color(t.line)
-            .child(head)
-            .child(body)
-            .into_any_element()
-    }
+    )
 }

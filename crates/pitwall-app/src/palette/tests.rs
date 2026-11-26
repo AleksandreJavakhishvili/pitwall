@@ -91,7 +91,6 @@ fn empty_query_lists_the_react_rows_in_order(cx: &mut TestAppContext) {
                 "review",
                 "window",
                 "sidebar",
-                "right",
                 "settings",
                 "quit",
                 "quit-stop",
@@ -171,6 +170,12 @@ fn typing_filters_and_reveals_the_query_only_rows(cx: &mut TestAppContext) {
         );
         assert_eq!(ids(&rows(cx, "layout", &st)), ["preset-1", "preset-2"]);
         assert_eq!(ids(&rows(cx, "queue api", &st)), ["q-api"]);
+        // Next up: found by name; listed by itself once something waits.
+        assert_eq!(ids(&rows(cx, "next up api", &st)), ["next-up-api"]);
+        assert!(!ids(&rows(cx, "", &st)).iter().any(|id| id.starts_with("next-up-")));
+        let mut queued = st.clone();
+        queued.agents[1].queue = vec![pitwall_proto::QueueItem { id: "q1".into(), text: "lint".into(), origin: None }];
+        assert!(ids(&rows(cx, "", &queued)).contains(&"next-up-api".to_string()));
         assert_eq!(
             ids(&rows(cx, "terminal in alpha", &st)),
             ["term-in-/work/alpha"]
@@ -260,7 +265,7 @@ fn opens_filters_runs_and_closes(cx: &mut TestAppContext) {
     p.update(cx, |p, cx| p.set_query("docs", cx));
     cx.run_until_parked();
     p.read_with(cx, |p, _| {
-        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs"]);
+        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs", "next-up-docs"]);
         assert_eq!(p.active(), 0);
     });
     cx.simulate_keystrokes("down");
@@ -406,7 +411,7 @@ fn under_liquid_glass_the_panel_is_a_pop_up_with_the_keyboard(cx: &mut TestAppCo
     keys_in(pop, "d o c s", cx);
     p.read_with(cx, |p, cx| {
         assert_eq!(p.query(cx), "docs");
-        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs"]);
+        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs", "next-up-docs"]);
     });
     keys_in(pop, "down", cx);
     p.read_with(cx, |p, _| assert_eq!(p.active(), 1));

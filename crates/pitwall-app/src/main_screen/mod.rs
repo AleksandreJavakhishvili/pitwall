@@ -3,14 +3,12 @@
 //! §23). A port of the React `App.tsx` shell and its components:
 //!
 //! - top bar ([`topbar`]): sidebar toggle, wordmark, space tabs, search,
-//!   live counts, Review / Wall / Settings / details buttons;
+//!   live counts, Review / Wall / Settings buttons;
 //! - sidebar ([`sidebar`]): projects and agents, needs-you first, context
 //!   menus, keyboard selection, icon rail on narrow windows;
 //! - space view ([`space`]): the active space's split tree of panes, presets,
 //!   density, maximise, divider drags, drag and drop, chip strip;
-//! - right panel ([`panel`]): the focused agent's Changes with its where
-//!   line and the per-file diff;
-//! - dialogs ([`dialogs`]): New agent, New terminal, Remove agent, diff;
+//! - dialogs ([`dialogs`]): New agent, New terminal, Remove agent;
 //! - status strip and toasts ([`strip`]).
 //!
 //! Hooks for the other screens: [`Route`] (Space, Wall, Review, Explorer)
@@ -32,8 +30,8 @@ mod dialogs;
 mod elsewhere;
 mod engineer;
 mod menu;
+mod next_up_chip;
 pub mod model;
-mod panel;
 mod part;
 pub mod peer_term;
 mod peers;
@@ -68,9 +66,8 @@ use crate::agents::AgentStore;
 use crate::menu::Dismiss;
 use crate::theme::{self, TOPBAR_H};
 
-use self::dialogs::{DiffDialog, NewAgentDialog, RemoveState, TerminalDialog};
+use self::dialogs::{NewAgentDialog, RemoveState, TerminalDialog};
 use self::menu::CtxMenu;
-use self::panel::ChangesState;
 use self::strip::Toast;
 use crate::kit::TextInput;
 use self::tree::Preset;
@@ -94,8 +91,6 @@ actions!(
         JumpNextBlocked,
         /// ⌘B
         ToggleSidebar,
-        /// ⌘.
-        ToggleDetails,
         /// ⌘E
         ToggleWall,
         /// ⌘R
@@ -169,54 +164,6 @@ pub fn register_route(
     cx.default_global::<RouteViews>()
         .0
         .insert(route, Arc::new(build));
-}
-
-/// Changed files' rows on screen: where, whose, which.
-type FileRows = std::rc::Rc<
-    std::cell::RefCell<Vec<(gpui::Bounds<Pixels>, AgentView, pitwall_core::vcs::git::FileChange)>>,
->;
-type PanelBuilder = Arc<dyn Fn(&AgentView, &mut Window, &mut App) -> AnyView>;
-
-/// The right panel's Files tab (the explorer module's file tree).
-#[derive(Clone)]
-pub struct FilesPanel(pub PanelBuilder);
-
-impl Global for FilesPanel {}
-
-/// Hook: the view under the right panel's Files tab for an agent. The tab
-/// shows only once this is registered (and the agent has `caps.explorer`).
-pub fn register_files_panel(
-    cx: &mut App,
-    build: impl Fn(&AgentView, &mut Window, &mut App) -> AnyView + 'static,
-) {
-    cx.set_global(FilesPanel(Arc::new(build)));
-}
-
-/// Where another module's section goes in the right panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PanelSlot {
-    /// Above Changes (Next up: queue and prompt box).
-    Top,
-    /// Below Changes (Last sent).
-    Bottom,
-    /// Below Last sent: extensions' sections for the focused agent.
-    Extensions,
-}
-
-#[derive(Default)]
-pub struct PanelSections(HashMap<PanelSlot, PanelBuilder>);
-
-impl Global for PanelSections {}
-
-/// Hook: a right-panel section for the focused agent (Next up, Last sent).
-pub fn register_panel_section(
-    cx: &mut App,
-    slot: PanelSlot,
-    build: impl Fn(&AgentView, &mut Window, &mut App) -> AnyView + 'static,
-) {
-    cx.default_global::<PanelSections>()
-        .0
-        .insert(slot, Arc::new(build));
 }
 
 /// The hosted engine, for the calls the main screen makes (set by `run()`).
@@ -315,7 +262,6 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(s!("t"), NewTerminalAt, None),
         KeyBinding::new(p!("j"), JumpNextBlocked, None),
         KeyBinding::new(p!("b"), ToggleSidebar, None),
-        KeyBinding::new(p!("."), ToggleDetails, None),
         KeyBinding::new(p!("e"), ToggleWall, None),
         KeyBinding::new(p!("r"), ToggleReview, None),
         KeyBinding::new(s!("r"), RefreshChanges, None),
@@ -359,7 +305,6 @@ pub fn bindings() -> Vec<KeyBinding> {
 /// (US layout), plus the numpad's + and −.
 fn shifted_symbols() -> Vec<KeyBinding> {
     vec![
-        KeyBinding::new("ctrl->", ToggleDetails, None),
         KeyBinding::new("ctrl-+", FontBigger, None),
         KeyBinding::new("ctrl-shift-add", FontBigger, None),
         KeyBinding::new("ctrl-add", FontBigger, None),
@@ -419,9 +364,6 @@ impl Breakpoint {
     pub fn full_sidebar(self) -> bool {
         matches!(self, Breakpoint::Xl | Breakpoint::Lg | Breakpoint::Md)
     }
-    pub fn right_docked(self) -> bool {
-        matches!(self, Breakpoint::Xl | Breakpoint::Lg)
-    }
     pub fn compact(self) -> bool {
         matches!(self, Breakpoint::Sm | Breakpoint::Xs)
     }
@@ -448,7 +390,6 @@ enum Modal {
     ProjectAccounts(Entity<dialogs::ProjectAccountsDialog>),
     Terminal(Entity<TerminalDialog>),
     Remove(RemoveState),
-    Diff(Entity<DiffDialog>),
     RemoveWorktree(worktrees::RemoveWt),
 }
 
@@ -474,9 +415,6 @@ pub struct MainScreen {
     /// changed), and the timer that checks.
     pending_restarts: Vec<String>,
     restart_watch: Option<Task<()>>,
-    /// What this window last told the engine it shows the changes of
-    /// (`Engine::show_changes`; its key, the agent).
-    changes_shown: (u64, Option<String>),
     label: String,
     pub ui: UiState,
     active: String,
@@ -489,24 +427,23 @@ pub struct MainScreen {
     side_drag: Option<side_edge::SideDrag>,
     /// The width the sidebar was last drawn at (its rows' labels fit it).
     side_drawn_w: f32,
-    right_pinned: bool,
     overlay_sidebar: bool,
-    drawer_open: bool,
     modal: Option<Modal>,
     /// What has the keyboard in the open dialog when it opens (its
     /// pop-up under Liquid Glass gives it the keyboard there).
     modal_focus: Option<gpui::FocusHandle>,
-    /// What the open diff shows (`DiffDialog::shows`), for the Changes
-    /// rows over its backdrop without reading the dialog.
-    diff_shown: Option<(String, String, Option<pitwall_core::engine::changes::Stage>)>,
     menu: Option<CtxMenu>,
     /// Counts the menus opened (see `CtxMenu::serial`).
     menu_serial: usize,
+    /// The open Next up popover (an agent tile's "2 queued").
+    next_up: Option<next_up_chip::NextUpOpen>,
+    next_up_serial: usize,
+    /// Whose popover a press outside just closed, and when.
+    next_up_dismissed: Option<(String, std::time::Instant)>,
     rename: Option<(String, Entity<TextInput>)>,
     /// An agent's name being edited in its sidebar row.
     agent_rename: Option<sidebar::AgentRenaming>,
     projects: Vec<Project>,
-    changes: ChangesState,
     toasts: Vec<Toast>,
     focus: FocusHandle,
     sidebar_focus: FocusHandle,
@@ -528,11 +465,6 @@ pub struct MainScreen {
     space_incoming: Option<SharedString>,
     /// The sidebar's keyboard cursor.
     cursor: Option<String>,
-    /// The Changes list's rows where they were last drawn (live over an
-    /// open diff's backdrop: [`Self::diff_row_targets`]).
-    file_rows: FileRows,
-    /// Changes list sections folded: (agent id, repository: "" its own).
-    folded_repos: std::collections::HashSet<(String, String)>,
     route_views: HashMap<Route, AnyView>,
     /// The font each shown tile shrank to (agent id → px), from the last
     /// layout ([`tile_font`]).
@@ -653,12 +585,11 @@ impl MainScreen {
             subs.push(cx.observe(&m, |_, _, cx| cx.notify()));
             subs.push(cx.subscribe(&m, |this, _, e: &crate::peers::PeersEvent, cx| this.peer_event(e, cx)));
         }
-        let (sidebar_collapsed, right_pinned) = (ui.sidebar_collapsed, ui.right_open);
+        let sidebar_collapsed = ui.sidebar_collapsed;
         let sidebar_w = ui.sidebar_width;
         let mut screen = MainScreen {
             store,
             engine,
-            changes_shown: (0, None),
             pending_moves: Vec::new(),
             login_watch: None,
             pending_restarts: Vec::new(),
@@ -672,18 +603,17 @@ impl MainScreen {
             side_drag: None,
             side_drawn_w: f32::from(theme::SIDEBAR_W),
             main_est: None,
-            right_pinned,
             overlay_sidebar: false,
-            drawer_open: false,
             modal: None,
             modal_focus: None,
-            diff_shown: None,
             menu: None,
             menu_serial: 0,
+            next_up: None,
+            next_up_serial: 0,
+            next_up_dismissed: None,
             rename: None,
             agent_rename: None,
             projects,
-            changes: ChangesState::default(),
             toasts: vec![],
             focus,
             sidebar_focus: cx.focus_handle(),
@@ -695,8 +625,6 @@ impl MainScreen {
             space_drag: None,
             space_incoming: None,
             cursor: None,
-            file_rows: FileRows::default(),
-            folded_repos: Default::default(),
             route_views: HashMap::new(),
             auto_font: HashMap::new(),
             wt: Default::default(),
@@ -773,7 +701,7 @@ impl MainScreen {
 
     /// The agent in the active space's focused pane. A web page or an
     /// inbox focused has none of its own: the agent focused before it
-    /// stays the one the right panel, the sidebar and ⌘+ / ⌘− are about,
+    /// stays the one the sidebar and ⌘+ / ⌘− are about,
     /// as before a press could focus those tiles (so the layout doesn't
     /// move when one is pressed).
     pub fn focused_agent_id(&self) -> Option<String> {
@@ -875,7 +803,6 @@ impl MainScreen {
             }
         }
         self.follow_selected(cx);
-        self.changes_follow(cx);
         self.wt_follow(cx);
         self.webs_follow(cx);
         cx.notify();
@@ -988,7 +915,6 @@ impl MainScreen {
             self.mark_seen(id, cx);
         }
         self.last_selected = Some(id.to_string());
-        self.changes_follow(cx);
         window.focus(&self.focus, cx);
         cx.emit(ScreenEvent::AgentShown(id.to_string()));
         cx.notify();
@@ -1203,23 +1129,6 @@ impl MainScreen {
             );
         } else {
             self.overlay_sidebar = !self.overlay_sidebar;
-        }
-        cx.notify();
-    }
-
-    fn toggle_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if Self::breakpoint(window).right_docked() {
-            self.right_pinned = !self.right_pinned;
-            let v = self.right_pinned;
-            self.update_ui(
-                |mut s| {
-                    s.right_open = v;
-                    s
-                },
-                cx,
-            );
-        } else {
-            self.drawer_open = !self.drawer_open;
         }
         cx.notify();
     }
@@ -1494,32 +1403,6 @@ impl MainScreen {
         cx.notify();
     }
 
-    fn open_diff(
-        &mut self,
-        agent: AgentView,
-        file: pitwall_core::vcs::git::FileChange,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let engine = self.engine.clone();
-        let dialog = cx.new(|cx| DiffDialog::new(engine, agent, file, window, cx));
-        self._subs.push(cx.subscribe_in(
-            &dialog,
-            window,
-            |this, _, e: &dialogs::DialogEvent, window, cx| {
-                this.dialog_event(e.clone(), window, cx)
-            },
-        ));
-        self.diff_shown = Some({
-            let (agent, path, stage) = dialog.read(cx).shows();
-            (agent.to_string(), path.to_string(), stage)
-        });
-        self.modal = Some(Modal::Diff(dialog));
-        self.modal_focus = window.focused(cx);
-        cx.emit(ScreenEvent::ModalOpened);
-        cx.notify();
-    }
-
     fn dialog_event(
         &mut self,
         e: dialogs::DialogEvent,
@@ -1551,27 +1434,12 @@ impl MainScreen {
     }
 
     /// Whether one of its dialogs shows.
-    /// The Changes list's files drawn last frame (tests).
-    #[cfg(test)]
-    pub(crate) fn drawn_files(&self) -> Vec<String> {
-        self.file_rows.borrow().iter().map(|(_, _, f)| f.path.clone()).collect()
-    }
-
     /// How often the screen rendered, and its sidebar and top bar parts
     /// (tests).
     #[cfg(test)]
     pub(crate) fn renders(&self, cx: &App) -> (usize, usize, usize) {
         let p = self.parts.as_ref().expect("parts");
         (self.renders, p.sidebar.read(cx).renders, p.topbar.read(cx).renders)
-    }
-
-    /// The open diff (tests).
-    #[cfg(test)]
-    pub(crate) fn diff_dialog(&self) -> Option<Entity<DiffDialog>> {
-        match &self.modal {
-            Some(Modal::Diff(d)) => Some(d.clone()),
-            _ => None,
-        }
     }
 
     pub fn has_dialog(&self) -> bool {
@@ -1930,6 +1798,8 @@ impl MainScreen {
     fn on_dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
         if self.menu.is_some() {
             self.menu = None;
+        } else if self.next_up.is_some() {
+            self.next_up = None;
         } else if self.elsewhere.bring.is_some() {
             self.elsewhere.bring = None;
         } else if self.modal.is_some() {
@@ -1938,9 +1808,8 @@ impl MainScreen {
             self.rename = None;
         } else if self.agent_rename.is_some() {
             self.agent_rename = None;
-        } else if self.overlay_sidebar || self.drawer_open {
+        } else if self.overlay_sidebar {
             self.overlay_sidebar = false;
-            self.drawer_open = false;
         } else if self.route != Route::Space {
             self.set_route(Route::Space, cx);
         } else {
@@ -1970,15 +1839,12 @@ impl Render for MainScreen {
             window.focus(&self.focus, cx);
         }
         let bp = Self::breakpoint(window);
-        // Drawers close when the window grows past their breakpoint.
-        if bp.right_docked() {
-            self.drawer_open = false;
-        }
+        // The sidebar's drawer closes when the window grows past its
+        // breakpoint.
         if bp.full_sidebar() {
             self.overlay_sidebar = false;
         }
         let agents = self.agents(cx).to_vec();
-        let selected = self.selected(cx);
         let sidebar_mode = self.sidebar_mode(bp);
         {
             let vp = window.viewport_size();
@@ -1987,28 +1853,12 @@ impl Render for MainScreen {
                 SidebarMode::Rail => 56.,
                 SidebarMode::Hidden => 0.,
             };
-            // A docked right panel appears with the first agent.
-            let right = if bp.right_docked() { f32::from(crate::theme::RIGHT_W) } else { 0. };
             let top = f32::from(crate::theme::TOPBAR_H) + strip::STRIP_H + 32.;
             self.main_est = Some(gpui::size(
-                px((f32::from(vp.width) - side - right).max(0.)),
+                px((f32::from(vp.width) - side).max(0.)),
                 px((f32::from(vp.height) - top).max(0.)),
             ));
         }
-        let right = match (&selected, self.route) {
-            (Some(_), Route::Space) if bp.right_docked() && self.right_pinned => Some(false),
-            (Some(_), Route::Space) if !bp.right_docked() && self.drawer_open => Some(true),
-            _ => None,
-        };
-        // Git runs on its own only for agents whose changes a window shows.
-        let shown = right.and(selected.as_ref()).filter(|a| a.caps.diff).map(|a| a.id.clone());
-        if shown != self.changes_shown.1 {
-            self.changes_shown = (cx.entity_id().as_u64(), shown.clone());
-            if let Some(e) = &self.engine {
-                e.show_changes(self.changes_shown.0, shown);
-            }
-        }
-
         // Glass: chrome is translucent over the window material, floating
         // surfaces solid, panes and code views stay opaque (glass.css).
         let chrome = t.chrome();
@@ -2031,10 +1881,6 @@ impl Render for MainScreen {
         let topbar_part = parts.map(|p| {
             drawn.push(part::PartKind::Topbar);
             p.topbar.clone()
-        });
-        let panel_part = parts.filter(|_| right == Some(false)).map(|p| {
-            drawn.push(part::PartKind::Panel);
-            p.panel.clone()
         });
         if parts.is_some() && self.route != Route::Space {
             drawn.push(part::PartKind::Route);
@@ -2063,16 +1909,6 @@ impl Render for MainScreen {
             .child(self.render_center(&agents, bp, &t, window, cx))
             // Over the sidebar's border and the centre's first points.
             .when(sidebar_mode == SidebarMode::Full, |d| d.child(self.render_side_edge(&t, window, cx)))
-            .when(right == Some(false), |d| match &panel_part {
-                Some(p) => d.child(part::slot(
-                    p,
-                    gpui::StyleRefinement::default().w(crate::kit::chrome_width(crate::theme::RIGHT_W, cx)).h_full().flex_none(),
-                )),
-                None => d.children(selected.clone().map(|a| {
-                    let panel = self.render_panel(&a, false, &slab, window, cx);
-                    crate::kit::chrome_panel("right-panel", panel, cx)
-                })),
-            })
             .when(
                 self.overlay_sidebar && sidebar_mode != SidebarMode::Full,
                 |d| {
@@ -2108,36 +1944,7 @@ impl Render for MainScreen {
                             )),
                     ))
                 },
-            )
-            .when(right == Some(true), |d| {
-                d.child(crate::kit::scrim_in(
-                    "drawer-scrim",
-                    div()
-                        .id("drawer-scrim")
-                        // Takes the click: nothing under a backdrop is clicked through it.
-                        .occlude()
-                        .absolute()
-                        .inset_0()
-                        .bg(t.scrim())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.drawer_open = false;
-                            cx.notify();
-                        })),
-                ))
-                .children(selected.clone().map(|a| {
-                    crate::kit::motion::enter(
-                        "right-drawer",
-                        crate::kit::motion::Fx::SLIDE_RIGHT,
-                        div()
-                            .absolute()
-                            .top_0()
-                            .bottom_0()
-                            .right_0()
-                            .shadow(t.drop_shadow())
-                            .child(self.render_panel(&a, true, &float, window, cx)),
-                    )
-                }))
-            });
+            );
         let topbar = if let Some(p) = &topbar_part {
             part::slot(p, gpui::StyleRefinement::default().w_full().h(TOPBAR_H).flex_none())
         } else if crate::theme::glass_regions(cx) {
@@ -2186,9 +1993,6 @@ impl Render for MainScreen {
                 cx.listener(|this, _: &ToggleSidebar, window, cx| this.toggle_sidebar(window, cx)),
             )
             .on_action(
-                cx.listener(|this, _: &ToggleDetails, window, cx| this.toggle_details(window, cx)),
-            )
-            .on_action(
                 cx.listener(|this, _: &ToggleWall, _, cx| this.toggle_route(Route::Wall, cx)),
             )
             .on_action(
@@ -2196,19 +2000,6 @@ impl Render for MainScreen {
             )
             .on_action(cx.listener(|this, _: &ToggleMaximize, _, cx| {
                 this.with_active(|s, id| s.toggle_maximize(id, None), cx)
-            }))
-            .on_action(cx.listener(|this, _: &RefreshChanges, _, cx| {
-                this.load_changes(true, cx);
-                // The Changes panel's worktree list, when open.
-                let open = this
-                    .selected(cx)
-                    .is_some_and(|a| this.wt.is_open(&worktrees::panel_key(&a.id)));
-                if open {
-                    this.wt_list(true, cx);
-                    this.wt_load_files(true, cx);
-                }
-                // The explorer (on the window root) refreshes too.
-                cx.propagate();
             }))
             .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
@@ -2287,15 +2078,6 @@ mod settings_tile_tests;
 mod editor_tile_tests;
 #[cfg(test)]
 mod device_auto_tests;
-
-impl Drop for MainScreen {
-    /// A closed window shows no agent's changes any more.
-    fn drop(&mut self) {
-        if let (Some(e), (key, Some(_))) = (&self.engine, &self.changes_shown) {
-            e.show_changes(*key, None);
-        }
-    }
-}
 
 /// Agents of `kind` to move to `account` (`None`: the user's own), `name`.
 /// When `project`'s git identity changes: the running agents that restart

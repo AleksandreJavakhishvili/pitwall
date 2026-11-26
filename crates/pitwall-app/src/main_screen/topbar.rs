@@ -1,6 +1,6 @@
 //! The top bar (React `TopBar.tsx`, `SpaceTabs.tsx`): sidebar toggle,
-//! wordmark, space tabs, Search ⌘K, live counts, Review / Wall / Settings /
-//! details buttons. The whole bar is the window's drag area.
+//! wordmark, space tabs, Search ⌘K, live counts, Review / Wall / Settings
+//! buttons. The whole bar is the window's drag area.
 
 use crate::kit::HoverText;
 use gpui::{
@@ -188,13 +188,6 @@ impl MainScreen {
         );
         let sidebar_open =
             self.sidebar_mode(bp) == super::SidebarMode::Full || self.overlay_sidebar;
-        let right_open = self.route == Route::Space
-            && self.focused_agent_id().is_some()
-            && if bp.right_docked() {
-                self.right_pinned
-            } else {
-                self.drawer_open
-            };
 
         let engineer_focused = self
             .focused_agent_id()
@@ -365,25 +358,6 @@ impl MainScreen {
             .child(
                 icon_btn("tb-settings", "gear", "Settings", false, t)
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
-            )
-            .child(
-                icon_btn_state(
-                    "tb-details",
-                    "panel",
-                    keys(
-                        if right_open {
-                            "Hide details (⌘.)"
-                        } else {
-                            "Show details (⌘.)"
-                        },
-                        false,
-                    ),
-                    false,
-                    16.,
-                    aria(right_open),
-                    t,
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.toggle_details(window, cx))),
             );
 
         let bar = div()
@@ -856,7 +830,6 @@ impl MainScreen {
                 cx,
             );
         }
-        self.changes_follow(cx);
         window.focus(&self.focus, cx);
         cx.notify();
     }

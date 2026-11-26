@@ -1,4 +1,4 @@
-use gpui::{TestAppContext, VisualTestContext};
+use gpui::{div, Render, TestAppContext, Window};
 
 use super::*;
 use crate::agents::tests::agent;
@@ -24,86 +24,86 @@ fn absolute_time_reads_like_to_locale_string() {
 }
 
 #[test]
-fn submit_label_follows_the_desktop() {
-    assert_eq!(submit_keys(true), "⌘↵");
-    assert_eq!(submit_keys(false), "Ctrl+↵");
-}
-
-#[test]
 fn failures_say_what_failed() {
-    assert_eq!(Op::Add("x".into()).what(), "queue prompt");
     assert_eq!(Op::Remove("q".into()).what(), "remove queue item");
     assert_eq!(Op::SendNow("q".into()).what(), "send prompt");
     assert_eq!(Op::AutoSend(true).what(), "change auto-send");
 }
 
-fn next_up(cx: &mut TestAppContext) -> (Entity<NextUp>, &mut VisualTestContext) {
+fn item(id: &str, text: &str, from: Option<(&str, &str)>) -> pitwall_proto::QueueItem {
+    pitwall_proto::QueueItem {
+        id: id.into(),
+        text: text.into(),
+        origin: from.map(|(e, n)| pitwall_proto::QueueOrigin { extension: e.into(), name: n.into() }),
+    }
+}
+
+#[test]
+fn the_chip_counts_what_waits() {
+    let mut a = agent("a", "/work/alpha", "idle", 1, true);
+    assert_eq!(chip_label(&a), None, "nothing queued: no chip");
+    a.queue = vec![item("q1", "one", None), item("q2", "two", None)];
+    assert_eq!(chip_label(&a).as_deref(), Some("2 queued"));
+}
+
+/// The popover's content, alone in a window.
+struct Host(Shown);
+
+impl Render for Host {
+    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let t = crate::theme::theme(cx).clone();
+        div().child(body(&self.0, &t, &WeakEntity::new_invalid()))
+    }
+}
+
+fn shown(a: AgentView) -> Shown {
+    Shown { agent: a, senders: vec![], icons: HashMap::new(), now: 1_800_000_000_000 }
+}
+
+fn draw(cx: &mut TestAppContext, s: Shown) -> &mut gpui::VisualTestContext {
     cx.update(|cx| {
         cx.set_global(crate::theme::Theme::dark());
         crate::kit::init(cx);
-        crate::code_view::register(cx);
     });
-    cx.add_window_view(NextUp::new)
-}
-
-#[gpui::test]
-fn drafts_stay_with_their_agent(cx: &mut TestAppContext) {
-    let (view, cx) = next_up(cx);
-    let (a, b) = (
-        agent("a", "/work/alpha", "idle", 1, true),
-        agent("b", "/work/alpha", "working", 2, true),
-    );
-    view.update(cx, |v, cx| {
-        v.set_agent(&a, cx);
-        v.field
-            .update(cx, |f, cx| f.set_text("first line\nsecond", cx));
-        v.set_agent(&b, cx);
-        assert_eq!(v.draft(cx), "", "b has no draft");
-        v.field.update(cx, |f, cx| f.set_text("for b", cx));
-        v.set_agent(&a, cx);
-        assert_eq!(v.draft(cx), "first line\nsecond", "kept verbatim");
-        v.set_agent(&b, cx);
-        assert_eq!(v.draft(cx), "for b");
-    });
+    let (_, cx) = cx.add_window_view(|_, _| Host(s));
+    cx.run_until_parked();
+    cx
 }
 
 /// An extension's item says whose it is and that it waits for Send; the
 /// user's own item says nothing of the kind.
 #[gpui::test]
 fn an_extensions_item_is_marked(cx: &mut TestAppContext) {
-    let (view, cx) = next_up(cx);
     let mut a = agent("a", "/work/alpha", "idle", 1, true);
-    a.queue = vec![
-        pitwall_proto::QueueItem { id: "q1".into(), text: "mine".into(), origin: None },
-        pitwall_proto::QueueItem { id: "q2".into(), text: "fix the failing test".into(), origin: Some(pitwall_proto::QueueOrigin { extension: "ci".into(), name: "CI".into() }) },
-    ];
-    view.update(cx, |v, cx| v.set_agent(&a, cx));
-    cx.update(|window, _| window.refresh());
-    cx.run_until_parked();
+    a.queue = vec![item("q1", "mine", None), item("q2", "fix the failing test", Some(("ci", "CI")))];
+    let cx = draw(cx, shown(a));
     assert!(cx.debug_bounds("queue-from-1").is_some(), "the extension's item is marked");
     assert!(cx.debug_bounds("queue-from-0").is_none(), "the user's isn't");
+    assert!(cx.debug_bounds("queue-item-1").is_some());
+}
+
+/// Send now only while the agent runs; Remove always; no compose box,
+/// and the last prompt sent is one line at the foot.
+#[gpui::test]
+fn send_now_only_while_it_runs(cx: &mut TestAppContext) {
+    let mut a = agent("a", "/work/alpha", "working", 1, true);
+    a.running = false;
+    a.queue = vec![item("q1", "mine", None)];
+    a.last_sent = Some("run the tests\nthen lint".into());
+    a.last_sent_at = Some(1_800_000_000_000 - 4 * 60_000);
+    let cx = draw(cx, shown(a));
+    assert!(cx.debug_bounds("next-up").is_some());
+    assert!(cx.debug_bounds("next-up-auto-send").is_some());
+    assert!(cx.debug_bounds("next-up-last-sent").is_some());
+    assert!(cx.debug_bounds("queue-send-0").is_none(), "not running: no Send now");
 }
 
 #[gpui::test]
-fn queueing_without_an_engine_keeps_nothing_back(cx: &mut TestAppContext) {
-    let (view, cx) = next_up(cx);
-    let a = agent("a", "/work/alpha", "idle", 1, true);
-    view.update_in(cx, |v, window, cx| {
-        v.set_agent(&a, cx);
-        // Blank text is never queued.
-        v.field.update(cx, |f, cx| f.set_text("  \n ", cx));
-        v.add(window, cx);
-        assert_eq!(v.draft(cx), "  \n ");
-        // Real text leaves the box (the engine call is skipped here).
-        v.field.update(cx, |f, cx| f.set_text("ship it", cx));
-        v.add(window, cx);
-        assert_eq!(v.draft(cx), "");
-    });
-    view.read_with(cx, |v, _| {
-        assert_eq!(
-            v.drafts.get("a").map(String::as_str),
-            Some(""),
-            "the draft is gone too"
-        )
-    });
+fn a_running_agent_offers_send_now(cx: &mut TestAppContext) {
+    let mut a = agent("a", "/work/alpha", "working", 1, true);
+    a.running = true;
+    a.queue = vec![item("q1", "mine", None)];
+    let cx = draw(cx, shown(a));
+    assert!(cx.debug_bounds("queue-send-0").is_some());
+    assert!(cx.debug_bounds("next-up-last-sent").is_none(), "nothing sent yet: no line");
 }

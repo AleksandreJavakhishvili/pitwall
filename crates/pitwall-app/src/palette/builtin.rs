@@ -1,6 +1,6 @@
 //! The React palette's rows (`CommandPalette.tsx`), in its order: go to
 //! and remove each agent, next blocked, new agent, terminals, queue for,
-//! Wall and Review, files, window, layout, density, panels, Settings, quit
+//! Next up for, Wall and Review, files, window, layout, density, panels, Settings, quit
 //! and theme.
 
 use gpui::{App, Context, SharedString, Window};
@@ -377,6 +377,20 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
             .rank(rank::QUEUE),
         );
     }
+    // Next up for each agent: its tile's popover (listed while something
+    // waits there; found by name otherwise).
+    for a in &st.agents {
+        let id = a.id.clone();
+        let row = Command::new(
+            format!("next-up-{}", a.id),
+            format!("Show Next up for {}", a.name),
+            format!("show next up auto-send waiting for {}", a.name),
+            on_screen(pc, move |s, w, cx| s.cmd_show_next_up(&id, w, cx)),
+        )
+        .glyph("↳")
+        .rank(rank::QUEUE);
+        out.push(if a.queue.is_empty() { row.query_only() } else { row });
+    }
 
     // Views.
     out.push(
@@ -537,17 +551,6 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         )
         .glyph("⇤")
         .keys("⌘B")
-        .rank(rank::PANELS),
-    );
-    out.push(
-        Command::new(
-            "right",
-            "Toggle details panel",
-            "toggle right panel details queue changes hide show",
-            on_screen(pc, |s, w, cx| s.cmd_toggle_details(w, cx)),
-        )
-        .glyph("⇥")
-        .keys("⌘.")
         .rank(rank::PANELS),
     );
     out.push(

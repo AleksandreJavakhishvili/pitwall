@@ -9,7 +9,7 @@
 //! - [`Appearance`]: Settings → Appearance and Tiles (theme, look, motion,
 //!   density, font) resolved against what the OS asks for, a global.
 //! - [`chrome`] / [`float`] / [`panel`]: the theme re-pointed at the glass
-//!   surfaces for chrome (top bar, sidebar, right panel, strip), floating
+//!   surfaces for chrome (top bar, sidebar, strip), floating
 //!   surfaces (dialogs, menus, toasts) and Liquid Glass slabs. Terminals,
 //!   Wall tiles and code views keep the plain theme: they stay opaque.
 //! - [`backdrop`] for the window's root background, [`motion_on`] before
@@ -96,7 +96,6 @@ pub const SIDEBAR_MIN_W: f32 = 200.;
 /// Wider than this it only takes room from the terminals, however big the
 /// window (and never more than half of it: [`sidebar_width`]).
 pub const SIDEBAR_MAX_W: f32 = 640.;
-pub const RIGHT_W: Pixels = px(320.);
 
 /// The sidebar's width: the user's (`None`: [`SIDEBAR_W`]) within its
 /// range, and at most half the window's `viewport` width (a narrower
@@ -756,7 +755,7 @@ impl Theme {
     }
 
     /// This theme with the chrome's glass surfaces (glass.css "chrome:
-    /// translucent surface tokens"): top bar, tabs, sidebar, right panel,
+    /// translucent surface tokens"): top bar, tabs, sidebar,
     /// status strip. Flat: unchanged.
     pub fn chrome(&self) -> Theme {
         if self.glass.is_none() {

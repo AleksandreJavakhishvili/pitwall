@@ -3,11 +3,9 @@
 //! approval dialog over it. When the app refused to host an engine
 //! (`home::Refusal`), the window says why instead.
 
-use std::collections::HashMap;
-
 use gpui::{
-    div, prelude::*, px, Context, Entity, FocusHandle, Global, IntoElement, Render, Subscription,
-    Task, WeakEntity, Window, WindowId,
+    div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, Render, Subscription, Task,
+    Window,
 };
 
 use crate::agents::AgentStore;
@@ -577,16 +575,6 @@ impl MainView {
             }
             return;
         }
-        // `panel-fold <ext> <section> on|off`: that right-panel section
-        // folded or not, as its header does.
-        if let Some(rest) = cmd.strip_prefix("panel-fold ") {
-            let w: Vec<&str> = rest.split_whitespace().collect();
-            if let [ext, panel, on] = w[..] {
-                crate::extensions::panels::set_folded(ext, panel, on == "on", cx);
-                cx.notify();
-            }
-            return;
-        }
         // `ext-web <ext> <view>`: its web view opened, as the palette does.
         if let Some(rest) = cmd.strip_prefix("ext-web ") {
             let w: Vec<&str> = rest.split_whitespace().collect();
@@ -842,21 +830,6 @@ enum Owner {
     QuickOpen,
 }
 
-/// An empty view (a Files tab for an agent whose files can't be read).
-struct Nothing;
-
-impl Render for Nothing {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-    }
-}
-
-/// Each window's explorer, for the app-wide Files tab hook.
-#[derive(Default)]
-struct WindowExplorers(HashMap<WindowId, WeakEntity<crate::explorer::Explorer>>);
-
-impl Global for WindowExplorers {}
-
 /// The explorer's viewer as the main screen's Explorer route.
 struct ExplorerRoute(Entity<crate::explorer::Explorer>);
 
@@ -871,9 +844,9 @@ impl Render for ExplorerRoute {
     }
 }
 
-/// Plug the explorer into the main screen: its Files tab in the right
-/// panel, its viewer as the Explorer route, the focused agent, and the
-/// route following the viewer (and back).
+/// Plug the explorer into the main screen: its viewer as the Explorer
+/// route, the focused agent, and the route following the viewer (and
+/// back).
 fn explorer_seams(
     screen: &Entity<crate::main_screen::MainScreen>,
     explorer: &Entity<crate::explorer::Explorer>,
@@ -883,27 +856,6 @@ fn explorer_seams(
 ) -> Vec<Subscription> {
     use crate::explorer::ExplorerEvent;
     use crate::main_screen::{Route, ScreenEvent};
-    // The Files tab hook is one for the app: it finds the explorer of the
-    // window it draws in (capturing this one would hand every window the
-    // last window's explorer).
-    let windows = cx.default_global::<WindowExplorers>();
-    windows.0.retain(|_, e| e.upgrade().is_some());
-    windows
-        .0
-        .insert(window.window_handle().window_id(), explorer.downgrade());
-    crate::main_screen::register_files_panel(cx, |agent, window, cx| {
-        let explorer = cx
-            .try_global::<WindowExplorers>()
-            .and_then(|w| w.0.get(&window.window_handle().window_id()))
-            .and_then(|e| e.upgrade());
-        let panel = explorer.and_then(|e| {
-            e.update(cx, |e, cx| {
-                e.set_agent(Some(agent.id.clone()), cx);
-                e.panel(window, cx)
-            })
-        });
-        panel.unwrap_or_else(|| cx.new(|_| Nothing).into())
-    });
     // The Explorer route is this window's viewer.
     let e = explorer.clone();
     let route = cx.new(|cx| {
@@ -1012,7 +964,7 @@ impl Render for MainView {
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
             // The screen draws itself every frame, but its big pieces
-            // (sidebar, top bar, right panel, Wall / Review) and its
+            // (sidebar, top bar, Wall / Review) and its
             // terminals are cached views: a frame for one terminal or for
             // the working dots' rings (the pulse layer) replays the rest
             // (main_screen/part.rs).
@@ -1064,7 +1016,7 @@ fn worktree_at(projects: &[pitwall_proto::ProjectWorktrees], root: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{TestAppContext, VisualTestContext, WindowId};
 
     #[gpui::test]
     fn one_modal_at_a_time(cx: &mut TestAppContext) {
@@ -1222,8 +1174,8 @@ mod tests {
     }
 
     /// ⌘P, a file picked: the first window shows it, though a second
-    /// window opened after it (each window's routes and Files tab are its
-    /// own, not the last window's).
+    /// window opened after it (each window's routes are its own, not the
+    /// last window's).
     fn quick_open_shows_the_file(glass: bool, cx: &mut TestAppContext) {
         let (first, second, vcx) = two_windows(cx, glass);
         let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
@@ -1240,19 +1192,11 @@ mod tests {
         let code = vcx.debug_bounds("ex-code").expect("the file's text is drawn");
         assert!(code.size.width > gpui::px(0.) && code.size.height > gpui::px(0.));
 
-        // The other per-window seams: Review and the Files tab.
-        vcx.update(|window, cx| {
-            let (review, explorer) = {
-                let v = first.read(cx);
-                (v.review.clone().unwrap(), v.explorer.clone().unwrap())
-            };
+        // The other per-window seam: Review.
+        vcx.update(|_, cx| {
+            let review = first.read(cx).review.clone().unwrap();
             let shown = screen.read(cx).route_view_of(crate::main_screen::Route::Review);
             assert_eq!(shown.map(|v| v.entity_id()), Some(review.entity_id()));
-            let agent = screen.read(cx).selected(cx).unwrap();
-            let build = cx.global::<crate::main_screen::FilesPanel>().0.clone();
-            let tab = build(&agent, window, cx);
-            let own = explorer.update(cx, |e, cx| e.panel(window, cx)).unwrap();
-            assert_eq!(tab.entity_id(), own.entity_id());
         });
         let other = second.read_with(vcx, |v, _| v.explorer.clone().unwrap());
         assert!(!other.read_with(vcx, |e, _| e.viewer_open()));
@@ -1283,127 +1227,13 @@ mod tests {
         assert!(explorer.read_with(vcx, |e, _| e.quick_open_shown()), "⌘P opens quick open");
     }
 
-    /// A diff open over the Changes list: a click on the backdrop, even
-    /// over the same file, only closes it (the click doesn't reach the row
-    /// under it and open the diff again, a flash of closing and opening).
+    /// Liquid Glass: the chrome's native glass pieces (top bar, sidebar)
+    /// stay as they are on the frames that only redraw what's over the
+    /// screen (a working dot's ring replays the cached screen), and across
+    /// Review and back: none is hidden or made again, which flickered the
+    /// whole window.
     #[gpui::test]
-    fn a_click_through_a_dialogs_backdrop_only_closes_it(cx: &mut TestAppContext) {
-        let (first, _second, vcx) = two_windows_with(cx, true, true);
-        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
-        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
-        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
-        let file = |path: &str| pitwall_core::vcs::git::FileChange {
-            path: path.into(),
-            added: 2,
-            removed: 1,
-            untracked: false,
-            binary: false,
-            status: None,
-            repo: None,
-            branch: None,
-            parts: None,
-        };
-        screen.update(vcx, |s, cx| s.set_changes_for_test("a1", vec![file("src/main.rs")], cx));
-        vcx.run_until_parked();
-        let click = |vcx: &mut VisualTestContext| {
-            screen.update(vcx, |_, cx| cx.notify());
-            vcx.run_until_parked();
-            let at = vcx.debug_bounds("file-name-0").expect("the file is listed");
-            vcx.simulate_click(at.center(), gpui::Modifiers::none());
-            vcx.run_until_parked();
-        };
-        click(vcx);
-        assert!(screen.read_with(vcx, |s, _| s.diff_dialog().is_some()), "its diff opened");
-        click(vcx);
-        assert!(screen.read_with(vcx, |s, _| s.diff_dialog().is_none()), "closed, not opened again");
-    }
-
-    /// Repositories inside the agent's folder: a section each, VS Code
-    /// style; a click on its header folds it (its files go), another opens it.
-    #[gpui::test]
-    fn repository_sections_fold(cx: &mut TestAppContext) {
-        let (first, _second, vcx) = two_windows_with(cx, true, true);
-        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
-        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
-        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
-        let file = |path: &str, repo: Option<&str>| pitwall_core::vcs::git::FileChange {
-            path: path.into(),
-            added: 1,
-            repo: repo.map(String::from),
-            ..Default::default()
-        };
-        let files = vec![file("main.rs", None), file("upstreams/lib/a.rs", Some("upstreams/lib"))];
-        screen.update(vcx, |s, cx| s.set_changes_for_test("a1", files, cx));
-        let draw = |vcx: &mut VisualTestContext| {
-            screen.update(vcx, |_, cx| cx.notify());
-            vcx.run_until_parked();
-        };
-        draw(vcx);
-        assert!(vcx.debug_bounds("repo-section-0").is_some(), "the agent's own section");
-        let drawn = |vcx: &mut VisualTestContext| screen.read_with(vcx, |s, _| s.drawn_files());
-        assert_eq!(drawn(vcx), ["main.rs", "upstreams/lib/a.rs"]);
-        let header = vcx.debug_bounds("repo-section-1").expect("the clone's section");
-        vcx.simulate_click(header.center(), gpui::Modifiers::none());
-        draw(vcx);
-        assert_eq!(drawn(vcx), ["main.rs"], "folded; the other section stays open");
-        let header = vcx.debug_bounds("repo-section-1").unwrap();
-        vcx.simulate_click(header.center(), gpui::Modifiers::none());
-        draw(vcx);
-        assert_eq!(drawn(vcx), ["main.rs", "upstreams/lib/a.rs"], "open again");
-    }
-
-    /// A diff open over the Changes list: one click on another file shows
-    /// that file's diff (not a click to close, a second to open).
-    #[gpui::test]
-    fn a_click_on_another_file_switches_the_diff(cx: &mut TestAppContext) {
-        let (first, _second, vcx) = two_windows_with(cx, true, true);
-        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
-        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
-        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
-        let file = |path: &str| pitwall_core::vcs::git::FileChange {
-            path: path.into(),
-            added: 2,
-            removed: 1,
-            untracked: false,
-            binary: false,
-            status: None,
-            repo: None,
-            branch: None,
-            parts: None,
-        };
-        let files = vec![file("src/main.rs"), file("src/lib.rs")];
-        screen.update(vcx, |s, cx| s.set_changes_for_test("a1", files, cx));
-        vcx.run_until_parked();
-        let click = |vcx: &mut VisualTestContext, row: usize| {
-            screen.update(vcx, |_, cx| cx.notify());
-            vcx.run_until_parked();
-            let name = ["file-name-0", "file-name-1"][row];
-            let at = vcx.debug_bounds(name).expect("the file is listed");
-            vcx.simulate_click(at.center(), gpui::Modifiers::none());
-            vcx.run_until_parked();
-        };
-        let shown = |vcx: &mut VisualTestContext| {
-            screen.read_with(vcx, |s, cx| {
-                s.diff_dialog().map(|d| d.read(cx).shows().1.to_string())
-            })
-        };
-        click(vcx, 0);
-        assert_eq!(shown(vcx).as_deref(), Some("src/main.rs"));
-        click(vcx, 1);
-        assert_eq!(shown(vcx).as_deref(), Some("src/lib.rs"), "one click switched");
-        click(vcx, 1);
-        assert_eq!(shown(vcx), None, "the same file only closes");
-    }
-
-    /// Liquid Glass: the chrome's native glass pieces (top bar, sidebar,
-    /// right panel) stay as they are while a change in the right panel's
-    /// list opens and closes, and on the frames that only redraw what's
-    /// over the screen (a working dot's ring replays the cached screen):
-    /// none is hidden or made again, which flickered the whole window.
-    /// Review hides the right panel's piece and the agents show the same
-    /// one again.
-    #[gpui::test]
-    fn glass_pieces_hold_while_a_change_opens(cx: &mut TestAppContext) {
+    fn glass_pieces_hold_on_ring_frames_and_review(cx: &mut TestAppContext) {
         use crate::main_screen::Route;
         use crate::platform::glass::regions;
         let (first, _second, vcx) = two_windows_with(cx, true, true);
@@ -1411,23 +1241,9 @@ mod tests {
         let (screen, pulses) =
             first.read_with(vcx, |v, _| (v.screen.clone().unwrap(), v.pulses.clone()));
         screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
-        let file = |path: &str| pitwall_core::vcs::git::FileChange {
-            path: path.into(),
-            added: 2,
-            removed: 1,
-            untracked: false,
-            binary: false,
-            status: None,
-            repo: None,
-            branch: None,
-            parts: None,
-        };
-        screen.update(vcx, |s, cx| {
-            s.set_changes_for_test("a1", vec![file("src/main.rs"), file("notes/todo.md")], cx)
-        });
         vcx.run_until_parked();
         let wid = vcx.update(|window, _| window.window_handle().window_id());
-        let all = vec!["right-panel", "sidebar", "topbar"];
+        let all = vec!["sidebar", "topbar"];
         let (shown, made) = regions::of(wid);
         assert_eq!(shown, all, "the chrome's pieces are placed");
         let ring_frame = |vcx: &mut VisualTestContext| {
@@ -1439,46 +1255,19 @@ mod tests {
         };
         ring_frame(vcx);
         steady("a ring frame");
+        screen.update(vcx, |_, cx| cx.notify());
+        vcx.run_until_parked();
+        steady("the screen drawn again");
 
-        // Click through the changed files: each opens its diff.
-        for row in ["file-name-0", "file-name-1"] {
-            // (A replayed frame keeps no debug bounds: draw the screen.)
+        // Review and back: the same pieces throughout.
+        for route in [Route::Review, Route::Space] {
+            screen.update(vcx, |s, cx| s.set_route(route, cx));
+            vcx.run_until_parked();
             screen.update(vcx, |_, cx| cx.notify());
             vcx.run_until_parked();
-            steady("the screen drawn again");
-            let name = vcx
-                .debug_bounds(row)
-                .unwrap_or_else(|| panic!("{row} is listed"));
-            vcx.simulate_click(name.center(), gpui::Modifiers::none());
-            vcx.run_until_parked();
-            assert!(screen.read_with(vcx, |s, _| s.has_dialog()), "its diff opened");
-            steady("the diff open");
             ring_frame(vcx);
-            steady("a ring frame over the diff");
-            screen.update(vcx, |s, cx| s.close_dialogs(cx));
-            vcx.run_until_parked();
-            ring_frame(vcx);
-            steady("the diff closed");
+            steady(&format!("{route:?}"));
         }
-
-        // Review: the right panel's piece hides; back: the same one shows.
-        screen.update(vcx, |s, cx| s.set_route(Route::Review, cx));
-        vcx.run_until_parked();
-        // (The screen drawn on Review whatever frames ran first.)
-        screen.update(vcx, |_, cx| cx.notify());
-        vcx.run_until_parked();
-        ring_frame(vcx);
-        let (shown, counts) = regions::of(wid);
-        assert_eq!(shown, vec!["sidebar", "topbar"]);
-        assert_eq!((counts.made, counts.hidden), (made.made, made.hidden + 1));
-        screen.update(vcx, |s, cx| s.set_route(Route::Space, cx));
-        vcx.run_until_parked();
-        screen.update(vcx, |_, cx| cx.notify());
-        vcx.run_until_parked();
-        let (shown, counts) = regions::of(wid);
-        assert_eq!(shown, all);
-        assert_eq!(counts.made, made.made, "shown again, not made again");
-        assert_eq!(counts.reshown, made.reshown + 1);
     }
 
     /// A view that stands in for a terminal in the pane body.
@@ -1538,7 +1327,7 @@ mod tests {
         let open = renders(vcx);
         let held = pieces();
         if glass {
-            assert_eq!(held.0, vec!["right-panel", "sidebar", "topbar"]);
+            assert_eq!(held.0, vec!["sidebar", "topbar"]);
         }
 
         // Settings scrolls (each step notifies its view): the screen replays.

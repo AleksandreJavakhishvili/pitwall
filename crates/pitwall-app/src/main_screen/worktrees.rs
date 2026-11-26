@@ -65,24 +65,11 @@ pub struct WtState {
 }
 
 /// Where a `.wt-chip` sits: under an agent row (30 px in), under a
-/// project's agents (8 px), or in the Changes panel (at its edge).
+/// project's agents (8 px).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WtChipAt {
     Agent,
     Others,
-    Panel,
-}
-
-/// The collapse key of the Changes panel's list for an agent.
-pub fn panel_key(agent: &str) -> String {
-    format!("\u{0}panel:{agent}")
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 impl WtState {
@@ -270,12 +257,6 @@ impl MainScreen {
                 out.extend(other_worktrees(&self.wt.projects, &ids));
             }
         }
-        // The Changes panel's list of the selected agent.
-        if let Some(a) = self.selected(cx) {
-            if self.wt.open.contains(&panel_key(&a.id)) {
-                out.extend(by_agent.get(&a.id).cloned().unwrap_or_default());
-            }
-        }
         out
     }
 
@@ -427,7 +408,6 @@ impl MainScreen {
                     .ml(px(match at {
                         WtChipAt::Agent => 30.,
                         WtChipAt::Others => 8.,
-                        WtChipAt::Panel => 0.,
                     }))
                     .pl(px(4.))
                     .pr(px(7.))
@@ -510,60 +490,6 @@ impl MainScreen {
             out.push(self.wt_rows(&others, 20., t, cx).into_any_element());
         }
         out
-    }
-
-    /// The Changes panel's `.panel-wts`: the agent's other worktrees,
-    /// collapsed until asked for; open, a refresh control and the rows.
-    pub(super) fn panel_worktrees(
-        &self,
-        a: &AgentView,
-        t: &Theme,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let refs = Some(self.with_work(self.wt.projects.of_agent(&a.id).to_vec(), cx))
-            .filter(|r| !r.is_empty())?;
-        let key = panel_key(&a.id);
-        let open = self.wt.open.contains(&key);
-        let list = self.wt_list_entity.read(cx);
-        let busy = list.refreshing();
-        let age = list
-            .updated_at
-            .map(|at| (now_ms() - at).max(0) as u64 / 1000);
-        let chip = self.wt_chip(
-            key,
-            count_label(refs.len()),
-            if open { "Hide its worktrees" } else { "Show its worktrees" },
-            WtChipAt::Panel,
-            t,
-            cx,
-        );
-        Some(
-            div()
-                .mt(px(6.))
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .child(chip)
-                        .when(open, |d| {
-                            d.child(div().flex_1()).child(crate::kit::refresh_control(
-                                "wt-panel-refresh",
-                                busy,
-                                Some(crate::kit::fresh_note(busy, age)),
-                                t,
-                                cx.listener(|this, _, _, cx| {
-                                    this.wt_list(true, cx);
-                                    this.wt_load_files(true, cx);
-                                }),
-                            ))
-                        }),
-                )
-                .when(open, |d| d.child(self.wt_rows(&refs, 0., t, cx).mx(px(0.))))
-                .into_any_element(),
-        )
     }
 
     /// Worktrees with something in them: not deleted, and not known to have

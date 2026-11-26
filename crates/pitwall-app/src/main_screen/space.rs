@@ -605,7 +605,6 @@ impl MainScreen {
                 self.agent_before_tile = Some((space, agent));
             }
             self.with_active(|s, id| s.focus_pane(id, pane), cx);
-            self.changes_follow(cx);
         }
     }
 
@@ -939,6 +938,7 @@ impl MainScreen {
                     .child(diffstat(a.added, a.removed, t)),
             )
             .child(div().flex_1())
+            .children(self.next_up_chip(a, pane_id, t, cx))
             .children(self.preview_chip(a, pane_id, t, cx))
             // Started before an extension was updated (extensions::stale).
             .children(crate::extensions::stale::chip_view(&format!("pane-stale-{pane_id}"), a, t, cx))
