@@ -8,8 +8,8 @@ that exist today (docs/spec/extensions.md: one manifest, one adapter
 process, one kind of view, the inbox) into a small public API.
 
 Third-party tiles in Rust/WebAssembly, signed packages and the
-marketplace: [tile-sdk.md](tile-sdk.md). It also proposes one extension
-model (tile-sdk.md §15): a wasm component becomes the way an extension
+marketplace: [tile-sdk/](tile-sdk/README.md). It also proposes one extension
+model ([tile-sdk/extension-model.md](tile-sdk/extension-model.md)): a wasm component becomes the way an extension
 runs its own code, and the adapter process described here is removed
 once each bundled extension has a component version, ported by Pitwall
 or built by its authors on the public SDK.
@@ -108,7 +108,7 @@ curated list.
 ## Principles
 
 ### A separate process, not code in the app
-*Proposed to change: see [tile-sdk.md](tile-sdk.md) §15 (sandboxed
+*Proposed to change: see [tile-sdk/extension-model.md](tile-sdk/extension-model.md) (sandboxed
 wasm components in the app; native code only in a managed service).*
 For. Pitwall is Rust and GPUI. Loading a dynamic library means one crash
 takes the app down and the extension shares the app's memory, keychain
@@ -500,7 +500,7 @@ events for a slow reader). A topic without its permission is left out of
 the reply's `topics`, as unknown topics are today.
 
 ### Later: agents as callers
-*For tiles, designed in [tile-sdk.md](tile-sdk.md) §11.*
+*For tiles, designed in [tile-sdk/agent-tools.md](tile-sdk/agent-tools.md).*
 As agents improve, an extension's commands are as useful to agents as to
 the user (re-run CI, look up a ticket). Pitwall's MCP server [today:
 `show_files`, `show_web`] could list an extension's commands as tools,
@@ -543,7 +543,7 @@ requests itself (no npm, no credentials, so no private packages) and
 unpacks the tarball itself, plain files under `package/` only. Like
 git, nothing runs and no dependency is installed.
 
-*Superseded by [tile-sdk.md](tile-sdk.md) §6 (signed `.pwtile`
+*Superseded by [tile-sdk/packaging.md](tile-sdk/packaging.md) (signed `.pwtile`
 packages, keys in the index): the feed below is kept for the record.*
 Phase 6 adds a feed for authors who build archives:
 ```json
@@ -604,7 +604,7 @@ pointing outside the folder are refused.
 - **Same source.** An update comes only from the `source` the user
   installed from. An update whose manifest names another source shows
   it and asks.
-- **Signatures** (*superseded by [tile-sdk.md](tile-sdk.md) §6.2*): phase 6, for feeds (ed25519, the key trusted on first
+- **Signatures** (*superseded by [tile-sdk/packaging.md](tile-sdk/packaging.md#62-signing)*): phase 6, for feeds (ed25519, the key trusted on first
   install, rotation by a statement signed with the old key). Signed git
   tags could be checked too, but key distribution is the same problem
   and few authors sign tags; not before feeds.
@@ -648,7 +648,7 @@ No protocol change is needed for step 4: the adapter already says what is
 wrong in plain words [today].
 
 ### A curated list, later
-*Superseded by [tile-sdk.md](tile-sdk.md) §7 (the marketplace index).*
+*Superseded by [tile-sdk/marketplace.md](tile-sdk/marketplace.md) (the marketplace index).*
 Not until there are extensions by other people. Then a list in a
 repository (Zed's model): id, source and the pinned commit of each
 reviewed version, read by "Browse extensions". The list only points;
@@ -1042,7 +1042,7 @@ The plan as proposed:
 - Web views through the existing web tile (`web::place`).
 
 ### Phase 6 — Feeds, signatures, sandbox, list
-*Signatures and the list are superseded by [tile-sdk.md](tile-sdk.md);
+*Signatures and the list are superseded by [tile-sdk/](tile-sdk/README.md);
 the opt-in OS sandbox for adapters stays here.*
 Release feeds with sha256 and ed25519; opt-in Restricted mode on macOS
 and Linux; a curated list once third-party extensions exist.
@@ -1119,7 +1119,7 @@ and Linux; a curated list once third-party extensions exist.
     mode on macOS and Linux in phase 6.
 11. **Registry.** *Recommend none* until there are extensions by other
     people; then a curated list pinned to commits. (*Superseded by
-    [tile-sdk.md](tile-sdk.md) §7.*)
+    [tile-sdk/marketplace.md](tile-sdk/marketplace.md).*)
 12. **View updates.** Whole-view replace or patches? *Recommend
     replace* (≤ 500 items, as threads today); add patches only if a
     real extension needs them.
