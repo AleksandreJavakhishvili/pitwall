@@ -889,8 +889,8 @@ approval dialog, and the Settings row style.
 - **Wall.** It has the same sections per machine. Peer tiles are drawn from
   remote `ScreenFrame`s at the reduced rate, and offline tiles show their
   last frame dimmed.
-- **Right panel** (Next up, Changes, Files, Last sent). Unchanged, driven by
-  caps.
+- **Next up** (the "N queued" popover on the agent's tile). Unchanged,
+  driven by caps. (The right panel was removed on 2026-11-26.)
 - **New agent → "Runs on".**
   - It lists `studio` and `studio › vm-1` when the peer granted Start
     agents and is online.

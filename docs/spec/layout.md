@@ -33,18 +33,19 @@ Rules that keep it simple:
 - **Minimum pane size** ~80 cols × 20 rows at the current font; when a space has
   more agents than fit, extra panes collapse into a compact strip of agent chips
   at the bottom of the space (click to swap in) instead of becoming unreadable.
-- **Right panel** (Next up / Changes / Last sent) always belongs to the focused pane
-  (an agent's files tile: that agent; a web page or the inbox: the agent
-  focused before it, so pressing one moves nothing).
+- **No right panel.** The right Details panel (Next up / Changes / Last
+  sent) and its ⌘. toggle were removed on 2026-11-26. Next up lives on
+  the agent's tile: "2 queued" in its header while something waits,
+  opening a popover with the queue, Auto-send and the last prompt sent.
 
 Responsive breakpoints (per window width):
-| Width | Sidebar | Right panel | Max panes per row |
-|---|---|---|---|
-| ≥ 2200 (ultrawide/big) | full | docked | 4 |
-| 1500–2200 | full | docked | 3 |
-| 1100–1500 | full, collapsible | drawer (overlay), toggle ⌘. | 2 |
-| 700–1100 | icon rail (status dots + initials) | drawer | 1 (others as chips) |
-| < 700 | overlay | drawer | 1 |
+| Width | Sidebar | Max panes per row |
+|---|---|---|
+| ≥ 2200 (ultrawide/big) | full | 4 |
+| 1500–2200 | full | 3 |
+| 1100–1500 | full, collapsible | 2 |
+| 700–1100 | icon rail (status dots + initials) | 1 (others as chips) |
+| < 700 | overlay | 1 |
 Window min size 640×480. ⌘+ / ⌘− / ⌘0 change terminal font size globally.
 
 Persistence: spaces, layouts, which window holds which space, and window
@@ -177,7 +178,7 @@ localStorage for index.html's pre-paint script (`src/lib/theme.ts`,
 hairline edges and pill buttons (the primary one white in Dark, ink in
 Light). Pitwall's own palette stays: amber "needs you", mint "done", the
 chequered flag; status colours are identical in both looks.
-- **Only chrome is glass**: top bar and tabs, sidebar, right panel, status
+- **Only chrome is glass**: top bar and tabs, sidebar, status
   strip, palette, dialogs, menus, toasts, chips. Terminal panes, Wall tiles,
   Review / Files code views and the diff dialog keep solid backgrounds
   (legibility; nothing blends behind text that repaints all the time).

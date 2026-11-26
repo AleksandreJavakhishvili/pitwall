@@ -1,5 +1,13 @@
 # GPUI port: feature-parity inventory
 
+> **Removed 2026-11-26.** The right panel (§10: Changes, Files, the
+> "queue a prompt…" compose box), its ⌘. toggle and the palette's "Toggle
+> details panel" were removed from both the GPUI app and the web mock.
+> Next up stays: its queue, Auto-send and Last sent are a popover opened
+> from "N queued" on the agent's tile header (or the palette's "Show Next
+> up for <agent>"); the palette's "name: prompt" and Review's "Add to Next
+> up" still queue. §10's items are the record of the port.
+
 This is the parity checklist for porting Pitwall's UI from Tauri + React to
 GPUI (see [README.md](README.md) in this folder for the port plan). It lists
 everything the current app does, derived from the code (`src/`, `src-tauri/`)
@@ -193,7 +201,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Click or Enter/Space on a tile shows that agent; tile is a drag source (`src/components/Wall.tsx`) [in-house: drag and drop]
 - [x] Theme change restyles all screen views (`src/terminal/screenView.ts`) [pitwall-term-view]
 
-## 10. Right panel (details for the focused agent)
+## 10. Right panel (details for the focused agent) (removed 2026-11-26)
 
 - [x] Header: status glyph, name; close button in drawer mode (`src/components/RightPanel.tsx`)
 - [x] Next up section: queue count, Auto-send toggle ("Send the next item when the agent is idle or done and you're not typing") (`src/components/NextUp.tsx`) [in-house: checkbox/toggle] [in-house: tooltip]

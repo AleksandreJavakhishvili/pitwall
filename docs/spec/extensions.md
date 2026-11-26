@@ -857,16 +857,11 @@ changes what an agent itself may do: its permissions, tools and rules
   off the UI thread; `needs` names a permission for one the adapter acts
   on. A button whose permission isn't granted is drawn disabled with a
   tooltip naming it; pressed anyway it is refused and logged.
-- **Right-panel sections** (`extensions/panels.rs`,
-  `PanelSlot::Extensions`): `contributes.panels` (≤ 3, needing
-  `agents.read`), shown for the focused agent while the extension runs
-  with `agents.read` granted, never for a peer's agent. The hub keys one
-  as `<panel>@<agentId>`; `show`/`hide`/`action` carry `agentId`, and
-  the adapter's `view` names it. Open by default, folded by its header
-  (remembered while Pitwall runs; a folded one is hidden from the
-  adapter); ≤ 280 pt then it scrolls; a list draws 8 items and "and N
-  more"; `more` opens a view in a tile. Bench: `panel-fold <ext>
-  <panel> on|off`.
+- **Right-panel sections**: removed with the right panel (2026-11-26).
+  `contributes.panels` is still read (`Contributes::retired_panels`), so
+  a manifest that has it installs, and never drawn; `check` warns to
+  make them views. Adapters aren't offered `panels`, `show`/`hide`/
+  `action` carry no `agentId`, and a `view` line with one is refused.
 - **Web views** (`contributes.webViews`, ≤ 5): opened by "Open <title>
   (<extension>)" in the palette (`MainScreen::open_ext_web`) as a web
   tile with `ext` set. The address is the manifest's (`{setting:KEY}`
@@ -878,10 +873,9 @@ changes what an agent itself may do: its permissions, tools and rules
   profile. Bench: `ext-web <ext> <view>`.
 - **Floating-control cards**: none. The control shows an extension's
   blocking inbox asks (below); `contributes.cards` stays refused.
-- **Authors**: `pitwall extension new --panel`; `check` warns about
-  `agents.queue` and `agents.start`; the `calls`/`views` fixtures'
-  fake Pitwall refuses action methods without their grant, lists a
-  view's buttons Pitwall runs and takes `agentId` for a panel.
+- **Authors**: `check` warns about `agents.queue`, `agents.start` and
+  `panels`; the `calls`/`views` fixtures' fake Pitwall refuses action
+  methods without their grant and lists a view's buttons Pitwall runs.
 - **Debug bench**: `ext-call <ext> <method> <json>` / `ext-call-view …`
   call as the extension (debug builds).
 

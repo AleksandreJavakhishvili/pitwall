@@ -12,7 +12,7 @@ agent. The choice is remembered for the session (not persisted); focusing
 another agent keeps it. With no agent focused there's no Agent choice: the
 space's agents, everyone in "All" (no switch).
 Opened for a specific agent — ⌘R / the top-bar button with an agent focused,
-the Changes panel's Review button, or "Show diff" in the file viewer
+or "Show diff" in the file viewer
 (explorer.md) — that agent is listed even outside the space and selected
 first (its first file, or the given file). Opened from a worktree, that
 worktree's project agents are listed too, and the list starts at the project

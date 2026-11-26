@@ -47,9 +47,9 @@
 | **Status** | Flags for needs you, done, working, idle, exited and stopped. From hooks when the agent offers them (Claude Code per launch, Codex opt-in), else its screen matched against per-agent rules, else output activity. Native notifications when the window isn't focused. |
 | **Answer from anywhere** | While you're in another app and an agent's screen asks something, a small pill floats over your desktop (every Space, full-screen apps too): which agent waits, what it wants ("Run: pnpm test"), and Accept / Reject right there for a plain yes/no. Click it for one card at a time, oldest first, with the live terminal rows that ask; ⏎ accepts, esc rejects, ←/→ go to the next one (Accept all when every one is a yes/no). Drag it anywhere; turn it off in Settings → General. |
 | **Wall** `⌘E` | Every live terminal at once, grouped by project, the ones that need you first. View-only; click a tile to take over. |
-| **Next up** `⌘.` | Queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it. |
+| **Next up** | Queue the next instruction while the agent works (`⌘K`, then `name: prompt`). It's sent when the agent is done or idle and you aren't typing in it. The agent's tile shows "2 queued"; click it to see, send or remove what waits and turn Auto-send on or off. |
 | **Review** `⌘R` | What each agent changed, per task. Comment on lines and send them back as one prompt; commit and merge only when you click. |
-| **Files** `⌘P` `⇧⌘F` | An explorer of the agent's folder: file tree, viewer, quick open and search, with quick fixes in the viewer (⌘S saves; agents on this computer, off in Settings). ⌘-click a path in a terminal to open it, even outside the folder. The Changes panel matches `git status`: staged and unstaged apart, each repository inside the folder (or linked into it) in its own collapsible section with its branch. |
+| **Files** `⌘P` `⇧⌘F` | An explorer of the agent's folder: file tree, viewer, quick open and search, with quick fixes in the viewer (⌘S saves; agents on this computer, off in Settings). ⌘-click a path in a terminal to open it, even outside the folder. |
 | **Editor** | A text editor tile for any file on this computer: tabs, several cursors (⌘-click, ⌘D), comment toggle, bracket pairs, go to line, Find and Replace, git's changed lines in the margin. Save, Save As, Save all and new files; closing asks about unsaved edits, and an agent's change to an open file shows at once or, with unsaved edits, asks Keep mine / Take theirs. No language server or autocomplete. |
 | **Simulators and emulators** | An iOS Simulator or Android emulator in a tile next to your terminals, to watch and use. One an agent starts opens beside that agent on its own (or is offered, when Pitwall can't tell whose it is); ask an agent to "show me on the simulator" and it boots one and shows it (`show_device`). View-only for the agent. |
 | **Spaces and tiles** | From one pane up to 4×4, spaces in their own windows (drag a tab out or onto another window, or `⌘⇧N`), density settings for big walls. |
@@ -251,7 +251,7 @@ PITWALL_SIGN_IDENTITY="My Identity" scripts/install-local.sh path/to/Pitwall.app
 1. **Open Pitwall.** The first launch is a read-only scan: agent CLIs on your PATH, recent projects and conversations you can continue. Tick what you want and press **Start**.
 2. **Start an agent** with `⌘N`: pick a project, a kind and a name. Tick *Separate worktree* to use the agent's own `--worktree` flag (Claude Code and Codex).
 3. **Watch the flags.** `⌘J` jumps to the next agent that needs you, `⌘E` opens the Wall, `⌘K` the command palette.
-4. **Queue follow-ups** in Next up (`⌘.`, then `⌘↵`); with Auto-send on they go in when the agent is done or idle.
+4. **Queue follow-ups** from the palette: `⌘K`, then `name: prompt`. The agent's tile shows "1 queued"; with Auto-send on it goes in when the agent is done or idle.
 5. **Review** with `⌘R`: comment on lines, send them back as one prompt, commit and merge when you're happy.
 6. **Quit any time.** `⌘Q` closes the UI only; **Quit and Stop Agents** ends everything.
 

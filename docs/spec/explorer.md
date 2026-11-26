@@ -10,10 +10,10 @@ way to write through it. "Copy path" is the one way out.
 Status: built (backend, API and UI).
 
 ## Where it lives
-- **Files tab** in the right panel. Changes and Files are two tabs of one
-  section (Next up above and Last sent below stay where they were; the tree
-  scrolls inside the section so Last sent stays in reach). It belongs to the
-  focused pane's agent, like the rest of the panel, and is offered only when
+- **Files tab** in the right panel (removed with the right panel on
+  2026-11-26; the files tile below is where the tree lives now). Changes
+  and Files were two tabs of one section. It belonged to the
+  focused pane's agent, like the rest of the panel, and was offered only when
   `AgentView.caps.explorer`. It shows the agent's folder (its worktree when
   it has one) as a lazy tree with VS Code file icons (diff-ui.md), the
   Changes panel's letters on files and a dot on folders with changes below
@@ -21,8 +21,7 @@ Status: built (backend, API and UI).
   checkbox ("Show ignored files", off by default; ignored entries are
   dimmed). The header has ↻ (with "updated … ago") and ⤢ to open the viewer.
 - **Viewer** in the main area, opened from the tree, ⌘P or a search hit.
-  A full-window mode like Review (Esc or "Back" closes it; the right panel
-  hides while it is open), lazy-loaded with its own error boundary. Left:
+  A full-window mode like Review (Esc or "Back" closes it), lazy-loaded with its own error boundary. Left:
   Explorer (the same tree, same open folders as the panel) or Search,
   switched with a segmented control. Center: one tab per open file, each a
   read-only CodeMirror view with Review's setup (`review/editorSetup.ts`,
@@ -294,7 +293,7 @@ fixes, not an IDE.
   ⌘⏎ (Ctrl+Shift+Enter on Windows and Linux) then maximises it and
   restores it, the same viewer with its folder, tabs, scroll, selection
   and unsaved edits; in the text it adds no line. Its agent stays the
-  focused one (the right panel, the sidebar).
+  focused one (the sidebar).
   Where a tile is, is said one way everywhere (the tool's answer, the drop
   preview, `files-place state`): next to the terminal it was placed
   against while it still touches it ("above demo's terminal"); else from

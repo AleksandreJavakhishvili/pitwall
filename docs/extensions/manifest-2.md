@@ -62,18 +62,18 @@ What it adds to Pitwall's UI. Each needs an `adapter`:
 - `badges`: `true` when it puts badges and notes on sidebar rows.
 - `notifications`: `true` when it shows notifications; it needs the
   `notify` permission.
-- `panels`: sections in the focused agent's right panel,
-  `[{"id", "title", "icon", "more"}]`, at most 3; they need the
-  `agents.read` permission. `more` names one of its views.
+- `panels`: right-panel sections, from before Pitwall's right panel was
+  removed. Still read, so an older manifest installs, and never drawn;
+  `pitwall extension check` warns. Use `views` instead.
 - `webViews`: web pages in a web tile, `[{"id", "title", "icon", "url"}]`,
   at most 5. `url` is `https://…`, `http://localhost…` (or
   `127.0.0.1`, `[::1]`), or starts with `{setting:KEY}` (a `url` setting);
   without it the adapter sends the address. No script bridge: `bridge`,
   `scripts` and `preload` are refused.
 
-Ids are unique across `views`, `panels` and `webViews`.
+Ids are unique across `views` and `webViews`.
 
-[Views, panels, commands, badges and notifications](views.md) says what
+[Views, commands, badges and notifications](views.md) says what
 each draws and what the adapter sends. `cards` (floating-control cards)
 is refused with "it contributes “cards”, which needs a newer Pitwall":
 the floating control shows only what blocks an agent. A key no Pitwall

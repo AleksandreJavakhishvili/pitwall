@@ -21,7 +21,7 @@ my-inbox/
 ## Start here
 
 ```sh
-pitwall extension new ~/code/my-inbox --name "My inbox"   # --protocol 2 reads Pitwall's data, --view draws a view tile, --panel a right-panel section, --service adds a local server
+pitwall extension new ~/code/my-inbox --name "My inbox"   # --protocol 2 reads Pitwall's data, --view draws a view tile, --service adds a local server
 pitwall extension check ~/code/my-inbox --human
 pitwall extension test ~/code/my-inbox --human
 ```
@@ -42,9 +42,9 @@ folder and turn it on. Its threads show in the inbox (⌘I). Edit, press
   other.
 - [Protocol 2](protocol-2.md): calls, replies and events, for an adapter
   that reads Pitwall's data.
-- [Views, panels, commands, badges and notifications](views.md): view
+- [Views, commands, badges and notifications](views.md): view
   tiles and their components (list, detail, Markdown, status) with JSON
-  examples, right-panel sections, web views, palette commands, sidebar
+  examples, web views, palette commands, sidebar
   badges and notes, notifications.
 - [A service](service.md): a program, such as a local server, that
   Pitwall keeps running while the extension is on, once the user
