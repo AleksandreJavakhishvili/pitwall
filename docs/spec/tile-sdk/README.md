@@ -29,6 +29,7 @@ in [sources.md](sources.md)) or the word *unverified*.
 ## Contents
 
 - [Summary](#summary-one-page), [goals](#1-goals-non-goals-user-stories) and the [plan](#10-plan-risks-and-decisions) (this file)
+- [plan.md](plan.md): Progress, as checkboxes per phase; ticked in the pull request that finishes each item.
 - [runtime.md](runtime.md): Architecture, the WIT interface and versioning: how a tile's component runs, its limits, and how it reaches the host.
 - [ui.md](ui.md): The element tree a tile sends, how the host draws it with GPUI, events, keyboard, drag and drop, canvas, toolbar items.
 - [native-blocks.md](native-blocks.md): No native plugin API; native building blocks; which built-in tiles move to the SDK.
