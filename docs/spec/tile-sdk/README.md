@@ -43,6 +43,7 @@ in [sources.md](sources.md)) or the word *unverified*.
 - [extension-model.md](extension-model.md): Components as the one way an extension runs its own code; adapters removed.
 - [alternatives.md](alternatives.md): Alternatives considered.
 - [sources.md](sources.md): Sources (S1…) cited across the Tile SDK spec, and the claims not verified.
+- [spike-results.md](spike-results.md): Phase 0 measurements (binary size, cold and warm start, a 2 000-node frame, epoch kill, threading) against their gates.
 
 ## Decisions
 

@@ -18,15 +18,15 @@ Done when every [gate](README.md#phase-0-gates) passes, or the owner has
 decided how to go on. Nothing ships to users; the code stays on a draft
 pull request until then.
 
-- [ ] `crates/pitwall-tile-host` runs a component in Wasmtime (LTS line, default features off), with a minimal tile world in WIT
-- [ ] A hello tile in Rust (`wasm32-wasip2`) renders a box tree that Pitwall draws with GPUI, outside the real app's layout
-- [ ] Results recorded in `spike-results.md`, with pass or miss for each gate:
-  - [ ] Release-binary growth ≤ 10 MB on macOS (each architecture), Linux and Windows
-  - [ ] 2 000-node frame (canonical ABI plus host diff) ≤ 4 ms on an M-series Mac
-  - [ ] Cold start ≤ 300 ms, warm start ≤ 50 ms
-  - [ ] Runaway tile stopped by epoch interruption ≤ 100 ms
-  - [ ] Threading model confirmed: where the store lives, how calls leave the UI thread
-- [ ] The unverified fallbacks checked: Winch compile speed, fuel as the stop for a runaway tile
+- [x] `crates/pitwall-tile-host` runs a component in Wasmtime (LTS line, default features off), with a minimal tile world in WIT (#107: Wasmtime 48.0.10)
+- [x] A hello tile in Rust (`wasm32-wasip2`) renders a box tree that Pitwall draws with GPUI, outside the real app's layout (#107)
+- [x] Results recorded in `spike-results.md`, with pass or miss for each gate (#107):
+  - [x] Release-binary growth ≤ 10 MB on macOS (each architecture), Linux and Windows (#107; miss as first built: +13.1 MB Linux, +11.7 MB Windows, +11.8 MB macOS x86-64, +8.2 MB arm64; after the gate's fallback, no Wasmtime cache and opt-level "s" on its crates: +5.8 MB arm64, +7.3 MB x86-64 on macOS, Linux and Windows lean numbers from the PR's CI run)
+  - [x] 2 000-node frame (canonical ABI plus host diff) ≤ 4 ms on an M-series Mac (#107; pass: 0.28 ms median, 0.30 ms p95)
+  - [x] Cold start ≤ 300 ms, warm start ≤ 50 ms (#107; pass: hello 7.5 ms / 0.16 ms, a 1.0 MB tile 56–108 ms / 1.3–1.9 ms)
+  - [x] Runaway tile stopped by epoch interruption ≤ 100 ms (#107; pass with a wall-clock check on each tick: ≈ 7 ms, ≤ 13 ms; miss as runtime.md specifies, by tick count: 200–430 ms late at 1 s)
+  - [x] Threading model confirmed: where the store lives, how calls leave the UI thread (#107; store on the `tile:<id>` worker, UI thread only sends and receives)
+- [x] The unverified fallbacks checked: Winch compile speed, fuel as the stop for a runaway tile (#107; Winch compiles 3–5× faster and runs 1.9× slower; fuel costs 25–30 % a frame and isn't time)
 - [ ] Owner's go, change or stop decision recorded in [README §10.3](README.md#103-decisions)
 
 ## Phase 1: Runtime and SDK preview
