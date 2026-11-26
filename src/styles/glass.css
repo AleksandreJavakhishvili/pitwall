@@ -2,7 +2,7 @@
  * Look: Glass (Settings → Appearance; src/lib/look.ts; layout.md "Appearance").
  *
  * <html data-look="glass" data-glass="native|mica|lite">. Only the chrome is
- * glass — top bar + tabs, sidebar, right panel, status strip, palette,
+ * glass — top bar + tabs, sidebar, status strip, palette,
  * dialogs, menus, toasts, chips. Terminal panes, Wall tiles and the
  * Review / Files code views keep their solid backgrounds (legibility, and
  * nothing is blended behind text that repaints all the time).
@@ -15,7 +15,7 @@
  *            atmospheric backdrop painted once, the same tints, no blur.
  * `backdrop-filter` is used only where the window material can't reach:
  * surfaces floating over terminals (palette, dialogs, menus, toasts, the
- * overlay sidebar / drawer), on native and mica only, never per row or tile.
+ * overlay sidebar), on native and mica only, never per row or tile.
  *
  * Surfaces only: no size, spacing or density changes (boxes match Flat).
  *
@@ -146,7 +146,7 @@
 }
 
 /* ── chrome: translucent surface tokens ─────────────── */
-:root[data-look="glass"] :is(.topbar, .sidebar, .right, .status-strip, .modal, .menu, .toast, .crash[data-variant="modal"]) {
+:root[data-look="glass"] :is(.topbar, .sidebar, .status-strip, .modal, .menu, .toast, .crash[data-variant="modal"]) {
   --surface: var(--g-surface);
   --surface-2: var(--g-surface-2);
   --surface-3: var(--g-surface-3);
@@ -156,24 +156,17 @@
   --line-strong: var(--g-line-strong);
 }
 /* Floating over terminals: frosted where the window material can't reach. */
-:root[data-look="glass"] :is(.modal, .menu, .toast, .crash[data-variant="modal"], .sidebar-overlay, .right-drawer) {
+:root[data-look="glass"] :is(.modal, .menu, .toast, .crash[data-variant="modal"], .sidebar-overlay) {
   --surface: var(--g-float);
   --raised: var(--g-float);
 }
-:root[data-look="glass"]:is([data-glass="native"], [data-glass="mica"]) :is(.modal, .menu, .toast, .sidebar-overlay, .right-drawer) {
+:root[data-look="glass"]:is([data-glass="native"], [data-glass="mica"]) :is(.modal, .menu, .toast, .sidebar-overlay) {
   -webkit-backdrop-filter: var(--g-blur);
   backdrop-filter: var(--g-blur);
 }
 /* Inside a dialog its parts are on the dialog's glass, not a second layer. */
-:root[data-look="glass"] .modal :is(.modal-head, .modal-foot, .diff-head) {
+:root[data-look="glass"] .modal :is(.modal-head, .modal-foot) {
   --surface: transparent;
-}
-/* The diff dialog shows code: solid like Review. */
-:root[data-look="glass"] .modal-sheet {
-  --raised: var(--term-bg);
-}
-:root[data-look="glass"] .modal-sheet .diff-body {
-  background: var(--term-bg);
 }
 
 /* Hairline light edge along the top of each chrome band. */
@@ -205,7 +198,7 @@
   border-radius: 999px;
 }
 
-/* Chips (pane picker strip, Next up) and segmented controls. */
+/* Chips (pane picker strip) and segmented controls. */
 :root[data-look="glass"] .agent-chip {
   background: var(--g-surface-2);
   border-color: var(--g-line-strong);

@@ -27,9 +27,6 @@
 .sidebar-overlay {
   animation: slide-left 0.2s var(--ease-out-soft);
 }
-.right-drawer {
-  animation: slide-right 0.2s var(--ease-out-soft);
-}
 .toast {
   animation: m-toast 0.24s var(--ease-spring);
 }

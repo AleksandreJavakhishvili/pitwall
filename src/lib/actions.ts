@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { AgentView, FileChange, RunningElsewhere } from "../types";
+import type { AgentView, RunningElsewhere } from "../types";
 import type { Preset } from "../layout/tree";
 import type { AgentDropTarget } from "./dnd";
 import type { Density } from "../layout/density";
@@ -31,7 +31,6 @@ export interface Actions {
   run<T>(p: Promise<T>, what: string): Promise<T | undefined>;
   /** Apply an AgentView returned by a command immediately. */
   patch(a: AgentView): void;
-  openDiff(agentId: string, file: FileChange): void;
   openRemove(agentId: string): void;
   /** Confirm, then `git worktree remove` (docs/spec/worktrees-view.md). */
   openRemoveWorktree(projectId: string, path: string): void;

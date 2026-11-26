@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText, getApi } from "./api";
-import type { AgentView, FileChange, RunningElsewhere } from "./types";
+import type { AgentView, RunningElsewhere } from "./types";
 import { groupByProject } from "./lib/groups";
 import { useAgents } from "./lib/useAgents";
 import { useToasts } from "./lib/useToasts";
@@ -33,10 +33,8 @@ import { ENGINEER_GREETING } from "./lib/engineer";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { SpaceView } from "./components/SpaceView";
-import { RightPanel } from "./components/RightPanel";
 import { StatusStrip } from "./components/StatusStrip";
 import { Toasts } from "./components/Toasts";
-import { DiffView } from "./components/DiffView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { ApprovalDialog } from "./components/ApprovalDialog";
@@ -74,7 +72,6 @@ type ModalState =
   | { type: "removeWorktree"; projectId: string; path: string }
   | { type: "terminal"; path?: string }
   | { type: "bring"; row: RunningElsewhere }
-  | { type: "diff"; agentId: string; file: FileChange }
   | { type: "quickOpen"; agentId: string };
 
 // Heavy, rarely shown screens load on first use (perf.md): Review (CodeMirror diff),
@@ -98,9 +95,7 @@ export default function App() {
 
   const [activeSpaceId, setActiveSpaceId] = useState<string>(urlSpace ?? W.ALL_SPACE);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag("pitwall.sidebarCollapsed", false);
-  const [rightPinned, setRightPinned] = usePersistentFlag("pitwall.rightOpen", true);
   const [overlaySidebar, setOverlaySidebar] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [reviewOn, setReviewOn] = useState(false);
   /** What Review selects first: a worktree ("Review" in its menu), or an agent (and file). */
@@ -360,7 +355,6 @@ export default function App() {
     setWeb(null);
     setReviewOn(false);
     setOverlaySidebar(false);
-    setDrawerOpen(false);
     if (wallOn) setWall(false);
   };
   const openWeb = (agentId: string, url: string) => {
@@ -368,7 +362,6 @@ export default function App() {
     setExplorer(null);
     setReviewOn(false);
     setOverlaySidebar(false);
-    setDrawerOpen(false);
     if (wallOn) setWall(false);
   };
   const openQuickOpen = (id?: string) => {
@@ -521,7 +514,6 @@ export default function App() {
     setLook: (look) => update((s) => W.setLook(s, look)),
     reduceMotion: ui.reduceMotion,
     setReduceMotion: (reduce) => update((s) => W.setReduceMotion(s, reduce)),
-    openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
     openRemoveWorktree: (projectId, path) => setModal({ type: "removeWorktree", projectId, path }),
     openReview,
@@ -599,10 +591,6 @@ export default function App() {
     if (resp.sidebar === "full") setSidebarCollapsed((v) => !v);
     else setOverlaySidebar((v) => !v);
   };
-  const toggleRight = () => {
-    if (resp.rightDocked) setRightPinned((v) => !v);
-    else setDrawerOpen((v) => !v);
-  };
   // ⌘+ / ⌘− / ⌘0 act on the focused tile (its own size); the base size lives in Settings.
   const changeFont = (d: number | null) => {
     const id = wallOn ? null : focusedRef.current;
@@ -618,7 +606,6 @@ export default function App() {
     newTerminalAt: () => actions.openTerminalAt(),
     nextBlocked,
     toggleSidebar,
-    toggleRight,
     toggleWall: () => setWall(null),
     toggleReview,
     quickOpen: () => openQuickOpen(),
@@ -728,11 +715,10 @@ export default function App() {
     };
   }, [push]);
 
-  // Drawers close when the window grows past their breakpoint.
+  // The overlay sidebar closes when the window grows past its breakpoint.
   useEffect(() => {
-    if (resp.rightDocked) setDrawerOpen(false);
     if (resp.sidebar === "full") setOverlaySidebar(false);
-  }, [resp.rightDocked, resp.sidebar]);
+  }, [resp.sidebar]);
 
   const closeModal = useCallback(() => setModal(null), []);
   const blocked = ordered.filter((a) => a.status === "blocked");
@@ -741,8 +727,6 @@ export default function App() {
   const explorerOn = !!explorer && !wallOn && !reviewOn;
   const viewerAgent = explorer ? (agents.find((a) => a.id === explorer.agentId && a.caps.explorer) ?? null) : null;
   const webAgent = web && !wallOn && !reviewOn ? (agents.find((a) => a.id === web.agentId) ?? null) : null;
-  const rightMode: "docked" | "drawer" | "hidden" =
-    !selected || wallOn || reviewOn || explorerOn || webAgent ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
 
   const sidebarGroups = useMemo(() => withProjects(groups, projects), [groups, projects]);
   // Review lists the active space's agents (docs/spec/review.md), plus the one it was opened for.
@@ -766,7 +750,6 @@ export default function App() {
         className="app"
         data-bp={resp.bp}
         data-sidebar={sidebarMode}
-        data-right={rightMode}
         data-attention={blocked.length ? "on" : "off"}
       >
         <TopBar
@@ -775,7 +758,6 @@ export default function App() {
           spaces={mySpaces}
           activeSpaceId={activeSpace?.id ?? null}
           wallOn={wallOn}
-          rightOpen={rightMode !== "hidden"}
           sidebarOpen={sidebarMode === "full" || overlaySidebar}
           compact={resp.bp === "xs" || resp.bp === "sm"}
           onSelectSpace={(id) => {
@@ -791,7 +773,6 @@ export default function App() {
           onRenameSpace={(id, name) => update((s) => W.renameSpace(s, id, name))}
           onMoveSpace={moveSpaceToNewWindow}
           onToggleSidebar={toggleSidebar}
-          onToggleRight={toggleRight}
           onToggleWall={() => setWall(null)}
           reviewOn={reviewOn && !wallOn}
           onToggleReview={toggleReview}
@@ -878,14 +859,6 @@ export default function App() {
           )}
         </main>
 
-        {selected && rightMode === "docked" && <RightPanel agent={selected} />}
-        {selected && rightMode === "drawer" && (
-          <>
-            <div className="scrim scrim-right" onClick={() => setDrawerOpen(false)} />
-            <RightPanel agent={selected} drawer onClose={() => setDrawerOpen(false)} />
-          </>
-        )}
-
         {/* Always rendered at a fixed height: what needs you never resizes the terminals. */}
         <StatusStrip agents={ordered} onJump={nextBlocked} onShow={showAgent} />
       </div>
@@ -919,7 +892,6 @@ export default function App() {
             newTerminalAt: () => actions.openTerminalAt(),
             nextBlocked,
             toggleSidebar,
-            toggleRight,
             toggleWall: () => setWall(null),
             toggleReview,
             quickOpen: selected?.caps.explorer ? () => openQuickOpen(selected.id) : undefined,
@@ -984,9 +956,6 @@ export default function App() {
           onClose={closeModal}
           onPick={(path) => openExplorer({ agentId: modal.agentId, path })}
         />
-      )}
-      {modal?.type === "diff" && (
-        <DiffView agent={agents.find((a) => a.id === modal.agentId) ?? null} file={modal.file} onClose={closeModal} />
       )}
       {((onboarded === false && me === W.MAIN) || modal?.type === "scan") && (
         <ErrorBoundary

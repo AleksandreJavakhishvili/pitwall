@@ -44,17 +44,17 @@ function selectAgent(name: string) {
 
 const preset = (label: string) => $(`.preset-btn[title="Tile ${label}"]`)?.click();
 
-/** The focused agent's details (a drawer at the demo's width), on its Changes or Files tab. */
-async function details(tab: "Changes" | "Files") {
-  if (!$("aside.right")) $('button[title^="Show details"]')?.click();
-  await wait(50);
-  const tabs = [...document.querySelectorAll<HTMLElement>("aside.right .panel-tab")];
-  tabs.find((t) => t.textContent?.trim().startsWith(tab))?.click();
+/** The focused agent's files in the file viewer, from the palette's "Browse files". */
+async function browseFiles() {
+  $("button.palette-hint")?.click();
+  await until(".palette-item");
+  const items = [...document.querySelectorAll<HTMLElement>(".palette-item")];
+  items.find((i) => i.textContent?.trim().startsWith("Browse files"))?.click();
 }
 
-/** Open a folder of the details' Files tree, unless it is open already. */
+/** Open a folder of the file viewer's tree, unless it is open already. */
 async function unfold(path: string) {
-  const row = await until(`aside.right [data-ex-row="${path}"]`);
+  const row = await until(`.ex-side [data-ex-row="${path}"]`);
   if (row && row.closest("li")?.getAttribute("aria-expanded") !== "true") row.click();
 }
 
@@ -63,15 +63,15 @@ const views: Record<View, () => void | Promise<void>> = {
     preset("2×2");
     selectAgent("tests");
   },
-  // api-fix's files, opened from its Files tab: a files tile beside its terminal.
+  // api-fix's files in the file viewer: a files tile beside its terminal.
   files: async () => {
     preset("1");
     selectAgent("api-fix");
     await wait(100);
-    await details("Files");
+    await browseFiles();
     await unfold("src");
     await unfold("src/orders");
-    (await until('aside.right [data-ex-row="src/orders/handler.ts"]'))?.click();
+    (await until('.ex-side [data-ex-row="src/orders/handler.ts"]'))?.click();
   },
   // docs' Preview of the dev server its terminal printed: a web tile beside it.
   web: async () => {
@@ -83,11 +83,12 @@ const views: Record<View, () => void | Promise<void>> = {
   },
   review: () => $('button[title^="Review"]')?.click(),
   wall: () => $('button[title^="Wall"]')?.click(),
+  // api-fix's Next up: the popover its tile's "queued" chip opens.
   "next-up": async () => {
     preset("2×2");
     selectAgent("api-fix");
     await wait(100);
-    await details("Changes");
+    (await until('.pane[data-agent-id="a-api-fix"] .next-up-chip'))?.click();
   },
 };
 

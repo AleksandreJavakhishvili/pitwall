@@ -9,7 +9,7 @@ export const LIST_EVERY_MS = 30_000;
 /** After agents' numbers move, ask once things settle. */
 const SETTLE_MS = 1_000;
 
-// One list per window, shared by the sidebar, the Changes panel and Review.
+// One list per window, shared by the sidebar and Review.
 let current: ProjectWorktrees[] = [];
 let inflight = false;
 let again = false;

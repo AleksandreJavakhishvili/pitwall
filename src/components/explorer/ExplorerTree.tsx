@@ -16,7 +16,7 @@ interface Props {
 
 const indent = (depth: number) => ({ paddingLeft: 6 + depth * 12 });
 
-/** The change letter (as in Changes), or a dot on a folder with changes below it. */
+/** The change letter (as in Review), or a dot on a folder with changes below it. */
 function Mark({ e }: { e: FileEntry }) {
   if (e.status) {
     return (

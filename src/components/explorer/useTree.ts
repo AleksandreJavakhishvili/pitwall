@@ -8,8 +8,8 @@ import { usePersistentFlag } from "../../lib/usePersistentFlag";
 /** Open folders are read again this often while the tree is shown and the window visible. */
 export const TREE_POLL_MS = 10_000;
 
-// One tree per agent for the window's lifetime: the Files tab and the viewer
-// show the same open folders.
+// One tree per agent for the window's lifetime: the viewer shows the same
+// open folders each time it opens.
 const models = new Map<string, { model: TreeModel; ignored: boolean }>();
 
 function entry(agentId: string, ignored: boolean) {
