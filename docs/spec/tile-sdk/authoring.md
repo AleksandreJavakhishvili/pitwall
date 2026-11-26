@@ -503,7 +503,7 @@ in phase 1.
 |---|---|---|---|---|
 | Extensions overview: the one extension model, what an extension can contain, how it is kept safe | `/docs/extensions/` | users and authors | 1 (Preview) | 7 (Preview removed, deprecation policy), 8 (adapters on their way out) |
 | Quick start: `pitwall tile new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`) | 4 (`pack`), 5 (`publish`) |
-| Tiles and UI components | `/docs/extensions/ui/` | authors | 1 (core elements) | 2 (all components) |
+| Tiles and UI components | `/docs/extensions/ui/` | authors; a part for users on hiding and ordering toolbar items | 1 (core elements) | 2 (all components, toolbar items) |
 | Native building blocks | `/docs/extensions/native-blocks/` | authors | 2 (code view, diff view) | 6a and on demand (each block) |
 | Agent tools, skill and commands | `/docs/extensions/agent-tools/` | authors; a part for users on what agents may do with a tile | 3 | on demand |
 | Permissions: what each grant means | `/docs/extensions/permissions/` | users and authors (written for users first) | 1 (first grants) | every phase that adds a grant |

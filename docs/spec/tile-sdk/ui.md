@@ -175,3 +175,266 @@ per frame. A tile that wants motion (a live graph) calls
 `ui.redraw` each frame; that counts against the frame budget and stops
 while hidden or with Reduce motion on, where it gets one draw per
 second.
+
+
+
+### 3.9 Toolbar items
+The owner asked for this (2026-11-26): an extension can put a button in
+Pitwall's top bar, next to icons such as Settings, so its user can
+reach it from anywhere. Below, **Decided (owner)** marks the owner's
+requests. *Recommendation* marks what this document adds; those points
+are open to change.
+
+#### What the top bar is today
+These facts come from the code [today: `main_screen/topbar.rs`,
+`platform/decorations.rs`, `theme.rs`].
+- **One bar, drawn by Pitwall in GPUI** at the top of the main window's
+  content. It is 44 px tall (`TOPBAR_H`), on the surface colour, with a
+  hairline under it. The whole bar is the window's drag area. Its
+  controls are wrapped in `no_drag`, so a press on them doesn't move
+  the window.
+- **Left to right:**
+  1. Sidebar toggle (⌘B).
+  2. The wordmark; only the P mark when compact.
+  3. Space tabs, with "New space".
+  4. A flexible gap.
+  5. The right group: the Search field (⌘K), the live counts (working,
+     done, needs you), then icon buttons for the Race Engineer,
+     Review (⌘R), Wall (⌘E), Settings (gear) and Details (⌘.).
+  6. The icon buttons are `kit::icon_btn`: 28 px, with a 16 px icon,
+     muted, and a tooltip.
+- **Width classes** (`Breakpoint`): "compact" means narrower than
+  1100 px. In compact, the wordmark shrinks to the P, Search loses its
+  word, and the count pills shorten. The window's minimum size is
+  640 × 480 (`window_state::MIN_SIZE`).
+- **macOS:** the window keeps the native title bar, with the traffic
+  lights in it (`decorations.rs`: "macOS: unchanged (the native title
+  bar)"; [layout.md](../layout.md), "Window"). Pitwall's top bar sits
+  *below* it. The two don't share space, so no inset for the traffic
+  lights is needed.
+- **Windows:** the native caption, with its controls, snap layouts and
+  system menu. Under it is Pitwall's in-window File menu bar
+  (`app_menu`), and the top bar comes under that. Dragging the top bar
+  is passed to the caption.
+- **Linux:** two cases.
+  - Server-side decorations (KDE, sway, every X11 window manager): a
+    native frame above, as on Windows.
+  - Client-side, where the compositor offers no decorations (GNOME's
+    mutter, Weston): the top bar *is* the title bar. Pitwall adds
+    minimize, maximize and close at its right end, after Details. A
+    double-click maximizes and a right-click opens the window menu.
+- **So the only difference between platforms inside the bar** is the
+  window controls at the right end on client-side Linux, about 100 px
+  (*unverified*: measured from the code's sizes, not on screen). The
+  bar is otherwise the same Pitwall-drawn row everywhere.
+- **Other windows:** a tile moved into a window of its own doesn't get
+  this bar.
+
+#### The item
+- **Decided (owner):** Pitwall draws the item; it is not arbitrary UI.
+  It has:
+  - an icon, from the SDK's icon set or an SVG in the package. The SVG
+    is drawn single-colour and tinted, so it follows the theme, as tile
+    icons are ([3.3](#33-the-ui-description));
+  - a tooltip;
+  - an optional badge, a count or a dot, which the component can
+    update.
+- *Recommendation:* the item is drawn as `kit::icon_btn`, the same
+  28 px button as Pitwall's own icons.
+  - A count shows up to 99, then "99+".
+  - The badge has two tones: normal (the accent colour), or attention
+    (amber, like "needs you").
+  - Updates are limited to 4 a second, like `contrib.badges` ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)).
+
+#### On click: one of four actions
+**Decided (owner):** each item does one of these four things.
+
+| Action | What happens |
+|---|---|
+| `tile` | Focus the extension's tile if it is open in the current space; otherwise open it where tiles open ([11.8](agent-tools.md#118-where-the-tile-opens)) |
+| `command` | Run one of its commands ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)), as the palette does: the user is the caller. A command that takes input opens the palette's small form |
+| `menu` | Open a small menu, drawn by Pitwall, of up to 10 of its commands (*recommendation*), each run as for `command` |
+| `popover` | Open a popover holding a small tile view, anchored under the item |
+
+**The popover:**
+- **Decided (owner):** its size stays within limits, and Esc or a
+  click outside closes it.
+- *Recommendation:*
+  - Size: from 200 × 100 to 420 × 560 px, as the manifest asks, always
+    inside the window.
+  - It also closes when its item is clicked again.
+  - Keyboard focus moves into it on open, because the user clicked,
+    and goes back where it was on close.
+  - Opening it creates a view: the guest gets a `view-opened` event
+    with a `view-id` of kind `popover` and renders it through the same
+    `render(view-id)` as its tiles ([3.2](runtime.md#32-the-guests-exports)). Closing it sends
+    `view-closed` and drops the view.
+  - Every element and building block is allowed, except the web view
+    and the device view ([16.2](native-blocks.md#162-native-building-blocks)), which are too heavy for a popover.
+
+#### Opt-in for authors, hideable by users
+- **Decided (owner, 2026-11-26): authors opt in.**
+  - The item exists only if the manifest declares `toolbar`. With no
+    declaration there is no button, and that is the default.
+  - An extension can offer the item but start it hidden
+    (`"visibleByDefault": false`); the user then turns it on, in
+    Settings or on the extension's card.
+- **Decided (owner, 2026-11-26): users can hide it at any time.**
+  - Right-click the item, then "Hide from toolbar". The same choice is
+    on the toolbar page in Settings and on the extension's card.
+  - Hiding never turns the extension off: its tile, tools, commands
+    and badges elsewhere keep working.
+  - The choice is remembered across updates. An update can't show an
+    item the user hid, even if it changes `visibleByDefault`.
+- *Recommendation: yes, the component may show or hide its own item at
+  runtime*, with `toolbar.set-shown(bool)`. Example: a CI extension
+  shows its item only while a run is failing.
+  - It is cheap, because the host already lays the group out every
+    frame. It also keeps the bar quiet, which is the point of the
+    one-item limit.
+  - The user's choice is always stronger. A hidden item stays hidden
+    whatever the component asks, and `set-shown(true)` never brings
+    back an item the user hid.
+  - The component can only hide an item the user shows. Then it
+    doesn't take room or appear in "…".
+  - At most one change in 5 seconds, so the bar doesn't flicker.
+  - Shown and hidden by the component are not remembered: each start
+    begins from the manifest's state.
+
+#### Limits
+- **One item per extension.** This document decided it, so it is a
+  *recommendation*, not the owner's. The reasons:
+  - The bar is already full: the tabs fill the middle, and the right
+    group holds Search, the counts and five icons.
+  - The window can be as narrow as 640 px.
+  - The `menu` and `popover` actions already give one item room for
+    many functions.
+
+  Two per extension would double the room taken by each extension for
+  little gain; revisit if real extensions need it.
+- **Decided (owner):** extension items sit in a group of their own,
+  apart from Pitwall's icons, and never replace or hide them.
+  - *Recommendation:* place the group between the counts and the Race
+    Engineer button, after a hairline divider. Pitwall's own icons then
+    keep their places at the right end, and on client-side Linux the
+    window controls stay last.
+- **Decided (owner):** the user can hide, show and reorder items.
+  - Ways to do it: right-click an item for Hide and Move left / Move
+    right; dragging within the group (*recommendation*); and a "Show in
+    toolbar" switch on the extension's card in Settings → Extensions.
+  - *Recommendation:* the order and the hidden set are kept in
+    `ui.json` (`toolbar.order`, `toolbar.hidden`).
+  - A hidden item's commands stay in the palette.
+- **Decided (owner):** an item appears only once its extension is
+  installed and turned on. Turning the extension off removes the item.
+- **Decided (owner):** when there is no room, items collapse into a
+  "…" menu at the end of the group. The menu shows each item's icon,
+  title and badge.
+  - *Recommendation:* the width is measured each layout, so whatever
+    doesn't fit moves into "…". In compact, all extension items go
+    there, and "…" shows a dot when any hidden-away item has a badge.
+
+#### Permission
+- **Decided (owner):**
+  - No permission is needed beyond the install screen, which lists
+    "Adds a button to the toolbar".
+  - The badge needs no permission either.
+- *Recommendation:* one point the code's model adds. Keeping a badge
+  live while no tile is shown needs the component to keep running.
+  - A badge-free item needs nothing running: a click starts the
+    component.
+  - An item with `"badge": true` is a contribution that keeps the
+    instance running, like `badges` and `asks`
+    ([15.5](extension-model.md#155-headless-components)). So the install screen also shows that section's
+    "Runs while you aren't looking at it".
+
+  The badge adds no new grant. It is the existing rule for a component
+  that works while hidden.
+
+#### Scope: windows, spaces, projects
+- **Decided (owner):** per window.
+  - Every main window shows the extension's item.
+  - *Recommendation:* the component is one instance ([2.3](runtime.md#23-lifecycle)), so the badge
+    is the same in every window. A popover opens in the window that was
+    clicked.
+- **Decided (owner):** per project, when the extension's tile is per
+  project.
+  - *Recommendation:* with `"scope": "project"`, the item shows only
+    while the window's active space is a project space. The badge is
+    the one the component set for that project
+    (`set-project-badge(project, badge)`). Naming projects needs
+    `projects.read`, the same rule as row badges today ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)).
+  - In a custom space or the All space, a per-project item shows the
+    component's window-wide badge (`set-badge`), or nothing if it set
+    none.
+  - `tile` and `popover` then act for the active project: the event
+    carries its id.
+
+#### Manifest and WIT (sketch)
+One object, not a list, because the limit is one item:
+
+```json
+"contributes": {
+  "tiles": [{ "id": "inbox", "title": "Support inbox", "icon": "inbox", "wasm": "tile.wasm" }],
+  "toolbar": {
+    "icon": "inbox",                       // SDK icon name, or "assets/toolbar.svg"
+    "tooltip": "Support inbox",
+    "badge": true,                         // the component updates a badge (keeps it running, 15.5)
+    "scope": "window",                     // or "project"
+    "visibleByDefault": true,              // false: offered, but the user turns it on
+    "action": { "kind": "popover", "tile": "inbox", "size": { "w": 360, "h": 420 } }
+    // or { "kind": "tile", "tile": "inbox" }
+    // or { "kind": "command", "command": "sync_now" }
+    // or { "kind": "menu", "commands": ["sync_now", "compose", "mark_all_read"] }
+  }
+}
+```
+
+The commands named here must be ones the extension exposes to the
+palette ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)). `check` refuses an unknown icon, an SVG that is not
+single-colour, a missing tile or command, or a popover size outside the
+limits.
+
+```wit
+interface toolbar {
+  variant badge { none, dot, count(u32) }
+  enum tone { normal, attention }
+
+  /// The window-wide badge (all spaces, or custom and All spaces for a
+  /// per-project item). At most 4 updates a second.
+  set-badge: func(badge: badge, tone: tone);
+  /// A project's badge for a per-project item; needs projects.read.
+  set-project-badge: func(project: string, badge: badge, tone: tone);
+  /// Change the tooltip, e.g. "3 unread". ≤ 80 characters.
+  set-tooltip: func(text: string);
+  /// Show or hide its own item. Never overrides the user's Hide;
+  /// at most one change in 5 s.
+  set-shown: func(shown: bool);
+  /// Close this extension's open popover (after a pick, a send).
+  close-popover: func();
+}
+// events (into 3.4's variant):
+//   view-opened(view-id, view-kind)   // popover views; kind = popover
+//   view-closed(view-id)
+//   toolbar-clicked(option<string>)   // for kind tile or popover: the active project id, if any
+```
+
+#### Pitwall's own icons, the same way?
+*Recommendation:* yes inside the code, and only partly for users.
+- Pitwall draws its own buttons from the same item model: icon,
+  tooltip, badge and action. Then one code path draws, measures and
+  overflows both groups.
+- Pitwall's own icons (sidebar, Engineer, Review, Wall, Settings,
+  Details) stay fixed in v0.x: users can't hide or move them. Settings
+  holds the grants and kill switches and must always be reachable.
+- When Review becomes an extension ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)), its button becomes that bundled
+  extension's toolbar item, kept in Pitwall's group, with ⌘R kept.
+  This tests the contribution with Pitwall's own proof tile. Letting
+  users hide built-in icons is a later choice.
+
+#### Phase
+**Decided (owner):** toolbar items are part of the v0.x minimum and are
+built in phase 2. They are cheap, and useful for inbox-style
+extensions that show unread counts. *Recommendation:* the size is about
+1 wk, inside phase 2. The website's Tiles and UI components page
+documents them in the same phase ([9.6](authoring.md#96-website-docs)).

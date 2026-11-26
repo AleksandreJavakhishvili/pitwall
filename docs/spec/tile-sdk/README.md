@@ -30,7 +30,7 @@ in [sources.md](sources.md)) or the word *unverified*.
 
 - [Summary](#summary-one-page), [goals](#1-goals-non-goals-user-stories) and the [plan](#10-plan-risks-and-decisions) (this file)
 - [runtime.md](runtime.md): Architecture, the WIT interface and versioning: how a tile's component runs, its limits, and how it reaches the host.
-- [ui.md](ui.md): The element tree a tile sends, how the host draws it with GPUI, events, keyboard, drag and drop, canvas.
+- [ui.md](ui.md): The element tree a tile sends, how the host draws it with GPUI, events, keyboard, drag and drop, canvas, toolbar items.
 - [native-blocks.md](native-blocks.md): No native plugin API; native building blocks; which built-in tiles move to the SDK.
 - [permissions.md](permissions.md): Permissions and the security model.
 - [platform-services.md](platform-services.md): What Pitwall gives every tile: the minimum, then on demand.
@@ -163,11 +163,20 @@ model and IME. The tile's code never touches a window.
     written in Markdown like the reference pages, take their examples
     from the seed tiles' source and their WIT reference and `llms.txt`
     from the WIT, all built in CI.
+17. **Toolbar items** ([3.9](ui.md#39-toolbar-items)), asked for by the owner (2026-11-26). An
+    extension may opt in to one button in the top bar, drawn by Pitwall
+    (none unless the manifest declares it; it may start hidden). It
+    has an icon, a tooltip and an optional badge. A click focuses or
+    opens its tile, runs a command, opens a menu of its commands, or
+    opens a small popover view. Items sit in their own group, which the
+    user can hide and reorder, and overflow into "…". No permission is
+    needed beyond the install screen line. Part of the v0.x minimum
+    (phase 2).
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
 minimum platform services, with badges, floating-control questions and
-Next up (6.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
+Next up, toolbar items (7.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
 package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
 6 seed tiles (in parallel from phase 2), with on-demand services as
 they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
@@ -295,7 +304,7 @@ publish Migrating from adapters and replace the adapter pages.
 |---|---|---|---|
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk | none: nothing public yet |
 | 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview | 5.5 wk | new "Extensions" group in the docs sidebar; Extensions overview, Quick start (`new`, `dev`), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and the skill download; all marked Preview |
-| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes | 6.5 wk | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service) |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items), about 1 wk) | 7.5 wk | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components |
 | 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools` and `call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall tile run` and `commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | 4 wk | Agent tools, skill and commands; Permissions (agents' access to a tile's tools); the CLI reference gains `pitwall tile tools`, `call`, `run` and `commands` |
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk | Packaging and signing; Quick start gains `pack`; Permissions' user part (install, grants, Go back); the Settings reference's Extensions section; a short Extensions part in How it works for users |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk | Publishing and the Verified badge (with its user part: what Verified means, reporting); Quick start gains `publish`; the Settings reference gains Browse |
