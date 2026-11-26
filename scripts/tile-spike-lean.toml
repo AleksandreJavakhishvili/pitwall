@@ -1,0 +1,64 @@
+# Tile SDK spike (docs/spec/tile-sdk/spike-results.md): opt-level "s" for
+# Wasmtime's and Cranelift's crates only, passed to cargo with
+# `--config scripts/tile-spike-lean.toml` by scripts/tile-spike-size.sh.
+# These crates are in the build only with pitwall-app's tile-spike feature.
+
+[profile.release.package.cranelift-assembler-x64]
+opt-level = "s"
+
+[profile.release.package.cranelift-bforest]
+opt-level = "s"
+
+[profile.release.package.cranelift-bitset]
+opt-level = "s"
+
+[profile.release.package.cranelift-codegen]
+opt-level = "s"
+
+[profile.release.package.cranelift-control]
+opt-level = "s"
+
+[profile.release.package.cranelift-entity]
+opt-level = "s"
+
+[profile.release.package.cranelift-frontend]
+opt-level = "s"
+
+[profile.release.package.cranelift-native]
+opt-level = "s"
+
+[profile.release.package.regalloc2]
+opt-level = "s"
+
+[profile.release.package.pulley-interpreter]
+opt-level = "s"
+
+[profile.release.package.wasmparser]
+opt-level = "s"
+
+[profile.release.package.wasm-encoder]
+opt-level = "s"
+
+[profile.release.package.wasmtime]
+opt-level = "s"
+
+[profile.release.package.wasmtime-environ]
+opt-level = "s"
+
+[profile.release.package.wasmtime-internal-core]
+opt-level = "s"
+
+[profile.release.package.wasmtime-internal-cranelift]
+opt-level = "s"
+
+[profile.release.package.wasmtime-internal-fiber]
+opt-level = "s"
+
+[profile.release.package.wasmtime-internal-unwinder]
+opt-level = "s"
+
+[profile.release.package.wasmtime-wasi]
+opt-level = "s"
+
+[profile.release.package.wasmtime-wasi-io]
+opt-level = "s"

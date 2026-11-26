@@ -62,6 +62,17 @@ jobs:
             echo
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The macOS download is universal: the Intel slice counts too.
+      - name: Release binary, Intel slice (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          {
+            echo "### Binary size (macOS, x86_64 slice)"
+            echo
+            scripts/tile-spike-size.sh --target x86_64-apple-darwin
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Timings (hello tile)
         run: |
           cargo run --release -p pitwall-tile-host --example tile_bench | tee -a "$GITHUB_STEP_SUMMARY"
