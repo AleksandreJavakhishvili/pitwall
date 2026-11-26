@@ -200,7 +200,9 @@ These facts come from the code [today: `main_screen/topbar.rs`,
   4. A flexible gap.
   5. The right group: the Search field (⌘K), the live counts (working,
      done, needs you), then icon buttons for the Race Engineer,
-     Review (⌘R), Wall (⌘E), Settings (gear) and Details (⌘.).
+     Review (⌘R), Wall (⌘E) and Settings (gear). (A Details button
+     (⌘.) followed; it goes with the right panel, removed by the owner
+     on 2026-11-26.)
   6. The icon buttons are `kit::icon_btn`: 28 px, with a 16 px icon,
      muted, and a tooltip.
 - **Width classes** (`Breakpoint`): "compact" means narrower than
@@ -221,7 +223,7 @@ These facts come from the code [today: `main_screen/topbar.rs`,
     native frame above, as on Windows.
   - Client-side, where the compositor offers no decorations (GNOME's
     mutter, Weston): the top bar *is* the title bar. Pitwall adds
-    minimize, maximize and close at its right end, after Details. A
+    minimize, maximize and close at its right end, after Settings. A
     double-click maximizes and a right-click opens the window menu.
 - **So the only difference between platforms inside the bar** is the
   window controls at the right end on client-side Linux, about 100 px
@@ -305,7 +307,7 @@ These facts come from the code [today: `main_screen/topbar.rs`,
 - **One item per extension.** This document decided it, so it is a
   *recommendation*, not the owner's. The reasons:
   - The bar is already full: the tabs fill the middle, and the right
-    group holds Search, the counts and five icons.
+    group holds Search, the counts and four icons.
   - The window can be as narrow as 640 px.
   - The `menu` and `popover` actions already give one item room for
     many functions.
@@ -424,8 +426,8 @@ interface toolbar {
 - Pitwall draws its own buttons from the same item model: icon,
   tooltip, badge and action. Then one code path draws, measures and
   overflows both groups.
-- Pitwall's own icons (sidebar, Engineer, Review, Wall, Settings,
-  Details) stay fixed in v0.x: users can't hide or move them. Settings
+- Pitwall's own icons (sidebar, Engineer, Review, Wall,
+  Settings) stay fixed in v0.x: users can't hide or move them. Settings
   holds the grants and kill switches and must always be reachable.
 - When Review becomes an extension ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)), its button becomes that bundled
   extension's toolbar item, kept in Pitwall's group, with ⌘R kept.

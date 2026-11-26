@@ -220,7 +220,7 @@ native.
 
 **The review port as proof tile.** It sits next to the seed tiles
 ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only)), built only on the public SDK, in the order: read-only lists and
-diffs first, then comments to Next up, then commit and merge. What it
+diffs first, then comments, then commit and merge. What it
 needs, and what that pulls forward:
 - `agents.read`, `worktrees.read` (minimum, [today]).
 - `git.read` and `git.write`, and `files.read` for Markdown previews:
@@ -233,9 +233,10 @@ needs, and what that pulls forward:
   - Per-task diffs come from task boundaries the daemon records
     (`review.md`, "Per-task diffs" [today]); extensions have no read
     for them.
-  - "Send comments" sends at once to an idle agent [today]; a tile's
-    `queue.add` only adds to Next up, waiting for Send ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)). Either
-    the port accepts that step, or a "send now" grant is designed.
+  - "Send comments" sends the composed prompt to the agent [today].
+    Extensions have no way to send text to an agent: `queue.add` and
+    `agents.queue` went with Next up, which the owner removed from Pitwall on 2026-11-26. See
+    [16.4](#164-decisions), item 5.
   - Review is a full-window mode (⌘R) today; a tile has no such mode.
 
 **The files tree port** needs, beyond `files.read/write`: change
@@ -263,8 +264,14 @@ written down.
 4. **Review as a tile or keep a full-window mode?** Decided (owner, 2026-11-26): a tile
    first, maximised by ⌘R (layouts can already maximise a tile); a
    full-window mode for extensions only if the port shows it is needed.
-5. **Send comments at once?** Decided (owner, 2026-11-26): keep Next up's Send step
-   for the port at first (the same safety as every extension), and
-   revisit if users find the extra step slows review.
+5. **Send comments at once?** The earlier decision (keep Next up's
+   Send step) no longer applies: Next up removed from Pitwall (owner, 2026-11-26).
+   *Recommendation, not yet decided:* an `agents.send` permission, off
+   by default, High risk. A tile may send text to an agent only when
+   the user presses a button in the tile, only to an agent waiting for
+   input, and after showing the text, as the built-in Review does
+   today. While the agent is busy, the button is disabled and says
+   why. Until this is decided, the port copies the comments for the
+   user to paste.
 6. **Drop the native tiles once ported?** Decided (owner, 2026-11-26): yes, one release
    after each port matches its native tile, so there is one code path.

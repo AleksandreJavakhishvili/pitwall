@@ -36,12 +36,11 @@ tile needs it.
 | A toolbar item with a badge ([3.9](ui.md#39-toolbar-items)) | `toolbar` [new] | none; the install screen lists "Adds a button to the toolbar"; per-project badges need `projects.read` | on when the manifest has `toolbar` |
 | Badges and row notes on sidebar rows | `contrib.badges` [new for tiles] | none for rows named by `matchAgents`; `agents.read` for an agent by id, `projects.read` for a project [today's rules] | on when the manifest says `"badges": true` |
 | Questions in the floating control | `asks` [new for tiles] | none (its own questions) | on when the manifest says `"asks": true` |
-| An answer or instruction into an agent's Next up | `pitwall` (`queue.add`) | `agents.queue` | off; items marked "From <name>" and waiting for Send [today] |
 
-**The agents' questions group: why it is in the minimum.** All four
+**The agents' questions group: why it is in the minimum.** All three
 exist for today's extensions; tiles get the same host code with the
 same permission names, not new platform:
-- `queue.add` and the agent reads are methods of the daemon's table
+- The agent reads are methods of the daemon's table
   ([methods.md](../../extensions/methods.md) [today]), already reachable
   through the `pitwall` interface ([3.8](runtime.md#38-host-apis)).
 - Badges and row notes are the adapter's `badges` message
@@ -54,13 +53,14 @@ same permission names, not new platform:
   control" [today]): a card with who asks, the question, suggestions,
   a field, Send and Decline. Today they come from an adapter's inbox
   threads, not from the method table.
-- `agents.read` comes along because Next up and badges by agent id need
-  agent ids; it is the existing read permission, with its existing risk
+- `agents.read` comes along because badges by agent id need agent
+  ids; it is the existing read permission, with its existing risk
   note. Projects, worktrees and the focused agent stay on demand.
 
 With these, an inbox-style tile (questions from a service or from
-agents, answered in the tile or the floating control, an answer sent to
-an agent's Next up) is a v0.x target.
+agents, answered in the tile or the floating control) is a v0.x
+target. A fourth item, an answer sent into an agent's Next up
+(`queue.add`, `agents.queue`), was dropped: Next up removed from Pitwall (owner, 2026-11-26).
 
 ```wit
 interface asks {

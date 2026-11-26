@@ -25,7 +25,7 @@ Part of the [Tile SDK and marketplace](README.md) design. The SDK crate, its exa
 - `pitwall_tile::export!(MyTile);` generates the WIT glue
   (`wit-bindgen`).
 - Typed helpers for the method table (`pitwall::agents()`,
-  `pitwall::queue(agent, text)`), generated from `METHODS` like
+  `pitwall::agent_status(id)`), generated from `METHODS` like
   `methods.md` [today].
 - Agent tools ([section 11](agent-tools.md#11-tools-for-agents)): `#[pitwall_tile::tools] impl MyTile { … }`
   with one `#[tool(kind = …)]` method per tool. Input and output types
@@ -238,8 +238,7 @@ Diagrams: the diagram has errors; nothing was changed.
   ],
   "permissions": {
     "net": { "hosts": ["api.github.com"], "reason": "To read your workflow runs" },
-    "agents.read": "To show which agent pushed each branch",
-    "agents.queue": "To offer “Send the failure to the agent”"
+    "agents.read": "To show which agent pushed each branch"
   },
   "contributes": {
     "tiles": [{ "id": "runs", "title": "CI runs", "icon": "check", "wasm": "tile.wasm" }]
