@@ -147,14 +147,20 @@ model and IME. The tile's code never touches a window.
     docs; adapters are removed once each has a published component
     version. Native code only through a managed service. Authors'
     coding agents get a skill and a one-file reference ([9.5](authoring.md#95-docs-for-authors-agents)).
-15. **No native plugin API; native building blocks instead** (section
-    16). Pitwall never loads an extension's dynamic library. What needs
+15. **No native plugin API; native building blocks instead**
+    ([section 16](native-blocks.md#16-native-building-blocks-and-native-capabilities)). Pitwall never loads an extension's dynamic library. What needs
     native speed or OS access is built by Pitwall and offered through
     the SDK: code view and diff view in the minimum; web view, device
     view and a terminal view on demand (terminal view not in v0.x).
     Review and source control, the files tree and the inbox tile are
     rebuilt on the SDK; review is the first-party proof tile.
     Terminals, the editor, web, devices and settings stay native.
+16. **Website docs ship with each phase** ([9.6](authoring.md#96-website-docs)). A phase
+    is done only when the public website docs match what shipped. The
+    pages live in a new "Extensions" group of the site's docs, are
+    written in Markdown like the reference pages, take their examples
+    from the seed tiles' source and their WIT reference and `llms.txt`
+    from the WIT, all built in CI.
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
@@ -173,6 +179,9 @@ Native building blocks: code view and diff view in phase 2 (≈ 1.5 wk
 more); the review port as a proof tile from phase 2, alongside the
 seed tiles (≈ 5 wk), pulling `git` and `files` into the plan; the
 files tree and inbox ports after (≈ 3 wk each).
+Each phase also publishes or updates its website docs pages
+([9.6](authoring.md#96-website-docs)): ≈ 0.5 wk per phase with a public surface, plus
+≈ 1 wk for the docs build in phase 1.
 
 **Owner decisions needed** are in [10.3](#103-risks-and-open-questions-each-with-a-recommendation), [11.13](agent-tools.md#1113-open-questions-each-with-a-recommendation), [13.6](services.md#136-open-questions-each-with-a-recommendation), [15.8](extension-model.md#158-open-questions-each-with-a-recommendation) and [16.4](native-blocks.md#164-open-questions-each-with-a-recommendation), each
 with a recommendation.
@@ -271,18 +280,27 @@ gap in the SDK.
 | Review and source control (proof tile, a port of the built-in one; [16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) | code view, diff view, lists, comments, Next up, git operations | `agents.read`, `worktrees.read`, `git.read/write`, `files.read`, `agents.queue` |
 
 ### 10.2 Order of work
-| Phase | Content | Size |
-|---|---|---|
-| 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk |
-| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview | 5.5 wk |
-| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes | 6.5 wk |
-| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall tile run|commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | 4 wk |
-| 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk |
-| 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk |
-| 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel |
-| 6a. Native blocks and ports ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | ≈ 1.5 wk blocks, ≈ 5 wk review, ≈ 3 wk each other port |
-| On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 |
-| 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk |
+A phase is done only when the public website docs match what it
+shipped: the pages in its "Website docs" cell are published or
+updated in the same pull requests as the features ([9.6](authoring.md#96-website-docs)).
+The sizes don't include the pages: about 0.5 wk per phase with a
+public surface (1–5, 6a, 7), plus about 1 wk in phase 1 for the docs
+build (pages from Markdown, examples from source, a link check).
+Steps 8 and 9 ([15.7](extension-model.md#157-effect-on-the-plan))
+publish Migrating from adapters and replace the adapter pages.
+
+| Phase | Content | Size | Website docs ([9.6](authoring.md#96-website-docs)) |
+|---|---|---|---|
+| 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk | none: nothing public yet |
+| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview | 5.5 wk | new "Extensions" group in the docs sidebar; Extensions overview, Quick start (`new`, `dev`), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and the skill download; all marked Preview |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes | 6.5 wk | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service) |
+| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools|call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall tile run|commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | 4 wk | Agent tools, skill and commands; Permissions (agents' access to a tile's tools); the CLI reference gains `pitwall tile tools`, `call`, `run` and `commands` |
+| 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk | Packaging and signing; Quick start gains `pack`; Permissions' user part (install, grants, Go back); the Settings reference's Extensions section; a short Extensions part in How it works for users |
+| 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk | Publishing and the Verified badge (with its user part: what Verified means, reporting); Quick start gains `publish`; the Settings reference gains Browse |
+| 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel | examples on every page switch to the seed tiles' source as each one ships |
+| 6a. Native blocks and ports ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | ≈ 1.5 wk blocks, ≈ 5 wk review, ≈ 3 wk each other port | Native building blocks (each block as it ships); How it works says which built-in tiles are now extensions, if users can see it |
+| On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 | Platform services and Permissions gain a row for each service as it ships |
+| 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk | Preview label removed; WIT reference 1.0 and one page per published WIT version; the deprecation policy on the overview |
 
 ### 10.3 Risks and open questions (each with a recommendation)
 
