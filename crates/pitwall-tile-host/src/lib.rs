@@ -55,6 +55,12 @@ pub const MEMORY_LIMIT: usize = 64 << 20;
 /// compiled-code cache in `cache_dir` when given (only with the
 /// `wasmtime-cache` feature; ignored otherwise).
 pub fn engine(cache_dir: Option<&Path>) -> Result<Engine> {
+    engine_with(cache_dir, |_| ())
+}
+
+/// [`engine`] with more settings, for the spike's comparisons (Winch,
+/// fuel).
+pub fn engine_with(cache_dir: Option<&Path>, more: impl FnOnce(&mut Config)) -> Result<Engine> {
     let mut config = Config::new();
     config.epoch_interruption(true);
     config.parallel_compilation(true);
@@ -66,6 +72,7 @@ pub fn engine(cache_dir: Option<&Path>) -> Result<Engine> {
     }
     #[cfg(not(feature = "wasmtime-cache"))]
     let _ = cache_dir;
+    more(&mut config);
     Engine::new(&config)
 }
 
@@ -134,6 +141,9 @@ impl bindings::pitwall::tile_spike::types::Host for HostState {}
 pub struct Runtime {
     engine: Engine,
     linker: Linker<HostState>,
+    /// Spike comparison: fuel given to each store (the engine must have
+    /// `consume_fuel` on).
+    fuel: Option<u64>,
 }
 
 impl Runtime {
@@ -143,7 +153,13 @@ impl Runtime {
         // name lookup or sockets (runtime.md §3.1).
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         bindings::Tile::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s)?;
-        Ok(Self { engine, linker })
+        Ok(Self { engine, linker, fuel: None })
+    }
+
+    /// Spike comparison: give each new store this much fuel.
+    pub fn with_fuel(mut self, fuel: u64) -> Self {
+        self.fuel = Some(fuel);
+        self
     }
 
     pub fn engine(&self) -> &Engine {
@@ -205,6 +221,9 @@ impl Runtime {
             }
         });
         store.set_epoch_deadline(1);
+        if let Some(fuel) = self.fuel {
+            store.set_fuel(fuel)?;
+        }
         let tile = bindings::Tile::instantiate(&mut store, component, &self.linker)?;
         Ok(TileInstance { store, tile })
     }
@@ -255,6 +274,11 @@ impl TileInstance {
     pub fn on_event(&mut self, event: Event, deadline: Duration) -> Result<bool> {
         self.arm(deadline);
         self.tile.call_on_event(&mut self.store, event)
+    }
+
+    /// Spike comparison: refill the fuel (for engines with fuel on).
+    pub fn set_fuel(&mut self, fuel: u64) -> Result<()> {
+        self.store.set_fuel(fuel)
     }
 
     pub fn take_logs(&mut self) -> Vec<(Level, String)> {

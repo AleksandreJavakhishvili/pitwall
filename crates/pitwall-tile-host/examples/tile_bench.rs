@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use pitwall_tile_host::{
-    diff, engine, Configure, EpochTicker, Event, FromWorker, Runtime, Worker, HANDLE_DEADLINE,
+    diff, engine, engine_with, Configure, EpochTicker, Event, FromWorker, Runtime, Worker, HANDLE_DEADLINE,
     RENDER_DEADLINE,
 };
 
@@ -188,11 +188,79 @@ fn main() -> R<()> {
     drop(worker);
     drop(ticker);
 
+    fallbacks(&wasm)?;
+
     println!("\nFrame shape: {} nodes, {} style entries, {} bytes of strings.", f.nodes.len(), styles, strings);
     let imports: Vec<String> = component.component_type().imports(rt.engine()).map(|(n, _)| n.to_string()).collect();
     println!("Component imports: {}", imports.join(", "));
     let _ = std::fs::remove_dir_all(&scratch);
     let _: PathBuf = scratch;
+    Ok(())
+}
+
+/// The fallbacks plan.md lists for phase 0: fuel in place of epochs (its
+/// cost on a frame, and how fuel maps to time), and Winch in place of
+/// Cranelift (with `--features winch`).
+fn fallbacks(wasm: &[u8]) -> R<()> {
+    // Fuel only (no epochs), so the frame pays for fuel checks alone.
+    let rt = Runtime::new(engine_with(None, |c| {
+        c.epoch_interruption(false);
+        c.consume_fuel(true);
+    })?)?
+    .with_fuel(u64::MAX / 4);
+    let component = rt.compile(wasm)?;
+    frame_rows(&rt, &component, "fuel instead of epochs")?;
+    // How long a spinning tile runs on a given amount of fuel.
+    let mut per_ms = Vec::new();
+    for _ in 0..5 {
+        let mut tile = rt.instantiate(&component)?;
+        let fuel = 1_000_000_000u64;
+        tile.set_fuel(fuel)?;
+        let t = Instant::now();
+        let err = tile.on_event(Event::Spin, HANDLE_DEADLINE).expect_err("out of fuel");
+        let took = t.elapsed();
+        assert_eq!(err.downcast_ref::<wasmtime::Trap>(), Some(&wasmtime::Trap::OutOfFuel), "{err:?}");
+        per_ms.push(took);
+    }
+    row("fuel: a spinning tile's run on 10^9 fuel (fuel is not time)", &per_ms);
+
+    #[cfg(feature = "winch")]
+    {
+        let mut compile = Vec::new();
+        let mut component = None;
+        for _ in 0..10 {
+            let rt = Runtime::new(engine_with(None, |c| {
+                c.strategy(wasmtime::Strategy::Winch);
+            })?)?;
+            let t = Instant::now();
+            match rt.compile(wasm) {
+                Ok(c) => component = Some((rt, c)),
+                Err(e) => {
+                    println!("| Winch: compile failed: {e:#} | | | | | |");
+                    return Ok(());
+                }
+            }
+            compile.push(t.elapsed());
+        }
+        row("Winch: compile (fresh engine)", &compile);
+        if let Some((rt, c)) = component {
+            frame_rows(&rt, &c, "Winch")?;
+        }
+    }
+    Ok(())
+}
+
+fn frame_rows(rt: &Runtime, component: &wasmtime::component::Component, what: &str) -> R<()> {
+    let mut tile = rt.instantiate(component)?;
+    tile.on_event(Event::Configure(Configure { nodes: NODES, cached: false }), HANDLE_DEADLINE)?;
+    let mut s = Vec::new();
+    for _ in 0..FRAMES {
+        let t = Instant::now();
+        tile.on_event(Event::Click(1), HANDLE_DEADLINE)?;
+        tile.render(RENDER_DEADLINE)?;
+        s.push(t.elapsed());
+    }
+    row(&format!("{what}: {NODES} nodes, event + render"), &s);
     Ok(())
 }
 

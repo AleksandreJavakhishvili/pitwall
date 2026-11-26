@@ -27,6 +27,8 @@ wasmtime-wasi = { version = "=48.0.10", default-features = false, features = ["p
 [features]
 # Wasmtime's `Config::cache` (≈ 0.9 MB), measured beside Pitwall's own cache.
 wasmtime-cache = ["wasmtime/cache"]
+# Winch, the baseline compiler, measured beside Cranelift (tile_bench).
+winch = ["wasmtime/winch"]
 
 [dev-dependencies]
 # The GPUI mapping example (examples/tile_gpui.rs) draws in GPUI's test
