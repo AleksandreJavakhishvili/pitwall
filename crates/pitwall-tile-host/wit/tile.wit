@@ -1,0 +1,76 @@
+// Phase 0 spike world (docs/spec/tile-sdk/spike-results.md): the smallest
+// slice of ui.md §3.3 that exercises the real shape (a flat node list with
+// parent indices, a style list per node, variants with payloads, handlers
+// by number). Not the WIT 0.1 of phase 1; nothing ships with it.
+package pitwall:tile-spike@0.0.1;
+
+interface types {
+  /// Pitwall's theme by meaning (a subset of ui.md's `token`).
+  enum token {
+    bg, surface, surface-2, line, text, text-2, text-3, focus, good, warn, bad,
+  }
+
+  variant length { px(f32), rem(f32), fraction(f32), auto }
+
+  enum text-size { xs, sm, md, lg, xl }
+
+  variant style {
+    flex-row, flex-col, grow(f32), gap(length), padding(length),
+    width(length), height(length), background(token), color(token),
+    border-color(token), radius(f32), text-size(text-size), truncate,
+  }
+
+  record button {
+    label: string,
+    /// A guest closure, by number (ui.md §3.4).
+    on-click: u32,
+  }
+
+  variant element {
+    box,
+    text(string),
+    button(button),
+  }
+
+  record node {
+    /// Index into frame.nodes; none = the root.
+    parent: option<u32>,
+    /// Stable among siblings (the host diffs by key path).
+    key: string,
+    element: element,
+    style: list<style>,
+  }
+
+  record frame {
+    nodes: list<node>,
+  }
+
+  variant event {
+    /// A button's handler fired.
+    click(u32),
+    /// Spike only: render `nodes` nodes from now on; `cached` returns the
+    /// same frame each time (isolates canonical-ABI cost from building).
+    configure(configure),
+    /// Spike only: loop forever (epoch interruption test).
+    spin,
+  }
+
+  record configure {
+    nodes: u32,
+    cached: bool,
+  }
+}
+
+interface log {
+  enum level { debug, info, warn, error }
+  log: func(level: level, message: string);
+}
+
+world tile {
+  import log;
+  use types.{frame, event};
+
+  export render: func() -> frame;
+  /// Handle one event; true when state changed (a render follows).
+  export on-event: func(event: event) -> bool;
+}

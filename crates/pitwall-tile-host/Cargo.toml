@@ -1,0 +1,30 @@
+[package]
+name = "pitwall-tile-host"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Phase 0 spike of the Tile SDK (docs/spec/tile-sdk/spike-results.md): Wasmtime running a tile component on a worker thread. No GPUI; a prototype, not shipped."
+
+[dependencies]
+# Wasmtime, Apache-2.0 WITH LLVM-exception (docs/spec/tile-sdk/runtime.md
+# §2.2). The LTS line (README.md §10.3 item 5: every 12th major is
+# supported for 24 months; 48 is the current one, 60 the next). Default
+# features off (§10.3 item 4); only what a tile needs:
+# - runtime + cranelift: compile to native code and run it;
+# - component-model: tiles are components;
+# - parallel-compilation: compile functions on all cores (rayon, already in
+#   the tree via gpui);
+# - cache: Wasmtime's own compiled-code cache (measured beside Pitwall's
+#   own serialize/deserialize files, runtime.md §2.6).
+wasmtime = { version = "=48.0.10", default-features = false, features = ["runtime", "cranelift", "component-model", "parallel-compilation", "cache", "std"] }
+# WASI 0.2 for `include wasi:cli/imports` (runtime.md §3.1): Rust's std on
+# wasm32-wasip2 imports it. p2 only (no preview1 adapter, no p3). Same
+# licence and version as wasmtime.
+wasmtime-wasi = { version = "=48.0.10", default-features = false, features = ["p2"] }
+
+[dev-dependencies]
+# The GPUI mapping example (examples/tile_gpui.rs) draws in GPUI's test
+# platform: no window on screen.
+gpui = { version = "=0.2.2", features = ["test-support"] }
+gpui_platform = { path = "../../third_party/zed/gpui_platform", features = ["test-support"] }
