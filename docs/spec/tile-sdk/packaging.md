@@ -36,7 +36,7 @@ programs as today.
   package bytes; the signature ships as `<file>.minisig` beside it.
   Minisign is a small, documented format over Ed25519 with a key id
   and a trusted comment (S9); authors can use `minisign` or `rsign2`,
-  or `pitwall tile sign` which writes the same format.
+  or `pitwall extension sign` which writes the same format.
 - **Where keys are trusted.** In the index, each author has a
   `keys` list; an entry's versions must be signed by one of them. Out
   of the index (a file or a URL), the key is shown and trusted on first
@@ -86,7 +86,7 @@ flowchart TD
   exist (phase 4), phase 1 installs an unsigned folder holding
   `extension.json`, `tile.wasm` and the files the manifest names
   ([10.3](README.md#103-decisions) item 16). From Settings → Extensions
-  ("Install from folder…") or `pitwall tile install <dir or url>`,
+  ("Install from folder…") or `pitwall extension install <dir or url>`,
   where the URL names such a folder served over HTTPS. It goes through
   the same staging, unpack rules ([6.1](#61-the-pwtile-file)), import check and permission
   screen as a package, with an "Unsigned, preview: only install tiles
@@ -94,7 +94,7 @@ flowchart TD
   (Development trust, as an unsigned file above) on every surface, is
   never updated (installing a newer folder replaces it),
   and is counted by the "Run tiles from others" switch ([5.4](permissions.md#54-kill-switches-and-revocation)).
-  Unlike `pitwall tile dev`, the folder is copied into
+  Unlike `pitwall extension dev`, the folder is copied into
   `<data>/extensions/<id>/`, not loaded in place. Phase 4 adds the
   `.pwtile`, signatures and updates on top of this path; folder
   install stays for authors.

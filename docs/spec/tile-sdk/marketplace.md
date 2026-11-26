@@ -70,7 +70,7 @@ summary file for search.
 
 1. The author publishes a GitHub release with the `.pwtile` and its
    `.minisig`.
-2. `pitwall tile publish` (or by hand) opens a pull request adding or
+2. `pitwall extension publish` (or by hand) opens a pull request adding or
    changing `extensions/<id>.toml` (and `authors/<handle>.toml` the
    first time).
 3. `check.yml` (read-only token, no secrets, runs the package in the
@@ -79,7 +79,7 @@ summary file for search.
      matches;
    - download, size, SHA-256, minisign signature by one of the
      author's keys;
-   - unpack rules, `pitwall tile check` (manifest, imports only from a
+   - unpack rules, `pitwall extension check` (manifest, imports only from a
      served world, permissions known, reasons present, reserved keys
      not bound);
    - rebuild from `repository` at `commit` in a pinned toolchain image

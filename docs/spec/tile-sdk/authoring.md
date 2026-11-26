@@ -2,7 +2,7 @@
 
 Part of the [Tile SDK and marketplace](README.md) design. The SDK crate, its examples, the CLI, dev reload, the test harness and docs for authors and their agents. Sources (S1…) and *unverified* claims are listed in [sources.md](sources.md).
 
-## 4. The SDK crate (`pitwall-tile`)
+## 4. The SDK crate (`pitwall-extension`)
 
 ### 4.1 Shape
 - `Tile` trait: `fn new(cx: &mut Cx<Self>) -> Self`,
@@ -32,8 +32,8 @@ Part of the [Tile SDK and marketplace](README.md) design. The SDK crate, its exa
   derive `serde` and `schemars::JsonSchema`; doc comments become the
   descriptions agents read. The macro writes the tool list (names,
   kinds, descriptions, schemas) into a custom section of the wasm, and
-  `pitwall tile pack` copies it into `extension.json`, so the Rust
-  code is the one source and `pitwall tile check` refuses a manifest
+  `pitwall extension pack` copies it into `extension.json`, so the Rust
+  code is the one source and `pitwall extension check` refuses a manifest
   that disagrees with it. `Presented<T>` keeps what each agent put in
   the tile by item id, with the value before, for Undo.
 
@@ -43,7 +43,7 @@ The main worked example, because it shows the main reason agents call
 tiles: putting content in front of the user and continuing from what
 the user did with it.
 
-`extension.json` (the `tools` block is written by `pitwall tile pack`
+`extension.json` (the `tools` block is written by `pitwall extension pack`
 from the code below; shown here for reading):
 ```json
 {
@@ -391,16 +391,16 @@ fn shows_a_failed_run() {
 
 ## 9. Author experience
 
-### 9.1 Commands (`pitwall tile …`)
+### 9.1 Commands (`pitwall extension …`)
 | Command | Does |
 |---|---|
-| `new <id> [--template list\|ci\|canvas\|form\|blank]` | A Cargo project: `Cargo.toml` (`crate-type = ["cdylib"]`, `pitwall-tile`), `extension.json`, `src/lib.rs`, `tests/`, `README.md`, `.github/workflows/release.yml` (build, test, pack, sign with a repository secret, attach to the release) |
+| `new <id> [--template list\|ci\|canvas\|form\|blank]` | A Cargo project: `Cargo.toml` (`crate-type = ["cdylib"]`, `pitwall-extension`), `extension.json`, `src/lib.rs`, `tests/`, `README.md`, `.github/workflows/release.yml` (build, test, pack, sign with a repository secret, attach to the release) |
 | `dev [folder]` | Builds with `cargo build --release --target wasm32-wasip2` on every save, loads the folder into the running Pitwall as a Development extension (`devPath` [today]), reloads the tile after each build keeping its state (`save-state` → new instance → `init`), and streams its Log to the terminal |
 | `check [folder\|file]` | Manifest, limits, imports, world, reserved keys, permissions and reasons, package rules; offline |
 | `test [folder]` | `cargo test` with the harness, plus a smoke run (init, render, no traps) |
 | `install <dir or url>` | Installs an unsigned folder (or one served over HTTPS) as a developer preview, with the permission screen and an "Unsigned, preview" warning, so authors on the SDK preview can share tiles before packages exist (phase 1, [6.3](packaging.md#63-install)) |
 | `pack [folder]` | A deterministic `.pwtile` (sorted entries, fixed times) and its SHA-256 |
-| `sign <file>` | A `.minisig` with the author's key (`pitwall tile key new` makes one; or use `minisign`) |
+| `sign <file>` | A `.minisig` with the author's key (`pitwall extension key new` makes one; or use `minisign`) |
 | `publish` | Prints the index entry and opens the pull request (via `gh` when installed, else a link) |
 
 The Rust target `wasm32-wasip2` is a tier 2 target in the Rust
@@ -408,7 +408,7 @@ toolchain (S16), so authors need `rustup target add wasm32-wasip2`
 and nothing else; no `cargo-component` is required (S16).
 
 ### 9.2 Dev reload
-- `pitwall tile dev` talks to the running app over the daemon socket
+- `pitwall extension dev` talks to the running app over the daemon socket
   (a new method `tile.reload`, allowed only to the user's own CLI).
 - Reload keeps the tile open and its state (through `save-state`); a
   state that fails to deserialize starts fresh with a note in the Log.
@@ -419,7 +419,7 @@ and nothing else; no `cargo-component` is required (S16).
   and never updated.
 
 ### 9.3 Test harness
-- `pitwall-tile-test` loads the built component in the same host
+- `pitwall-extension-test` loads the built component in the same host
   runtime Pitwall uses, with a fake host: fake settings and secrets,
   scripted `net` answers (unmatched requests fail the test), a fake
   agents list and method table, a temp folder as a project, a virtual
@@ -438,7 +438,7 @@ A new section in `docs/extensions/` and a "Build a tile" page on the
 website: quick start (new, dev, see it), the element and component
 reference with screenshots in both themes and looks, host APIs and
 permissions, keyboard rules, testing, packaging and signing, publishing
-and Verified, compatibility. API docs on docs.rs for `pitwall-tile`.
+and Verified, compatibility. API docs on docs.rs for `pitwall-extension`.
 The pages, their paths and the phase that publishes each are in 9.6.
 
 ### 9.5 Docs for authors' agents
@@ -446,13 +446,13 @@ Many authors will build an extension with a coding agent (Claude Code,
 Codex, …). The docs are written so such an agent can build one from the
 docs alone, without Pitwall's source:
 - **An authoring skill**, `pitwall-extension-authoring/SKILL.md`,
-  shipped with the SDK: how to scaffold (`pitwall tile new`), the
+  shipped with the SDK: how to scaffold (`pitwall extension new`), the
   manifest, the permission kinds and how to justify each, tools and
   their kinds (`show`, `present`, `read`, `act`), the agent skill and
   commands, the platform services and what is held back ([14](platform-services.md#14-platform-services-what-pitwall-gives-every-tile)), testing
   with the harness, `check`, packing and signing, publishing. Short, with
   links into the full docs.
-- **`pitwall tile new` puts the skill into the new project**, where the
+- **`pitwall extension new` puts the skill into the new project**, where the
   author's agents find it (`.claude/skills/…`, `.agents/skills/…`, as
   rulesync names those folders [today, rules.md]), so the agent working
   in the project has it from the first prompt.
@@ -503,7 +503,7 @@ in phase 1.
 | Page | Path | For | Published in | Grows in |
 |---|---|---|---|---|
 | Extensions overview: the one extension model, what an extension can contain, how it is kept safe | `/docs/extensions/` | users and authors | 1 (Preview) | 7 (Preview removed, deprecation policy), 8 (adapters on their way out) |
-| Quick start: `pitwall tile new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`, share a preview tile with `install`) | 4 (`pack`), 5 (`publish`) |
+| Quick start: `pitwall extension new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`, share a preview tile with `install`) | 4 (`pack`), 5 (`publish`) |
 | Tiles and UI components | `/docs/extensions/ui/` | authors; a part for users on hiding and ordering toolbar items | 1 (core elements) | 2 (all components, toolbar items) |
 | Native building blocks | `/docs/extensions/native-blocks/` | authors | 2 (code view, diff view) | 6a and on demand (each block) |
 | Agent tools, skill and commands | `/docs/extensions/agent-tools/` | authors; a part for users on what agents may do with a tile | 3 | on demand |
@@ -518,7 +518,7 @@ in phase 1.
 
 Pages that exist today and change [today]:
 - **CLI reference** (`docs/reference/cli.md` → `/docs/cli/`): gains
-  `pitwall tile …` in the phase that ships each command (1, 3, 4, 5).
+  `pitwall extension …` in the phase that ships each command (1, 3, 4, 5).
   Today it doesn't document `pitwall extension …`.
 - **Settings reference** (`docs/reference/settings.md` →
   `/docs/settings/`): its Extensions section describes adapters ("runs
@@ -540,7 +540,7 @@ Pages that exist today and change [today]:
   `wasm32-wasip2` and fails when a named region is missing, so an
   example can't drift from code that compiles. This needs an include
   step in `pages.mjs` [new]. Until the seed tiles exist, examples come
-  from the template that `pitwall tile new` writes, which is built
+  from the template that `pitwall extension new` writes, which is built
   in CI the same way.
 - **Links are checked.** Today CI builds the website
   (`.github/workflows/ci.yml`, "Website build", and

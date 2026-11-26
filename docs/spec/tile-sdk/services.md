@@ -14,7 +14,7 @@ of two ways:
 
 | | A. Tile + managed service | B. Headless wasm service |
 |---|---|---|
-| The server is | Any program, any language | A `service.wasm` component written with `pitwall-tile` |
+| The server is | Any program, any language | A `service.wasm` component written with `pitwall-extension` |
 | Runs | As the user, unsandboxed [today] | In Wasmtime, with only what is granted |
 | Runs where | A process Pitwall starts, while the extension is on and Pitwall runs [today] | A small host process of Pitwall's, which keeps running when the window closes |
 | Exists | Yes: `service` in format 2 manifests ([service.md](../../extensions/service.md)) | No: new |
@@ -120,7 +120,7 @@ but that protects little when its server isn't.
 ### 13.3 B. A headless wasm service
 
 **What it is.** A second component in the package, `service.wasm`,
-built from the same crate (`pitwall-tile` with the `service` feature).
+built from the same crate (`pitwall-extension` with the `service` feature).
 It has no UI. Pitwall runs it while the extension is on, whether or not
 a tile shows it, and whether or not Pitwall's window is open.
 
@@ -318,12 +318,12 @@ extensions' data, or keep running after the extension is turned off
 (`pitwall-svc` is stopped with its process group).
 
 ### 13.4 Author experience
-- `pitwall tile new <id> --service` (B) adds `src/service.rs` with an
+- `pitwall extension new <id> --service` (B) adds `src/service.rs` with an
   HTTP route, a migration and a test; `--service native` (A) adds a
   `service` block and an install action for the author to fill.
-- `pitwall tile dev` builds both components and restarts the service on
+- `pitwall extension dev` builds both components and restarts the service on
   save (its `/data` kept); the Log streams both.
-- `pitwall-tile-test` serves the service in-process and lets tests send
+- `pitwall-extension-test` serves the service in-process and lets tests send
   requests (`h.service().get("/api/items")`) and run `migrate` from a
   fixture database.
 - Packaging adds `service.wasm` to the `.pwtile` ([6.1](packaging.md#61-the-pwtile-file)); the index
@@ -336,7 +336,7 @@ extensions' data, or keep running after the extension is turned off
 | A, during phase 2 | the automatic loopback grant, the tile's `service` interface and event, the "Runs a program" wording in install, Browse and Verified, a starter, docs |
 | B1, after phase 7 | `pitwall-svc` (process, socket, logs, rediscovery), the service world 0.1, incoming-handler over hyper, the HTTP front (Host check, key, caps), `net.listen` on loopback |
 | B2 | backups and `migrate` in `safe_update` (the `sql` host code comes from tiles, [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)), limits and watchdog, the quit question |
-| B3 | `interfaces` (Tailscale), service tools for agents, `tile new --service`, test harness |
+| B3 | `interfaces` (Tailscale), service tools for agents, `extension new --service`, test harness |
 
 ### 13.6 Decisions
 1. **May a package ship a native server binary** for A, instead of an

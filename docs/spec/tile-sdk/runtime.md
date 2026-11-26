@@ -46,10 +46,10 @@ extension names in crates.
 | `pitwall-core` (`extensions::package`, `tile::model`) | The `.pwtile` reader (zip, limits, no symlinks), signature and hash checks, the index schema, the element-tree model (types, limits, cleaning, keyed diff). Pure, testable, no Wasmtime. | `zip` (reading only), `ed25519-dalek`, `sha2` (exact crates *to decide in phase 0*) |
 | `pitwall-tile-host` (new) | Wasmtime engine, `bindgen!` of the WIT, one `Store` per tile on its own thread, limits, epoch ticker, compile cache, host-API implementations behind a `TileHost` trait (the app supplies the parts that need the UI or the daemon). No GPUI. | `wasmtime`, `wasmtime-wasi`, `pitwall-core` |
 | `pitwall-app` (`tiles/`) | `TileView` (a `Content::Tile` in the layout tree), rendering the model with the kit, event routing, focus, IME, the permission screen and Browse UI, the `TileHost` implementation. | `pitwall-tile-host`, GPUI |
-| `pitwall-tile-test` (new, published) | The headless harness: loads a built `tile.wasm` in `pitwall-tile-host` with a fake host, sends events, queries the tree. | `pitwall-tile-host` |
-| `sdk/pitwall-tile` (new, published, not in the app's build) | The guest crate: element builders, components, `Tile` trait, async helpers over host APIs, `export!`. | `wit-bindgen` |
+| `pitwall-extension-test` (new, published) | The headless harness: loads a built `tile.wasm` in `pitwall-tile-host` with a fake host, sends events, queries the tree. | `pitwall-tile-host` |
+| `sdk/pitwall-extension` (new, published, not in the app's build) | The guest crate: element builders, components, `Tile` trait, async helpers over host APIs, `export!`. | `wit-bindgen` |
 | `sdk/wit/` | The WIT package `pitwall:tile`, one folder per published version. | — |
-| `pitwall-cli` | `pitwall tile new\|dev\|check\|test\|pack\|sign\|publish`, `pitwall extension install <url\|file>`. | `pitwall-core`, `pitwall-tile-host` (for `check`) |
+| `pitwall-cli` | `pitwall extension new\|dev\|check\|test\|pack\|sign\|publish`, `pitwall extension install <url\|file>`. | `pitwall-core`, `pitwall-tile-host` (for `check`) |
 
 Wasmtime is Apache-2.0 with the LLVM exception (S2), compatible with
 Pitwall's Apache-2.0 licence; it is credited in NOTICE like the
