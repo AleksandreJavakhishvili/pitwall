@@ -6,9 +6,8 @@
 //! - `DEMO_SIZE=1600x1000` window size (logical px)
 //! - `DEMO_THEME=light` (default: the system's)
 //! - `DEMO_SHOW=api-fix` show that agent (default: the first, as on a first run)
-//! - `DEMO_OPEN=new-agent|remove|diff|menu|terminal|remove-worktree` open a dialog or menu
+//! - `DEMO_OPEN=new-agent|remove|menu|terminal|remove-worktree` open a dialog or menu
 //! - `DEMO_WT=open` expand every worktree list (the mock's worktrees show either way)
-//! - `DEMO_FILES=1` the right panel on its Files tab
 //! - `DEMO_RULES=1` the browser mock's rules, the first agent's rules stale
 //!   and the second's failed (debug builds)
 //! - `DEMO_OPEN=toasts|bring` also: the attention toasts, Bring in
@@ -59,10 +58,6 @@ fn main() {
             );
             main_screen::init(cx);
             pitwall_app::code_view::register(cx);
-            pitwall_app::next_up::register(cx);
-            if std::env::var("DEMO_FILES").is_ok() {
-                pitwall_app::ui_state::update(cx, |s| s.right_files = true);
-            }
             let store = cx.new(|_| AgentStore::new(demo::agents()));
             #[cfg(debug_assertions)]
             if std::env::var_os("DEMO_RULES").is_some() {
@@ -104,7 +99,6 @@ fn main() {
                             s.show_agent(&id, window, cx);
                         }
                     }
-                    s.demo_changes(cx);
                     s.demo_elsewhere(cx);
                     s.demo_worktrees(std::env::var("DEMO_WT").is_ok(), cx);
                     match std::env::var("DEMO_OPEN").as_deref() {

@@ -108,8 +108,6 @@ pub fn run() {
         platform::init(cx);
         explorer::register(cx);
         review::register(cx);
-        next_up::register(cx);
-        extensions::panels::register(cx);
 
         let state = match chosen {
             Ok(paths) => {

@@ -156,20 +156,6 @@ pub struct ExtState {
     pub web_urls: HashMap<String, Result<String, String>>,
 }
 
-/// A right-panel section's key among an extension's views: the section's
-/// id and the agent it is shown for.
-pub fn panel_key(panel: &str, agent: &str) -> String {
-    format!("{panel}@{agent}")
-}
-
-/// A view key's view id and, for a right-panel section, its agent.
-pub fn split_view(key: &str) -> (&str, Option<&str>) {
-    match key.split_once('@') {
-        Some((v, a)) => (v, Some(a)),
-        None => (key, None),
-    }
-}
-
 impl ExtState {
     /// Unread threads, open asks and blocking asks: the adapter's totals
     /// when it sent some, else its list counted.
@@ -810,8 +796,7 @@ impl Hub {
                     }
                     for view in self.shown.get(&key.0).into_iter().flat_map(|s| s.keys()) {
                         if let Some(l) = &st.link {
-                            let (view, agent) = split_view(view);
-                            l.send(&ToAdapter::Show { view: view.to_string(), agent_id: agent.map(String::from) });
+                            l.send(&ToAdapter::Show { view: view.clone(), agent_id: None });
                         }
                     }
                 }
@@ -876,28 +861,23 @@ impl Hub {
             }
             Event::Msg(FromAdapter::View(v)) => {
                 let m = super::manifest_of(&key.0, cx);
-                // A section is sent for an agent; a view never is.
-                let declared = m.as_ref().is_some_and(|m| match &v.agent_id {
-                    Some(_) => m.contributes.panel(&v.id).is_some(),
-                    None => m.contributes.view(&v.id).is_some(),
-                });
-                let id = match &v.agent_id {
-                    Some(a) => panel_key(&v.id, a),
-                    None => v.id.clone(),
-                };
-                let shown = self.shown.get(&key.0).is_some_and(|s| s.contains_key(&id));
+                // A view is never sent for an agent: that was a right-panel
+                // section, which Pitwall no longer draws.
+                let declared = v.agent_id.is_none() && m.as_ref().is_some_and(|m| m.contributes.view(&v.id).is_some());
+                let shown = self.shown.get(&key.0).is_some_and(|s| s.contains_key(&v.id));
                 let st = self.runs.get_mut(key).expect("it is there");
                 if !declared {
-                    let what = if v.agent_id.is_some() { "a section" } else { "view" };
-                    let e = CallError::new("unknown", format!("It sent {what} “{}”, which its manifest doesn't contribute.", v.id));
+                    let e = match v.agent_id {
+                        Some(_) => CallError::new("unknown", format!("It sent a section “{}” for an agent: Pitwall no longer has a right panel to draw it in.", v.id)),
+                        None => CallError::new("unknown", format!("It sent view “{}”, which its manifest doesn't contribute.", v.id)),
+                    };
                     if let Some(reg) = &st.reg {
                         calls::refused(reg, &key.0, "view", &e);
                     }
                 } else if shown {
-                    // Only views in a tile (sections in the panel, for the
-                    // agent shown) are kept; a hidden one is sent again
-                    // when shown.
-                    st.raw_views.insert(id, v.root);
+                    // Only views in a tile are kept; a hidden one is sent
+                    // again when shown.
+                    st.raw_views.insert(v.id, v.root);
                 }
             }
             Event::Msg(FromAdapter::WebView { view, url }) => {
@@ -1035,10 +1015,9 @@ impl Hub {
         let n = self.shown.entry(ext.to_string()).or_default().entry(view.to_string()).or_default();
         *n += 1;
         if *n == 1 {
-            let (id, agent) = split_view(view);
             for (_, st) in self.runs.iter().filter(|(k, st)| k.0 == ext && st.hello) {
                 if let Some(l) = &st.link {
-                    l.send(&ToAdapter::Show { view: id.to_string(), agent_id: agent.map(String::from) });
+                    l.send(&ToAdapter::Show { view: view.to_string(), agent_id: None });
                 }
             }
         }
@@ -1054,12 +1033,11 @@ impl Hub {
             return;
         }
         shown.remove(view);
-        let (id, agent) = split_view(view);
         for (_, st) in self.runs.iter_mut().filter(|(k, _)| k.0 == ext) {
             st.raw_views.remove(view);
             st.view_notes.remove(view);
             if let (true, Some(l)) = (st.hello, &st.link) {
-                l.send(&ToAdapter::Hide { view: id.to_string(), agent_id: agent.map(String::from) });
+                l.send(&ToAdapter::Hide { view: view.to_string(), agent_id: None });
             }
         }
         self.merge(ext);
@@ -1093,8 +1071,7 @@ impl Hub {
         let req = self.next_req;
         let st = self.runs.get_mut(&key).ok_or("The extension isn't running.")?;
         let link = st.link.as_ref().filter(|_| st.hello).ok_or("The extension isn't running.")?;
-        let (id, agent) = split_view(view);
-        if !link.send(&ToAdapter::Action { req, view: id.to_string(), item: inner.clone(), action: action.to_string(), agent_id: agent.map(String::from) }) {
+        if !link.send(&ToAdapter::Action { req, view: view.to_string(), item: inner.clone(), action: action.to_string(), agent_id: None }) {
             return Err("The extension isn't running.".into());
         }
         self.next_req += 1;
@@ -1111,7 +1088,7 @@ impl Hub {
     }
 
     /// Button `a` was pressed in view `view` (on `item`, whose agent is
-    /// `agent`; a section's: its agent): one Pitwall runs itself (open a
+    /// `agent`): one Pitwall runs itself (open a
     /// file or a page, focus an agent) is called as the extension, through
     /// the method table, so its permission decides and it is in its
     /// activity; one that needs a permission it isn't granted isn't sent;
@@ -1126,8 +1103,7 @@ impl Hub {
             }
             return self.view_action(ext, view, item, &a.id, cx).map(|_| ());
         };
-        let section = split_view(view).1;
-        let whose = |own: &Option<String>| own.clone().or(agent.map(String::from)).or(section.map(String::from));
+        let whose = |own: &Option<String>| own.clone().or(agent.map(String::from));
         let (method, params) = match run {
             Does::File { file, line, agent: own } => {
                 let spec = match line {

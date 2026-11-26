@@ -107,9 +107,11 @@ impl MainScreen {
         self.toggle_sidebar(window, cx);
     }
 
-    /// ⌘.
-    pub fn cmd_toggle_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.toggle_details(window, cx);
+    /// "Show Next up for <agent>": the agent shown, its tile's Next up
+    /// popover open.
+    pub fn cmd_show_next_up(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_agent(id, window, cx);
+        self.open_next_up(id, window, cx);
     }
 
     /// ⌘⇧N: the active space to a new window.

@@ -5,7 +5,6 @@
 use serde_json::json;
 
 use pitwall_core::model::KindView;
-use pitwall_core::vcs::git::FileChange;
 use pitwall_proto::AgentView;
 
 use super::MainScreen;
@@ -95,52 +94,6 @@ pub fn agents() -> Vec<AgentView> {
     ]
 }
 
-fn file(path: &str, added: u32, removed: u32, untracked: bool, status: Option<&str>) -> FileChange {
-    use pitwall_proto::FileStatus;
-    FileChange {
-        path: path.into(),
-        added,
-        removed,
-        untracked,
-        binary: path.ends_with(".png"),
-        status: match status {
-            Some("A") => Some(FileStatus::A),
-            Some("D") => Some(FileStatus::D),
-            Some("M") => Some(FileStatus::M),
-            _ => None,
-        },
-        repo: None,
-        branch: None,
-        parts: None,
-    }
-}
-
-/// The mock's changed files per agent name.
-pub fn changes(name: &str) -> Vec<FileChange> {
-    match name {
-        "tests" => vec![
-            file("src/cart/cart.spec.ts", 9, 2, false, None),
-            file("src/cart/useCart.ts", 3, 1, false, None),
-            file("package.json", 1, 1, false, Some("M")),
-        ],
-        "api-fix" => vec![
-            file("src/orders/handler.ts", 18, 6, false, None),
-            file("src/orders/pricing.ts", 4, 2, false, None),
-            file("src/orders/errors.ts", 22, 0, false, None),
-            file("test/orders/empty-cart.test.ts", 41, 0, true, None),
-            file("src/orders/schema.ts", 63, 29, false, None),
-            file("src/orders/legacy-handler.ts", 0, 37, false, Some("D")),
-            file("src/orders/validation/cart.ts", 26, 0, false, Some("A")),
-        ],
-        "docs" => vec![
-            file("docs/onboarding.md", 30, 8, false, None),
-            file("docs/dev-env/checklist.md", 34, 0, true, None),
-            file("docs/img/setup-flow.png", 0, 0, true, None),
-        ],
-        _ => vec![],
-    }
-}
-
 /// The mock's agent kinds.
 pub fn kinds() -> Vec<KindView> {
     let k = |id: &str, name: &str, installed: bool, worktree: bool, custom: bool| KindView {
@@ -169,48 +122,6 @@ pub fn kinds() -> Vec<KindView> {
     ]
 }
 
-/// The two sides of a one-file diff's hunks.
-fn sides(diff: &str) -> (String, String) {
-    let (mut old, mut new) = (String::new(), String::new());
-    let body = diff.lines().skip_while(|l| !l.starts_with("@@"));
-    for l in body.filter(|l| !l.starts_with("@@")) {
-        let (mark, text) = l.split_at(l.len().min(1));
-        if mark != "+" {
-            old.push_str(text);
-            old.push('\n');
-        }
-        if mark != "-" {
-            new.push_str(text);
-            new.push('\n');
-        }
-    }
-    (old, new)
-}
-
-const DIFF: &str = "diff --git a/src/cart/cart.spec.ts b/src/cart/cart.spec.ts
---- a/src/cart/cart.spec.ts
-+++ b/src/cart/cart.spec.ts
-@@ -38,9 +38,16 @@ import { createCart } from \"./cart\";
-
- describe(\"cart expiry\", () => {
-+  beforeEach(() => vi.useFakeTimers());
-+  afterEach(() => vi.useRealTimers());
-+
-   it(\"expires after 30 minutes\", () => {
-     const cart = createCart();
--    const later = Date.now() + 30 * 60 * 1000;
--    expect(cart.isExpired(later)).toBe(true);
-+    vi.advanceTimersByTime(30 * 60 * 1000);
-+    expect(cart.isExpired()).toBe(true);
-+  });
-+
-+  it(\"is still open after 29 minutes\", () => {
-+    vi.advanceTimersByTime(29 * 60 * 1000);
-+    expect(createCart().isExpired()).toBe(false);
-   });
- });
-";
-
 pub fn recents() -> Vec<(String, String)> {
     ["orders-api", "checkout-web", "handbook"]
         .iter()
@@ -219,15 +130,6 @@ pub fn recents() -> Vec<(String, String)> {
 }
 
 impl MainScreen {
-    /// Demo only: fill the panel with the mock's changes for the focused agent.
-    #[doc(hidden)]
-    pub fn demo_changes(&mut self, cx: &mut gpui::Context<Self>) {
-        if let Some(a) = self.selected(cx) {
-            self.changes.agent_for_demo(&a.id, changes(&a.name));
-            cx.notify();
-        }
-    }
-
     /// Demo only: the React mock's two agents in other terminal apps.
     #[doc(hidden)]
     pub fn demo_elsewhere(&mut self, cx: &mut gpui::Context<Self>) {
@@ -262,7 +164,7 @@ impl MainScreen {
     }
 
     /// Demo only: open something to look at ("new-agent", "remove", "menu",
-    /// "diff", "terminal").
+    /// "terminal").
     #[doc(hidden)]
     pub fn demo_open(
         &mut self,
@@ -301,23 +203,6 @@ impl MainScreen {
             w if w.starts_with("project-accounts ") => {
                 let folder = w["project-accounts ".len()..].trim().to_string();
                 self.open_project_accounts(folder, window, cx);
-            }
-            // (`diff-comment`: with a review comment on a line.)
-            "diff" | "diff-comment" => {
-                if let Some(a) = self.selected(cx) {
-                    if let Some(f) = changes(&a.name).into_iter().next() {
-                        self.open_diff(a, f, window, cx);
-                        if let Some(super::Modal::Diff(d)) = &self.modal {
-                            d.update(cx, |d, cx| {
-                                let (old, new) = sides(DIFF);
-                                d.set_versions(Some(old), Some(new), cx);
-                                if what == "diff-comment" {
-                                    d.demo_comment(7, "Advance the fake clock rather than computing a later date.", cx);
-                                }
-                            });
-                        }
-                    }
-                }
             }
             "toasts" => {
                 use super::strip::Toast;
