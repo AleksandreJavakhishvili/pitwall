@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{
-    Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder, UpdateDeadline,
+    Config, Engine, Store, StoreLimits, StoreLimitsBuilder, UpdateDeadline,
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
@@ -52,16 +52,20 @@ pub const RENDER_DEADLINE: Duration = Duration::from_millis(250);
 pub const MEMORY_LIMIT: usize = 64 << 20;
 
 /// The engine: Cranelift, epoch interruption on, and Wasmtime's own
-/// compiled-code cache in `cache_dir` when given.
+/// compiled-code cache in `cache_dir` when given (only with the
+/// `wasmtime-cache` feature; ignored otherwise).
 pub fn engine(cache_dir: Option<&Path>) -> Result<Engine> {
     let mut config = Config::new();
     config.epoch_interruption(true);
     config.parallel_compilation(true);
+    #[cfg(feature = "wasmtime-cache")]
     if let Some(dir) = cache_dir {
-        let mut cache = CacheConfig::new();
+        let mut cache = wasmtime::CacheConfig::new();
         cache.with_directory(dir);
-        config.cache(Some(Cache::new(cache)?));
+        config.cache(Some(wasmtime::Cache::new(cache)?));
     }
+    #[cfg(not(feature = "wasmtime-cache"))]
+    let _ = cache_dir;
     Engine::new(&config)
 }
 

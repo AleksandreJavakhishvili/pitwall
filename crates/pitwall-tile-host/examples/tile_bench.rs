@@ -81,18 +81,20 @@ fn main() -> R<()> {
     row("warm (Pitwall cache): deserialize_file", &load);
     row("**warm start total** (Pitwall cache: load + instantiate + first render)", &total);
 
-    // Warm, Wasmtime's Config::cache.
-    let wt = scratch.join("warm-wt");
-    Runtime::new(engine(Some(&wt))?)?.compile(&wasm)?;
-    let mut total = Vec::new();
-    for _ in 0..20 {
-        let rt = Runtime::new(engine(Some(&wt))?)?;
-        let t0 = Instant::now();
-        let component = rt.compile(&wasm)?;
-        rt.instantiate(&component)?.render(RENDER_DEADLINE)?;
-        total.push(t0.elapsed());
+    // Warm, Wasmtime's Config::cache (`--features wasmtime-cache`).
+    if cfg!(feature = "wasmtime-cache") {
+        let wt = scratch.join("warm-wt");
+        Runtime::new(engine(Some(&wt))?)?.compile(&wasm)?;
+        let mut total = Vec::new();
+        for _ in 0..20 {
+            let rt = Runtime::new(engine(Some(&wt))?)?;
+            let t0 = Instant::now();
+            let component = rt.compile(&wasm)?;
+            rt.instantiate(&component)?.render(RENDER_DEADLINE)?;
+            total.push(t0.elapsed());
+        }
+        row("warm (Wasmtime cache hit) total", &total);
     }
-    row("warm (Wasmtime cache hit) total", &total);
 
     // A 2 000-node frame: render (guest builds + canonical ABI lower/lift),
     // the same with a frame the guest keeps (mostly ABI), and the host diff.

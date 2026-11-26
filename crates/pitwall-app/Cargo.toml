@@ -21,6 +21,8 @@ runtime-shaders = ["gpui_platform/runtime_shaders", "pitwall-term-view/runtime-s
 # Wasmtime through pitwall-tile-host only to measure the release binary's
 # growth. Off by default; nothing in the app uses it.
 tile-spike = ["dep:pitwall-tile-host"]
+# The same plus Wasmtime's own compiled-code cache, to measure what it adds.
+tile-spike-cache = ["tile-spike", "pitwall-tile-host/wasmtime-cache"]
 
 [dependencies]
 # Zed's UI framework, Apache-2.0, vendored from Zed's repository at one
