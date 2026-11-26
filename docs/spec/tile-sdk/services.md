@@ -20,7 +20,7 @@ of two ways:
 | Exists | Yes: `service` in format 2 manifests ([service.md](../../extensions/service.md)) | No: new |
 | Trust shown | "Runs a program on your computer" | Same as a tile: its grants |
 
-**Recommendation: A first, B later.** A works with machinery that is
+**Decided (owner, 2026-11-26): A first, B later.** A works with machinery that is
 built and tested (install action, version check, ready check, data
 folder, backup, one-step update and Go back). It only needs the tile
 side wired up ([13.2](#132-a-a-tile-plus-a-managed-service)), so it can ship with tiles in phase 2. B is worth
@@ -143,7 +143,7 @@ server, approvals) runs inside the app's process: `pitwall-app` hosts
 it (`crates/pitwall-app/src/host.rs`); a separate `pitwalld` is
 designed in [architecture.md](../architecture.md) but not built, and only
 the terminal holders (`pitwall-hold`) outlive the app. So "keeps running
-when the app closes" needs a process of its own. Proposed: a small
+when the app closes" needs a process of its own. Decided ([13.6](#136-decisions), item 2): a small
 binary, `pitwall-svc`, one process per running wasm service, built like
 the holders: started by Pitwall, its own process group, a socket at
 `<data>/run/svc/<id>.sock` for status, logs and stop, found again when
@@ -177,7 +177,7 @@ Consequences:
   implements `wasi:sockets` with every address denied unless allowed
   (S7); whether its TCP `listen` path works for this is *unverified*,
   and the docs disagree about whether TCP is on by default (S7). Not in
-  `service@0.1`; open question [13.6](#136-open-questions-each-with-a-recommendation) (3).
+  `service@0.1`; decided in [13.6](#136-decisions) (3).
 
 **The service world.**
 ```wit
@@ -338,30 +338,31 @@ extensions' data, or keep running after the extension is turned off
 | B2 | backups and `migrate` in `safe_update` (the `sql` host code comes from tiles, [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)), limits and watchdog, the quit question | 1 wk |
 | B3 | `interfaces` (Tailscale), service tools for agents, `tile new --service`, test harness | 1–2 wk |
 
-### 13.6 Open questions (each with a recommendation)
+### 13.6 Decisions
 1. **May a package ship a native server binary** for A, instead of an
    install action with the author's package manager? It would make A
    one file, but means per-OS binaries in the package and Pitwall
-   running a downloaded executable. *Recommend not in v1*: keep today's
-   rule (a program on PATH, installed by a confirmed action); move
-   authors who want one file to B.
-2. **Run wasm services in `pitwall-svc` or in the app?** *Recommend
-   `pitwall-svc`*: the owner asked for servers that keep running when
+   running a downloaded executable. Decided (owner, 2026-11-26): not in v1: keep today's
+   rule (a program on PATH, installed by a confirmed action); authors
+   who want one file move to B.
+2. **Run wasm services in `pitwall-svc` or in the app?** Decided (owner, 2026-11-26):
+   `pitwall-svc`: the owner asked for servers that keep running when
    the window is closed, the app's process can't give that, and the
    separate process isolates crashes.
 3. **Raw `wasi:sockets` listening (non-HTTP protocols, in-memory
-   state)?** *Recommend no* in `service@0.1`; revisit with WASI 0.3 if
+   state)?** Decided (owner, 2026-11-26): no in `service@0.1`; revisit with WASI 0.3 if
    real services need it.
-4. **Host-run SQLite vs. SQLite in the guest?** *Recommend host-run*
-   (`sql`) for safety with parallel instances; allow the guest's own
+4. **Host-run SQLite vs. SQLite in the guest?** Decided (owner, 2026-11-26): host-run
+   (`sql`) for safety with parallel instances; the guest's own
    SQLite only as an author's choice.
-5. **The per-service key by default?** *Recommend yes*, with
+5. **The per-service key by default?** Decided (owner, 2026-11-26): yes, with
    per-route `public` for webhooks; a port open to every local program
    and every web page is the common mistake to avoid.
-6. **Keep running after Pitwall quits?** *Recommend* ask once per
+6. **Keep running after Pitwall quits?** Decided (owner, 2026-11-26): ask once per
    extension, default keep, and always show running services in the
    tray/menu-bar menu so the user can stop them without opening the
    window.
-7. **Other computers (`interfaces`).** *Recommend* allowed only on the
+7. **Other computers (`interfaces`).** Decided (owner, 2026-11-26): allowed only on the
    Tailscale interface in the first version, named as such, never
    `0.0.0.0`.
+8. **Which way first?** ([13.1](#131-why-and-which-first)) Decided (owner, 2026-11-26): A first, B later.

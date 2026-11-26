@@ -142,11 +142,11 @@ own repository unless marked.
 - That WIT has no recursive types ([3](runtime.md#3-the-wit-interface)).
 - That Wasmtime refuses to re-enter a component instance ([2.4](runtime.md#24-threading-with-gpui)).
 - Compile times, frame encoding cost and binary growth for Pitwall's
-  case ([2.6](runtime.md#26-compile-and-cache), [2.7](runtime.md#27-performance-budget), [10.3](README.md#103-risks-and-open-questions-each-with-a-recommendation)): phase 0 measures them.
+  case ([2.6](runtime.md#26-compile-and-cache), [2.7](runtime.md#27-performance-budget), [10.3](README.md#103-decisions)): phase 0 measures them.
 - Which characters each agent accepts in MCP tool names ([11.4](agent-tools.md#114-how-agents-reach-them)).
 - Whether Rust 1.100 (with `wasm32-wasip3`) has shipped.
 - How Wasmtime handles per-OS traps in detail ([2.2](runtime.md#22-crates-new)).
-- Whether a Zed theme maps well onto Pitwall's tokens ([10.3](README.md#103-risks-and-open-questions-each-with-a-recommendation), item 12).
+- Whether a Zed theme maps well onto Pitwall's tokens ([10.3](README.md#103-decisions), item 12).
 - Whether Wasmtime's `wasi:sockets` TCP listen path suits a long-lived
   service ([13.3](services.md#133-b-a-headless-wasm-service)).
 - Whether SQLite compiled for `wasm32-wasip2` works reliably, and the

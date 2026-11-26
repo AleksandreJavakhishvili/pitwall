@@ -73,7 +73,7 @@ Honestly:
   shipped patch releases across its supported lines for a WASI
   filesystem sandbox escape on Windows (S1). Wasmtime backports
   security fixes to every supported release (S1), and Pitwall must ship
-  those promptly ([10.3](README.md#103-risks-and-open-questions-each-with-a-recommendation), item 5).
+  those promptly ([10.3](README.md#103-decisions), item 5).
   Running tiles in a helper process later reduces the blast radius.
 - Fingerprint: theme, window size, timing.
 - Through its tools ([section 11](agent-tools.md#11-tools-for-agents)): answer an agent's `read` with

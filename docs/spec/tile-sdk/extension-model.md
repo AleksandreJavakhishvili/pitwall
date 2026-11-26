@@ -4,9 +4,9 @@ Part of the [Tile SDK and marketplace](README.md) design. Components as the one 
 
 ## 15. One extension model
 
-Status: proposed to the owner. Decided by the owner: breaking is fine
-(adapters are removed, not kept for compatibility). The rest awaits
-their answer ([15.8](#158-open-questions-each-with-a-recommendation)).
+Status: decided by the owner. Breaking is fine (adapters are
+removed, not kept for compatibility); the rest was decided on
+2026-11-26 as recommended ([15.8](#158-decisions)).
 
 ### 15.1 One concept, not two
 The owner asked why there would be both extensions and tiles. There
@@ -23,7 +23,7 @@ from that JSON [today]. This document adds a **component**, wasm code
 in Pitwall's sandbox. Two ways to run an extension's code is one too
 many.
 
-**Proposal.**
+**Decision** (owner, 2026-11-26).
 1. The component becomes **the** way an extension runs its own code,
    with or without a tile. A headless component can do everything an
    adapter does: feed inbox questions, badges and notifications, put
@@ -185,29 +185,29 @@ only tiles; a component that contributes anything above stays.
   adapter pages and the adapter wording in the Settings reference, in
   the release that removes adapters.
 
-### 15.8 Open questions (each with a recommendation)
-1. **One model, components as the only code runtime?** *Recommend
-   yes*, as proposed in [15.1](#151-one-concept-not-two); it is the owner's decision.
-2. **Rename `pitwall-tile` and `pitwall tile …` now?** *Recommend yes*,
+### 15.8 Decisions
+1. **One model, components as the only code runtime?** Decided (owner, 2026-11-26):
+   yes, as described in [15.1](#151-one-concept-not-two).
+2. **Rename `pitwall-tile` and `pitwall tile …` now?** Decided (owner, 2026-11-26): yes,
    before the first publish: renaming a published crate later costs
    every author.
-3. **When do adapters go?** Decided by the owner: no compatibility
-   period. *Recommend* removing them in the first release after every
-   bundled extension has a published component version, whoever built
-   it, and setting a date with the authors who take theirs so the
+3. **When do adapters go?** No compatibility period (decided
+   earlier). Decided (owner, 2026-11-26): they are removed in the first release after
+   every bundled extension has a published component version, whoever
+   built it, with a date set with the authors who take theirs so the
    removal doesn't wait on one of them indefinitely (Pitwall ports any
    still missing by then).
-4. **Keep the inbox as a dedicated surface?** *Recommend yes*: it
+4. **Keep the inbox as a dedicated surface?** Decided (owner, 2026-11-26): yes: it
    does more than generic components (asks, number keys, sending with
    take-back), and the floating control depends on its model.
 5. **Other languages for components** (JavaScript, Go, Python through
-   their component toolchains). *Recommend* Rust only in the docs and
-   templates until 1.0; accept any component that passes `check`, but
-   support only Rust.
-6. **When does the index open?** *Recommend* for component-based
+   their component toolchains). Decided (owner, 2026-11-26): Rust only in the docs and
+   templates until 1.0; any component that passes `check` is accepted,
+   but only Rust is supported.
+6. **When does the index open?** Decided (owner, 2026-11-26): for component-based
    extensions as soon as packages and the index ship (phases 4–5), so
    authors on the preview can publish their versions; never for
    adapter-based ones.
-7. **Who gets the SDK preview?** *Recommend* the makers of the services
+7. **Who gets the SDK preview?** Decided (owner, 2026-11-26): the makers of the services
    the bundled extensions connect to first, then anyone who asks;
    breaking changes announced to them one release ahead ([8.2](runtime.md#82-how-old-tiles-keep-working)).

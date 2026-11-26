@@ -346,29 +346,29 @@ a text file through the existing rules path, and commands reuse the
 tool machinery and the CLI. They are part of v0.x, built with agent
 tools in phase 3.
 
-### 11.13 Open questions (each with a recommendation)
+### 11.13 Decisions
 1. **Should `present` really be allowed by default?** It can fill a
-   tile with misleading content. *Recommend yes*: it only changes a
+   tile with misleading content. Decided (owner, 2026-11-26): yes: it only changes a
    sandboxed tile, is marked with the agent and undoable, and asking
    each time would kill the main use.
-2. **Agents of peers** (another computer's Pitwall). *Recommend no* in
+2. **Agents of peers** (another computer's Pitwall). Decided (owner, 2026-11-26): no in
    this plan, matching read-only peers.
 3. **One tool per tile vs. many.** Long tool lists cost agents context.
-   *Recommend* ≤ 16 per extension and listing only tools of tiles that
+   Decided (owner, 2026-11-26): ≤ 16 per extension, listing only tools of tiles that
    are on; revisit with a "tools of tiles shown in this space" filter
    if lists grow.
 4. **Should Pitwall's own MCP tools be renamed to `files__show` style?**
-   *Recommend no*: existing agents and docs use the current names.
-5. **Agents calling `act` without the user present.** *Recommend* no
+   Decided (owner, 2026-11-26): no: existing agents and docs use the current names.
+5. **Agents calling `act` without the user present.** Decided (owner, 2026-11-26): no
    "always allow" across projects, and none for `act` tools whose
    tile holds `git.remote` or `agents.queue` grants (asks every time).
-6. **Skill scope default.** *Recommend* offering it on install for the
+6. **Skill scope default.** Decided (owner, 2026-11-26): offered on install for the
    project the user is in, unticked for the others; never all projects
    silently.
-7. **May a tile's skill mention other extensions' tools?** *Recommend
-   no* (refused by `check`): cross-tile advice is how a hostile skill
+7. **May a tile's skill mention other extensions' tools?** Decided (owner, 2026-11-26):
+   no (refused by `check`): cross-tile advice is how a hostile skill
    would steer agents to a more powerful tool.
 8. **Commands from cron or other programs outside Pitwall** (`show`
-   only today). *Recommend* keeping that until a seed tile needs
+   only today). Decided (owner, 2026-11-26): keep that until a seed tile needs
    unattended runs; then a per-command "may run from outside Pitwall"
    grant that still can't cover `act`.
