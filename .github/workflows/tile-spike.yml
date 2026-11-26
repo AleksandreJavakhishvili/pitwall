@@ -1,0 +1,67 @@
+name: Tile SDK spike (size and timings)
+
+# Tile SDK phase 0 (docs/spec/tile-sdk/spike-results.md): the release
+# binary's growth with Wasmtime linked, and the spike's timings, on each OS
+# Pitwall ships on. Only on the spike branch or by hand: never part of the
+# normal CI path (ci.yml).
+on:
+  push:
+    branches: [spike/tile-host]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tile-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  size:
+    name: Size and timings (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Two LTO release builds of the app with GPUI, cold.
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same libraries as ci.yml's rust-linux job.
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config libssl-dev \
+            clang libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
+            libvulkan1 libvulkan-dev libzstd-dev libasound2-dev libglib2.0-dev
+
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tile-spike
+          cache-on-failure: true
+
+      - name: Release binary without and with the tile runtime
+        run: |
+          {
+            echo "### Binary size ($RUNNER_OS)"
+            echo
+            scripts/tile-spike-size.sh
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Timings (hello tile)
+        run: |
+          cargo run --release -p pitwall-tile-host --example tile_bench | tee -a "$GITHUB_STEP_SUMMARY"
