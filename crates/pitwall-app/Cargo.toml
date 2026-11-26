@@ -17,6 +17,10 @@ path = "src/main.rs"
 # shaders (docs/spec/gpui/packaging.md).
 default = ["runtime-shaders"]
 runtime-shaders = ["gpui_platform/runtime_shaders", "pitwall-term-view/runtime-shaders"]
+# Tile SDK phase 0 spike (docs/spec/tile-sdk/spike-results.md): links
+# Wasmtime through pitwall-tile-host only to measure the release binary's
+# growth. Off by default; nothing in the app uses it.
+tile-spike = ["dep:pitwall-tile-host"]
 
 [dependencies]
 # Zed's UI framework, Apache-2.0, vendored from Zed's repository at one
@@ -40,6 +44,8 @@ pitwall-client = { path = "../pitwall-client" }
 # Tailnet peers (docs/spec/tailnet-peers.md): the agents of the user's other
 # machines, read-only, and sharing this Mac's with them.
 pitwall-peer = { path = "../pitwall-peer" }
+# Tile SDK spike only (feature `tile-spike`).
+pitwall-tile-host = { path = "../pitwall-tile-host", optional = true }
 # Extensions from an npm package (extensions/https.rs): the registry's
 # metadata and a version's tarball over https, no credentials, no proxy.
 # ureq is MIT OR Apache-2.0 and new in the tree, with rustls (Apache-2.0
