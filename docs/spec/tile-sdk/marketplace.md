@@ -123,6 +123,9 @@ S13) applied only to Verified, so listing stays cheap.
   reasons and risk notes, versions with dates and changelog, licence,
   repository, "Report a problem", Install.
 - No install counts, ratings or comments in v1 (no server).
+- **Opens to the public after the review.** Browse is built in phase 5
+  but stays limited to SDK-preview authors until the threat model and
+  the outside security review are done ([5.5](permissions.md#55-threat-model-and-outside-review)).
 
 ### 7.5 Abuse reporting
 "Report a problem" opens a prefilled GitHub issue form on the index

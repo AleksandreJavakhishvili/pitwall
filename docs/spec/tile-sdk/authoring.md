@@ -398,6 +398,7 @@ fn shows_a_failed_run() {
 | `dev [folder]` | Builds with `cargo build --release --target wasm32-wasip2` on every save, loads the folder into the running Pitwall as a Development extension (`devPath` [today]), reloads the tile after each build keeping its state (`save-state` → new instance → `init`), and streams its Log to the terminal |
 | `check [folder|file]` | Manifest, limits, imports, world, reserved keys, permissions and reasons, package rules; offline |
 | `test [folder]` | `cargo test` with the harness, plus a smoke run (init, render, no traps) |
+| `install <dir or url>` | Installs an unsigned folder (or one served over HTTPS) as a developer preview, with the permission screen and an "Unsigned, preview" warning, so authors on the SDK preview can share tiles before packages exist (phase 1, [6.3](packaging.md#63-install)) |
 | `pack [folder]` | A deterministic `.pwtile` (sorted entries, fixed times) and its SHA-256 |
 | `sign <file>` | A `.minisig` with the author's key (`pitwall tile key new` makes one; or use `minisign`) |
 | `publish` | Prints the index entry and opens the pull request (via `gh` when installed, else a link) |
@@ -464,8 +465,8 @@ docs alone, without Pitwall's source:
 - Versioned like the WIT: `llms.txt` for the newest, and one per
   published WIT version (`/sdk/0.2/llms.txt`), so an agent working on an
   extension for an older world reads the matching reference.
-- Small: built with the SDK docs in phase 1 (about half a week), then
-  kept current by the generator and the doc-comment test.
+- Small: built with the SDK docs in phase 1, then kept current by the
+  generator and the doc-comment test.
 
 ### 9.6 Website docs
 **The rule.** A phase is done only when the public website docs match
@@ -502,7 +503,7 @@ in phase 1.
 | Page | Path | For | Published in | Grows in |
 |---|---|---|---|---|
 | Extensions overview: the one extension model, what an extension can contain, how it is kept safe | `/docs/extensions/` | users and authors | 1 (Preview) | 7 (Preview removed, deprecation policy), 8 (adapters on their way out) |
-| Quick start: `pitwall tile new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`) | 4 (`pack`), 5 (`publish`) |
+| Quick start: `pitwall tile new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`, share a preview tile with `install`) | 4 (`pack`), 5 (`publish`) |
 | Tiles and UI components | `/docs/extensions/ui/` | authors; a part for users on hiding and ordering toolbar items | 1 (core elements) | 2 (all components, toolbar items) |
 | Native building blocks | `/docs/extensions/native-blocks/` | authors | 2 (code view, diff view) | 6a and on demand (each block) |
 | Agent tools, skill and commands | `/docs/extensions/agent-tools/` | authors; a part for users on what agents may do with a tile | 3 | on demand |

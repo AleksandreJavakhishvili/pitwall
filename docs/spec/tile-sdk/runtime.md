@@ -204,14 +204,17 @@ wants wall-clock deadlines, not determinism. Epochs need 64-bit atomics
 - Pitwall writes compiled files only itself, in
   `<data>/cache/tiles/<id>/<wasm-sha256>.cwasm`, mode 600 in a 700
   folder, never in the extension folder (so the install digest
-  [today] is unaffected and Go back keeps its own cache entry). The
+  [today] is unaffected and Go back keeps its own cache entry).
+  Windows has no such modes; there the folder needs an equivalent
+  limited to the user ([10.3](README.md#103-decisions) item 18). The
   file name ties it to the exact wasm; Wasmtime's own header check
   ties it to the engine version and settings (S5). A file that fails
   to load is deleted and the wasm compiled again.
 - Compiled files are tied to the exact Wasmtime version, patch
   included (S1), so any Pitwall update that moves Wasmtime recompiles
   each tile once, on first use, off the main thread. Compile times for
-  typical tiles aren't published (*unverified*); phase 0 measures them.
+  typical tiles aren't published (*unverified*); phase 0 measures them
+  against its start-time gates ([phase 0 gates](README.md#phase-0-gates)).
 - Compile happens at "turn on" (and after an update), not at install,
   so nothing derived from the package runs, even the compiler, before
   the user agrees. Cranelift is not the guest's code; compiling at
@@ -227,7 +230,7 @@ late.
 |---|---|---|
 | Event delivery | main → worker | < 0.1 ms (channel) |
 | `handle` + `render` | worker | 8 ms typical; warned over 16 ms; hard stop 1 s / 250 ms |
-| Decode + diff + apply | main | ≤ 2 ms for 2 000 nodes (to measure in phase 0) |
+| Decode + diff + apply | main | ≤ 2 ms for 2 000 nodes (to measure in phase 0; with the canonical-ABI lift, a gate of ≤ 4 ms, [phase 0 gates](README.md#phase-0-gates)) |
 | Draw | main | as any tile: only visible nodes; virtual lists lay out visible rows only |
 
 - Renders are coalesced to one per display frame: a burst of events

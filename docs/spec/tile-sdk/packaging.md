@@ -81,6 +81,23 @@ flowchart TD
 - **CLI:** `pitwall extension install <url|file|index-id>` prints the
   same review and asks on the terminal (`--yes` refuses to grant
   permissions: it installs off, the user turns it on in Settings).
+- **Before packages: a preview folder (phase 1).** So that authors on
+  the SDK preview can pass tiles around before `.pwtile` and signatures
+  exist (phase 4), phase 1 installs an unsigned folder holding
+  `extension.json`, `tile.wasm` and the files the manifest names
+  ([10.3](README.md#103-decisions) item 16). From Settings → Extensions
+  ("Install from folder…") or `pitwall tile install <dir or url>`,
+  where the URL names such a folder served over HTTPS. It goes through
+  the same staging, unpack rules ([6.1](#61-the-pwtile-file)), import check and permission
+  screen as a package, with an "Unsigned, preview: only install tiles
+  from people you trust" warning. It is marked developer preview
+  (Development trust, as an unsigned file above) on every surface, is
+  never updated (installing a newer folder replaces it),
+  and is counted by the "Run tiles from others" switch ([5.4](permissions.md#54-kill-switches-and-revocation)).
+  Unlike `pitwall tile dev`, the folder is copied into
+  `<data>/extensions/<id>/`, not loaded in place. Phase 4 adds the
+  `.pwtile`, signatures and updates on top of this path; folder
+  install stays for authors.
 
 ### 6.4 Updates and Go back
 - Checks: with the index, one fetch of `index.json` (conditional GET,

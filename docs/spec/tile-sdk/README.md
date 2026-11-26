@@ -103,7 +103,9 @@ model and IME. The tile's code never touches a window.
    index names its URL (usually a GitHub release asset), its SHA-256
    and the author's Ed25519 key; Pitwall checks both, shows the
    permission screen, unpacks into `<data>/extensions/<id>/`, compiles
-   the wasm to native code once and caches it.
+   the wasm to native code once and caches it. Before packages
+   (phase 1), an unsigned folder installs as a preview, for SDK-preview
+   authors.
 8. **Marketplace v1 is a GitHub repository.** A pull request lists a
    tile. CI checks the package. A maintainer's review earns
    "Verified". Pitwall reads a signed `index.json` from it; no server
@@ -173,26 +175,51 @@ model and IME. The tile's code never touches a window.
     needed beyond the install screen line. Part of the v0.x minimum
     (phase 2).
 
-**Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
-WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
-minimum platform services, with badges, floating-control questions and
-Next up, toolbar items (7.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
-package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
-6 seed tiles (in parallel from phase 2), with on-demand services as
-they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
-managed service: documented and wired during phase 2 (1 wk). With the
-one extension model (decided): 8 port or hand over the bundled
-extensions (≈ 4 wk, less for those their authors build) → 9 remove
-adapters (≈ 1 wk) once each has a component version. The authoring
-skill and `llms.txt` reference come with the SDK docs from phase 1
-(≈ 0.5 wk, kept current after). Headless wasm services: after phase 7 (≈ 6 wk).
-Native building blocks: code view and diff view in phase 2 (≈ 1.5 wk
-more); the review port as a proof tile from phase 2, alongside the
-seed tiles (≈ 5 wk), pulling `git` and `files` into the plan; the
-files tree and inbox ports after (≈ 3 wk each).
-Each phase also publishes or updates its website docs pages
-([9.6](authoring.md#96-website-docs)): ≈ 0.5 wk per phase with a public surface, plus
-≈ 1 wk for the docs build in phase 1.
+18. **Gates before going further** ([10.2](#phase-0-gates), [5.5](permissions.md#55-threat-model-and-outside-review)). Phase 0 has
+    pass/fail gates (binary size, frame cost, start time, stopping a
+    runaway tile) measured on macOS, Linux and Windows; a miss changes
+    course, and several misses mean the owner decides whether to go
+    on. Browse opens to the public only after a threat model and an
+    outside security review of the host and permission code.
+19. **Share early, unsigned** ([10.2](#102-order-of-work), [6.3](packaging.md#63-install)). From phase 1, SDK-preview
+    authors can pass tiles around as a folder: install from a folder
+    or URL, unsigned, marked preview, through the same permission
+    screen. Phase 4 adds the `.pwtile`, signatures and updates on top.
+
+**Phases**, in order; each needs the one before it unless it says
+otherwise. Durations are left out on purpose: agents do the work, so
+only the order and the dependencies mean something.
+
+0. **Spike.** Nothing else starts until its gates pass, or until the
+   owner decides how to go on after a miss ([phase 0 gates](#phase-0-gates)).
+1. **Runtime**: WIT 0.1, core elements, dev mode and unsigned install
+   from a folder (preview), on macOS, Linux and Windows. The authoring
+   skill, the `llms.txt` reference and the website docs build come
+   with it and are kept current after.
+2. **Components and the minimum platform services**, with badges,
+   floating-control questions and Next up; toolbar items; the code
+   view and diff view blocks. Tile plus managed service is documented
+   and wired here.
+3. **Agent tools, skill and commands.**
+4. **Package, signing, install, update**, on top of phase 1's folder
+   install.
+5. **Index and Browse.** Browse opens to the public only after the
+   threat model and the outside security review
+   ([5.5](permissions.md#55-threat-model-and-outside-review)).
+6. **Seed tiles**, in parallel from phase 2 (Notes and CI need 2,
+   Diagrams needs 3), with on-demand services as they trigger them.
+   The review port as a proof tile also starts after phase 2,
+   alongside them, pulling `git` and `files` into the plan; the files
+   tree and inbox ports come after it.
+7. **WIT 1.0**, once the seed tiles ship.
+8. **Port or hand over the bundled extensions** (one extension model,
+   decided), after 7.
+9. **Remove adapters**, once each bundled extension has a component
+   version.
+
+Headless wasm services come after phase 7. Each phase also publishes
+or updates its website docs pages ([9.6](authoring.md#96-website-docs))
+before it counts as done.
 
 **Owner decisions** (2026-11-26, every recommendation accepted) are
 recorded in [10.3](#103-decisions), [11.13](agent-tools.md#1113-decisions), [13.6](services.md#136-decisions), [15.8](extension-model.md#158-decisions) and [16.4](native-blocks.md#164-decisions).
@@ -294,24 +321,49 @@ gap in the SDK.
 A phase is done only when the public website docs match what it
 shipped: the pages in its "Website docs" cell are published or
 updated in the same pull requests as the features ([9.6](authoring.md#96-website-docs)).
-The sizes don't include the pages: about 0.5 wk per phase with a
-public surface (1–5, 6a, 7), plus about 1 wk in phase 1 for the docs
-build (pages from Markdown, examples from source, a link check).
+Phase 1 also builds the docs pipeline (pages from Markdown, examples
+from source, a link check).
 Steps 8 and 9 ([15.7](extension-model.md#157-effect-on-the-plan))
 publish Migrating from adapters and replace the adapter pages.
 
-| Phase | Content | Size | Website docs ([9.6](authoring.md#96-website-docs)) |
-|---|---|---|---|
-| 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk | none: nothing public yet |
-| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview | 5.5 wk | new "Extensions" group in the docs sidebar; Extensions overview, Quick start (`new`, `dev`), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and the skill download; all marked Preview |
-| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items), about 1 wk) | 7.5 wk | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components |
-| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools` and `call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall tile run` and `commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | 4 wk | Agent tools, skill and commands; Permissions (agents' access to a tile's tools); the CLI reference gains `pitwall tile tools`, `call`, `run` and `commands` |
-| 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk | Packaging and signing; Quick start gains `pack`; Permissions' user part (install, grants, Go back); the Settings reference's Extensions section; a short Extensions part in How it works for users |
-| 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk | Publishing and the Verified badge (with its user part: what Verified means, reporting); Quick start gains `publish`; the Settings reference gains Browse |
-| 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel | examples on every page switch to the seed tiles' source as each one ships |
-| 6a. Native blocks and ports ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | ≈ 1.5 wk blocks, ≈ 5 wk review, ≈ 3 wk each other port | Native building blocks (each block as it ships); How it works says which built-in tiles are now extensions, if users can see it |
-| On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 | Platform services and Permissions gain a row for each service as it ships |
-| 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk | Preview label removed; WIT reference 1.0 and one page per published WIT version; the deprecation policy on the overview |
+The table gives the order; it has no durations, since agents do the
+work. What must come before what is in the summary's phase list
+([above](#summary-one-page)) and in each row.
+
+| Phase | Content | Website docs ([9.6](authoring.md#96-website-docs)) |
+|---|---|---|
+| 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model; on macOS, Linux and Windows (CI runners are fine for Linux and Windows). Done when the [gates](#phase-0-gates) pass, or the owner decides how to go on | none: nothing public yet |
+| 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview; unsigned install from a folder for that preview ([6.3](packaging.md#63-install)): Settings → Extensions and `pitwall tile install <dir or url>`, marked developer preview, with the permission screen and an "Unsigned, preview" warning, no updates. Tiles target macOS, Linux and Windows from here, and the host's tests run on all three in CI | new "Extensions" group in the docs sidebar; Extensions overview, Quick start (`new`, `dev`, share a preview tile), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and the skill download; all marked Preview |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (mostly wiring existing host code); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items)) | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components |
+| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools` and `call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall tile run` and `commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | Agent tools, skill and commands; Permissions (agents' access to a tile's tools); the CLI reference gains `pitwall tile tools`, `call`, `run` and `commands` |
+| 4. Packages | On top of phase 1's folder install: `.pwtile`, minisign verification, install from file/URL/CLI with a signature (unsigned stays possible behind the same warning, [6.3](packaging.md#63-install)), `Release` source updates, `safe_update` step for tiles, Go back, remove | Packaging and signing; Quick start gains `pack`; Permissions' user part (install, grants, Go back); the Settings reference's Extensions section; a short Extensions part in How it works for users |
+| 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish`. Exit condition: the threat model is written and an outside security review of the host and permission code is done, with its serious findings fixed, before Browse opens to the public ([5.5](permissions.md#55-threat-model-and-outside-review)); until then Browse stays limited to preview authors | Publishing and the Verified badge (with its user part: what Verified means, reporting); Quick start gains `publish`; the Settings reference gains Browse |
+| 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; in parallel with the other phases from phase 2 | examples on every page switch to the seed tiles' source as each one ships |
+| 6a. Native blocks and ports ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | Native building blocks (each block as it ships); How it works says which built-in tiles are now extensions, if users can see it |
+| On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …), alongside phase 6 | Platform services and Permissions gain a row for each service as it ships |
+| 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | Preview label removed; WIT reference 1.0 and one page per published WIT version; the deprecation policy on the overview |
+
+#### Phase 0 gates
+Phase 0 measures, and each measure has a line that says go on or
+change course. The numbers are proposed and the owner may adjust
+them (decided, [10.3](#103-decisions) item 15). Every gate is measured
+on macOS, Linux and Windows: release builds, default Wasmtime features
+off. The time gates are judged on an M-series Mac; Linux and Windows
+run on the CI runners Pitwall already uses (`.github/workflows/ci.yml`),
+their numbers are recorded, and one far off the Mac's is looked into
+before phase 1. The size gate holds on every platform.
+
+| Gate | Pass | On a miss |
+|---|---|---|
+| Release-binary growth | ≤ 10 MB per platform with Wasmtime's default features off ([10.3](#103-decisions) item 4); on macOS, for each architecture in the universal build | Turn off more features and measure again; then the Pulley interpreter (no Cranelift in the binary, slower tiles) or Winch, as decision 4 lists (S17). Not a different runtime |
+| Frame cost | A 2 000-node frame lifted through the canonical ABI plus the host's decode, diff and apply in ≤ 4 ms ([2.7](runtime.md#27-performance-budget)) | Guest-side patches move from WIT 0.2 into WIT 0.1 ([10.3](#103-decisions) item 7, [8.4](runtime.md#84-planned-evolutions-each-as-a-new-minor-or-major-world)); the tree limits ([2.5](runtime.md#25-sandbox-and-limits-summary-details-in-5)) may shrink |
+| Cold start | A hello tile compiled and instantiated with an empty cache in ≤ 300 ms ([2.6](runtime.md#26-compile-and-cache)) | Compile stays off the main thread at turn on and after updates, and the tile shows that it is starting; Winch, which is meant to compile faster than Cranelift (*unverified*), is measured as the compiler |
+| Warm start | The same tile loaded from the compile cache and instantiated in ≤ 50 ms | Loading is a memory map (S5), so a miss is looked into as a bug before anything changes in the design |
+| Stopping a runaway tile | A tile in an endless loop is stopped by epoch interruption within 100 ms of its deadline or of the user's Stop ([2.5](runtime.md#25-sandbox-and-limits-summary-details-in-5)) | A shorter epoch tick; then fuel for the check that misses (S4, slower); if neither, the helper process ([10.3](#103-decisions) item 1) moves forward, so a stuck tile can be ended as a process |
+
+A miss on one gate takes its fallback and is measured again. A miss on
+several, or a fallback that also misses, means the owner decides
+whether to go on, change course or stop before phase 1 starts.
 
 ### 10.3 Decisions
 Each was an open question with a recommendation; the owner accepted
@@ -337,7 +389,7 @@ every recommendation on 2026-11-26.
    Cranelift, the component model and part of WASI, so the real cost
    is somewhere between, and no size work has been done on Cranelift
    yet (S17). Decided (owner, 2026-11-26): measure in phase 0 with default features
-   off, and accept up to ~10 MB per platform; Winch (still in
+   off, and accept up to ~10 MB per platform (a gate, [Phase 0 gates](#phase-0-gates)); Winch (still in
    development) or the Pulley interpreter (S17) are fallbacks, not a
    different runtime.
 5. **Wasmtime releases.** A new major version ships every month; most
@@ -391,6 +443,39 @@ every recommendation on 2026-11-26.
 14. **Caller kind for tiles' `METHODS` calls** ([10.4](#104-what-gets-in-the-way-in-todays-code)): a new
     `tile(<id>)` or reuse `extension(<id>)`? Decided (owner, 2026-11-26): reuse
     `extension(<id>)`: one identity per extension.
+15. **Pass/fail gates for phase 0.** The spike measured things, but no
+    result said stop. Decided (owner, 2026-11-26): phase 0 has the
+    gates in [Phase 0 gates](#phase-0-gates): binary growth ≤ 10 MB per
+    platform, a 2 000-node frame in ≤ 4 ms, a hello tile's cold start
+    ≤ 300 ms and warm start ≤ 50 ms, a runaway tile stopped within
+    100 ms. Each miss takes the fallback this design already lists; a
+    miss on several means the owner decides whether to continue. The
+    numbers are proposed, and the owner may adjust them.
+16. **Sharing before packages.** Installing from a file used to arrive
+    only in phase 4, so SDK-preview authors had no way to pass a tile
+    to anyone. Decided (owner, 2026-11-26): phase 1 adds an unsigned
+    install from a folder, in Settings → Extensions and as `pitwall
+    tile install <dir or url>` ([6.3](packaging.md#63-install)). It is marked developer
+    preview, shows the permission screen with an "Unsigned, preview"
+    warning, and has no updates. Phase 4 adds the `.pwtile`, signatures
+    and updates on top of the same path.
+17. **Security review before the marketplace.** Decided (owner,
+    2026-11-26): a threat model is written ([5.5](permissions.md#55-threat-model-and-outside-review)) and an outside
+    security review of the host and permission code is done, with its
+    serious findings fixed, as an exit condition of phase 5. Browse
+    doesn't open to the public before that.
+18. **Platforms.** Pitwall runs on macOS, Linux and Windows (preview).
+    Decided (owner, 2026-11-26): phase 0 measures on all three (CI
+    runners are fine for Linux and Windows), and tiles target all three
+    from phase 1; one `tile.wasm` runs everywhere ([8.1](runtime.md#81-three-versions)), and the
+    host's tests run on all three in CI. What this design already knows
+    about Windows: Wasmtime's most recent sandbox escape was in WASI's
+    filesystem code on Windows (S1, [5.3](permissions.md#53-what-a-hostile-tile-can-still-do)); tiles get no folders through
+    WASI ([5.2](permissions.md#52-enforcement)), but Pitwall's own path checks for `files.*` must be
+    tested on Windows too. The compile cache's "mode 600 in a 700
+    folder" ([2.6](runtime.md#26-compile-and-cache)) has no direct Windows meaning and needs a
+    per-user equivalent there; and Wasmtime's per-OS trap handling is
+    *unverified in detail* ([2.2](runtime.md#22-crates-new)), so phase 0 checks it on each.
 
 ### 10.4 What gets in the way in today's code
 - `contributes` keys are checked against a fixed list; `tiles` must be
