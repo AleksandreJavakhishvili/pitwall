@@ -438,6 +438,7 @@ website: quick start (new, dev, see it), the element and component
 reference with screenshots in both themes and looks, host APIs and
 permissions, keyboard rules, testing, packaging and signing, publishing
 and Verified, compatibility. API docs on docs.rs for `pitwall-tile`.
+The pages, their paths and the phase that publishes each are in 9.6.
 
 ### 9.5 Docs for authors' agents
 Many authors will build an extension with a coding agent (Claude Code,
@@ -465,3 +466,110 @@ docs alone, without Pitwall's source:
   extension for an older world reads the matching reference.
 - Small: built with the SDK docs in phase 1 (about half a week), then
   kept current by the generator and the doc-comment test.
+
+### 9.6 Website docs
+**The rule.** A phase is done only when the public website docs match
+what it shipped. Each phase's pages are listed in the "Website docs"
+column of the phases table ([10.2](README.md#102-order-of-work)) and
+published or updated in the same pull requests as the features.
+
+**Where the pages go, by the site's conventions** [today,
+[website/README.md](../../../website/README.md)]:
+- The site is plain HTML pages bundled by Vite. Docs pages live at
+  `website/docs/<name>/index.html` and are served at `/docs/<name>/`.
+- Reference pages are written in Markdown in `docs/reference/<name>.md`.
+  A page holds a `<!-- markdown:<name> -->` marker that the build
+  replaces with the rendered Markdown (`SOURCES` and `ON_SITE` in
+  `website/scripts/pages.mjs`, rendered by `website/scripts/markdown.mjs`).
+- The docs sidebar is `DOCS_NAV` in `pages.mjs`, in three groups:
+  Start, Guide, Reference. The docs overview (`website/docs/index.html`)
+  has one card per page.
+
+Proposed: a fourth sidebar group, **Extensions**, with pages at
+`/docs/extensions/<page>/`. Their Markdown lives in
+`docs/reference/extensions/<page>.md` and is rendered the same way, so
+the pages read well on GitHub too. There is a card for the group on the
+docs overview.
+
+`markdown.mjs` handles a subset on purpose: headings, one-level lists,
+fenced code, tables, inline code, links, bold, emphasis and `<kbd>`.
+It has no images. The screenshots promised in [9.4](#94-docs) need images added
+to it, or the switch to `marked` that the file itself suggests; decide
+in phase 1.
+
+**The pages.**
+
+| Page | Path | For | Published in | Grows in |
+|---|---|---|---|---|
+| Extensions overview: the one extension model, what an extension can contain, how it is kept safe | `/docs/extensions/` | users and authors | 1 (Preview) | 7 (Preview removed, deprecation policy), 8 (adapters on their way out) |
+| Quick start: `pitwall tile new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`) | 4 (`pack`), 5 (`publish`) |
+| Tiles and UI components | `/docs/extensions/ui/` | authors | 1 (core elements) | 2 (all components) |
+| Native building blocks | `/docs/extensions/native-blocks/` | authors | 2 (code view, diff view) | 6a and on demand (each block) |
+| Agent tools, skill and commands | `/docs/extensions/agent-tools/` | authors; a part for users on what agents may do with a tile | 3 | on demand |
+| Permissions: what each grant means | `/docs/extensions/permissions/` | users and authors (written for users first) | 1 (first grants) | every phase that adds a grant |
+| Platform services | `/docs/extensions/platform-services/` | authors | 1 (`tasks`, `storage`, `settings`) | 2 (the minimum), on demand (one row per service) |
+| Servers in extensions | `/docs/extensions/servers/` | authors | 2 (tile plus managed service) | after 7 (headless wasm services) |
+| Packaging and signing | `/docs/extensions/packaging/` | authors; a part for users on install, update and Go back | 4 | 5 |
+| Publishing to the marketplace, and the Verified badge | `/docs/extensions/publishing/` | authors; a part for users on what Verified means and how to report | 5 | 7 |
+| WIT reference | `/docs/extensions/wit/`, one page per published version (`/docs/extensions/wit/0.2/`) | authors | 1 (WIT 0.1, generated) | each WIT release; 1.0 in 7 |
+| For coding agents: `llms.txt` and the authoring skill download | `/docs/extensions/for-agents/`; the files at `/sdk/llms.txt` and `/sdk/<version>/llms.txt` ([9.5](#95-docs-for-authors-agents)) | authors and their agents | 1 | each WIT release |
+| Migrating from adapters | `/docs/extensions/migrating/` | authors of today's extensions | 8 | 9 |
+
+Pages that exist today and change [today]:
+- **CLI reference** (`docs/reference/cli.md` → `/docs/cli/`): gains
+  `pitwall tile …` in the phase that ships each command (1, 3, 4, 5).
+  Today it doesn't document `pitwall extension …`.
+- **Settings reference** (`docs/reference/settings.md` →
+  `/docs/settings/`): its Extensions section describes adapters ("runs
+  an adapter per connection"). It gains install and update in phase 4
+  and Browse in 5, and its adapter wording is replaced in the release
+  that removes adapters (step 9).
+- **How it works** (`/docs/how-it-works/`, hand-written HTML): gains a
+  short part on extensions for users in phase 4, linking to the
+  Permissions page.
+
+**How the pages stay true.**
+- **Generated from the source.** The WIT reference and `llms.txt` are
+  generated in CI from the WIT doc comments ([9.5](#95-docs-for-authors-agents)), and a test fails
+  when a WIT item has no doc comment.
+- **Examples are compiled.** A page doesn't hold example code of its
+  own. It names a file and a marked region in a seed tile's source
+  (for example `// docs:start add-shape` … `// docs:end`), and the
+  docs build pulls the region in. CI builds the seed tiles for
+  `wasm32-wasip2` and fails when a named region is missing, so an
+  example can't drift from code that compiles. This needs an include
+  step in `pages.mjs` [new]. Until the seed tiles exist, examples come
+  from the template that `pitwall tile new` writes, which is built
+  in CI the same way.
+- **Links are checked.** Today CI builds the website
+  (`.github/workflows/ci.yml`, "Website build", and
+  `.github/workflows/pages.yml`) but nothing checks its links [today;
+  checked in both workflows and `website/package.json`]. Plan: add a
+  small link check over `website/dist` to that job in phase 1. Every
+  root-absolute link must name a built page, and every `#anchor` must
+  name an id on it.
+- **Preview until 1.0.** The site has no extension pages today [today:
+  `website/docs/` holds the overview, Quick start, How it works and
+  the CLI, Settings, Agent definitions and Detection references]. The
+  adapter author docs are in the repository (`docs/extensions/`), not
+  on the site. So nothing on the site needs a Preview mark now. The
+  new pages carry a "Preview" label until WIT 1.0 (phase 7). Pages and
+  wording about adapters (the repository's `docs/extensions/`, the
+  Settings reference) get a "being replaced" note in step 8 ([15.7](extension-model.md#157-effect-on-the-plan)). They are
+  replaced, with a link to Migrating from adapters, in the release
+  that removes adapters (step 9).
+
+**Release checklist.** This reuses CONTRIBUTING.md's rules [today]:
+- "Update the docs (`README.md`, `docs/spec/`) when you change what
+  users or the specs describe." Phase 1 extends this line to name
+  `docs/reference/` and the website's docs pages, so a feature and its
+  pages land in the same pull request.
+- `CHANGELOG.md` entries are generated from the commits by git-cliff
+  and never edited by hand; only the "Highlights" block under
+  `## Unreleased` is written by hand. So the changelog comes from the
+  feature's own Conventional Commit, and the release pull request adds
+  the highlight.
+- `ROADMAP.md` is already updated "in the same pull request" when an
+  item moves; the extension items follow that.
+- A release that ships a phase isn't cut while that phase's
+  "Website docs" cell is unfinished.

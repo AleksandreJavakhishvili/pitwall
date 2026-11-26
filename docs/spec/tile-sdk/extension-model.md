@@ -180,6 +180,10 @@ only tiles; a component that contributes anything above stays.
   component version: the protocol, the hub, the manifest key, the CLI
   parts, the docs. User-visible effect: one update of each bundled extension, with
   settings, secrets and connections carried over.
+- Website docs ([9.6](authoring.md#96-website-docs)): step 8 publishes Migrating from
+  adapters and updates the Extensions overview; step 9 replaces the
+  adapter pages and the adapter wording in the Settings reference, in
+  the release that removes adapters.
 
 ### 15.8 Open questions (each with a recommendation)
 1. **One model, components as the only code runtime?** *Recommend
