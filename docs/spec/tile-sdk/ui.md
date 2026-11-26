@@ -201,8 +201,8 @@ These facts come from the code [today: `main_screen/topbar.rs`,
   5. The right group: the Search field (⌘K), the live counts (working,
      done, needs you), then icon buttons for the Race Engineer,
      Review (⌘R), Wall (⌘E) and Settings (gear). (A Details button
-     (⌘.) followed; it goes with the right panel, removed by the owner
-     on 2026-11-26.)
+     (⌘.) followed; it goes with the right Details panel, removed by
+     the owner on 2026-11-26.)
   6. The icon buttons are `kit::icon_btn`: 28 px, with a 16 px icon,
      muted, and a tooltip.
 - **Width classes** (`Breakpoint`): "compact" means narrower than

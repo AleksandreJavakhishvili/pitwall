@@ -26,9 +26,8 @@ many.
 **Decision** (owner, 2026-11-26).
 1. The component becomes **the** way an extension runs its own code,
    with or without a tile. A headless component can do everything an
-   adapter does: feed inbox questions, badges and notifications,
-   answer agent tools and commands. (Adapters could also put text in
-   Next up, which the owner removed from Pitwall on 2026-11-26.)
+   adapter does: feed inbox questions, badges and notifications, put
+   text in Next up, answer agent tools and commands.
 2. **Adapters are removed** in the release that ships the component
    runtime: the adapter process protocol (protocols 1 and 2, JSON over
    stdio) goes, with no compatibility period. Pitwall is 0.x and the
@@ -66,7 +65,7 @@ flowchart TB
   C --> C1["Tiles (views)"]
   C --> C2["Agent tools and commands"]
   C --> C3["Badges, notifications,<br/>floating-control questions, inbox"]
-  C --> C4["Reads, by grant"]
+  C --> C4["Next up, reads, by grant"]
   S --> S1["Managed native program<br/>'Runs a program on your computer'"]
   S --> S2["Wasm service<br/>(own host process)"]
 ```
@@ -94,7 +93,7 @@ the extensions bundled with Pitwall use them.
 | Right-panel sections | None: the right Details panel was removed from Pitwall (owner, 2026-11-26). What a section showed goes in the extension's tile or its toolbar popover ([3.9](ui.md#39-toolbar-items)) | not needed |
 | Commands | Commands ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | [11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette) |
 | Badges and notes, notifications | `contrib.badges`, `notify` | [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12) |
-| Method calls and events (`agents.read`, `agents.focus`, …; `queue.add` went with Next up) | `pitwall` interface | [3.8](runtime.md#38-host-apis), [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12) |
+| Method calls and events (`agents.read`, `queue.add`, …) | `pitwall` interface | [3.8](runtime.md#38-host-apis), [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12) |
 | Long-lived connections to a service (WebSocket, server-sent events) | Server-sent events work over a streamed `net` response; WebSocket needs a host `ws` interface (whether `wasi:http` covers WebSocket upgrades is *unverified*; assumed not) | **new: to build** |
 | Background work while no tile shows anything | Headless components ([15.5](#155-headless-components)) | **new: to build** |
 | Talks to its local service | The automatic loopback grant ([13.2](services.md#132-a-a-tile-plus-a-managed-service)) | [13.2](services.md#132-a-a-tile-plus-a-managed-service) |

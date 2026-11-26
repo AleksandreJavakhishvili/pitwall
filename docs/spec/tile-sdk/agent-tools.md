@@ -361,8 +361,7 @@ tools in phase 3.
    Decided (owner, 2026-11-26): no: existing agents and docs use the current names.
 5. **Agents calling `act` without the user present.** Decided (owner, 2026-11-26): no
    "always allow" across projects, and none for `act` tools whose
-   tile holds a `git.remote` grant (asks every time). The
-   `agents.queue` case went with Next up, which the owner removed from Pitwall on 2026-11-26.
+   tile holds `git.remote` or `agents.queue` grants (asks every time).
 6. **Skill scope default.** Decided (owner, 2026-11-26): offered on install for the
    project the user is in, unticked for the others; never all projects
    silently.

@@ -14,7 +14,7 @@ runs its own code, and the adapter process described here is removed
 once each bundled extension has a component version, ported by Pitwall
 or built by its authors on the public SDK.
 
-*Removed (owner, 2026-11-26): Next up and the right Details panel are being removed from Pitwall, with the queue, Auto-send, Last sent, `queue.add`/`queue.send`, the `agents.queue` permission and right-panel sections. Text below that describes them is kept as history until the code removal lands.*
+*Removed (owner, 2026-11-26): the right Details panel, with its right-panel sections. Next up stays (the queue, Auto-send, `queue.add`, `agents.queue` with origin marks); its UI moves from the panel to a "N queued" chip on the agent's terminal tile, which opens a popover with the list, Send now / Remove and Auto-send. There is no compose box ("queue a prompt…") any more. Text below that places things in the right panel is kept as history.*
 
 Marks used below: **[today]** is built and described in extensions.md or
 profiles.md; **[proposed]** is new here.
@@ -337,7 +337,7 @@ minute per extension (more are dropped and counted in its log); a
 replaces rather than repeats.
 
 ### 6. Right-panel sections [built, phase 5]
-*Removed with the right panel (owner, 2026-11-26).*
+*Removed with the right Details panel (owner, 2026-11-26). Next up stays, as a chip and popover on the agent's terminal tile.*
 Manifest: `"panels": [{"id","title","view"}]`. A folded section in the
 right panel (with Next up, Changes, Last sent [today]) for the focused
 agent. Needs `agents.read`. Pitwall sends `{"type":"show","view":"runs-for-agent","agentId":"a1"}`
@@ -473,7 +473,6 @@ permission an extension needs. No second API to drift.
 `extension(<id>)`, so approvals name it ("CI status wants to…").
 
 ### Permissions
-*`agents.queue` and `queue.add` are removed with Next up (owner, 2026-11-26).*
 
 | Permission | Methods / events | Risk |
 |---|---|---|

@@ -57,7 +57,7 @@ to fetch whole for a long time, as Obsidian's
  "extensions":[{"id":"ci-status","name":"CI status","author":"octo","verified":false,
    "description":"GitHub Actions runs for your agents' branches","icon":"check",
    "categories":["ci"],"license":"MIT","repository":"https://github.com/octo/pitwall-ci-status",
-   "permissions":{"net":["api.github.com"],"agents.read":true},
+   "permissions":{"net":["api.github.com"],"agents.read":true,"agents.queue":true},
    "screens":["screens/ci-status/1c…e2.webp"],"keys":["RWQ…k3"],
    "versions":[{"version":"1.0.0","url":"…","sha256":"9b1e…","pitwall":">=0.14.0",
                 "world":"pitwall:tile@0.1.0","size":812345,"date":"2026-11-20"}]}]}
@@ -100,7 +100,7 @@ A badge meaning "a Pitwall maintainer read this version's source and
 it does what it says". Per version, not per author:
 - reproducible build (same wasm from the tagged source);
 - source read for the permissions it uses: hosts contacted, files
-  touched, agents read;
+  touched, text queued to agents;
 - each reason accurate; no obfuscated code or bundled binaries;
 - an update that changes no permission, host or key keeps the badge
   after an automated check plus a diff glance; one that does goes back
@@ -117,7 +117,7 @@ S13) applied only to Verified, so listing stays cheap.
   default) and "Works with this Pitwall".
 - **Cards**: icon, name, author, one line, Verified badge, the
   permission summary in words ("Connects to api.github.com · Reads your
-  agents"), Install / Installed / Update.
+  agents · Can queue text to agents"), Install / Installed / Update.
 - **Detail page**: screenshots (from `dist/screens/`, hashed), README
   through the inert Markdown renderer [today], permissions with
   reasons and risk notes, versions with dates and changelog, licence,
