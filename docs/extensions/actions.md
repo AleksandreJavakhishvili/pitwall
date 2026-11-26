@@ -59,8 +59,9 @@ says why:
 {"type":"call","id":"c4","method":"queue.add","params":{"agentId":"a1","text":"Re-run the failing test and fix it"}}
 ```
 
-The text goes to the end of the agent's **Next up**, drawn in its own
-colour with "From <name>". It waits there until the user presses Send.
+The text goes to the end of the agent's **Next up** (the "N queued" chip
+on its tile opens it), drawn in its own colour with "From <name>". It
+waits there until the user presses Send.
 
 - **Auto-send skips it.** The user can turn on "Send what <name> queues
   without asking" in its card, under the permission. It starts off and
@@ -133,8 +134,7 @@ are pressed, as the extension, through the same check:
   agent's name. With `agents.focus` granted, clicking it focuses the
   agent.
 - `"open": {"file", "line", "agentId"}` or `"open": {"url", "agentId"}`
-  needs `show`. Without an `agentId` it opens beside the item's agent,
-  or, in a right-panel section, beside the section's agent.
+  needs `show`. Without an `agentId` it opens beside the item's agent.
 - `"focus": "<agent id>"` needs `agents.focus`.
 - `"needs": "<permission>"` marks a button the adapter acts on with a
   permission (here, queueing). The adapter is told as usual.

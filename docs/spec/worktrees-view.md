@@ -93,7 +93,7 @@ drive the UI; no provider/kind special cases.
   `terminal` = the project's machine can start terminals.
 - UI: sidebar chip "N worktrees" under the agent row and "N other
   worktrees" per project, rows show branch, +/−, locked; right-click: Review,
-  Open terminal here, Remove worktree…. Changes panel: the same chip. Review:
+  Open terminal here, Remove worktree…. Review:
   worktrees nested under their agent and "Other worktrees · project";
   selecting one shows its files and diff (no task scope, no comments),
   with Open terminal / Remove worktree… / Commit (& merge) in the footer.

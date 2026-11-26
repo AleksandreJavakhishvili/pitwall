@@ -16,7 +16,8 @@ file tree and the Diff view header.
   Pitwall rule that colour carries meaning), right-aligned with +/− counts.
 - **Folder grouping**: Review shows a collapsible tree (compact folders like
   VS Code: `src/components/review` on one row when single-child); the
-  right panel keeps a flat list with dimmed directory + bold file name.
+  right panel kept a flat list with dimmed directory + bold file name
+  (the right panel was removed on 2026-11-26).
 - **Diff header**: icon + file name + dimmed path + status letter + +/−.
 - Keyboard: ↑/↓ moves through files in Review, Enter opens.
 - Backend may need to report deleted/renamed status: if `FileChange` lacks it,
