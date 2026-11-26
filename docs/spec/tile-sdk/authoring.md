@@ -394,9 +394,9 @@ fn shows_a_failed_run() {
 ### 9.1 Commands (`pitwall tile …`)
 | Command | Does |
 |---|---|
-| `new <id> [--template list|ci|canvas|form|blank]` | A Cargo project: `Cargo.toml` (`crate-type = ["cdylib"]`, `pitwall-tile`), `extension.json`, `src/lib.rs`, `tests/`, `README.md`, `.github/workflows/release.yml` (build, test, pack, sign with a repository secret, attach to the release) |
+| `new <id> [--template list\|ci\|canvas\|form\|blank]` | A Cargo project: `Cargo.toml` (`crate-type = ["cdylib"]`, `pitwall-tile`), `extension.json`, `src/lib.rs`, `tests/`, `README.md`, `.github/workflows/release.yml` (build, test, pack, sign with a repository secret, attach to the release) |
 | `dev [folder]` | Builds with `cargo build --release --target wasm32-wasip2` on every save, loads the folder into the running Pitwall as a Development extension (`devPath` [today]), reloads the tile after each build keeping its state (`save-state` → new instance → `init`), and streams its Log to the terminal |
-| `check [folder|file]` | Manifest, limits, imports, world, reserved keys, permissions and reasons, package rules; offline |
+| `check [folder\|file]` | Manifest, limits, imports, world, reserved keys, permissions and reasons, package rules; offline |
 | `test [folder]` | `cargo test` with the harness, plus a smoke run (init, render, no traps) |
 | `install <dir or url>` | Installs an unsigned folder (or one served over HTTPS) as a developer preview, with the permission screen and an "Unsigned, preview" warning, so authors on the SDK preview can share tiles before packages exist (phase 1, [6.3](packaging.md#63-install)) |
 | `pack [folder]` | A deterministic `.pwtile` (sorted entries, fixed times) and its SHA-256 |
