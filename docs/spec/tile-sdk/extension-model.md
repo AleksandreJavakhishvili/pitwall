@@ -167,10 +167,13 @@ only tiles; a component that contributes anything above stays.
   and the floating control stay native.
 
 ### 15.7 Effect on the plan
-- Names: the crate `pitwall-tile` and the CLI's `pitwall tile …` would
-  become `pitwall-extension` and `pitwall extension …` (the CLI already
-  has `pitwall extension check|test|new` [today]), before anything is
-  published.
+- Names (decision 2): the published crates are `pitwall-extension`
+  and `pitwall-extension-test`, and every author command is a
+  subcommand of `pitwall extension …`, which already has `check`,
+  `test` and `new` [today]; those gain component support rather than
+  a second command family. Tiles stay the main thing an extension
+  contributes, so the UI words (tile, `TileView`, `tile.wasm`,
+  `.pwtile`) and the internal `pitwall-tile-host` crate keep "tile".
 - Two new steps after phase 7:
   **8. Port or hand over the bundled extensions** (Pitwall's work,
   less for each one its authors build): component
@@ -188,9 +191,11 @@ only tiles; a component that contributes anything above stays.
 ### 15.8 Decisions
 1. **One model, components as the only code runtime?** Decided (owner, 2026-11-26):
    yes, as described in [15.1](#151-one-concept-not-two).
-2. **Rename `pitwall-tile` and `pitwall tile …` now?** Decided (owner, 2026-11-26): yes,
-   before the first publish: renaming a published crate later costs
-   every author.
+2. **One name for the crate and the CLI?** Decided (owner, 2026-11-26): yes,
+   before the first publish, since renaming a published crate later
+   costs every author: the crate `pitwall-tile` became
+   `pitwall-extension`, and `pitwall tile …` became
+   `pitwall extension …`. Tiles remain the headline feature.
 3. **When do adapters go?** No compatibility period (decided
    earlier). Decided (owner, 2026-11-26): they are removed in the first release after
    every bundled extension has a published component version, whoever

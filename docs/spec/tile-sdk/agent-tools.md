@@ -35,7 +35,7 @@ anything it may do on its own (timers, its own storage).
 
 ### 11.3 Declaring tools
 In the manifest, under each tile, generated from the code by
-`pitwall tile pack` ([4.1](authoring.md#41-shape)):
+`pitwall extension pack` ([4.1](authoring.md#41-shape)):
 ```json
 "tools": [{ "name": "show_diagram", "kind": "present",
             "description": "…", "input": { "type": "object", … }, "output": { … } }]
@@ -100,8 +100,8 @@ events.
   because some agents accept only letters, digits, `_` and `-` in tool
   names (*unverified across all agents Pitwall starts; phase 3 checks
   each*). Pitwall's own tools keep their names (`show_web`, …).
-- **CLI.** `pitwall tile tools [<id>]` lists them;
-  `pitwall tile call <id> <tool> --json '{…}'` (or `--json -` from
+- **CLI.** `pitwall extension tools [<id>]` lists them;
+  `pitwall extension call <id> <tool> --json '{…}'` (or `--json -` from
   stdin) calls one, through the same daemon method (`tile.call`) as
   MCP. For agents that prefer shell commands.
 - **Who may call.** The daemon identifies the caller from the
@@ -163,7 +163,7 @@ separate from the tile's own permissions:
   SDK's `Presented<T>` restores the value before that call (or removes
   the item if the call created it). The user's own edits are
   `edit_by_user` and carry no mark. A tile that doesn't use
-  `Presented<T>` must handle `undo-present` itself; `pitwall tile check`
+  `Presented<T>` must handle `undo-present` itself; `pitwall extension check`
   warns when a `present` tool exists and the tile never handles it.
 - The tile reports user edits to agents only through `read`.
 
@@ -269,7 +269,7 @@ library as a read-only entry of a new source kind, `ext:<id>`
 
 **Limits.** Text only: one `SKILL.md`, ≤ 16 KiB, no other files (no
 scripts, no references), no per-tool sections that run anything
-(`pitwall tile check` refuses them). Its `name` is forced to the
+(`pitwall extension check` refuses them). Its `name` is forced to the
 extension's id so it can't shadow another skill.
 
 **Prompt injection, honestly.** A skill is instructions to the user's
@@ -291,7 +291,7 @@ a skill the user accepted, any more than in a README it reads.
 
 ### 11.12 Commands for the shell and the palette
 "Scripts" in the sense of named things a user or an agent can run from
-a shell: `pitwall tile run <tile> <command> [args]`. They are **calls
+a shell: `pitwall extension run <tile> <command> [args]`. They are **calls
 into the tile's wasm**, the same machinery as tools, not native
 programs.
 
@@ -314,10 +314,10 @@ trust level ("Runs a program on your computer").
 
 **Running.**
 ```
-pitwall tile run diagrams export_svg --item auth-flow --path docs/auth.svg
-pitwall tile run diagrams current_diagram --json '{"item":"auth-flow"}' > flow.json
-echo '{"mermaid":"flowchart LR; A-->B"}' | pitwall tile run diagrams show_diagram --json -
-pitwall tile commands [diagrams]        # what each tile offers, with their arguments
+pitwall extension run diagrams export_svg --item auth-flow --path docs/auth.svg
+pitwall extension run diagrams current_diagram --json '{"item":"auth-flow"}' > flow.json
+echo '{"mermaid":"flowchart LR; A-->B"}' | pitwall extension run diagrams show_diagram --json -
+pitwall extension commands [diagrams]        # what each tile offers, with their arguments
 ```
 - Arguments: `--<property> <value>` for each top-level property of the
   input schema, or `--json <text|->` for the whole input.

@@ -140,7 +140,7 @@ older frame that no longer exists is dropped by the SDK.
 - A tile gets keys only while it has focus, as every tile [today].
   Pitwall's own bindings always win: the palette, ⌘⏎, ⌘W, space
   switching, ⌘1–9, Esc to leave a maximised tile. The reserved set is
-  listed in the SDK docs and checked by `pitwall tile check`.
+  listed in the SDK docs and checked by `pitwall extension check`.
 - A tile declares its keys in `keymap` (for example `j`, `k`, `enter`,
   `cmd-r`, `/`). The host turns them into a GPUI key context named
   `tile:<id>` with those bindings; a fired binding becomes a `key`
