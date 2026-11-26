@@ -183,9 +183,6 @@ pub(super) fn remote_details(a: &AgentView, t: &Theme) -> AnyElement {
     if a.added + a.removed > 0 {
         d = d.child(row("Changes", format!("+{} −{} in {} files", a.added, a.removed, a.files_changed)));
     }
-    if let Some(s) = &a.last_sent {
-        d = d.child(row("Last sent", s.clone()));
-    }
     d.child(
         div()
             .pt(px(8.))

@@ -113,39 +113,6 @@ pub fn sync(cx: &mut App) {
     }
 }
 
-/// The extensions that may have text waiting in Next up: on, and granted
-/// `agents.queue` now.
-pub fn queuers(cx: &App) -> Vec<String> {
-    let ui = crate::ui_state::get(cx);
-    super::enabled(&super::found(cx), &ui).into_iter().filter(|m| effective(m, &ui.extension(&m.id).grants).iter().any(|g| g == permissions::AGENTS_QUEUE)).map(|m| m.id).collect()
-}
-
-/// The extensions whose text Auto-send may send: those of [`queuers`] the
-/// user lets send without asking (off unless turned on, per extension).
-pub fn auto_senders(cx: &App) -> Vec<String> {
-    let ui = crate::ui_state::get(cx);
-    queuers(cx).into_iter().filter(|id| ui.extension(id).send_without_asking.as_ref().is_some_and(|d| d.granted)).collect()
-}
-
-/// The engine follows: Auto-send sends only [`auto_senders`]' text, and
-/// the text of an extension turned off or no longer granted
-/// `agents.queue` leaves Next up (never sent).
-pub fn sync_queue(engine: &pitwall_core::Engine, cx: &App) {
-    engine.set_auto_senders(auto_senders(cx));
-    engine.queue_keep_origins(&queuers(cx));
-}
-
-/// Let extension `id` send what it queues without asking (`on`), or not:
-/// logged in its activity.
-pub fn set_send_without_asking(id: &str, on: bool, cx: &mut App) {
-    let key = id.to_string();
-    crate::ui_state::update(cx, |s| {
-        *s = s.clone().with_extension(&key, |e| e.send_without_asking = on.then(|| permissions::Decision::now(true)));
-    });
-    let word = if on { "send without asking: turned on by you" } else { "send without asking: turned off by you" };
-    activity(id, cx).lock().unwrap_or_else(|e| e.into_inner()).push(Entry::now(Via::Pitwall, word, Outcome::Ok));
-}
-
 /// Grant or refuse permission `name` of extension `id` now, dated today
 /// (a revoke applies to its next call).
 pub fn decide(id: &str, name: &str, granted: bool, cx: &mut App) {

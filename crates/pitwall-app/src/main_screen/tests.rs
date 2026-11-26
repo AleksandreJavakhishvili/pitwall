@@ -280,7 +280,7 @@ fn breakpoints_follow_the_react_ones() {
     assert_eq!(Breakpoint::of(1200.), Breakpoint::Md);
     assert_eq!(Breakpoint::of(800.), Breakpoint::Sm);
     assert_eq!(Breakpoint::of(500.), Breakpoint::Xs);
-    assert!(Breakpoint::Md.full_sidebar() && !Breakpoint::Md.right_docked());
+    assert!(Breakpoint::Md.full_sidebar() && !Breakpoint::Sm.full_sidebar());
     assert_eq!(Breakpoint::Lg.max_per_row(), 3);
 }
 
@@ -294,7 +294,6 @@ fn every_shortcut_has_a_binding() {
         &NewTerminalAt,
         &JumpNextBlocked,
         &ToggleSidebar,
-        &ToggleDetails,
         &ToggleWall,
         &ToggleReview,
         &ToggleMaximize,
@@ -314,9 +313,22 @@ fn every_shortcut_has_a_binding() {
     }
 }
 
+/// The details panel is gone, and its shortcuts with it: ⌘. (Ctrl+Shift+.
+/// and Ctrl+> elsewhere) is bound to nothing, not handed to another action.
+#[test]
+fn the_details_shortcut_is_free() {
+    let period = |s: &gpui::KeybindingKeystroke| {
+        let m = s.modifiers();
+        (s.key() == "." && (m.platform || m.control)) || (s.key() == ">" && m.control)
+    };
+    let mut all = bindings();
+    all.extend(crate::kit::input::bindings());
+    assert!(all.iter().all(|k| !k.keystrokes().iter().any(period)));
+}
+
 /// The hover pass (main screen): the pointer visits every hoverable
 /// element (sidebar rows, the empty-project row, project heads, tabs, top
-/// bar, pane headers and their buttons, chips, the right panel, the strip)
+/// bar, pane headers and their buttons, chips, the strip)
 /// and nothing moves or changes size while it is over one; then the same
 /// with the agent menu open.
 #[gpui::test]
@@ -1055,8 +1067,8 @@ fn new_agent_takes_a_typed_name_flat_and_on_glass(cx: &mut TestAppContext) {
 }
 
 /// ⌘↵ (Ctrl+Shift+↵ elsewhere) maximises the focused tile, but a text
-/// field with the keys keeps its own ⌘↵ (send: the inbox's reply, the
-/// Next up queue box, a review comment, a commit message…), with the
+/// field with the keys keeps its own ⌘↵ (send: the inbox's reply, a
+/// review comment, a commit message…), with the
 /// bindings registered in the app's order (the fields' first).
 #[test]
 fn command_enter_sends_in_a_field_and_maximises_elsewhere() {
@@ -1068,7 +1080,7 @@ fn command_enter_sends_in_a_field_and_maximises_elsewhere() {
     let key = gpui::Keystroke::parse_with_os(if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-shift-enter" }, os).unwrap();
     let ctx = |names: &[&str]| names.iter().map(|n| gpui::KeyContext::parse(n).unwrap()).collect::<Vec<_>>();
     let first = |stack: &[gpui::KeyContext]| keymap.bindings_for_input(std::slice::from_ref(&key), stack).0.first().map(|b| b.action().name());
-    // In a field of the main screen (a tile's, the right panel's).
+    // In a field of the main screen (a tile's).
     // (Off macOS fields send with Ctrl+↵, a key of their own.)
     let in_field = if cfg!(target_os = "macos") { crate::kit::input::Submit.name() } else { ToggleMaximize.name() };
     assert_eq!(first(&ctx(&["MainView", "MainScreen", "InboxTile", "PwTextInput"])), Some(in_field));

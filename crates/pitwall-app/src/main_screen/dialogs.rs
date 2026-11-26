@@ -1,6 +1,6 @@
 //! The main screen's dialogs (React `Modal.tsx`, `NewAgentDialog.tsx`,
-//! `CreateFormFields.tsx`, `TerminalDialog.tsx`, `RemoveDialog.tsx`,
-//! `DiffView.tsx`): one modal at a time over a backdrop; Esc or a click on
+//! `CreateFormFields.tsx`, `TerminalDialog.tsx`, `RemoveDialog.tsx`): one
+//! modal at a time over a backdrop; Esc or a click on
 //! the backdrop closes; Tab moves between fields; ⏎ submits.
 
 use crate::kit::Ellipsis as _;
@@ -16,16 +16,15 @@ use gpui::{
 };
 
 use pitwall_core::model::{CreateAgentRequest, KindView};
-use pitwall_core::vcs::git::FileChange;
 use pitwall_core::Shared;
 use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines};
 
 use crate::kit::pop;
 use crate::kit::{icon, MONO_FONT};
-use super::model::{name_problem, split_path, suggest_name};
+use super::model::{name_problem, suggest_name};
 use crate::kit::{InputEvent, TextInput};
 use crate::kit::{
-    button, check, chip_subtle, diffstat, icon_btn, kbd_on_primary, label, small_btn, BtnKind,
+    button, check, kbd_on_primary, label, small_btn, BtnKind,
 };
 use super::MainScreen;
 use crate::theme::{self, Theme, RADIUS};
@@ -2741,7 +2740,6 @@ impl MainScreen {
             let view: Option<gpui::AnyView> = match &self.modal {
                 Some(super::Modal::NewAgent(d)) => Some(d.clone().into()),
                 Some(super::Modal::Terminal(d)) => Some(d.clone().into()),
-                Some(super::Modal::Diff(d)) => Some(d.clone().into()),
                 Some(super::Modal::ProjectAccounts(d)) => Some(d.clone().into()),
                 _ => None,
             };
@@ -2752,11 +2750,7 @@ impl MainScreen {
                 });
                 let build: pop::Build = std::rc::Rc::new(move |_: &mut Window, _: &mut App| view.clone().into_any_element());
                 let backdrop = crate::kit::modal::backdrop("modal", self.modal_focus.clone(), on_close, window, cx, build);
-                let rows = match (&self.modal, self.diff_shown.clone()) {
-                    (Some(super::Modal::Diff(_)), Some(shown)) => self.diff_row_targets(shown, t, cx),
-                    _ => vec![],
-                };
-                return Some(div().absolute().inset_0().child(backdrop).children(rows).into_any_element());
+                return Some(div().absolute().inset_0().child(backdrop).into_any_element());
             }
         }
         match &self.modal {
@@ -2775,20 +2769,6 @@ impl MainScreen {
                     .child(d.clone())
                     .into_any_element(),
             ),
-            Some(super::Modal::Diff(d)) => {
-                let shown = {
-                    let (agent, path, stage) = d.read(cx).shows();
-                    (agent.to_string(), path.to_string(), stage)
-                };
-                Some(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .child(d.clone())
-                        .children(self.diff_row_targets(shown, t, cx))
-                        .into_any_element(),
-                )
-            }
             Some(super::Modal::ProjectAccounts(d)) => Some(div().absolute().inset_0().child(d.clone()).into_any_element()),
             Some(super::Modal::Remove(_)) => self.render_remove(t, window, cx),
             Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, window, cx),
@@ -2905,274 +2885,6 @@ fn remove_body(a: &AgentView, wt: bool, busy: bool, t: &Theme, this: &gpui::Weak
                     ),
             )
             .into_any_element()
-    }
-}
-
-impl super::MainScreen {
-    /// The Changes list's rows, live over an open diff's backdrop: hover and
-    /// a pointer as on the list, and one click shows that file (the open
-    /// one: closes it).
-    fn diff_row_targets(
-        &self,
-        shown: (String, String, Option<pitwall_core::engine::changes::Stage>),
-        t: &Theme,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        // (Rows last drawn in a panel that has since closed: none.)
-        let live = self.route == super::Route::Space && (self.right_pinned || self.drawer_open);
-        let focused = self.focused_agent_id();
-        let hover = t.text.opacity(0.08);
-        self.file_rows
-            .borrow()
-            .iter()
-            .enumerate()
-            .filter(|_| live)
-            .filter(|(_, (_, a, _))| focused.as_deref() == Some(a.id.as_str()))
-            .map(|(i, (b, a, f))| {
-                let same = shown == (a.id.clone(), f.path.clone(), super::panel::stage_of(f));
-                let (agent, file) = (a.clone(), f.clone());
-                anchored()
-                    .position_mode(gpui::AnchoredPositionMode::Window)
-                    .position(b.origin)
-                    .child(
-                        div()
-                            .id(("diff-row-target", i))
-                            .debug_selector(move || format!("diff-row-target-{i}"))
-                            .occlude()
-                            .w(b.size.width)
-                            .h(b.size.height)
-                            .rounded(crate::theme::RADIUS_SM)
-                            .cursor_pointer()
-                            .hover(move |s| s.bg(hover))
-                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation()
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.close_modal(window, cx);
-                                if !same {
-                                    this.open_diff(agent.clone(), file.clone(), window, cx);
-                                }
-                            })),
-                    )
-                    .into_any_element()
-            })
-            .collect()
-    }
-}
-
-// ── Diff of one file ──────────────────────────────────────────────────────
-
-pub struct DiffDialog {
-    agent: AgentView,
-    file: FileChange,
-    /// Review's code view, inline (`Layout::Unified`): highlighting, find,
-    /// selection.
-    code: Entity<crate::code_view::CodeView>,
-    state: DiffState,
-    _load: Task<()>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum DiffState {
-    Loading,
-    Shown,
-    Binary,
-    Empty,
-    Error(String),
-}
-
-impl EventEmitter<DialogEvent> for DiffDialog {}
-
-impl DiffDialog {
-    pub fn new(
-        engine: Option<Shared>,
-        agent: AgentView,
-        file: FileChange,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> DiffDialog {
-        let code = cx.new(|cx| {
-            let mut c = crate::code_view::CodeView::new(cx);
-            c.set_layout(crate::code_view::Layout::Unified, cx);
-            c.set_escape_passes(true);
-            c
-        });
-        let (id, path) = (agent.id.clone(), file.path.clone());
-        // A staged or not-staged row: that part's diff.
-        let stage = super::panel::stage_of(&file);
-        let task = cx.background_executor().spawn(async move {
-            match engine {
-                Some(e) => pitwall_core::engine::changes::file_part_versions(&e, &id, &path, stage),
-                None => Err("no engine".into()),
-            }
-        });
-        let load = cx.spawn_in(window, async move |this, cx| {
-            let res = task.await;
-            let _ = this.update(cx, |d, cx| match res {
-                Ok(v) if v.binary => {
-                    d.state = DiffState::Binary;
-                    cx.notify();
-                }
-                Ok(v) => d.set_versions(v.original, v.modified, cx),
-                Err(e) => {
-                    d.state = DiffState::Error(e);
-                    cx.notify();
-                }
-            });
-        });
-        window.focus(&code.focus_handle(cx), cx);
-        DiffDialog {
-            agent,
-            file,
-            code,
-            state: DiffState::Loading,
-            _load: load,
-        }
-    }
-
-    /// The agent and file it shows, and which part of it.
-    pub fn shows(&self) -> (&str, &str, Option<pitwall_core::engine::changes::Stage>) {
-        (&self.agent.id, &self.file.path, super::panel::stage_of(&self.file))
-    }
-
-    /// Demo only: a review comment on line `line` (0-based) of the new
-    /// file, to look at its hover.
-    #[doc(hidden)]
-    pub fn demo_comment(&mut self, line: usize, text: &str, cx: &mut Context<Self>) {
-        self.code.update(cx, |c, cx| {
-            c.set_commentable(true, cx);
-            c.set_comments([(line, text.to_string())], cx);
-        });
-    }
-
-    /// Show these two versions of the file (`None`: it isn't there).
-    pub fn set_versions(
-        &mut self,
-        old: Option<String>,
-        new: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
-        if old.is_none() && new.is_none() {
-            self.state = DiffState::Empty;
-        } else {
-            self.state = DiffState::Shown;
-            let path = self.file.path.clone();
-            self.code.update(cx, |c, cx| {
-                c.set_diff(&path, old.unwrap_or_default(), new.unwrap_or_default(), cx)
-            });
-        }
-        self._load = Task::ready(());
-        cx.notify();
-    }
-}
-
-impl Render for DiffDialog {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = dialog_theme(window, cx);
-        let (dir, base) = split_path(&self.file.path);
-        let status = crate::kit::file_status(&self.file);
-        // (In a pop-up: of the window it is over.)
-        let viewport = pop::modal_viewport(window).unwrap_or_else(|| window.viewport_size());
-        let height = (f32::from(viewport.height) * 0.88).min(1000.);
-        let head = div()
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .pl(px(16.))
-            .pr(px(10.))
-            .py(px(10.))
-            .border_b_1()
-            .border_color(t.line)
-            .bg(t.surface)
-            .child(crate::kit::file_icon(&self.file.path, 16.))
-            .child(
-                div()
-                    .min_w_0()
-                    .ellipsis()
-                    .flex()
-                    .font_family(MONO_FONT)
-                    .text_size(px(13.))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(base.to_string()),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_color(t.text_3)
-                            .child(crate::kit::one_line(format!(" {}", dir.trim_end_matches('/')))),
-                    ),
-            )
-            .child(crate::kit::status_letter(status, &t))
-            .when_some(super::panel::stage_of(&self.file), |d, s| {
-                d.child(chip_subtle(
-                    match s {
-                        pitwall_core::engine::changes::Stage::Staged => "staged",
-                        pitwall_core::engine::changes::Stage::Unstaged => "not staged",
-                    },
-                    &t,
-                ))
-            })
-            .child(if self.file.binary {
-                chip_subtle("bin", &t).into_any_element()
-            } else {
-                diffstat(self.file.added, self.file.removed, &t).into_any_element()
-            })
-            .child(div().flex_1())
-            .child(label(self.agent.name.clone(), t.text_3, 12.))
-            .child(hint("esc to close", &t))
-            .child(
-                icon_btn("diff-close", "x", "Close", false, &t)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Close))),
-            );
-
-        let content: AnyElement = match &self.state {
-            DiffState::Error(e) => div()
-                .p(px(16.))
-                .text_size(px(12.))
-                .text_color(t.red)
-                .child(format!("Couldn't load diff: {e}"))
-                .into_any_element(),
-            DiffState::Loading => div()
-                .p(px(16.))
-                .child(hint("Loading diff…", &t))
-                .into_any_element(),
-            DiffState::Binary => div()
-                .p(px(16.))
-                .child(hint("Binary or very large file — not shown", &t))
-                .into_any_element(),
-            DiffState::Empty => div()
-                .p(px(16.))
-                .child(hint("No textual changes.", &t))
-                .into_any_element(),
-            DiffState::Shown => div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(self.code.clone())
-                .into_any_element(),
-        };
-        let close = cx.entity();
-        frame(
-            None,
-            1080.,
-            &t,
-            crate::theme::motion_on(cx),
-            move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
-            div().h(px(height)).flex().flex_col().child(head).child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .bg(t.term_bg)
-                    .child(content),
-            ),
-            window,
-            cx,
-        )
     }
 }
 

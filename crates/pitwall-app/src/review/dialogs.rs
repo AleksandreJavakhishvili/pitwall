@@ -205,9 +205,9 @@ impl ReviewView {
         let sub = cx.subscribe_in(&field, window, |this, field, e: &InputEvent, window, cx| match e {
             InputEvent::Submit => {
                 this.follow_prompt_agent(cx);
-                let queue_first = matches!(&this.dialog, Some(Dialog::Prompt { running, busy_status, .. }) if !*running || *busy_status);
-                if !field.read(cx).text().trim().is_empty() {
-                    this.send_prompt(!queue_first, cx);
+                let running = matches!(&this.dialog, Some(Dialog::Prompt { running: true, .. }));
+                if running && !field.read(cx).text().trim().is_empty() {
+                    this.send_prompt(cx);
                 }
             }
             InputEvent::Cancel => this.close_dialog(window, cx),
@@ -396,8 +396,8 @@ impl ReviewView {
         cx.notify();
     }
 
-    /// Send now, or into Next up.
-    fn send_prompt(&mut self, now: bool, cx: &mut Context<Self>) {
+    /// Send it to the agent now.
+    fn send_prompt(&mut self, cx: &mut Context<Self>) {
         let Some(Dialog::Prompt {
             agent, field, busy, ..
         }) = self.dialog.as_mut()
@@ -412,19 +412,9 @@ impl ReviewView {
         let id = agent.clone();
         ops::spawn(
             cx,
-            move |e| {
-                if now {
-                    ops::send_prompt(e, &id, text).map(|()| None)
-                } else {
-                    ops::queue_add(e, &id, text).map(Some)
-                }
-            },
+            move |e| ops::send_prompt(e, &id, text),
             |this: &mut Self, res, cx| match res {
-                Ok(view) => {
-                    // The queue shows at once (React patches the agent).
-                    if let Some(view) = view {
-                        crate::agents::patch(view, cx);
-                    }
+                Ok(()) => {
                     if let Some(Dialog::Prompt {
                         clears_comments,
                         agent,
@@ -619,49 +609,28 @@ fn dialog_parts(dialog: &Dialog, t: &Theme, this: &WeakEntity<ReviewView>, cx: &
                 error,
                 ..
             } => {
-                let queue_first = !*running || *busy_status;
                 let empty = field.read(cx).text().trim().is_empty();
-                let enabled = !*busy && !empty;
-                let note = if queue_first {
-                    if *running {
-                        format!(" {name} is busy, so it goes to Next up.")
-                    } else {
-                        format!(" {name} isn't running, so it goes to Next up.")
-                    }
+                let enabled = !*busy && !empty && *running;
+                let note = if !*running {
+                    format!(" {name} isn't running: start it to send this.")
+                } else if *busy_status {
+                    format!(" {name} is busy: it gets this now, as if you typed it.")
                 } else {
                     String::new()
                 };
-                let mut f = foot(t).child(
-                    kit::button("dlg-cancel", Btn::Ghost, false, t)
-                        .child("Cancel")
-                        .on_click(leaver(this, |v, w, cx| v.close_dialog(w, cx))),
-                );
-                let now_btn = |id: &'static str, kind: Btn, label: &'static str| {
-                    kit::button(id, kind, !enabled, t)
-                        .child(label)
-                        .when(enabled, |d| {
-                            d.on_click(listener(this, |v, _, cx| v.send_prompt(true, cx)))
-                        })
-                };
-                let queue_btn = |id: &'static str, kind: Btn| {
-                    kit::button(id, kind, !enabled, t)
-                        .child("Add to Next up")
-                        .when(enabled, |d| {
-                            d.on_click(listener(this, |v, _, cx| v.send_prompt(false, cx)))
-                        })
-                };
-                if queue_first {
-                    if *running {
-                        f = f.child(now_btn("dlg-now", Btn::Ghost, "Send now anyway"));
-                    }
-                    f = f.child(queue_btn("dlg-queue", Btn::Primary));
-                } else {
-                    f = f.child(queue_btn("dlg-queue", Btn::Ghost)).child(now_btn(
-                        "dlg-now",
-                        Btn::Primary,
-                        "Send now",
-                    ));
-                }
+                let f = foot(t)
+                    .child(
+                        kit::button("dlg-cancel", Btn::Ghost, false, t)
+                            .child("Cancel")
+                            .on_click(leaver(this, |v, w, cx| v.close_dialog(w, cx))),
+                    )
+                    .child(
+                        kit::button("dlg-now", Btn::Primary, !enabled, t)
+                            .child("Send now")
+                            .when(enabled, |d| {
+                                d.on_click(listener(this, |v, _, cx| v.send_prompt(cx)))
+                            }),
+                    );
                 (
                     title.clone(),
                     620.,

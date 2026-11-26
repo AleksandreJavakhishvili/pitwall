@@ -3,8 +3,7 @@
 //! [`ScreenEvent::OpenPalette`](crate::main_screen::ScreenEvent) (⌘K, the
 //! top bar's Search button, the status strip's "⌘K commands"), lists rows
 //! matching every typed word, runs the chosen one with ↵ or a click, and
-//! closes on Esc, ⌘K or a click outside. "name: text" turns into a single
-//! "Queue for name" row.
+//! closes on Esc, ⌘K or a click outside.
 //!
 //! # Adding commands
 //!

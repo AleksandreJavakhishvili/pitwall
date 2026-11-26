@@ -1,6 +1,6 @@
 //! The React palette's rows (`CommandPalette.tsx`), in its order: go to
-//! and remove each agent, next blocked, new agent, terminals, queue for,
-//! Wall and Review, files, window, layout, density, panels, Settings, quit
+//! and remove each agent, next blocked, new agent, terminals, Wall and
+//! Review, files, window, layout, density, panels, Settings, quit
 //! and theme.
 
 use gpui::{App, Context, SharedString, Window};
@@ -361,23 +361,6 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         );
     }
 
-    // Queue for each agent: fills "name: " and stays open.
-    for a in &st.agents {
-        out.push(
-            Command::new(
-                format!("q-{}", a.id),
-                "",
-                format!("queue prompt for {}", a.name),
-                |_, _| {},
-            )
-            .label(vec![s(format!("Queue for {}:", a.name)), sub("…")])
-            .glyph("↳")
-            .fill(format!("{}: ", a.name))
-            .query_only()
-            .rank(rank::QUEUE),
-        );
-    }
-
     // Views.
     out.push(
         Command::new(
@@ -537,17 +520,6 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         )
         .glyph("⇤")
         .keys("⌘B")
-        .rank(rank::PANELS),
-    );
-    out.push(
-        Command::new(
-            "right",
-            "Toggle details panel",
-            "toggle right panel details queue changes hide show",
-            on_screen(pc, |s, w, cx| s.cmd_toggle_details(w, cx)),
-        )
-        .glyph("⇥")
-        .keys("⌘.")
         .rank(rank::PANELS),
     );
     out.push(

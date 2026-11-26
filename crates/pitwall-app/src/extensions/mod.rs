@@ -21,7 +21,6 @@ pub mod catalog;
 pub mod connections;
 pub mod hub;
 pub mod https;
-pub mod panels;
 pub mod safe_update;
 pub mod service;
 pub mod stale;
@@ -172,7 +171,6 @@ pub fn follow(cx: &mut App) {
         s.update(cx, |s, cx| s.reconcile(cx));
         if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
             e.set_extension_env(env_sources(cx));
-            calls::sync_queue(&e, cx);
         }
         // Which setup agents start under now: the ones before are stale.
         stale::sync(cx);

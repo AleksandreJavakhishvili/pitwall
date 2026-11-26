@@ -20,7 +20,7 @@ use crate::kit::{self, icon, kbd, InputEvent, TextInput};
 use crate::main_screen::{CommandState, MainScreen, OpenPalette, ScreenEvent};
 use crate::theme::{self, Theme, RADIUS};
 
-use super::matching::{parse_queue, visible};
+use super::matching::visible;
 use super::registry::{self, Command, Hint, Lead, PaletteContext, Run, RunFn, Span};
 
 actions!(pw_palette, [Prev, Next, Pick, Close]);
@@ -86,7 +86,7 @@ impl Focusable for Palette {
     }
 }
 
-const PLACEHOLDER: &str = "Jump to an agent, or type  name: prompt  to queue it";
+const PLACEHOLDER: &str = "Jump to an agent, or type a command";
 
 impl Palette {
     pub fn new(
@@ -170,26 +170,8 @@ impl Palette {
         cx.notify();
     }
 
-    /// The rows for `q`: one "Queue for" row for "name: text", else every
-    /// provider's rows filtered.
+    /// The rows for `q`: every provider's rows filtered.
     fn list(&self, q: &str, cx: &App) -> Vec<Command> {
-        if let Some((agent, text)) = parse_queue(q, &self.state.agents) {
-            let (id, screen) = (agent.id.clone(), self.screen.clone());
-            let t = text.clone();
-            return vec![Command::new("queue", "", "", move |_, cx| {
-                if let Some(s) = screen.as_ref().and_then(|s| s.upgrade()) {
-                    s.update(cx, |s, cx| s.cmd_queue(&id, t.clone(), cx));
-                }
-            })
-            .label(vec![
-                Span::Text("Queue for ".into()),
-                Span::Strong(agent.name.clone().into()),
-                Span::Text(": ".into()),
-                Span::Quote(text.into()),
-            ])
-            .glyph("↳")
-            .keys("↵")];
-        }
         let pc = PaletteContext {
             query: q,
             state: &self.state,
@@ -411,7 +393,7 @@ impl Render for Palette {
                             div()
                                 .p(px(14.))
                                 .text_color(t.text_3)
-                                .child("No matches. Try “name: your prompt” to queue."),
+                                .child("No matches."),
                         )
                     })
                     .when(n > 0, |d| {

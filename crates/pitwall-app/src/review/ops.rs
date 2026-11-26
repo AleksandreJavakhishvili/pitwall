@@ -78,11 +78,6 @@ pub fn send_prompt(e: &Shared, agent: &str, text: String) -> Res<()> {
     input::send_prompt(e, agent, text)
 }
 
-/// Queue into Next up; the agent's updated view (its queue) comes back.
-pub fn queue_add(e: &Shared, agent: &str, text: String) -> Res<pitwall_proto::AgentView> {
-    e.queue_add(agent, text)
-}
-
 pub fn list_worktrees(e: &Shared) -> Vec<ProjectWorktrees> {
     worktrees::list(e)
 }

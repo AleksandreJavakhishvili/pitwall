@@ -164,37 +164,6 @@ impl SettingsView {
         col
     }
 
-    /// The "send without asking" switch of an extension granted
-    /// `agents.queue`: off unless the user turns it on, with a warning.
-    fn send_without_asking(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Div {
-        let on = crate::ui_state::get(cx).extension(&m.id).send_without_asking.is_some_and(|d| d.granted);
-        let id = m.id.clone();
-        div()
-            .flex()
-            .gap(px(12.))
-            .items_start()
-            .pl(px(14.))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.t.text).child(format!("Send what {} queues without asking", m.name)))
-                    .child(crate::kit::hint(
-                        if on {
-                            "On: Auto-send sends its text to the agent like your own, without you reading it first."
-                        } else {
-                            "Off: its text waits in Next up, marked with its name, until you press Send."
-                        },
-                        &ui.t,
-                    ))
-                    .child(div().text_size(px(12.)).text_color(ui.t.amber).child("Turn on only if you trust it and the service behind it with what your agents do: no one reads its text before the agent acts on it.")),
-            )
-            .child(div().flex_none().mt(px(2.)).child(switch(format!("extension-send-without-asking-{}", m.id), on, ui).tooltip(crate::kit::tooltip(if on { "On: press to make its text wait for Send" } else { "Off: press to let it send without asking" })).on_click(cx.listener(move |_, _, _, cx| calls::set_send_without_asking(&id, !on, cx)))))
-    }
-
     /// The permission screen, in `m`'s card while it is being turned on.
     pub(super) fn permission_screen(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (_, picks) = self.exts.asking.as_ref().filter(|(e, _)| *e == m.id)?.clone();
@@ -317,9 +286,6 @@ impl SettingsView {
             };
             row = row.child(div().flex_none().mt(px(1.)).child(right));
             col = col.child(row);
-            if p.name == permissions::AGENTS_QUEUE && decisions.get(&p.name).is_some_and(|d| d.granted) {
-                col = col.child(self.send_without_asking(ui, m, cx));
-            }
         }
         Some(col)
     }

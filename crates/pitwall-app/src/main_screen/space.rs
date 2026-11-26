@@ -605,7 +605,6 @@ impl MainScreen {
                 self.agent_before_tile = Some((space, agent));
             }
             self.with_active(|s, id| s.focus_pane(id, pane), cx);
-            self.changes_follow(cx);
         }
     }
 

@@ -10,7 +10,6 @@ use crate::agents::group_by_project;
 use crate::theme::Density;
 
 use super::model::with_projects;
-use super::strip::Toast;
 use super::tree::{self, Preset};
 use super::{workspace, MainScreen, Route};
 
@@ -107,11 +106,6 @@ impl MainScreen {
         self.toggle_sidebar(window, cx);
     }
 
-    /// ⌘.
-    pub fn cmd_toggle_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.toggle_details(window, cx);
-    }
-
     /// ⌘⇧N: the active space to a new window.
     pub fn cmd_move_space_to_window(&mut self, cx: &mut Context<Self>) {
         if let Some(id) = self.active_space().map(|s| s.id.clone()) {
@@ -132,29 +126,5 @@ impl MainScreen {
         } else if let Some(d) = density {
             self.update_ui(|s| s.set_density(Some(d), None), cx);
         }
-    }
-
-    /// Queue `text` for an agent ("name: prompt" in the palette).
-    pub fn cmd_queue(&mut self, id: &str, text: String, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
-        let id = id.to_string();
-        let task = cx
-            .background_executor()
-            .spawn(async move { engine.queue_add(&id, text) });
-        cx.spawn(async move |this, cx| {
-            let res = task.await;
-            let _ = this.update(cx, |s, cx| match res {
-                Ok(view) => s.store.update(cx, |st, cx| {
-                    if let Some(a) = st.agents.iter_mut().find(|a| a.id == view.id) {
-                        *a = view;
-                        cx.notify();
-                    }
-                }),
-                Err(e) => s.toast(Toast::error("Couldn't queue prompt".into(), e), cx),
-            });
-        })
-        .detach();
     }
 }

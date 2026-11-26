@@ -2,7 +2,7 @@
 //! (design checks, screenshots) without the rest of the app:
 //!
 //! ```sh
-//! cargo run -p pitwall-app --example explorer_demo -- <folder> [panel|viewer|search|quick] [file] [line] [query]
+//! cargo run -p pitwall-app --example explorer_demo -- <folder> [viewer|search|quick] [file] [line] [query]
 //! ```
 //!
 //! The folder's agent runs on a test engine (pitwall-core's `Harness`, no
@@ -18,7 +18,7 @@ use gpui::{
 
 use pitwall_app::agents::AgentStore;
 use pitwall_app::explorer::{self, Explorer, ExplorerSource};
-use pitwall_app::theme::{self, Mode, Theme, RIGHT_W, SIDEBAR_W};
+use pitwall_app::theme::{self, Mode, Theme, SIDEBAR_W};
 use pitwall_core::testing::{record, Harness};
 
 struct Demo {
@@ -26,7 +26,7 @@ struct Demo {
 }
 
 impl Render for Demo {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let e = self.explorer.clone();
         let root = div()
@@ -48,22 +48,7 @@ impl Render for Demo {
         let root = explorer::on_actions(root, &e);
         let root = match e.read(cx).main_view() {
             Some(v) => root.child(v),
-            None => {
-                let panel = e.update(cx, |e, cx| e.panel(window, cx));
-                root.child(div().flex_1().h_full().bg(t.bg))
-                    .when_some(panel, |r, p| {
-                        r.child(
-                            div()
-                                .w(RIGHT_W)
-                                .h_full()
-                                .flex_none()
-                                .border_l_1()
-                                .border_color(t.line)
-                                .bg(t.surface)
-                                .child(p),
-                        )
-                    })
-            }
+            None => root.child(div().flex_1().h_full().bg(t.bg)),
         };
         root.child(e)
     }
@@ -72,7 +57,7 @@ impl Render for Demo {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let folder = args.first().cloned().expect("a folder");
-    let mode = args.get(1).cloned().unwrap_or_else(|| "panel".into());
+    let mode = args.get(1).cloned().unwrap_or_else(|| "viewer".into());
     let file = args.get(2).cloned();
     let line: u32 = args.get(3).and_then(|l| l.parse().ok()).unwrap_or(1);
     let query = args.get(4).cloned().unwrap_or_default();

@@ -44,7 +44,7 @@ fn drawn(cx: &mut VisualTestContext, id: &str) -> bool {
 
 const CI: &str = r#"{"v": 2, "id": "ci", "name": "CI", "version": "1.0.0",
     "adapter": {"command": ["node", "a.mjs"]},
-    "permissions": {"agents.read": "To match runs to agents", "projects.read": "To list your projects", "agents.queue": "Later"},
+    "permissions": {"agents.read": "To match runs to agents", "projects.read": "To list your projects", "agents.start": "Later"},
     "contributes": {"inbox": true},
     "settings": [
         {"key": "team", "type": "text", "label": "Team"},
@@ -100,9 +100,9 @@ fn turning_on_asks_for_its_permissions_first(cx: &mut TestAppContext) {
     assert!(drawn(cx, "extension-permissions-ask-ci"), "the permission screen");
     assert!(!cx.update(|_, cx| crate::ui_state::get(cx).extension_on("ci")), "not on yet");
     assert!(drawn(cx, "extension-permission-pick-ci-agents.read"));
-    assert!(drawn(cx, "extension-permission-pick-ci-agents.queue"), "offered, off: it acts");
-    assert!(drawn(cx, "extension-permission-risk-agents.queue"), "with what can go wrong");
-    assert!(view.read_with(cx, |v, _| v.exts.asking.as_ref().is_some_and(|(_, p)| p["agents.read"] && !p["agents.queue"])), "a read starts on, an action off");
+    assert!(drawn(cx, "extension-permission-pick-ci-agents.start"), "offered, off: it acts");
+    assert!(drawn(cx, "extension-permission-risk-agents.start"), "with what can go wrong");
+    assert!(view.read_with(cx, |v, _| v.exts.asking.as_ref().is_some_and(|(_, p)| p["agents.read"] && !p["agents.start"])), "a read starts on, an action off");
     click(&view, cx, "extension-permissions-cancel-ci");
     assert!(view.read_with(cx, |v, _| v.exts.asking.is_none()), "cancelled");
     assert!(!drawn(cx, "extension-permissions-ask-ci"));
@@ -116,8 +116,7 @@ fn turning_on_asks_for_its_permissions_first(cx: &mut TestAppContext) {
     assert!(cx.update(|_, cx| crate::ui_state::get(cx).extension_on("ci")));
     let g = grants(cx);
     assert!(g["agents.read"].granted && !g["projects.read"].granted && g["agents.read"].at > 0);
-    assert!(!g["agents.queue"].granted, "an action is granted only when picked");
-    assert!(!drawn(cx, "extension-send-without-asking-ci"), "no switch without the grant");
+    assert!(!g["agents.start"].granted, "an action is granted only when picked");
     assert!(allowed(cx, "agents.read") && !allowed(cx, "projects.read"), "the registry follows at once");
 
     // Revoked in its Permissions: the next call is refused.
@@ -127,20 +126,11 @@ fn turning_on_asks_for_its_permissions_first(cx: &mut TestAppContext) {
     click(&view, cx, "extension-permission-ci-agents.read");
     assert!(allowed(cx, "agents.read"), "and granted again");
 
-    // agents.queue granted: its "send without asking" switch shows, off;
-    // turned on, Auto-send may send its text, and that is in its
-    // activity; the grant revoked, it may not.
-    click(&view, cx, "extension-permission-ci-agents.queue");
-    assert!(allowed(cx, "agents.queue"));
-    assert!(drawn(cx, "extension-send-without-asking-ci"));
-    assert!(cx.update(|_, cx| calls::auto_senders(cx)).is_empty(), "off by default");
-    click(&view, cx, "extension-send-without-asking-ci");
-    assert_eq!(cx.update(|_, cx| calls::auto_senders(cx)), ["ci"]);
-    let said = cx.update(|_, cx| calls::entries("ci", cx)).into_iter().any(|e| e.via == Via::Pitwall && e.method.contains("send without asking: turned on by you"));
-    assert!(said, "logged");
-    click(&view, cx, "extension-permission-ci-agents.queue");
-    assert!(cx.update(|_, cx| calls::auto_senders(cx)).is_empty(), "no grant, no sending");
-    assert!(cx.update(|_, cx| calls::queuers(cx)).is_empty());
+    // An action granted later in its Permissions, and revoked.
+    click(&view, cx, "extension-permission-ci-agents.start");
+    assert!(allowed(cx, "agents.start"));
+    click(&view, cx, "extension-permission-ci-agents.start");
+    assert!(!allowed(cx, "agents.start"));
 }
 
 /// A permission an update added waits, not granted, until the user
@@ -159,7 +149,7 @@ fn a_new_permission_after_an_update_waits_for_the_user(cx: &mut TestAppContext) 
         })
     });
     // The update asks for worktrees.read too.
-    let newer = CI.replace(r#""agents.queue": "Later""#, r#""agents.queue": "Later", "worktrees.read": "To show branches""#);
+    let newer = CI.replace(r#""agents.start": "Later""#, r#""agents.start": "Later", "worktrees.read": "To show branches""#);
     put(&t, &newer);
     cx.update(|_, cx| crate::extensions::rescan(cx));
     frame(cx);
@@ -190,7 +180,7 @@ fn typed_settings_and_activity_are_drawn(cx: &mut TestAppContext) {
         let log = calls::activity("ci", cx);
         let mut l = log.lock().unwrap();
         l.push(Entry::now(Via::Adapter, "agent.list", Outcome::Ok));
-        l.push(Entry::now(Via::Socket, "queue.add", Outcome::Refused { code: "unsupported".into(), message: "queue.add isn't available to extensions yet".into() }));
+        l.push(Entry::now(Via::Socket, "agent.create", Outcome::Refused { code: "unsupported".into(), message: "agent.create isn't available to extensions yet".into() }));
     });
     view.update(cx, |v, cx| v.debug_activity("ci", true, cx));
     assert!(drawn(cx, "extension-activity-ci"));

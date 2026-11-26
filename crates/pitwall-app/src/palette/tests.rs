@@ -1,4 +1,4 @@
-//! The palette: matching, the queue syntax, the built-in rows and their
+//! The palette: matching, the built-in rows and their
 //! order, the registry, and the palette in a test window (open, filter,
 //! ↑/↓/↵, Esc, ⌘K toggles), with made-up agents and no engine.
 
@@ -7,7 +7,7 @@ use gpui::{
     VisualTestContext, Window,
 };
 
-use super::matching::{looks_like_path, matches, parse_queue, visible};
+use super::matching::{looks_like_path, matches, visible};
 use super::registry::{collect, rank, Command, PaletteContext};
 use super::*;
 use crate::agents::tests::agent;
@@ -52,21 +52,9 @@ fn every_word_must_match() {
 }
 
 #[test]
-fn typed_paths_and_queue_syntax() {
+fn typed_paths() {
     assert!(looks_like_path(" ~ ") && looks_like_path("/tmp") && looks_like_path("~/code"));
     assert!(!looks_like_path("code/x"));
-    let st = state();
-    let (a, text) = parse_queue("api: run the tests\nthen lint", &st.agents).unwrap();
-    assert_eq!(
-        (a.id.as_str(), text.as_str()),
-        ("api", "run the tests\nthen lint")
-    );
-    let (a, text) = parse_queue("queue for web:  hi", &st.agents).unwrap();
-    assert_eq!((a.id.as_str(), text.as_str()), ("web", " hi"));
-    assert!(parse_queue("Queue web: x", &st.agents).is_some());
-    assert!(parse_queue("nobody: x", &st.agents).is_none());
-    assert!(parse_queue("api:   ", &st.agents).is_none());
-    assert!(parse_queue("api", &st.agents).is_none());
 }
 
 #[gpui::test]
@@ -91,7 +79,6 @@ fn empty_query_lists_the_react_rows_in_order(cx: &mut TestAppContext) {
                 "review",
                 "window",
                 "sidebar",
-                "right",
                 "settings",
                 "quit",
                 "quit-stop",
@@ -170,7 +157,6 @@ fn typing_filters_and_reveals_the_query_only_rows(cx: &mut TestAppContext) {
             "Density: Dense (40×8, default for all spaces)"
         );
         assert_eq!(ids(&rows(cx, "layout", &st)), ["preset-1", "preset-2"]);
-        assert_eq!(ids(&rows(cx, "queue api", &st)), ["q-api"]);
         assert_eq!(
             ids(&rows(cx, "terminal in alpha", &st)),
             ["term-in-/work/alpha"]
@@ -260,7 +246,7 @@ fn opens_filters_runs_and_closes(cx: &mut TestAppContext) {
     p.update(cx, |p, cx| p.set_query("docs", cx));
     cx.run_until_parked();
     p.read_with(cx, |p, _| {
-        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs"]);
+        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs"]);
         assert_eq!(p.active(), 0);
     });
     cx.simulate_keystrokes("down");
@@ -289,29 +275,6 @@ fn opens_filters_runs_and_closes(cx: &mut TestAppContext) {
     cx.dispatch_action(OpenPalette);
     cx.run_until_parked();
     assert!(palette(&root, cx).is_none(), "⌘K again closes it");
-}
-
-#[gpui::test]
-fn queue_for_fills_the_input_and_stays_open(cx: &mut TestAppContext) {
-    let (root, cx) = window(cx);
-    cx.dispatch_action(OpenPalette);
-    cx.run_until_parked();
-    let p = palette(&root, cx).unwrap();
-    p.update(cx, |p, cx| p.set_query("queue web", cx));
-    cx.simulate_keystrokes("enter");
-    cx.run_until_parked();
-    let p = palette(&root, cx).expect("still open");
-    p.read_with(cx, |p, cx| {
-        assert_eq!(p.query(cx), "web: ");
-        assert_eq!(ids(p.rows()).len(), 0, "\"web: \" alone has no prompt yet");
-    });
-    cx.simulate_input("fix it");
-    cx.run_until_parked();
-    p.read_with(cx, |p, cx| {
-        assert_eq!(p.query(cx), "web: fix it");
-        assert_eq!(ids(p.rows()), ["queue"]);
-        assert_eq!(p.rows()[0].plain(), "Queue for web: fix it");
-    });
 }
 
 #[gpui::test]
@@ -406,7 +369,7 @@ fn under_liquid_glass_the_panel_is_a_pop_up_with_the_keyboard(cx: &mut TestAppCo
     keys_in(pop, "d o c s", cx);
     p.read_with(cx, |p, cx| {
         assert_eq!(p.query(cx), "docs");
-        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs"]);
+        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs"]);
     });
     keys_in(pop, "down", cx);
     p.read_with(cx, |p, _| assert_eq!(p.active(), 1));
@@ -421,17 +384,10 @@ fn under_liquid_glass_the_panel_is_a_pop_up_with_the_keyboard(cx: &mut TestAppCo
     assert!(pops(cx).is_empty());
     root.read_with(cx, |r, cx| assert_eq!(r.screen.read(cx).focused_agent_id().as_deref(), Some("docs")));
 
-    // "Queue for…" fills the input and stays open, the keyboard still in it.
+    // Esc closes it; so does ⌘K, from the pop-up.
     cx.dispatch_action(OpenPalette);
     cx.run_until_parked();
-    let p = palette(&root, cx).unwrap();
     let pop = pops(cx)[0].0;
-    p.update(cx, |p, cx| p.set_query("queue web", cx));
-    keys_in(pop, "enter", cx);
-    p.read_with(cx, |p, cx| assert_eq!(p.query(cx), "web: "));
-    assert_eq!(pops(cx).len(), 1);
-    cx.update_window(pop, |_, window, cx| assert!(p.focus_handle(cx).is_focused(window))).unwrap();
-    // Esc closes it; so does ⌘K, from the pop-up.
     keys_in(pop, "escape", cx);
     assert!(palette(&root, cx).is_none(), "Esc closes it");
     assert!(pops(cx).is_empty());

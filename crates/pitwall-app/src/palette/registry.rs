@@ -18,7 +18,6 @@ pub mod rank {
     pub const BLOCKED: u32 = 300;
     pub const NEW: u32 = 400;
     pub const TERMINALS: u32 = 500;
-    pub const QUEUE: u32 = 600;
     pub const VIEWS: u32 = 700;
     pub const FILES: u32 = 800;
     pub const WINDOW: u32 = 900;
@@ -82,7 +81,8 @@ pub type RunFn = Rc<dyn Fn(&mut Window, &mut App)>;
 pub enum Run {
     /// Close the palette, then run.
     Do(RunFn),
-    /// Keep the palette open with this text typed ("Queue for api-fix: …").
+    /// Keep the palette open with this text typed (a row that starts a
+    /// longer query).
     Fill(SharedString),
 }
 

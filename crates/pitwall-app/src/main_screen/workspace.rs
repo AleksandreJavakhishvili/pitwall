@@ -198,16 +198,6 @@ fn lenient_font<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error>
 }
 
 /// `true` only for a JSON `true` (`r.reduceMotion === true`).
-fn yes() -> bool {
-    true
-}
-
-/// `true` unless the value is `false` (`usePersistentFlag` with a `true`
-/// default).
-fn not_false<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    Ok(Value::deserialize(d)? != Value::Bool(false))
-}
-
 fn strict_true<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     Ok(Value::deserialize(d)? == Value::Bool(true))
 }
@@ -279,10 +269,6 @@ pub struct UiState {
     /// app keeps it in localStorage (`pitwall.review.sideBySide`).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub review_side_by_side: Option<bool>,
-    /// The right panel shows Files instead of Changes (the Tauri app's
-    /// localStorage `pitwall.right.files`).
-    #[serde(default, deserialize_with = "strict_true")]
-    pub right_files: bool,
     /// The sidebar is collapsed (`pitwall.sidebarCollapsed`), read when a
     /// window opens.
     #[serde(default, deserialize_with = "strict_true")]
@@ -295,10 +281,6 @@ pub struct UiState {
     /// (`pitwall.accessHintShown`).
     #[serde(default, deserialize_with = "strict_true")]
     pub access_hint_shown: bool,
-    /// The docked right panel is shown (`pitwall.rightOpen`), read when a
-    /// window opens.
-    #[serde(default = "yes", deserialize_with = "not_false")]
-    pub right_open: bool,
     /// A file viewer window's place and size (logical x, y, width,
     /// height), as last left.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
@@ -397,11 +379,9 @@ impl Default for UiState {
             files_tree: Default::default(),
             review_list: Default::default(),
             review_side_by_side: None,
-            right_files: false,
             sidebar_collapsed: false,
             sidebar_width: None,
             access_hint_shown: false,
-            right_open: true,
             files_window: None,
             web_window: None,
             inbox_window: None,
@@ -498,11 +478,6 @@ pub struct ExtensionPrefs {
     /// its manifest still asks for counts.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub grants: BTreeMap<String, pitwall_core::extensions::permissions::Decision>,
-    /// The user lets it send what it puts in Next up without asking
-    /// (Auto-send sends it like the user's own), and since when; absent:
-    /// its items wait for Send. Only with `agents.queue` granted.
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
-    pub send_without_asking: Option<pitwall_core::extensions::permissions::Decision>,
     /// Its service: the commands the user confirmed, whether it is fresh
     /// (its first run offered), whether the user stopped it.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "ServicePrefs::is_empty")]
@@ -594,7 +569,7 @@ impl Confirmed {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.rest.is_empty()
     }
 }
 
@@ -1619,6 +1594,32 @@ mod tests {
         let fresh = UiState::sanitize(json!({"v": 2}));
         assert_eq!(fresh.spaces.len(), 1);
         assert_eq!(fresh.spaces[0].id, ALL_SPACE);
+    }
+
+    /// A `ui.json` from before the details panel and Next up were removed
+    /// loads: their keys (`rightOpen`, `rightFiles`, an extension's
+    /// `sendWithoutAsking`) are kept as they were, untouched, and every
+    /// other setting reads as before.
+    #[test]
+    fn a_file_with_the_old_panel_keys_still_loads() {
+        let dir = std::env::temp_dir().join(format!("pw-ui-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = json!({
+            "v": 1, "theme": "light", "sidebarCollapsed": true, "fontSize": 15,
+            "rightOpen": false, "rightFiles": true,
+            "extensions": {"ci": {"enabled": true, "sendWithoutAsking": {"granted": true, "at": 5}}}
+        });
+        std::fs::write(dir.join("ui.json"), raw.to_string()).unwrap();
+        let s = load(&dir);
+        assert!(s.sidebar_collapsed);
+        assert_eq!(s.font_size, 15.);
+        assert_eq!(s.theme, crate::theme::ThemePref::Light);
+        assert!(s.extension("ci").enabled, "the extension's own settings read as before");
+        let out = serde_json::to_value(&s).unwrap();
+        assert_eq!((out["rightOpen"].clone(), out["rightFiles"].clone()), (json!(false), json!(true)), "kept, untouched");
+        assert_eq!(out["extensions"]["ci"]["sendWithoutAsking"]["granted"], json!(true));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

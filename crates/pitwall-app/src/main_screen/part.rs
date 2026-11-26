@@ -4,12 +4,12 @@
 //! *cached* view then renders and lays out its whole subtree again, nested
 //! cached views included. The pane terminals sit inside the main screen,
 //! so when the screen itself was the cached view, each terminal frame
-//! rebuilt and laid out everything in it: the sidebar, the top bar, the
-//! right panel, and every other terminal.
+//! rebuilt and laid out everything in it: the sidebar, the top bar and
+//! every other terminal.
 //!
 //! Instead the screen is drawn every frame (its own tree is small: the
 //! pane layout around the terminals), and its big, rarely changing pieces
-//! are cached views of their own ([`Part`]: sidebar, top bar, right panel,
+//! are cached views of their own ([`Part`]: sidebar, top bar,
 //! Wall / Review, space bar, chips, pane headers): a terminal frame replays
 //! their last paint, and the terminals that didn't change replay theirs. A part is
 //! drawn by the screen's own functions and renders again whenever the
@@ -31,8 +31,6 @@ pub(super) enum PartKind {
     /// The docked, full-width sidebar.
     Sidebar,
     Topbar,
-    /// The docked right panel (the selected agent's details).
-    Panel,
     /// The Wall, Review or Explorer in the centre.
     Route,
     /// The space's bar (name, presets, density).
@@ -60,7 +58,6 @@ pub(super) struct Part {
 pub(super) struct Parts {
     pub sidebar: Entity<Part>,
     pub topbar: Entity<Part>,
-    pub panel: Entity<Part>,
     pub route: Entity<Part>,
     pub bar: Entity<Part>,
     pub chips: Entity<Part>,
@@ -74,7 +71,6 @@ impl Parts {
         Parts {
             sidebar: Part::new(screen, PartKind::Sidebar, cx),
             topbar: Part::new(screen, PartKind::Topbar, cx),
-            panel: Part::new(screen, PartKind::Panel, cx),
             route: Part::new(screen, PartKind::Route, cx),
             bar: Part::new(screen, PartKind::Bar, cx),
             chips: Part::new(screen, PartKind::Chips, cx),
@@ -122,7 +118,6 @@ impl Parts {
         let all = [
             (&self.sidebar, PartKind::Sidebar),
             (&self.topbar, PartKind::Topbar),
-            (&self.panel, PartKind::Panel),
             (&self.route, PartKind::Route),
             (&self.bar, PartKind::Bar),
             (&self.chips, PartKind::Chips),
@@ -209,14 +204,6 @@ impl Render for Part {
                         topbar.into_any_element()
                     }
                 }
-                PartKind::Panel => match s.selected(cx) {
-                    Some(a) => {
-                        let slab = crate::theme::panel(&t, cx);
-                        let panel = s.render_panel(&a, false, &slab, window, cx);
-                        crate::kit::chrome_panel("right-panel", panel, cx)
-                    }
-                    None => div().into_any_element(),
-                },
                 PartKind::Route if s.route != Route::Space => s.render_route_body(&t, window, cx),
                 PartKind::Route => div().into_any_element(),
                 PartKind::Bar => match s.active_space().cloned() {

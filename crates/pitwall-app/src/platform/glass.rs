@@ -4,7 +4,7 @@
 //! - macOS 26+ (Liquid), as Apple lays it out: the window's own background
 //!   (`NSVisualEffectView`, `.windowBackground`) under GPUI's Metal view,
 //!   the window made non-opaque (`WindowBackgroundAppearance::Transparent`),
-//!   and the chrome (sidebar, top bar, right panel) as `NSGlassEffectView`
+//!   and the chrome (sidebar, top bar) as `NSGlassEffectView`
 //!   pieces floating over it ([`sync_region`]). Glass is the controls'
 //!   layer, never the whole window: content sits on the window background.
 //! - Older macOS (Vibrancy): GPUI's `Blurred` (an `NSVisualEffectView`).
@@ -154,7 +154,7 @@ pub fn os_prefs() -> OsPrefs {
 /// without it ([`sweep_regions`]). The view that placed it (its owner) can
 /// be a cached one: a frame that replays its last paint runs none of its
 /// canvases, yet shows the same regions, so its pieces stay as they are.
-/// (Sweeping them there hid the sidebar, top bar and right panel glass on
+/// (Sweeping them there hid the sidebar and top bar glass on
 /// every frame that replayed the main screen, a working dot's ring for
 /// one, and made them again on the next: the window flickered.) A piece
 /// that goes is hidden, not removed: showing it again (back to the

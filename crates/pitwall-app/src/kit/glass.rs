@@ -1,4 +1,4 @@
-//! Liquid Glass regions: chrome (sidebar, top bar, right panel) that gets
+//! Liquid Glass regions: chrome (sidebar, top bar) that gets
 //! its own native glass piece under macOS 26's Liquid Glass, following the
 //! region's bounds each frame (`platform::glass::sync_region`). Elsewhere,
 //! and with Flat, these are just their child.
@@ -44,7 +44,7 @@ pub fn chrome_width(w: Pixels, cx: &App) -> Pixels {
 /// The floating slab's margin from the window edges.
 const SLAB_MARGIN: f32 = 8.;
 
-/// A chrome panel (the sidebar, the right panel): under Liquid Glass with
+/// A chrome panel (the sidebar): under Liquid Glass with
 /// regions, a floating rounded glass slab inset from the window edges, like
 /// a macOS 26 source list; otherwise just `child`. Draw `child` with
 /// [`crate::theme::panel`]'s theme so its own background stays clear.
