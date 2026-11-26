@@ -120,6 +120,14 @@ model and IME. The tile's code never touches a window.
     docs; adapters are removed once each has a published component
     version. Native code only through a managed service. Authors'
     coding agents get a skill and a one-file reference (9.5).
+15. **No native plugin API; native building blocks instead** (section
+    16). Pitwall never loads an extension's dynamic library. What needs
+    native speed or OS access is built by Pitwall and offered through
+    the SDK: code view and diff view in the minimum; web view, device
+    view and a terminal view on demand (terminal view not in v0.x).
+    Review and source control, the files tree and the inbox tile are
+    rebuilt on the SDK; review is the first-party proof tile.
+    Terminals, the editor, web, devices and settings stay native.
 
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
@@ -134,8 +142,12 @@ extensions (≈ 4 wk, less for those their authors build) → 9 remove
 adapters (≈ 1 wk) once each has a component version. The authoring
 skill and `llms.txt` reference come with the SDK docs from phase 1
 (≈ 0.5 wk, kept current after). Headless wasm services: after phase 7 (≈ 6 wk).
+Native building blocks: code view and diff view in phase 2 (≈ 1.5 wk
+more); the review port as a proof tile from phase 2, alongside the
+seed tiles (≈ 5 wk), pulling `git` and `files` into the plan; the
+files tree and inbox ports after (≈ 3 wk each).
 
-**Owner decisions needed** are in 10.3, 11.13, 13.6 and 15.8, each
+**Owner decisions needed** are in 10.3, 11.13, 13.6, 15.8 and 16.4, each
 with a recommendation.
 
 ---
@@ -588,6 +600,7 @@ interface types {
     virtual-list(virtual-list), table(table), tree(tree),
     code(code), markdown(string), canvas(canvas),
     scroll(scroll),
+    block(u32),                           // a native building block by handle (16.2)
   }
 
   record node {
@@ -1648,6 +1661,7 @@ gap in the SDK.
 | Git client | tree, table, diff in code view, keyboard, drag | `git.read/write/remote`, `files.read` |
 | Database browser | table with 100k rows (virtual), code view for SQL, canvas for a schema | `files.read` (SQLite in the guest); Postgres needs 10.3, item 3 |
 | Diagrams | canvas, drag, agent tools of all four kinds (4.2) | `files.write` for export only |
+| Review and source control (proof tile, a port of the built-in one; 16.3) | code view, diff view, lists, comments, Next up, git operations | `agents.read`, `worktrees.read`, `git.read/write`, `files.read`, `agents.queue` |
 
 ### 10.2 Order of work
 | Phase | Content | Size |
@@ -1659,6 +1673,7 @@ gap in the SDK.
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk |
 | 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel |
+| 6a. Native blocks and ports (16) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | ≈ 1.5 wk blocks, ≈ 5 wk review, ≈ 3 wk each other port |
 | On demand | the services of 14.3, each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 |
 | 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk |
 
@@ -2133,7 +2148,7 @@ tools in phase 3.
 
 | Alternative | For | Against | Verdict |
 |---|---|---|---|
-| **Native dynamic libraries** (Rust `cdylib` loaded with `libloading`) | Full GPUI, fastest | No stable Rust ABI across compiler versions, so every tile must be rebuilt per Pitwall release; a crash or a hang takes the app down; full access to memory, keychain and windows; per-OS binaries; code signing issues on macOS | Rejected (as extension-api.md [today]) |
+| **Native dynamic libraries** (Rust `cdylib` loaded with `libloading`) | Full GPUI, fastest | No stable Rust ABI across compiler versions, so every tile must be rebuilt per Pitwall release; a crash or a hang takes the app down; full access to memory, keychain and windows; per-OS binaries; code signing issues on macOS | **Native plugin API: rejected** (as extension-api.md [today]); see 16.1 for the full reasons and Zed's same choice |
 | **A separate process drawing its own window**, embedded in the layout | Any toolkit, crash isolation | Can't look native (fonts, glass, focus ring differ); embedding foreign windows is OS-specific and fragile; no shared keyboard model | Rejected |
 | **A separate process sending an element tree** (the adapter protocol, extended) | Any language, exists today | No sandbox (runs as the user); needs a runtime installed (Node); per-OS binaries for compiled languages; a pipe round trip per event | Rejected: adapters are removed when components ship (section 15). Wasm is enforced, portable and one file; a native server stays possible as a managed service |
 | **Web tiles only** | Exists today; any web stack | Doesn't look or feel native; no Pitwall keyboard model; no bridge by policy, so no access to agents or files | Stays the escape hatch [today] |
@@ -2635,8 +2650,8 @@ built only when its trigger happens.
 
 | Service | Where designed | Trigger that justifies it |
 |---|---|---|
-| Files in projects (`files.read`, `files.write`) | 3.8, 5.1 | Notes keeps notes as Markdown in a project, or Diagrams' `export_svg` writes into one |
-| Git (`git.read/write/remote`) | 3.8, 5.1 | The git client seed tile |
+| Files in projects (`files.read`, `files.write`) | 3.8, 5.1 | Notes keeps notes as Markdown in a project, or Diagrams' `export_svg` writes into one; in the plan from the start of the review port (16.3), whichever comes first |
+| Git (`git.read/write/remote`) | 3.8, 5.1 | The review port (16.3) brings `git.read/write` into the plan when it starts; `git.remote` waits for the git client seed tile |
 | File and folder pickers (grant one item per pick) | — | A tile must open a file the user chooses without a project-wide `files` grant (database browser opening a SQLite file) |
 | Reads of Pitwall data beyond agents: projects, worktrees, the focused agent | 3.8 (method table) | A seed tile must place data by project or follow the focused agent |
 | Starting agents (`agents.start`) | 3.8 [today for adapters] | A seed tile's flow can't continue without a new agent |
@@ -2821,7 +2836,9 @@ only tiles; a component that contributes anything above stays.
 - **Services** outlive the window or run native code; components don't.
 - **The inbox surface** stays Pitwall's own (decision 14 in
   extension-api.md [today]): components feed it through `inbox`; they
-  don't redraw it as a tile.
+  don't redraw it as a tile. Pitwall's own inbox tile is rebuilt on
+  the SDK as one view of that model (16.3); the model, the number keys
+  and the floating control stay native.
 
 ### 15.7 Effect on the plan
 - Names: the crate `pitwall-tile` and the CLI's `pitwall tile …` would
@@ -2865,6 +2882,273 @@ only tiles; a component that contributes anything above stays.
 7. **Who gets the SDK preview?** *Recommend* the makers of the services
    the bundled extensions connect to first, then anyone who asks;
    breaking changes announced to them one release ahead (8.2).
+
+## 16. Native building blocks and native capabilities
+
+Extensions get native speed and native looks through parts Pitwall
+draws and runs, not through native code of their own. This section
+says what those parts are, how an extension places and controls them,
+and which of Pitwall's own tiles move onto the SDK.
+
+### 16.1 The principle: no native plugin API
+Pitwall never loads an extension's dynamic library (`.dylib`, `.so`,
+`.dll`), in the app or in the daemon. Reasons:
+- **A crash takes everything down.** Code loaded into the app shares
+  its process: a bad pointer or a panic across the boundary ends every
+  terminal, every agent's screen and every unsaved edit at once. A
+  trapped component ends only its own tile (2.2).
+- **No permission boundary.** Native code can read any file, the
+  keychain, other tiles' memory and the agents' screens. The grants in
+  section 5 would be advice, not limits.
+- **No stable Rust ABI.** Rust doesn't promise a layout for types
+  across compiler versions, so a plugin built against one Pitwall
+  release can't be trusted with the next; every release would break
+  every plugin or force a C ABI that loses Rust's types.
+- **Per-platform builds and signing.** Each plugin would need a build
+  per OS and CPU, and on macOS each must be signed in a way the app's
+  hardened runtime accepts (the details are *unverified* here, as in
+  section 12). One `.wasm` file runs everywhere (8.1).
+- **GPUI changes often.** Pitwall vendors GPUI at a fixed Zed commit
+  and moves it on its own schedule; a plugin drawing with GPUI directly
+  would break on every move. Tiles describe a tree the host draws
+  (3.3), so the host can change GPUI freely.
+
+Zed made the same choice for its own reasons: its team wrote that
+"we would never be able to prevent these kinds of crashes if we loaded
+extensions directly as shared libraries", and chose WebAssembly
+because "it's cross-platform, and it's designed for running untrusted
+code safely" (S25, about tree-sitter grammars; S18 for extensions in
+general). Zed's posts don't list the other reasons above; those are
+this document's.
+
+So: **anything that needs native speed or OS access is built by
+Pitwall and offered through the SDK**, as a building block (16.2) or a
+platform service (section 14). A native program an author must run
+(a database driver, a language server) runs only as a managed service
+in its own process (section 13), never inside Pitwall.
+
+### 16.2 Native building blocks
+A building block is a part Pitwall draws natively with its own code
+(the same code its built-in tiles use), which an extension places in
+its tile and controls. It differs from the plain elements of 3.3 in
+two ways: it has state the host keeps (a buffer, a page, a stream), and
+the extension talks to it through a handle, not by re-sending its
+content every frame.
+
+How it fits the tree: the extension creates a block through a host
+interface and gets a resource; it places the block with an element
+that names the resource (`block(handle-id)`); the host draws it there,
+keeps its state across frames and sends its events to the tile's
+`on-event` (3.4) with the handle's id. Dropping the resource removes
+the block. A block not placed in the current frame keeps its state
+until dropped or the tile is suspended.
+
+The `code` element of 3.3 stays for short read-only snippets (an
+error, a request body). `code-view` is for files and anything the user
+edits.
+
+#### Code view
+Pitwall's code view (`code_view` [today]): highlighting by language,
+find, brackets, cursors, undo, the editor's limits.
+
+```wit
+interface code-view {
+  resource code-view {
+    constructor(language: string, read-only: bool);
+    set-text: func(text: string);              // replaces; resets undo
+    text: func() -> string;                    // editable views only
+    revision: func() -> u64;                   // bumps on every edit
+    set-language: func(language: string);
+    set-read-only: func(read-only: bool);
+    reveal: func(line: u32, column: u32);
+    set-marks: func(marks: list<line-mark>);   // gutter: added, changed, error, note
+    set-decorations: func(d: list<range-mark>); // underline, highlight; host colours
+    selection: func() -> list<range>;
+  }
+}
+// events (into 3.4's variant): code-changed(handle, revision),
+// code-save(handle) on ⌘S, code-selection(handle, list<range>)
+```
+
+- **Permission:** none for text the extension supplies. Opening a
+  project file into it goes through `files.read`, saving through
+  `files.write` (the extension calls `files.write` itself after
+  `code-save`; the view never writes a file).
+- **Read back:** the text of its own editable views and the selection,
+  nothing else. It can't read other tiles' editors or the user's open
+  files.
+- **Limits:** the editor's [today]: edits up to 2 MiB, read-only from 2
+  to 10 MiB, highlighting up to 4 MiB, larger files refused with a
+  message; no soft wrap yet ([editor.md](editor.md)).
+- **Minimum or on demand:** minimum (phase 2), because the review port
+  (16.3) needs it read-only and the files tree port needs it editable.
+
+#### Diff view
+Pitwall's diff drawing (`code_view::diff`, the Review screen [today]):
+side by side or inline, line and character changes, folded unchanged
+runs.
+
+```wit
+interface diff-view {
+  resource diff-view {
+    constructor(language: string, layout: diff-layout); // side-by-side | inline
+    set-texts: func(old: string, new: string);
+    set-layout: func(layout: diff-layout);
+    reveal: func(side: side, line: u32);
+    set-comments: func(c: list<line-comment>);  // drawn by the host under a line
+  }
+}
+// events: diff-line-click(handle, side, line), diff-comment(handle, side, line)
+```
+
+- **Permission:** none for texts the extension supplies. The texts of
+  a project's changes come from `git.read` (`git.diff` gives old and
+  new per file).
+- **Read back:** nothing: the extension supplied both texts already.
+- **Limits:** the character-level diff stops above 40 000 characters
+  per change and falls back to lines (`MAX_CHAR_DIFF` [today]); the
+  code view's size limits apply to each side.
+- **Minimum or on demand:** minimum (phase 2): the review port needs
+  it, and the git client seed tile later.
+
+#### Web view
+A page inside the extension's tile, in the same native web view the
+web tiles use ([web.md](web.md) [today]), under the same rules.
+
+```wit
+interface web-view {
+  resource web-view {
+    constructor(url: string);                  // http(s) only
+    navigate: func(url: string);
+    reload: func();
+  }
+}
+// events: web-loaded(handle, url-origin)   // origin only, never the page
+```
+
+- **Permission:** `web.view` with a hosts list, like `net`'s (5.1):
+  the extension can only put pages from those hosts in its tile. The
+  host draws the page's origin in a strip above it, so a tile can't
+  pass off a login page as its own UI.
+- **Read back:** none: no script bridge, no page text, no cookies, no
+  screenshots; links the user follows stay in the view. Same reasons as
+  the web tile's limits (section 11 and 1).
+- **Minimum or on demand:** on demand. No seed tile needs it; a tile
+  that wants a whole page can already open a web tile (`web.open`,
+  14.2). Trigger: an extension that must show a provider's page next to
+  its own controls (a dashboard, a preview).
+
+#### Terminal view: later
+**Decision: not in v0.x; on demand later, if ever.**
+- A terminal shows agents' screens and scrollback, which carry secrets
+  and are withheld from extensions at every grant (14.4). Even a
+  show-only view lets a tile choose when and where an agent's screen
+  is visible, and invites requests for "just the last lines".
+- A view of a shell the extension starts would be a native program run
+  by an extension, which only a managed service may do (section 13).
+- Terminals have one owner view and own the keyboard while focused
+  ([terminals.md](terminals.md) [today]); sharing that with a tile is
+  new work in the terminal code.
+- No seed tile and no port needs it. What extensions get instead:
+  `agents.focus` brings the agent's own terminal forward, and a tile
+  can link to it.
+
+If a real need appears, the smallest form is a show-only view of one
+agent's terminal, granted per agent by the user, with no read-back;
+that would be its own design.
+
+#### Device screen
+The device tile's stream (Android through scrcpy, the iOS Simulator
+through `pitwall-simhost` [today]), placed in an extension's tile.
+
+```wit
+interface device-view {
+  resource device-view {
+    constructor(device-id: string);            // from devices.list
+  }
+}
+// events: device-state(handle, connected | gone)
+```
+
+- **Permission:** `devices.view` (new): list devices and show one.
+- **Read back:** none: no frames, no screenshots, no input events. The
+  user drives the device in the view as in a device tile; the extension
+  sees only that it is connected.
+- **Minimum or on demand:** on demand. Trigger: an extension that pairs
+  a device with its own controls (a test runner, a deep-link tool).
+
+Every block follows the rules of 3.3: the host picks fonts and
+colours, menus and dialogs stay inside the tile, the extension can't
+draw over a block, and a block's own keys (⌘S, ⌘F, typing) are the
+host's while it is focused.
+
+### 16.3 Which built-in tiles move to the SDK
+Built-in tiles that are mostly UI over data an extension could reach
+are rebuilt on the SDK as first-party extensions, bundled with Pitwall
+and updated like any other. Tiles that are the platform itself stay
+native.
+
+| Tile today | Decision | Why |
+|---|---|---|
+| Review and source control (`review/`, [review.md](review.md)) | **Port**: the first-party proof tile | Large and used daily, so it finds gaps fastest. It is UI over git, agents and files, which the SDK offers. Its native parts become building blocks (code view, diff view) |
+| Files tree (`explorer/`, files tiles) | **Port** | A tree, a search box, viewers: all SDK elements or blocks. Needs `files.read/write`, file watching and a native search service (below) |
+| Inbox (`inbox_tile.rs`) | **Port** the tile; the inbox model and the floating control stay Pitwall's | The tile is a list and a thread over the `inbox` interface (15.4). 15.6 keeps the inbox as a dedicated surface; that holds: the model, the number keys and the floating control stay native, and the ported tile is one view of them |
+| Terminals | **Stays native** | The platform's core; contents withheld from extensions (16.2) |
+| Editor (`editor/`) | **Stays native** | It *is* the code view block; one editor, shared |
+| Web tiles | **Stays native** | A native web view with no bridge; the web view block reuses it |
+| Device tiles | **Stays native** | Native streaming and GPU surfaces; the device view block reuses it |
+| Settings | **Stays native** | Holds the permission grants and kill switches for extensions; an extension must not be able to draw it |
+
+**The review port as proof tile.** It sits next to the seed tiles
+(10.1), built only on the public SDK, in the order: read-only lists and
+diffs first, then comments to Next up, then commit and merge. What it
+needs, and what that pulls forward:
+- `agents.read`, `worktrees.read` (minimum, [today]).
+- `git.read` and `git.write`, and `files.read` for Markdown previews:
+  these move from "on demand" (14.3) into the plan when the port
+  starts, instead of waiting for the git client seed tile.
+- Code view and diff view (16.2), so both are minimum.
+- Gaps it is expected to show, each to be decided when met:
+  - `git`'s fixed operations lack `merge`, `merge-base` and restoring
+    one file (3.8); Review uses all three [today].
+  - Per-task diffs come from task boundaries the daemon records
+    (`review.md`, "Per-task diffs" [today]); extensions have no read
+    for them.
+  - "Send comments" sends at once to an idle agent [today]; a tile's
+    `queue.add` only adds to Next up, waiting for Send (14.2). Either
+    the port accepts that step, or a "send now" grant is designed.
+  - Review is a full-window mode (⌘R) today; a tile has no such mode.
+
+**The files tree port** needs, beyond `files.read/write`: change
+events for granted projects (a watch the host runs), and search as a
+host service (`files.search`, run natively by Pitwall over the granted
+roots, results only), since a guest walking a large tree through WASI
+would be slow (*unverified* until measured). Image and PDF viewers
+become blocks or stay as "open in a viewer" (`viewer.open`); decide
+when the port starts.
+
+**Order and risk.** Ports start after the matching blocks and services
+exist (phase 2 onwards) and replace the native tile only when the port
+matches it feature for feature; until then the native tile stays the
+default. If a port can't match it, the native tile stays and the gap is
+written down.
+
+### 16.4 Open questions (each with a recommendation)
+1. **Terminal view in v0.x?** *Recommend no* (16.2); on demand later,
+   show-only, per agent, if ever.
+2. **Web view: minimum or on demand?** *Recommend on demand*; `web.open`
+   covers today's needs.
+3. **Port the review screen before WIT 1.0?** *Recommend yes*: start it
+   in phase 2 as the proof tile, so its gaps reach WIT before 1.0
+   freezes it.
+4. **Review as a tile or keep a full-window mode?** *Recommend* a tile
+   first, maximised by ⌘R (layouts can already maximise a tile); a
+   full-window mode for extensions only if the port shows it is needed.
+5. **Send comments at once?** *Recommend* keeping Next up's Send step
+   for the port at first (the same safety as every extension), and
+   revisit if users find the extra step slows review.
+6. **Drop the native tiles once ported?** *Recommend yes*, one release
+   after each port matches its native tile, so there is one code path.
 
 ## What this replaces in extension-api.md
 
@@ -3015,6 +3299,11 @@ own repository unless marked.
 - **S24** The `llms.txt` proposal: a Markdown file at a site's root
   giving language models a concise guide to its docs.
   https://llmstxt.org
+- **S25** Zed on grammars as shared libraries vs. WebAssembly: "We
+  would never be able to prevent these kinds of crashes if we loaded
+  extensions directly as shared libraries"; wasm is "cross-platform,
+  and it's designed for running untrusted code safely" (Max Brunsfeld,
+  2024-04-18). https://zed.dev/blog/language-extensions-part-1
 
 ### Not verified
 - That WIT has no recursive types (3).
@@ -3030,3 +3319,7 @@ own repository unless marked.
 - Whether SQLite compiled for `wasm32-wasip2` works reliably, and the
   `flock` gap (13.3).
 - What each OS reports about a loopback peer process (13.3).
+- What macOS's hardened runtime requires of a loaded plugin library
+  (16.1).
+- Whether walking a large project through WASI is too slow for the
+  files tree port, which is why search is a host service (16.3).
