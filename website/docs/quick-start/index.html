@@ -110,7 +110,7 @@ scripts/package-app.sh              <span class="c"># release bundles → target
         <p>Sources, in priority order: hooks (when the agent has sent one this run), then the terminal screen matched against per-agent rules, then output activity. When the window isn't focused, a blocked or done agent posts a native notification.</p>
 
         <h2 id="next-up">Next up</h2>
-        <p>Type a follow-up in the right panel and press <kbd>⌘↵</kbd>. With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text is pasted exactly as written, then Enter.</p>
+        <p>Press <kbd>⌘K</kbd> and type <code>api: run the full suite</code> to queue a follow-up for the agent api. While something waits, its tile header shows “1 queued”: click it to see the queue, send an item now, remove one or turn Auto-send off. With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text is pasted exactly as written, then Enter.</p>
 
         <h2 id="review">Review</h2>
         <p><kbd>⌘R</kbd> opens every agent's changes. Choose All changes or a single task, click a line number to comment, then <strong>Send comments</strong> to deliver one editable prompt. <strong>Commit &amp; merge</strong> commits in the agent's worktree and merges its branch with <code>--no-ff</code>; it refuses if your main checkout is dirty and aborts cleanly on conflicts.</p>
@@ -129,7 +129,6 @@ scripts/package-app.sh              <span class="c"># release bundles → target
           <div><dt><kbd>⌘⏎</kbd></dt><dd>Maximise pane</dd></div>
           <div><dt><kbd>⌘⇧N</kbd></dt><dd>Space to new window</dd></div>
           <div><dt><kbd>⌘B</kbd></dt><dd>Sidebar</dd></div>
-          <div><dt><kbd>⌘.</kbd></dt><dd>Details panel</dd></div>
           <div><dt><kbd>⌘+</kbd> <kbd>⌘−</kbd> <kbd>⌘0</kbd></dt><dd>Tile font size</dd></div>
           <div><dt><kbd>⌘,</kbd></dt><dd>Settings</dd></div>
         </dl>

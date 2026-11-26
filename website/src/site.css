@@ -506,7 +506,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 /* The live app (website/public/demo, the app's browser mock) renders at the size the
    site was designed around, 1120x700, and main.js scales it to the frame. Phones show
    its left half (sidebar and first tile) at a readable size instead of the whole window,
-   or its right half for Files, Web and Next up (the tile or the details drawer). */
+   or its right half for Files, Web and Next up (the tile, or the popover on it). */
 .frame-body { position: relative; aspect-ratio: 16 / 10; background: var(--app-bg); border-radius: var(--radius); overflow: hidden; }
 .frame-body iframe { position: absolute; left: 0; top: 0; border: 0; display: block; transform-origin: 0 0; }
 @media (max-width: 600px) { .frame-body { aspect-ratio: 4 / 5; } .frame { padding: 0 4px 4px; } }

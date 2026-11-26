@@ -101,7 +101,7 @@
         <p><kbd>⌘E</kbd> shows every agent's terminal, grouped by project, blocked first. Tiles show the bottom rows of each terminal, where prompts wait. The Wall is view-only: it never resizes a terminal and never types. Click a tile to take over that agent; <kbd>Esc</kbd> comes back. A window left in Wall mode stays that way across restarts.</p>
 
         <h2 id="next-up">Next up</h2>
-        <p>Each agent has its own queue in the right panel (<kbd>⌘.</kbd>). With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text goes in as a bracketed paste, then Enter, exactly as written. Last sent stays under the queue.</p>
+        <p>Each agent has its own queue. Queue a prompt from the palette (<kbd>⌘K</kbd>, then <code>name: prompt</code>), from Review or with <code>pitwall queue add</code>; while something waits, the agent's tile header shows “2 queued”, and clicking it lists the queue with Send now, Remove and the Auto-send switch. With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text goes in as a bracketed paste, then Enter, exactly as written. The last prompt sent is the list's last line.</p>
 
         <h2 id="away">Answering from another app</h2>
         <p>While you're in another app and an agent's screen asks you something, a small pill floats over your desktop, on every Space and over full-screen apps. It never shows while Pitwall is in front, and it goes away when nothing waits.</p>
@@ -121,7 +121,6 @@
           <li>Commit &amp; merge runs <code>git merge --no-ff</code> of the worktree's branch, only when you click. It refuses if your main checkout is dirty; on a conflict it runs <code>git merge --abort</code> and offers the agent an editable "rebase and resolve" prompt.</li>
           <li>The diff editor is bundled, so Review works offline.</li>
         </ul>
-        <p>The Changes panel in the right panel matches <code>git status</code>: staged and unstaged changes are listed apart, and each git repository inside the agent's folder, or linked into it, gets its own collapsible section with its branch. A file that is both staged and changed again shows both, and its diff opens on the part you clicked.</p>
 
         <h2 id="files">Files agents show you</h2>
         <p>Ask an agent to open a file, a folder, a worktree or an image ("open that file for me", "show me worktree fix-retry") and it opens in Pitwall's file viewer, in a <strong>files tile</strong>: a slot of its own in the layout of the window that shows the agent, right of its terminal unless you ask for left, above, below, another agent's terminal, or a terminal's place. A terminal it replaces keeps running and is back from the sidebar. Ask for a window and it gets a window of its own. Drag the files by their bar anywhere in a window's layout or out into a window and back; Move… and Dock… do the same without dragging. Pitwall doesn't come forward over the app you're in, and the terminal keeps the keyboard. Tiles come back after a restart with what they had open.</p>
