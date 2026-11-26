@@ -5,9 +5,7 @@
 //! format 2, asks for `agents.read`, and the adapter reads the agents and
 //! shows them in its thread. The view starter (`--view`) draws a list view
 //! tile with a detail, answers a palette command and puts a note on the
-//! agents' rows. The panel starter (`--panel`) draws a section in the right
-//! panel for the focused agent, with buttons Pitwall runs itself behind the
-//! `show` and `agents.focus` permissions. The service starter
+//! agents' rows. The service starter
 //! (`--service`) adds a tiny local server (`server.mjs`) that Pitwall
 //! keeps running while the extension is on. Each passes
 //! [`super::check::check`] and [`super::check::test`] as written.
@@ -19,7 +17,6 @@ use super::{check_id, MANIFEST, MAX_NAME};
 const ADAPTER: &str = include_str!("starter/adapter.mjs");
 const ADAPTER_2: &str = include_str!("starter/adapter2.mjs");
 const ADAPTER_VIEW: &str = include_str!("starter/adapter_view.mjs");
-const ADAPTER_PANEL: &str = include_str!("starter/adapter_panel.mjs");
 
 /// Which starter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,9 +25,6 @@ pub enum Shape {
     Inbox,
     /// A view tile, a palette command and notes on agents' rows.
     View,
-    /// A right-panel section for the focused agent, with buttons Pitwall
-    /// runs (open a file, focus an agent).
-    Panel,
     /// An inbox (protocol 1) and a small local server Pitwall keeps
     /// running while it is on (a service).
     Service,
@@ -91,40 +85,6 @@ const FIXTURE_SERVICE: &str = r#"{
 }
 "#;
 
-const MANIFEST_PANEL: &str = r#"{
-  "v": 2,
-  "id": "__ID__",
-  "name": __NAME_JSON__,
-  "version": "0.1.0",
-  "pitwall": ">=__PITWALL__",
-  "icon": "info",
-  "description": "A section in the right panel about the focused agent: a starting point",
-  "permissions": {
-    "agents.read": "To show a section about the agent you focus",
-    "show": "To open the agent's README in its file viewer when you press Open",
-    "agents.focus": "To move the focus to the agent when you press Focus"
-  },
-  "contributes": {
-    "panels": [{ "id": "about", "title": __NAME_JSON__, "icon": "info" }]
-  },
-  "adapter": { "command": ["node", "adapter.mjs"] }
-}
-"#;
-
-const FIXTURE_PANEL: &str = r#"{
-  "about": "What `pitwall extension test` checks: against a fake Pitwall that answers agent.list, the adapter draws its right-panel section for agent a1 when shown, with an Open button (show) and a Focus button (agents.focus) that Pitwall runs itself.",
-  "views": {
-    "grants": ["agents.read", "show", "agents.focus"],
-    "answers": {
-      "agent.list": [{ "id": "a1", "name": "fix-login", "kindName": "Claude Code", "status": "working", "cwd": "/work/app" }]
-    },
-    "show": "about",
-    "agentId": "a1",
-    "kind": "list",
-    "items": 2
-  }
-}
-"#;
 const README: &str = include_str!("starter/README.md");
 
 const MANIFEST_VIEW: &str = r#"{
@@ -241,7 +201,7 @@ pub fn name_of(id: &str) -> String {
 /// Write the starter into `folder` (made; it must be absent or empty),
 /// its id the folder's name, its name `name` (else read from the id): the
 /// files written. `protocol`: 1 (an inbox of its own) or 2 (reads the
-/// agents); a view or panel `shape` is protocol 2.
+/// agents); a view `shape` is protocol 2.
 pub fn write(folder: &Path, name: Option<&str>, protocol: u64, shape: Shape) -> Result<Vec<PathBuf>, String> {
     if !super::protocol::PROTOCOLS.contains(&protocol) {
         return Err(format!("there is a starter for protocol 1 and 2, not {protocol}"));
@@ -249,7 +209,7 @@ pub fn write(folder: &Path, name: Option<&str>, protocol: u64, shape: Shape) -> 
     let protocol = match shape {
         Shape::Inbox => protocol,
         Shape::Service => 1,
-        Shape::View | Shape::Panel => super::protocol::PROTOCOL_2,
+        Shape::View => super::protocol::PROTOCOL_2,
     };
     let id = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     check_id(&id).map_err(|e| format!("the folder's name is the extension's id, and {e}: name the folder like my-extension"))?;
@@ -270,7 +230,6 @@ pub fn write(folder: &Path, name: Option<&str>, protocol: u64, shape: Shape) -> 
     let fill = |t: &str| t.replace("__ID__", &id).replace("__NAME_JSON__", &name_json).replace("__NAME__", &name).replace("__PITWALL__", super::PITWALL).replace("__PROTOCOL__", &protocol.to_string());
     let two = protocol == 2;
     let (manifest, adapter, fixture) = match (shape, two) {
-        (Shape::Panel, _) => (MANIFEST_PANEL, ADAPTER_PANEL, FIXTURE_PANEL),
         (Shape::View, _) => (MANIFEST_VIEW, ADAPTER_VIEW, FIXTURE_VIEW),
         (Shape::Service, _) => (MANIFEST_SERVICE, ADAPTER, FIXTURE_SERVICE),
         (Shape::Inbox, true) => (MANIFEST_2, ADAPTER_2, FIXTURE_2),
@@ -363,56 +322,6 @@ mod tests {
             for want in ["protocol 2", "view “items” is a list of 2 item(s)", "after selecting “welcome”, a detail", "action “done” on “welcome” is answered ok", "command “refresh” is answered ok", "it sends 1 badge(s)"] {
                 assert!(text.contains(want), "{want}: {text}");
             }
-        }
-    }
-
-    /// The panel starter: a right-panel section for the focused agent with
-    /// buttons Pitwall runs (open a file, focus an agent), each with the
-    /// permission it needs asked for.
-    #[test]
-    fn the_panel_starter_passes_its_checks() {
-        let t = crate::testing::TempDir::new("starter-panel");
-        let dir = t.path().join("my-panel");
-        write(&dir, None, 1, Shape::Panel).unwrap();
-        let m = crate::extensions::read(&dir, "my-panel").unwrap();
-        assert_eq!((m.format, m.contributes.panels[0].id.as_str(), m.has_inbox()), (2, "about", false));
-        let mut asked: Vec<&str> = m.permissions.iter().map(|p| p.name.as_str()).collect();
-        asked.sort_unstable();
-        assert_eq!(asked, ["agents.focus", "agents.read", "show"]);
-        let r = check(&dir, None);
-        assert!(r.passed(), "{}", r.text());
-        assert!(r.text().contains("a section “My panel” (about) in the right panel"), "{}", r.text());
-        assert!(!r.findings.iter().any(|f| f.level == Level::Warn && f.text.contains("agents.")), "{}", r.text());
-        let r = test(&dir, None);
-        assert!(r.passed(), "{}", r.text());
-        if crate::extensions::plan::resolve(&dir, "node", None).is_ok() {
-            let text = r.text();
-            for want in ["the section “about” for a1 is a list of 2 item(s)", "“Open” on “readme”: Pitwall shows README.md (needs show", "“Focus” on “agent”: Pitwall focuses agent a1 (needs agents.focus"] {
-                assert!(text.contains(want), "{want}: {text}");
-            }
-        }
-    }
-
-    /// The service starter: an inbox and a small server declared as its
-    /// service, whose commands and verdicts its fixture checks (nothing
-    /// is started).
-    #[test]
-    fn the_service_starter_passes_its_checks() {
-        let t = crate::testing::TempDir::new("starter-service");
-        let dir = t.path().join("my-server");
-        let files = write(&dir, Some("My server"), 2, Shape::Service).unwrap();
-        assert!(files.iter().any(|f| f.ends_with("server.mjs")));
-        let m = crate::extensions::read(&dir, "my-server").unwrap();
-        let s = m.service.as_ref().expect("a service");
-        assert_eq!((m.format, s.run[1].as_str(), m.has_inbox()), (2, "server.mjs", true));
-        let r = check(&dir, None);
-        assert!(r.passed(), "{}", r.text());
-        let text = r.text();
-        assert!(text.contains("it declares a service, Its server") && text.contains("keeps Its server running (it runs continuously, as you)"), "{text}");
-        let r = test(&dir, None);
-        assert!(r.passed(), "{}", r.text());
-        for want in ["service: its commands are the ones expected", "service, case 2: it something else is already listening on 127.0.0.1:8790"] {
-            assert!(r.text().contains(want), "{want}: {}", r.text());
         }
     }
 

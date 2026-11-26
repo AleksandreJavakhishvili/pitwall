@@ -230,13 +230,11 @@ pub enum Root {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     pub id: String,
-    /// A right-panel section's: the agent it is for.
+    /// The agent it was sent for: only an old right-panel section has
+    /// one, and Pitwall (with no right panel now) refuses it.
     pub agent_id: Option<String>,
     pub root: Result<Root, String>,
 }
-
-/// The most rows a right-panel section draws (the rest are counted).
-pub const PANEL_ROWS: usize = 8;
 
 /// What a badge, a note or a notification opens when clicked.
 #[derive(Debug, Clone, PartialEq, Eq)]

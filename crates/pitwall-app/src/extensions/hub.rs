@@ -796,7 +796,7 @@ impl Hub {
                     }
                     for view in self.shown.get(&key.0).into_iter().flat_map(|s| s.keys()) {
                         if let Some(l) = &st.link {
-                            l.send(&ToAdapter::Show { view: view.clone(), agent_id: None });
+                            l.send(&ToAdapter::Show { view: view.clone() });
                         }
                     }
                 }
@@ -1017,7 +1017,7 @@ impl Hub {
         if *n == 1 {
             for (_, st) in self.runs.iter().filter(|(k, st)| k.0 == ext && st.hello) {
                 if let Some(l) = &st.link {
-                    l.send(&ToAdapter::Show { view: view.to_string(), agent_id: None });
+                    l.send(&ToAdapter::Show { view: view.to_string() });
                 }
             }
         }
@@ -1037,7 +1037,7 @@ impl Hub {
             st.raw_views.remove(view);
             st.view_notes.remove(view);
             if let (true, Some(l)) = (st.hello, &st.link) {
-                l.send(&ToAdapter::Hide { view: view.to_string(), agent_id: None });
+                l.send(&ToAdapter::Hide { view: view.to_string() });
             }
         }
         self.merge(ext);
@@ -1071,7 +1071,7 @@ impl Hub {
         let req = self.next_req;
         let st = self.runs.get_mut(&key).ok_or("The extension isn't running.")?;
         let link = st.link.as_ref().filter(|_| st.hello).ok_or("The extension isn't running.")?;
-        if !link.send(&ToAdapter::Action { req, view: view.to_string(), item: inner.clone(), action: action.to_string(), agent_id: None }) {
+        if !link.send(&ToAdapter::Action { req, view: view.to_string(), item: inner.clone(), action: action.to_string() }) {
             return Err("The extension isn't running.".into());
         }
         self.next_req += 1;

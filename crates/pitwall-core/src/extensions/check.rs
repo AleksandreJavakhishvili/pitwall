@@ -252,6 +252,9 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
         if asks(super::permissions::AGENTS_QUEUE) {
             r.add(Level::Warn, "it asks for “agents.queue”: text an agent gets becomes what it does, so users see a warning before granting it. What it queues waits in Next up marked with its name until they press Send (Auto-send skips it unless they let it send without asking); at most 4000 characters, one item per agent every 10 seconds, three waiting per agent. Ask only if your users need it, and say why in its reason");
         }
+        if m.contributes.retired_panels {
+            r.add(Level::Warn, "it contributes “panels”: Pitwall no longer has a right panel, so its sections are never shown. Make them views (contributes.views) instead");
+        }
         if asks(super::permissions::AGENTS_START) {
             r.add(Level::Warn, "it asks for “agents.start”: every request shows the user an approval with the project, the tool and the first prompt in full, and no answer in time is a no; one request at a time, three in ten minutes, only in Pitwall's projects on this computer");
         }
@@ -503,15 +506,8 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         r.add(Level::Fail, format!("{FIXTURE}'s “views” needs “show”: the id of the view to show"));
         return;
     };
-    let panel = m.contributes.panel(&show).is_some();
-    if m.contributes.view(&show).is_none() && !panel {
-        r.add(Level::Fail, format!("views: its manifest declares no view or panel “{show}” (contributes.views, contributes.panels)"));
-        return;
-    }
-    // A right-panel section is shown for an agent.
-    let agent_id = v["agentId"].as_str().map(str::to_string);
-    if panel && agent_id.is_none() {
-        r.add(Level::Fail, format!("{FIXTURE}'s “views” shows the panel “{show}”: give “agentId”, the agent it is shown for"));
+    if m.contributes.view(&show).is_none() {
+        r.add(Level::Fail, format!("views: its manifest declares no view “{show}” (contributes.views)"));
         return;
     }
     let obj = |k: &str| v[k].as_object().cloned().unwrap_or_default();
@@ -540,10 +536,10 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         if said_hello(&mut d, r).is_none() {
             return Ok(());
         }
-        d.send(&ToAdapter::Show { view: show.clone(), agent_id: agent_id.clone() })?;
+        d.send(&ToAdapter::Show { view: show.clone() })?;
         let want_kind = v["kind"].as_str().unwrap_or_default().to_string();
         let at_least = v["items"].as_u64().unwrap_or(0) as usize;
-        let FromAdapter::View(view) = d.until(&format!("view “{show}”"), |m| matches!(m, FromAdapter::View(x) if x.id == show && x.agent_id == agent_id))? else { unreachable!() };
+        let FromAdapter::View(view) = d.until(&format!("view “{show}”"), |m| matches!(m, FromAdapter::View(x) if x.id == show && x.agent_id.is_none()))? else { unreachable!() };
         let root = view.root.map_err(|why| format!("view “{show}” is refused: {why}"))?;
         let kind = kind_of(&root);
         if !want_kind.is_empty() && kind != want_kind {
@@ -556,11 +552,7 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
         if items < at_least {
             return Err(format!("view “{show}” has {items} item(s), fewer than {at_least}"));
         }
-        let what = if panel { format!("the section “{show}” for {}", agent_id.as_deref().unwrap_or_default()) } else { format!("view “{show}”") };
-        r.add(Level::Ok, format!("views: after show, {what} is a {kind}{}", if kind == "list" { format!(" of {items} item(s)") } else { String::new() }));
-        if panel && items > super::view::PANEL_ROWS {
-            r.add(Level::Warn, format!("views: the section has {items} items; the right panel draws {} and counts the rest", super::view::PANEL_ROWS));
-        }
+        r.add(Level::Ok, format!("views: after show, view “{show}” is a {kind}{}", if kind == "list" { format!(" of {items} item(s)") } else { String::new() }));
         // Buttons Pitwall runs itself, and what each needs.
         if let Root::List { list, .. } = &root {
             for i in list.items() {
@@ -591,7 +583,7 @@ fn views(folder: &Path, m: &Manifest, v: &Value, path: Option<&str>, r: &mut Rep
             req += 1;
             let action = a.get("action").and_then(Value::as_str).unwrap_or_default().to_string();
             let item = a.get("item").and_then(Value::as_str).map(str::to_string);
-            d.send(&ToAdapter::Action { req, view: show.clone(), item: item.clone(), action: action.clone(), agent_id: agent_id.clone() })?;
+            d.send(&ToAdapter::Action { req, view: show.clone(), item: item.clone(), action: action.clone() })?;
             match d.until(&format!("the result of action “{action}”"), |m| matches!(m, FromAdapter::Result { req: x, .. } if *x == req))? {
                 FromAdapter::Result { ok: true, .. } => r.add(Level::Ok, format!("views: action “{action}”{} is answered ok", item.map(|i| format!(" on “{i}”")).unwrap_or_default())),
                 FromAdapter::Result { message, .. } => r.add(Level::Fail, format!("views: action “{action}” is refused: {message}")),

@@ -480,7 +480,7 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
     let hello = sent(&h, &end, cx);
     assert_eq!(hello[0]["protocols"], json!([1, 2]));
     assert_eq!(hello[0]["grants"], json!(["agents.read"]), "only what was granted");
-    assert_eq!(hello[0]["offers"], json!(["inbox", "views", "commands", "badges", "notify", "panels", "webViews", "call", "events"]));
+    assert_eq!(hello[0]["offers"], json!(["inbox", "views", "commands", "badges", "notify", "webViews", "call", "events"]));
     assert_eq!(hello[0]["connection"]["name"], json!("Work"));
     say(&h, &end, json!({"type": "hello", "protocol": 2, "uses": ["call"]}), cx);
     assert_eq!(run(&h, cx), Run::Running);
