@@ -94,7 +94,7 @@ model and IME. The tile's code never touches a window.
 6. **Host APIs start at a minimum** ([section 14](platform-services.md#14-platform-services-what-pitwall-gives-every-tile)): key-value storage,
    SQLite run by Pitwall, HTTPS to granted hosts, settings and secrets,
    notifications, opening a file, the editor or a web tile, timers. The
-   rest (files, git, agents' status, Next up, clipboard, …) is designed
+   rest (files, git, agents' status, clipboard, …) is designed
    here but built only when a seed tile needs it. Each is a named
    permission with the author's reason; Pitwall data comes through the
    existing method table.
@@ -139,8 +139,10 @@ model and IME. The tile's code never touches a window.
     freezes only then. Never terminal contents, credentials or other
     tiles' data; no hosted database, sync or accounts. The minimum
     includes what today's extensions already have for agents' questions
-    (badges and row notes, questions in the floating control, Next up),
-    so inbox-style tiles are a v0.x target.
+    (badges and row notes, questions in the floating control), so
+    inbox-style tiles are a v0.x target. Next up and the right Details
+    panel were removed from Pitwall (owner, 2026-11-26), with
+    `queue.add` and `agents.queue`.
 14. **One extension model** ([section 15](extension-model.md#15-one-extension-model), decided). The extension is
     the one concept; a tile is one thing it contributes. The component
     becomes the only way an extension runs its own code, with or
@@ -176,7 +178,7 @@ model and IME. The tile's code never touches a window.
 **Phases** (rough size for one engineer): 0 spike (2 wk) → 1 runtime,
 WIT 0.1, core elements, dev mode (5 wk) → 2 components and the
 minimum platform services, with badges, floating-control questions and
-Next up, toolbar items (7.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
+toolbar items (7 wk) → 3 agent tools, skill and commands (4 wk) → 4
 package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
 6 seed tiles (in parallel from phase 2), with on-demand services as
 they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
@@ -243,8 +245,8 @@ recorded in [10.3](#103-decisions), [11.13](agent-tools.md#1113-decisions), [13.
    ci-status-1.2.0.pwtile`). It says "Not listed: signed by key
    `RWQ…k3`, which you haven't seen before" and the same permission
    screen.
-3. An update adds `agents.queue`. The card says "Update to 1.3.0 —
-   asks for a new permission: Send text to agents". I update; the new
+3. An update adds `notify`. The card says "Update to 1.3.0 —
+   asks for a new permission: Show notifications". I update; the new
    permission stays off until I press Allow. The tile misbehaves, so I
    press Go back to 1.2.0.
 4. A tile hangs. Its tile says "CI status stopped: it didn't answer for
@@ -283,12 +285,12 @@ gap in the SDK.
 | Tile | Exercises | Needs |
 |---|---|---|
 | Notes | input, Markdown, storage, files | `files.read/write` (a `notes/` folder) |
-| CI and pull requests | net, secrets, virtual list, agents, Next up, notifications | `net`, `agents.read`, `agents.queue`, `notify` |
+| CI and pull requests | net, secrets, virtual list, agents, notifications, agent tools | `net`, `agents.read`, `notify` |
 | API client | inputs, tabs, code view, `net.ask`, storage | `net.ask` |
 | Git client | tree, table, diff in code view, keyboard, drag | `git.read/write/remote`, `files.read` |
 | Database browser | table with 100k rows (virtual), code view for SQL, canvas for a schema | `files.read` (SQLite in the guest); Postgres needs [10.3](#103-decisions), item 3 |
 | Diagrams | canvas, drag, agent tools of all four kinds ([4.2](authoring.md#42-a-diagram-tile-as-an-author-writes-it)) | `files.write` for export only |
-| Review and source control (proof tile, a port of the built-in one; [16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) | code view, diff view, lists, comments, Next up, git operations | `agents.read`, `worktrees.read`, `git.read/write`, `files.read`, `agents.queue` |
+| Review and source control (proof tile, a port of the built-in one; [16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) | code view, diff view, lists, comments, git operations | `agents.read`, `worktrees.read`, `git.read/write`, `files.read`; sending comments to the agent is to decide ([16.4](native-blocks.md#164-decisions), item 5) |
 
 ### 10.2 Order of work
 A phase is done only when the public website docs match what it
@@ -304,13 +306,13 @@ publish Migrating from adapters and replace the adapter pages.
 |---|---|---|---|
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model | 2 wk | none: nothing public yet |
 | 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `tile new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview | 5.5 wk | new "Extensions" group in the docs sidebar; Extensions overview, Quick start (`new`, `dev`), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and the skill download; all marked Preview |
-| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (about 1.5 wk of the total, mostly wiring existing host code); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items), about 1 wk) | 7.5 wk | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control (about 1 wk of the total, mostly wiring existing host code; `queue.add` dropped: Next up removed from Pitwall (owner, 2026-11-26)); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items), about 1 wk) | 7 wk | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components |
 | 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall tile tools` and `call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall tile run` and `commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | 4 wk | Agent tools, skill and commands; Permissions (agents' access to a tile's tools); the CLI reference gains `pitwall tile tools`, `call`, `run` and `commands` |
 | 4. Packages | `.pwtile`, minisign verification, install from file/URL/CLI, `Release` source updates, `safe_update` step for tiles, Go back, remove | 3 wk | Packaging and signing; Quick start gains `pack`; Permissions' user part (install, grants, Go back); the Settings reference's Extensions section; a short Extensions part in How it works for users |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `tile pack/sign/publish` | 4 wk | Publishing and the Verified badge (with its user part: what Verified means, reporting); Quick start gains `publish`; the Settings reference gains Browse |
 | 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; each 1–3 wk | parallel | examples on every page switch to the seed tiles' source as each one ships |
 | 6a. Native blocks and ports ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | ≈ 1.5 wk blocks, ≈ 5 wk review, ≈ 3 wk each other port | Native building blocks (each block as it ships); How it works says which built-in tiles are now extensions, if users can see it |
-| On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 | Platform services and Permissions gain a row for each service as it ships |
+| On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status for CI, …); 0.5–2 wk each | with 6 | Platform services and Permissions gain a row for each service as it ships |
 | 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk | Preview label removed; WIT reference 1.0 and one page per published WIT version; the deprecation policy on the overview |
 
 ### 10.3 Decisions

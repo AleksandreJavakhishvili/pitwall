@@ -113,8 +113,7 @@ stateDiagram-v2
   log keeps it. Three stops within 10 minutes: no automatic restart,
   only Restart by hand.
 - **Turned off.** The instance is dropped at once, everything it drew
-  goes away, its timers and requests are cancelled, its queued Next up
-  items are removed [today's rule for adapters].
+  goes away, and its timers and requests are cancelled.
 
 Several tiles of the same extension (two views, or the same view in
 two spaces) share one instance; each view is a root the guest renders
@@ -157,7 +156,7 @@ sequenceDiagram
   the main thread. Reads the host can answer from a snapshot (theme,
   agents' status, settings) are answered on the worker from a snapshot
   the app pushes when it changes. Actions (open a web tile, focus an
-  agent, queue to Next up, notify) are queued as `UiRequest`s and
+  agent, notify) are queued as `UiRequest`s and
   applied by the app with `cx.defer`; the guest gets a task id and a
   `task-done` event with the outcome.
 - The guest can't be re-entered: while it is inside a call the host
@@ -348,11 +347,10 @@ executor driven by `task-done` events (no Tokio in the guest).
 | `net` | `fetch(request) -> task` (method, URL, headers, body ≤ 8 MiB, answer ≤ 32 MiB); `https://` only, `http://` only to loopback | `net` with hosts ([5.1](permissions.md#51-new-permissions-new)) |
 | `files` | `pick-project() -> task`, `read`, `write`, `list`, `stat`, `watch` in granted project folders; also via WASI under `/projects/<n>` | `files.read`, `files.write` |
 | `git` | `status`, `diff`, `log`, `show`, `branches`, `blame`; `stage`, `unstage`, `commit`, `checkout`, `fetch`, `pull`, `push` — fixed operations, argv built by Pitwall over `Exec` [today's git code], never free arguments | `git.read`, `git.write`, `git.remote` |
-| `pitwall` | `call(method, params-json) -> task` into the daemon's `METHODS` table [today], filtered exactly as for adapters; `subscribe(topics)` → `agents-changed` | the existing ones: `agents.read`, `projects.read`, `worktrees.read`, `profiles.read`, `show`, `agents.focus`, `agents.queue`, `agents.start`, `notify` |
+| `pitwall` | `call(method, params-json) -> task` into the daemon's `METHODS` table [today], filtered exactly as for adapters; `subscribe(topics)` → `agents-changed` | the existing ones: `agents.read`, `projects.read`, `worktrees.read`, `profiles.read`, `show`, `agents.focus`, `agents.start`, `notify` |
 | `clipboard` | `write(text)` (only within 1 s of a user click or key in the tile), `read() -> task` | `clipboard.read` for reading |
 
-Reusing the method table means a tile reaches agents' status, Next up
-(`queue.add`), opening a file or a web tile (`viewer.open`,
+Reusing the method table means a tile reaches agents' status, opening a file or a web tile (`viewer.open`,
 `web.open`), focusing an agent, and notifications exactly as adapters
 do, with the same limits, approvals and activity log ([permissions.md]
 (../extensions/permissions.md) [today]). One API, two transports.
