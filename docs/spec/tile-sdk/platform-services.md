@@ -33,6 +33,7 @@ tile needs it.
 | Open a file at a line, the editor, a web tile | `pitwall` (`viewer.open`, `web.open`) | `show` | off [today] |
 | Timers | `tasks` ([3.8](runtime.md#38-host-apis)) | none | on; paused while hidden |
 | Agents and their status | `pitwall` (`agent.list`, `agent.status`, `events.subscribe`) | `agents.read` | on when asked for [today] |
+| A toolbar item with a badge ([3.9](ui.md#39-toolbar-items)) | `toolbar` [new] | none; the install screen lists "Adds a button to the toolbar"; per-project badges need `projects.read` | on when the manifest has `toolbar` |
 | Badges and row notes on sidebar rows | `contrib.badges` [new for tiles] | none for rows named by `matchAgents`; `agents.read` for an agent by id, `projects.read` for a project [today's rules] | on when the manifest says `"badges": true` |
 | Questions in the floating control | `asks` [new for tiles] | none (its own questions) | on when the manifest says `"asks": true` |
 | An answer or instruction into an agent's Next up | `pitwall` (`queue.add`) | `agents.queue` | off; items marked "From <name>" and waiting for Send [today] |

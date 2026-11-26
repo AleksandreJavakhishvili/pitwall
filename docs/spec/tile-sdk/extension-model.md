@@ -138,7 +138,8 @@ as "needs updating" with why.
 A component without a tile, or with tiles that aren't shown, may need
 to keep working: poll a service, keep badges and questions current,
 answer agent tools. So:
-- A component whose manifest contributes badges, asks, an inbox or
+- A component whose manifest contributes badges, asks, an inbox, a
+  toolbar badge ([3.9](ui.md#39-toolbar-items)) or
   agent tools, or declares `"background": true`, keeps its instance
   while the extension is on and Pitwall runs, as an adapter is kept
   running today. Renders stop while no tile shows it; events, timers,
