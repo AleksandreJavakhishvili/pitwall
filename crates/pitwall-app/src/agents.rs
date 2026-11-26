@@ -337,7 +337,7 @@ pub(crate) mod tests {
                          "label": if can_create { "This Mac" } else { "vm-1" }, "canCreate": can_create },
             "agentInTerminal": false, "restartAs": null, "status": status, "statusSource": "activity",
             "statusDetail": null, "running": true, "cols": 80, "rows": 24, "added": 0, "removed": 0,
-            "filesChanged": 0, "queue": [], "autoSend": false, "lastSent": null, "lastSentAt": null,
+            "filesChanged": 0,
             "createdAt": created_at, "currentTaskId": null,
             "caps": serde_json::to_value(pitwall_proto::AgentCaps::default()).unwrap()
         }))

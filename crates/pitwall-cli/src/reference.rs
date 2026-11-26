@@ -14,7 +14,7 @@ pub const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/referenc
 const INTRO: &str = "\
 # CLI reference
 
-`pitwall` sets up and manages Pitwall from a terminal: agents, sessions, queued prompts, spaces, projects, rules, review and settings. It does what the UI does, so you can script Pitwall or let an agent drive it. This page is generated from the CLI's own definitions; `pitwall <command> --help` shows the same.
+`pitwall` sets up and manages Pitwall from a terminal: agents, sessions, spaces, projects, rules, review and settings. It does what the UI does, so you can script Pitwall or let an agent drive it. This page is generated from the CLI's own definitions; `pitwall <command> --help` shows the same.
 
 ## Install
 
@@ -53,11 +53,11 @@ Run it on another login (Settings → Accounts):
 pitwall agent new --kind codex --project ~/code/api --account work
 ```
 
-Send the same prompt to every idle agent, then see who needs you:
+See who needs you:
 
 ```bash
-pitwall queue add --status idle \"pull main and rebase\"
 pitwall agent list --human
+pitwall events --topics attention
 ```
 
 Arrange a space in its own window:
@@ -85,7 +85,6 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("machine form", "pitwall machine form my-vm --human"),
     ("session add", "pitwall session add agw my-vm work           # track it\npitwall session add agw my-vm work --start   # and start it (asks)"),
     ("settings set", "pitwall settings set appearance.theme dark\npitwall settings set appearance.density dense"),
-    ("queue add", "pitwall queue add api \"run the tests\"\necho \"summarize the diff\" | pitwall queue add api -\npitwall queue add --status idle \"pull main\""),
     ("space move", "pitwall space move Review --to-window new"),
     ("rules apply", "pitwall rules apply api --set strict\npitwall rules apply --stale --restart            # every agent whose rules changed\npitwall rules apply --stale --project ~/code/api"),
     ("rules show", "pitwall rules show ~/code/api --human\npitwall rules show --agent api"),
@@ -99,7 +98,7 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("rules set add", "pitwall rules set add Web library:terse.md"),
     ("rules import", "pitwall rules import project ~/code/api          # its own .rulesync/\npitwall rules import file ~/code/api/CLAUDE.md   # asks first\npitwall rules import git https://github.com/acme/ai-rules.git   # asks first"),
     ("review changes", "pitwall review changes api --human"),
-    ("wait", "pitwall queue add api \"run the tests\"\npitwall wait api --for done,blocked --fresh --timeout 900"),
+    ("wait", "pitwall wait api --for done,blocked --fresh --timeout 900"),
     ("peers pair", "pitwall peers set --show on          # here\npitwall peers set --share on         # on studio\npitwall peers discover --human\npitwall peers pair studio\npitwall peers watch studio --human"),
     ("extension new", "pitwall extension new ~/code/my-inbox --name \"My inbox\"\npitwall extension check ~/code/my-inbox --human\npitwall extension test ~/code/my-inbox --human"),
     ("extension test", "pitwall extension test . --human        # in CI: exit status 1 when a check fails"),

@@ -43,13 +43,9 @@ pub fn agent_new(a: &AgentView) -> String {
     format!("Started {} ({}) in {} — id {}\n", a.name, a.kind_name, a.cwd_display, a.id)
 }
 
-/// `agent new --prompt`: its first instruction is in its Next up.
-pub fn first_queued(a: &AgentView) -> String {
-    if a.auto_send {
-        format!("Queued its first instruction: it goes in when {} is first free.\n", a.name)
-    } else {
-        format!("Queued its first instruction; Auto-send is off for {}, so it waits in Next up until you send it (`pitwall queue send {}`).\n", a.name, a.id)
-    }
+/// `agent new --prompt`: its first instruction is kept for it.
+pub fn first_prompt(a: &AgentView) -> String {
+    format!("Kept its first instruction: it goes in when {} is first free.\n", a.name)
 }
 
 pub fn machines(list: &[ProviderMachines]) -> String {

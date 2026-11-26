@@ -54,7 +54,7 @@ fn view(f: &Fake) -> Option<AgentView> {
         "machine": { "provider": "local", "id": "m1", "label": "This Mac", "canCreate": true },
         "agentInTerminal": false, "restartAs": null, "status": "blocked", "statusSource": "screen",
         "statusDetail": f.detail, "running": true, "cols": 100, "rows": 30, "added": 0, "removed": 0,
-        "filesChanged": 0, "queue": [], "autoSend": false, "lastSent": null, "lastSentAt": null,
+        "filesChanged": 0,
         "createdAt": 1, "currentTaskId": null,
         "caps": serde_json::to_value(pitwall_proto::AgentCaps::default()).ok()?,
         "ask": { "text": f.ask, "accept": f.yes_no, "reject": f.yes_no },

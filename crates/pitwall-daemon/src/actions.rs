@@ -1,45 +1,37 @@
 //! What an extension may do to agents, with the user's permission
-//! (docs/extensions/actions.md; docs/spec/extension-api.md, phase 5):
-//! put text in an agent's Next up (`agents.queue`) and ask to start an
-//! agent (`agents.start`). [`crate::methods::dispatch`] has checked the
-//! grant before either runs here; these are the rules on top of it.
+//! (docs/extensions/actions.md; docs/spec/extension-api.md, phase 5): ask
+//! to start an agent (`agents.start`). [`crate::methods::dispatch`] has
+//! checked the grant before it runs here; these are the rules on top of
+//! it.
 //!
-//! - **Queued text** lands in Next up as the extension's item (its name on
-//!   it, [`QueueOrigin`]) and is never sent by Auto-send unless the user
-//!   lets that extension send without asking (the engine's
-//!   `set_auto_senders`, from Settings). At most [`MAX_QUEUE_TEXT`]
-//!   characters, one item per agent per [`QUEUE_EVERY`] and at most
-//!   [`MAX_WAITING`] of its items waiting in one agent's Next up. Only
-//!   Pitwall's own agents (not a peer's, shown here read-only).
 //! - **Starting an agent** asks the user every time through the approval
 //!   dialog (high risk: never remembered), naming the extension, the
 //!   project, the tool and the first prompt in full; no answer in time is
 //!   a no. Only on this computer, in one of Pitwall's projects, with the
 //!   project's own accounts; one request waiting at a time and at most
-//!   [`MAX_START_ASKS`] in [`START_WINDOW`].
+//!   [`MAX_START_ASKS`] in [`START_WINDOW`]. The first prompt, at most
+//!   [`MAX_PROMPT`] characters, is sent once when the new agent is first
+//!   free: the user saw it in full when they allowed the start.
 //!
 //! Nothing here changes what an agent may do: an agent's own calls never
-//! come here (it isn't an extension caller), and what the extension queues
-//! reaches the agent only as the user's own typing would.
+//! come here (it isn't an extension caller), and the first prompt reaches
+//! the agent only as the user's own typing would.
 
 use std::time::Duration;
 
 use pitwall_core::engine::lifecycle;
 use pitwall_core::model::CreateAgentRequest;
 use pitwall_core::onboarding;
-use pitwall_proto::{code, method, AgentCreate, ErrorBody, QueueAdd, QueueOrigin, Risk};
+use pitwall_proto::{code, method, AgentCreate, ErrorBody, Risk};
 use serde_json::Value;
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
 use crate::server::Server;
 
-/// The longest text an extension queues (the protocol's reply limit).
-pub const MAX_QUEUE_TEXT: usize = 4000;
-/// One item per agent per extension this often.
-pub const QUEUE_EVERY: Duration = Duration::from_secs(10);
-/// The most of an extension's items waiting in one agent's Next up.
-pub const MAX_WAITING: usize = 3;
+/// The longest first prompt an extension gives (the protocol's reply
+/// limit).
+pub const MAX_PROMPT: usize = 4000;
 /// The most start requests an extension makes in [`START_WINDOW`] (asked
 /// or not answered alike).
 pub const MAX_START_ASKS: usize = 3;
@@ -49,28 +41,6 @@ type Res = Result<Value, ErrorBody>;
 
 fn bad(m: impl Into<String>) -> ErrorBody {
     ErrorBody::new(code::BAD_PARAMS, m)
-}
-
-/// `queue.add` from extension `(id, name)`.
-pub fn queue_add(s: &Server, ext: &(String, String), r: QueueAdd) -> Res {
-    let (id, name) = ext;
-    let text = r.text.trim_end().to_string();
-    if text.trim().is_empty() {
-        return Err(bad("the text is empty"));
-    }
-    let n = text.chars().count();
-    if n > MAX_QUEUE_TEXT {
-        return Err(bad(format!("The text is {n} characters; an extension queues at most {MAX_QUEUE_TEXT}.")));
-    }
-    let agent = crate::manage::agent(s, &r.agent_id)?;
-    let waiting = s.engine.queued_by(&agent.id, id);
-    if waiting >= MAX_WAITING {
-        return Err(ErrorBody::new(crate::extensions::BUSY, format!("{MAX_WAITING} of {name}'s items already wait in {}'s Next up: the user sends or removes them first.", agent.name)));
-    }
-    s.extensions.may_queue(id, &agent.id)?;
-    let origin = QueueOrigin { extension: id.clone(), name: name.clone() };
-    let view = s.engine.queue_add_from(&agent.id, text, Some(origin)).map_err(|e| ErrorBody::new(code::OTHER, e))?;
-    serde_json::to_value(view).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
 }
 
 /// `agent.create` from extension `caller`: asked of the user every time.
@@ -99,8 +69,8 @@ pub fn start(s: &Server, caller: &Caller, r: AgentCreate) -> Res {
     let prompt = r.prompt.as_deref().map(str::trim_end).filter(|p| !p.trim().is_empty()).map(String::from);
     if let Some(p) = &prompt {
         let n = p.chars().count();
-        if n > MAX_QUEUE_TEXT {
-            return Err(bad(format!("The prompt is {n} characters; at most {MAX_QUEUE_TEXT}.")));
+        if n > MAX_PROMPT {
+            return Err(bad(format!("The prompt is {n} characters; at most {MAX_PROMPT}.")));
         }
     }
     let agent_name = r.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(String::from);
@@ -118,7 +88,7 @@ pub fn start(s: &Server, caller: &Caller, r: AgentCreate) -> Res {
         details.push(format!("Name: {n}"));
     }
     details.push(match &prompt {
-        Some(p) => format!("Its first prompt, put in its Next up marked “{name}” (sent only when you press Send, unless you let {name} send without asking):\n{p}"),
+        Some(p) => format!("Its first prompt, sent once it is ready, as if you typed it:\n{p}"),
         None => "No first prompt.".into(),
     });
     details.push("It runs as you, in this project's folder, with the project's accounts and its own permissions there.".into());
@@ -143,14 +113,14 @@ pub fn start(s: &Server, caller: &Caller, r: AgentCreate) -> Res {
     .map_err(|e| ErrorBody::new(code::OTHER, e))?;
     onboarding::add_agent_project(&s.engine, &view);
     let view = match prompt {
-        Some(p) => s.engine.queue_add_from(&view.id, p, Some(QueueOrigin { extension: id, name })).unwrap_or(view),
+        Some(p) => s.engine.set_first_prompt(&view.id, p).unwrap_or(view),
         None => view,
     };
     serde_json::to_value(view).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
 }
 
 /// What a call that acts asked for, in a few words, for the activity log
-/// (which agent, the text, the project).
+/// (which agent, the project, the prompt).
 pub fn detail(s: &Server, name: &str, p: &Value) -> Option<String> {
     let agent = |key: &str| {
         let id = p.get(key)?.as_str()?;
@@ -158,7 +128,6 @@ pub fn detail(s: &Server, name: &str, p: &Value) -> Option<String> {
     };
     let text = |key: &str| p.get(key).and_then(Value::as_str).map(|t| format!("“{t}”"));
     match name {
-        method::QUEUE_ADD => Some(format!("to {}: {}", agent("agentId")?, text("text").unwrap_or_default())),
         method::AGENT_CREATE => {
             let mut d = format!("a {} agent in {}", p.get("kind").and_then(Value::as_str).unwrap_or("?"), p.get("project").and_then(Value::as_str).unwrap_or("?"));
             if let Some(t) = text("prompt") {

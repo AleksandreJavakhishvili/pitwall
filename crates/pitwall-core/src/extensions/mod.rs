@@ -26,9 +26,10 @@
 //! What format 2 contributes ([`Contributes`]): the inbox, view tiles drawn
 //! from Pitwall's own components ([`view`]), command palette commands,
 //! badges and short notes on sidebar rows, notifications (with the
-//! `notify` permission), sections in the right panel for the focused agent
-//! (with `agents.read`) and web views: an https (or this computer's own
+//! `notify` permission) and web views: an https (or this computer's own
 //! http) page in a web tile, with no way to reach Pitwall from the page.
+//! `panels` (sections in the right panel, which was removed) is still
+//! read, so an older manifest installs, and never drawn.
 //!
 //! Format 2 may also declare a `service` ([`service`]): one long-running
 //! program on this computer (a server its agents need) that Pitwall keeps
@@ -65,7 +66,12 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 7] = ["inbox", "views", "commands", "badges", "notifications", "panels", "webViews"];
+pub const CONTRIBUTES: [&str; 6] = ["inbox", "views", "commands", "badges", "notifications", "webViews"];
+
+/// A contribution an older Pitwall drew and this one no longer does: read
+/// and never drawn, so a manifest that has it still installs (its check
+/// warns). `panels`: sections of the right panel, which was removed.
+const RETIRED_CONTRIBUTIONS: [&str; 1] = ["panels"];
 
 /// Contributions a later Pitwall draws (a manifest naming one needs it).
 /// Floating-control cards come from the inbox's blocking asks alone.
@@ -74,8 +80,7 @@ const LATER_CONTRIBUTIONS: [&str; 1] = ["cards"];
 /// The most views and commands a manifest contributes.
 pub const MAX_VIEWS: usize = 10;
 pub const MAX_COMMANDS: usize = 20;
-/// The most right-panel sections and web views a manifest contributes.
-pub const MAX_PANELS: usize = 3;
+/// The most web views a manifest contributes.
 pub const MAX_WEB_VIEWS: usize = 5;
 /// The longest view or command title.
 pub const MAX_TITLE: usize = 40;
@@ -158,23 +163,11 @@ pub struct Contributes {
     pub badges: bool,
     /// Notifications (with the `notify` permission).
     pub notifications: bool,
-    /// Sections in the right panel for the focused agent (with
-    /// `agents.read`), drawn from what its adapter sends for that agent.
-    pub panels: Vec<PanelDef>,
     /// Web pages in web tiles, with no bridge to Pitwall.
     pub web_views: Vec<WebViewDef>,
-}
-
-/// A right-panel section a manifest declares: its id (what the adapter's
-/// `show`, `view` and `action` lines name, with the agent's id), its title
-/// (the section's header) and maybe a view of its own that "More…" opens.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PanelDef {
-    pub id: String,
-    pub title: String,
-    pub icon: Option<String>,
-    /// One of its views, opened by "More…" under the section.
-    pub more: Option<String>,
+    /// It names `panels` (right-panel sections, which this Pitwall no
+    /// longer has): never drawn; its check says so.
+    pub retired_panels: bool,
 }
 
 /// A web view a manifest declares: a page in a web tile. Its address is
@@ -236,17 +229,11 @@ impl Contributes {
         if self.notifications {
             out.push("notifications (a few a minute at most)".to_string());
         }
-        out.extend(self.panels.iter().map(|p| format!("a section “{}” ({}) in the right panel, for the focused agent", p.title, p.id)));
         out.extend(self.web_views.iter().map(|w| match &w.url {
             Some(u) => format!("a web page “{}” ({}) in a tile: {u}, with a browser store of its own", w.title, w.id),
             None => format!("a web page “{}” ({}) in a tile, at an address its adapter gives, with a browser store of its own", w.title, w.id),
         }));
         out
-    }
-
-    /// Right-panel section `id`, when it declares one.
-    pub fn panel(&self, id: &str) -> Option<&PanelDef> {
-        self.panels.iter().find(|p| p.id == id)
     }
 
     /// Web view `id`, when it declares one.
@@ -822,16 +809,13 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
     }
     if adapter.is_none() {
-        let what = [("views", !contributes.views.is_empty()), ("commands", !contributes.commands.is_empty()), ("badges", contributes.badges), ("notifications", contributes.notifications), ("panels", !contributes.panels.is_empty()), ("webViews", contributes.web_views.iter().any(|w| w.url.is_none()))].into_iter().find(|(_, has)| *has);
+        let what = [("views", !contributes.views.is_empty()), ("commands", !contributes.commands.is_empty()), ("badges", contributes.badges), ("notifications", contributes.notifications), ("webViews", contributes.web_views.iter().any(|w| w.url.is_none()))].into_iter().find(|(_, has)| *has);
         if let Some((what, _)) = what {
             return Err(format!("\"contributes.{what}\" needs an \"adapter\": Pitwall draws what it sends"));
         }
     }
     if contributes.notifications && !permissions.iter().any(|p| p.name == permissions::NOTIFY) {
         return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
-    }
-    if !contributes.panels.is_empty() && !permissions.iter().any(|p| p.name == permissions::AGENTS_READ) {
-        return Err("\"contributes.panels\" needs the \"agents.read\" permission, with your reason for it: a section is about one agent".into());
     }
     check_web_views(&contributes, &settings)?;
     Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update })
@@ -902,27 +886,20 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             "notifications" => c.notifications = switch(k, val)?,
             "views" => c.views = parse_views(val)?,
             "commands" => c.commands = parse_commands(val)?,
-            "panels" => c.panels = parse_panels(val)?,
+            retired if RETIRED_CONTRIBUTIONS.contains(&retired) => c.retired_panels = true,
             "webViews" => c.web_views = parse_web_views(val)?,
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
             other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
         }
     }
-    // Views, sections and web views are named in the same lines: one id
-    // each among them.
+    // Views and web views are named in the same lines: one id each among
+    // them.
     let mut ids: Vec<&str> = Vec::new();
-    for id in c.views.iter().map(|v| v.id.as_str()).chain(c.panels.iter().map(|p| p.id.as_str())).chain(c.web_views.iter().map(|w| w.id.as_str())) {
+    for id in c.views.iter().map(|v| v.id.as_str()).chain(c.web_views.iter().map(|w| w.id.as_str())) {
         if ids.contains(&id) {
-            return Err(format!("“{id}” names a view, a panel or a web view twice: they share their ids"));
+            return Err(format!("“{id}” names a view or a web view twice: they share their ids"));
         }
         ids.push(id);
-    }
-    for p in &c.panels {
-        if let Some(more) = &p.more {
-            if c.view(more).is_none() {
-                return Err(format!("panel “{}” has \"more\": “{more}”, which isn't one of its views", p.id));
-            }
-        }
     }
     Ok(c)
 }
@@ -941,28 +918,6 @@ fn id_title_icon<'a>(what: &str, n: usize, o: &'a serde_json::Map<String, Value>
         None => None,
     };
     Ok((id, title, icon))
-}
-
-/// `contributes.panels`: at most [`MAX_PANELS`] right-panel sections.
-fn parse_panels(v: &Value) -> Result<Vec<PanelDef>, String> {
-    let Value::Array(list) = v else { return Err("\"contributes.panels\" must be a list".into()) };
-    if list.len() > MAX_PANELS {
-        return Err(format!("\"contributes.panels\" has more than {MAX_PANELS}"));
-    }
-    let mut out: Vec<PanelDef> = Vec::new();
-    for (i, item) in list.iter().enumerate() {
-        let Value::Object(o) = item else { return Err(format!("\"contributes.panels\" {} must be an object", i + 1)) };
-        let (id, title, icon) = id_title_icon("panels", i + 1, o)?;
-        let more = match opt_str(o, "more")? {
-            Some(m) => {
-                check_word("panel more", m)?;
-                Some(m.to_string())
-            }
-            None => None,
-        };
-        out.push(PanelDef { id: id.to_string(), title, icon, more });
-    }
-    Ok(out)
 }
 
 /// `contributes.webViews`: at most [`MAX_WEB_VIEWS`] pages, each with an
@@ -1675,31 +1630,30 @@ mod tests {
         assert!(err(r#"{"v": "1", "id": "x", "name": "X"}"#).contains("\"v\" must be 1 or 2"));
     }
 
-    /// Right-panel sections and web views: bounded, ids shared with views,
-    /// a section needs `agents.read` and an adapter, a web view's address
-    /// is https or this computer's, a setting in it is a url setting.
+    /// Web views: bounded, ids shared with views, a web view's address is
+    /// https or this computer's, a setting in it is a url setting. Old
+    /// right-panel sections are read and never drawn.
     #[test]
-    fn panels_and_web_views_are_read_and_checked() {
+    fn web_views_are_read_and_checked_and_panels_ignored() {
         let m = |extra: &str| format!(r#"{{"v": 2, "id": "ci", "name": "CI", "adapter": {{"command": ["node", "a.mjs"]}}, "permissions": {{"agents.read": "To match runs"}}, "settings": [{{"key": "server", "type": "url", "label": "Server"}}, {{"key": "token", "type": "secret", "label": "Token"}}], "contributes": {{{extra}}}}}"#);
         let ok = parse(&m(r#""views": [{"id": "runs", "title": "Runs"}], "panels": [{"id": "ci", "title": "CI", "more": "runs"}], "webViews": [{"id": "dash", "title": "Dashboard", "url": "https://ci.example.com/dash"}, {"id": "local", "title": "Local", "url": "http://localhost:4000/"}, {"id": "own", "title": "Own", "url": "{setting:server}/board"}, {"id": "given", "title": "Given"}]"#)).unwrap();
-        assert_eq!(ok.contributes.panel("ci").unwrap().more.as_deref(), Some("runs"));
+        assert!(ok.contributes.retired_panels, "an old manifest's sections still install");
         assert_eq!(ok.contributes.web_views.len(), 4);
         let lines = ok.contributes.lines();
-        assert!(lines.iter().any(|l| l == "a section “CI” (ci) in the right panel, for the focused agent"), "{lines:?}");
+        assert!(!lines.iter().any(|l| l.contains("right panel")), "{lines:?}");
         assert!(lines.iter().any(|l| l.contains("“Dashboard” (dash) in a tile: https://ci.example.com/dash, with a browser store of its own")), "{lines:?}");
         let err = |extra: &str| parse(&m(extra)).unwrap_err();
-        assert!(err(r#""views": [{"id": "ci", "title": "Runs"}], "panels": [{"id": "ci", "title": "CI"}]"#).contains("share their ids"));
-        assert!(err(r#""panels": [{"id": "ci", "title": "CI", "more": "nope"}]"#).contains("isn't one of its views"));
-        assert!(err(r#""panels": [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}, {"id": "c", "title": "C"}, {"id": "d", "title": "D"}]"#).contains("more than 3"));
+        assert!(err(r#""views": [{"id": "ci", "title": "Runs"}], "webViews": [{"id": "ci", "title": "CI"}]"#).contains("share their ids"));
         for bad in ["http://ci.example.com/", "file:///etc/hosts", "javascript:alert(1)", "https://u:p@x.com/"] {
             assert!(err(&format!(r#""webViews": [{{"id": "w", "title": "W", "url": "{bad}"}}]"#)).contains("web view “w”"), "{bad}");
         }
         assert!(err(r#""webViews": [{"id": "w", "title": "W", "url": "{setting:token}/x"}]"#).contains("must be a url setting"));
         assert!(err(r#""webViews": [{"id": "w", "title": "W", "url": "{setting:nope}"}]"#).contains("no setting “nope”"));
         assert!(err(r#""webViews": [{"id": "w", "title": "W", "bridge": true}]"#).contains("no way to reach Pitwall"));
-        // A section needs agents.read; one without an adapter, an adapter.
+        // Sections without agents.read (once refused) are ignored all the same.
         let no_read = r#"{"v": 2, "id": "ci", "name": "CI", "adapter": {"command": ["node", "a.mjs"]}, "contributes": {"panels": [{"id": "ci", "title": "CI"}]}}"#;
-        assert!(parse(no_read).unwrap_err().contains("needs the \"agents.read\" permission"));
+        assert!(parse(no_read).unwrap().contributes.retired_panels);
+        // A web view without a fixed address needs an adapter.
         let no_adapter = r#"{"v": 2, "id": "ci", "name": "CI", "contributes": {"webViews": [{"id": "w", "title": "W"}]}}"#;
         assert!(parse(no_adapter).unwrap_err().contains("adapter"));
         let fixed = r#"{"v": 2, "id": "ci", "name": "CI", "contributes": {"webViews": [{"id": "w", "title": "W", "url": "https://x.example.com"}]}}"#;
@@ -1724,7 +1678,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, panels, webViews)"));
+        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));

@@ -363,7 +363,7 @@ pub const SETTINGS: &[Setting] = &[
         key: "engineer.greeting",
         kind: Kind::Text { max: 1000 },
         default: DefaultValue::Str(ENGINEER_GREETING),
-        description: "The prompt queued for a new Race Engineer when it first opens (empty: none).",
+        description: "The first prompt a new Race Engineer gets, sent when it is first free (empty: none).",
         page: Page::Agents,
         sensitivity: Sensitivity::Safe,
         stored: Stored::Ui { key: "engineerGreeting", invert: false },

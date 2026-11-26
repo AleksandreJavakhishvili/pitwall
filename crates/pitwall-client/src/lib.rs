@@ -156,8 +156,8 @@ impl Client {
     }
 
     /// [`create_agent`](Self::create_agent), with what became of its
-    /// `prompt` (queued, or why not).
-    pub fn create_agent_queued(&mut self, req: &AgentCreate) -> Result<AgentCreated> {
+    /// `prompt` (kept to be sent when it is first free, or why not).
+    pub fn create_agent_with_prompt(&mut self, req: &AgentCreate) -> Result<AgentCreated> {
         self.call_as(method::AGENT_CREATE, req)
     }
 

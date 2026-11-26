@@ -30,7 +30,7 @@ use crate::events::{Event, EventSink};
 use crate::exec::{Cmd, Exec, Out, Stat};
 use crate::hooks::{self, HookEffect};
 use crate::kind::{self, KindCatalog};
-use crate::model::{AgentRecord, AgentView, KindCaps, KindView, QueueItem, QueueOrigin};
+use crate::model::{AgentRecord, AgentView, KindCaps, KindView};
 use crate::onboarding::project_list::ProjectList;
 use crate::paths::Paths;
 use crate::provider::{CreateForm, Locator, Provider, Providers, TermSize};
@@ -97,10 +97,6 @@ pub struct Engine {
     extension_setup: std::sync::RwLock<Vec<crate::extensions::update::Setup>>,
     /// Agents showing files to the user (crate::show).
     pub(crate) show: crate::show::State,
-    /// The extensions the user lets send their Next up items without
-    /// asking (the app sets them; docs/extensions/actions.md). Auto-send
-    /// passes over any other extension's item.
-    auto_senders: std::sync::RwLock<Vec<String>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -132,7 +128,6 @@ impl Engine {
             tool_updates: Default::default(),
             extension_env: Default::default(),
             extension_setup: Default::default(),
-            auto_senders: Default::default(),
             show: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
@@ -552,74 +547,23 @@ impl Engine {
         self.store.save(&Snapshot { agents: self.records() })
     }
 
-    // ------------------------------------------------------------ queue & seen
+    // ------------------------------------------------------------ first prompt & seen
 
-    pub fn queue_add(&self, id: &str, text: String) -> Result<AgentView, String> {
-        self.queue_add_from(id, text, None)
-    }
-
-    /// Queue `text` for agent `id`, put there by `origin` (an extension;
-    /// `None`: the user).
-    pub fn queue_add_from(&self, id: &str, text: String, origin: Option<QueueOrigin>) -> Result<AgentView, String> {
+    /// Keep `text` as agent `id`'s first instruction: sent once, verbatim,
+    /// when it is first free (`agent.create`'s prompt, the Race Engineer's
+    /// greeting). One given again replaces it while it waits.
+    pub fn set_first_prompt(&self, id: &str, text: String) -> Result<AgentView, String> {
         let view = self.with(id, |a| {
-            a.rec.queue.push(QueueItem {
-                id: uuid::Uuid::new_v4().to_string(),
-                text,
-                origin,
-            });
+            a.rec.first_prompt = Some(text);
             a.view()
         })?;
         self.changed(true);
         Ok(view)
     }
 
-    /// How many items extension `ext` has waiting in agent `id`'s Next up.
-    pub fn queued_by(&self, id: &str, ext: &str) -> usize {
-        self.with(id, |a| a.rec.queue.iter().filter(|q| q.origin.as_ref().is_some_and(|o| o.extension == ext)).count()).unwrap_or(0)
-    }
-
-    /// Take every item extension `ext` put in any Next up out (it was
-    /// turned off): what it queued and wasn't sent never goes.
-    pub fn queue_remove_origin(&self, ext: &str) -> usize {
-        self.queue_retain_origins(|o| o != ext)
-    }
-
-    /// Take out every extension's item but those of `keep` (the extensions
-    /// on and still granted `agents.queue`); the user's own stay.
-    pub fn queue_keep_origins(&self, keep: &[String]) -> usize {
-        self.queue_retain_origins(|o| keep.iter().any(|k| k == o))
-    }
-
-    fn queue_retain_origins(&self, keep: impl Fn(&str) -> bool) -> usize {
-        let mut gone = 0;
-        for a in self.agents().iter_mut() {
-            let before = a.rec.queue.len();
-            a.rec.queue.retain(|q| q.origin.as_ref().is_none_or(|o| keep(&o.extension)));
-            gone += before - a.rec.queue.len();
-        }
-        if gone > 0 {
-            self.changed(true);
-        }
-        gone
-    }
-
-    /// The extensions whose items Auto-send may send (the user let them
-    /// send without asking); every other extension's waits for Send.
-    pub fn set_auto_senders(&self, ids: Vec<String>) {
-        *self.auto_senders.write().unwrap_or_else(|e| e.into_inner()) = ids;
-    }
-
-    pub(crate) fn auto_senders(&self) -> Vec<String> {
-        self.auto_senders.read().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-
-    pub fn queue_remove(&self, id: &str, item_id: &str) -> Result<AgentView, String> {
-        let view = self.with(id, |a| {
-            a.rec.queue.retain(|q| q.id != item_id);
-            a.view()
-        })?;
-        self.changed(true);
-        Ok(view)
+    /// Agent `id`'s first instruction while it waits to be sent.
+    pub fn first_prompt(&self, id: &str) -> Option<String> {
+        self.with(id, |a| a.rec.first_prompt.clone()).ok().flatten()
     }
 
     /// The name Pitwall shows for it (`pitwall agent rename`), kept from
@@ -630,15 +574,6 @@ impl Engine {
         let view = self.with(id, |a| {
             a.rec.name = name.to_string();
             a.rec.name_source = Some(crate::model::NameSource::Manual);
-            a.view()
-        })?;
-        self.changed(true);
-        Ok(view)
-    }
-
-    pub fn set_auto_send(&self, id: &str, enabled: bool) -> Result<AgentView, String> {
-        let view = self.with(id, |a| {
-            a.rec.auto_send = enabled;
             a.view()
         })?;
         self.changed(true);
@@ -742,14 +677,16 @@ mod tests {
     }
 
     #[test]
-    fn queue_edits_are_persisted_changes() {
+    fn a_first_prompt_is_a_persisted_change() {
         let h = Harness::new(vec![record("a", "/tmp")]);
-        let v = h.engine.queue_add("a", "first".into()).unwrap();
-        assert_eq!(v.queue.len(), 1);
+        h.engine.set_first_prompt("a", "first".into()).unwrap();
+        assert_eq!(h.engine.first_prompt("a").as_deref(), Some("first"));
         assert_eq!(h.engine.wait_dirty(), (true, true));
-        h.engine.queue_remove("a", &v.queue[0].id).unwrap();
-        assert!(h.engine.views()[0].queue.is_empty());
-        assert!(h.engine.queue_add("nope", "x".into()).is_err());
+        h.engine.save().unwrap();
+        let saved = crate::store::Store::load(h.store.as_ref()).agents.remove(0);
+        assert_eq!(saved.first_prompt.as_deref(), Some("first"), "kept across a restart");
+        assert!(h.engine.set_first_prompt("nope", "x".into()).is_err());
+        h.engine.set_first_prompt("a", "again".into()).unwrap();
         h.engine.mark_seen("a").unwrap();
         assert_eq!(h.engine.wait_dirty(), (true, true), "flags accumulate until taken");
         h.engine.mark_seen("a").unwrap();

@@ -480,7 +480,7 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
     let hello = sent(&h, &end, cx);
     assert_eq!(hello[0]["protocols"], json!([1, 2]));
     assert_eq!(hello[0]["grants"], json!(["agents.read"]), "only what was granted");
-    assert_eq!(hello[0]["offers"], json!(["inbox", "views", "commands", "badges", "notify", "panels", "webViews", "call", "events"]));
+    assert_eq!(hello[0]["offers"], json!(["inbox", "views", "commands", "badges", "notify", "webViews", "call", "events"]));
     assert_eq!(hello[0]["connection"]["name"], json!("Work"));
     say(&h, &end, json!({"type": "hello", "protocol": 2, "uses": ["call"]}), cx);
     assert_eq!(run(&h, cx), Run::Running);
@@ -493,8 +493,8 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
     let no = reply(&h, &end, "c3", cx);
     assert_eq!(no["error"]["code"], json!("denied"), "{no}");
     assert!(no["error"]["message"].as_str().unwrap().contains("isn't granted agents.start"), "an action without its grant is refused, saying which: {no}");
-    say(&h, &end, json!({"type": "call", "id": "c3b", "method": "queue.send", "params": {"agentId": "a1"}}), cx);
-    assert_eq!(reply(&h, &end, "c3b", cx)["error"]["code"], json!("unsupported"), "sending is never an extension's");
+    say(&h, &end, json!({"type": "call", "id": "c3b", "method": "agent.stop", "params": {"agentId": "a1"}}), cx);
+    assert_eq!(reply(&h, &end, "c3b", cx)["error"]["code"], json!("unsupported"), "stopping is never an extension's");
     say(&h, &end, json!({"type": "call", "id": "c4", "method": "agent.kill"}), cx);
     assert!(reply(&h, &end, "c4", cx).get("error").is_some());
 
@@ -508,7 +508,7 @@ fn a_protocol_2_adapter_calls_what_it_is_granted(cx: &mut TestAppContext) {
 
     let log = cx.update(|cx| crate::extensions::calls::entries("inbox", cx));
     let methods: Vec<(&str, bool)> = log.iter().map(|e| (e.method.as_str(), e.refused())).collect();
-    assert_eq!(methods, [("agent.list", false), ("project.list", true), ("agent.create", true), ("queue.send", true), ("agent.kill", true), ("agent.list", true)]);
+    assert_eq!(methods, [("agent.list", false), ("project.list", true), ("agent.create", true), ("agent.stop", true), ("agent.kill", true), ("agent.list", true)]);
 }
 
 /// An adapter that answers protocol 1 runs as before: calls are refused

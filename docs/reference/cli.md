@@ -1,6 +1,6 @@
 # CLI reference
 
-`pitwall` sets up and manages Pitwall from a terminal: agents, sessions, queued prompts, spaces, projects, rules, review and settings. It does what the UI does, so you can script Pitwall or let an agent drive it. This page is generated from the CLI's own definitions; `pitwall <command> --help` shows the same.
+`pitwall` sets up and manages Pitwall from a terminal: agents, sessions, spaces, projects, rules, review and settings. It does what the UI does, so you can script Pitwall or let an agent drive it. This page is generated from the CLI's own definitions; `pitwall <command> --help` shows the same.
 
 ## Install
 
@@ -39,11 +39,11 @@ Run it on another login (Settings → Accounts):
 pitwall agent new --kind codex --project ~/code/api --account work
 ```
 
-Send the same prompt to every idle agent, then see who needs you:
+See who needs you:
 
 ```bash
-pitwall queue add --status idle "pull main and rebase"
 pitwall agent list --human
+pitwall events --topics attention
 ```
 
 Arrange a space in its own window:
@@ -78,7 +78,6 @@ These work with every command.
 - [`machine`](#machine): Where agents can run (this Mac, agw VMs, …)
 - [`session`](#session): Sessions on other machines (agw) that can be added to Pitwall
 - [`settings`](#settings): Pitwall's settings (theme, look, density, hooks, …): list, get, set, reset. Applied live when Pitwall runs; otherwise `ui.json` is edited (safe settings only)
-- [`queue`](#queue): Prompts queued for agents (sent when they are free)
 - [`space`](#space): Spaces (tabs of agents) and the windows they are in
 - [`project`](#project): Pitwall's project list (folders in the sidebar), and what each project's agents launch with (its profile and picks)
 - [`account`](#account): Accounts: tools' logins, browser accounts, git identities and extension connections (made in Pitwall's Settings)
@@ -119,7 +118,7 @@ pitwall agent new [OPTIONS]
 | `--name <NAME>` | Name shown in Pitwall (default: the kind's name). With --machine: the session's name there (required). |
 | `--resume <SESSION_ID>` | Continue this conversation (session id) instead of starting fresh. |
 | `--account <ACCOUNT>` | The login it runs with: an account's name or id (Settings → Agents → Accounts), or `default` for your own (default: the project's). |
-| `--prompt <TEXT>` | Its first instruction: put in its Next up as it is created, as `queue add` does, and sent when it is first free (if Auto-send is on). `-` reads it from stdin. |
+| `--prompt <TEXT>` | Its first instruction: kept as it is created and sent once, verbatim, when it is first free. `-` reads it from stdin. |
 | `--prompt-file <PATH>` | Its first instruction, read from this file (as --prompt). |
 | `--machine <MACHINE>` | Create it on this machine (an agw VM; see `machine list` and `machine form <machine>`). It changes that machine, so it waits for your approval in Pitwall. |
 | `--provider <PROVIDER>` | The provider of --machine, when two have a machine by that name. |
@@ -410,71 +409,6 @@ pitwall settings reset [OPTIONS] <KEY>
 | Argument | |
 |---|---|
 | `KEY` | A key from `settings list`. |
-
-
-## queue
-
-Prompts queued for agents (sent when they are free).
-
-### queue add
-
-Queue a prompt for an agent (`queue add api "run the tests"`), or for every agent with a status (`queue add --status idle "run the tests"`). `-` reads the prompt from stdin.
-
-```bash
-pitwall queue add [OPTIONS] <AGENT TEXT>...
-```
-
-| Argument | |
-|---|---|
-| `AGENT TEXT` | [AGENT] TEXT: the agent (id or name; not with --status) and the prompt. |
-
-| Option | |
-|---|---|
-| `--status <STATUS>` | Queue it for every agent that has this status now (idle, done, …). |
-
-```bash
-pitwall queue add api "run the tests"
-echo "summarize the diff" | pitwall queue add api -
-pitwall queue add --status idle "pull main"
-```
-
-### queue list
-
-What is queued: one agent's, or every agent with a queue.
-
-```bash
-pitwall queue list [OPTIONS] [AGENT]
-```
-
-| Argument | |
-|---|---|
-| `AGENT` (optional) | An agent (id or name). |
-
-### queue remove
-
-Take the Nth prompt (1 = first) out of an agent's queue.
-
-```bash
-pitwall queue remove [OPTIONS] <AGENT> <N>
-```
-
-| Argument | |
-|---|---|
-| `AGENT` | The agent (id or name). |
-| `N` | Its place in `queue list` (1 = first). |
-
-### queue send
-
-Send the Nth queued prompt (default: the first) to the agent now.
-
-```bash
-pitwall queue send [OPTIONS] <AGENT> [N]
-```
-
-| Argument | |
-|---|---|
-| `AGENT` | The agent (id or name). |
-| `N` (optional) | Its place in `queue list` (default: 1, the first). |
 
 
 ## space
@@ -1097,7 +1031,6 @@ pitwall wait [OPTIONS] --for <STATUS> <AGENT>
 | `--fresh` | Ignore the status it has now: wait for it to change first (use after sending a prompt). |
 
 ```bash
-pitwall queue add api "run the tests"
 pitwall wait api --for done,blocked --fresh --timeout 900
 ```
 
@@ -1292,7 +1225,7 @@ pitwall extension test . --human        # in CI: exit status 1 when a check fail
 
 ### extension new
 
-Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread. With --view it draws a list view tile instead, with a palette command and a note on your agents' rows. With --panel it draws a section in the right panel for the focused agent, with buttons Pitwall runs (open a file, focus an agent) behind the show and agents.focus permissions. With --service it adds a tiny local server (server.mjs) that Pitwall keeps running while the extension is on, once the user confirms its command.
+Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread. With --view it draws a list view tile instead, with a palette command and a note on your agents' rows. With --service it adds a tiny local server (server.mjs) that Pitwall keeps running while the extension is on, once the user confirms its command.
 
 ```bash
 pitwall extension new [OPTIONS] <FOLDER>
@@ -1307,7 +1240,6 @@ pitwall extension new [OPTIONS] <FOLDER>
 | `--name <NAME>` | What Pitwall calls it (default: from the folder's name). |
 | `--protocol <PROTOCOL>` | The adapter protocol it speaks: 1 (an inbox of its own) or 2 (also reads Pitwall, with permissions). |
 | `--view` | A view tile, a palette command and sidebar notes (format 2, protocol 2) instead of an inbox. |
-| `--panel` | A right-panel section for the focused agent, with buttons Pitwall runs itself (format 2, protocol 2). |
 | `--service` | An inbox and a small local server Pitwall keeps running while it is on: the extension's service (format 2, protocol 1). |
 
 ```bash

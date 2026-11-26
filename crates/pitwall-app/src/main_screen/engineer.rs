@@ -3,8 +3,8 @@
 //! a stopped one is started again (resuming its conversation), and a new one
 //! is made when there is none, in the current space. It works in its own
 //! folder (`pitwall_core::engineer`) and is shown under the selected
-//! project (else home). A new one gets the first prompt queued
-//! (`engineer.greeting`).
+//! project (else home). A new one gets its first prompt
+//! (`engineer.greeting`), sent once when it is first free.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -112,7 +112,7 @@ impl MainScreen {
                 },
             )?;
             let prompt = engineer::first_prompt(&kind, &set.greeting);
-            let view = if prompt.is_empty() { view } else { engine.queue_add(&view.id, prompt).unwrap_or(view) };
+            let view = if prompt.is_empty() { view } else { engine.set_first_prompt(&view.id, prompt).unwrap_or(view) };
             Ok::<_, String>(Opened::Created(Box::new(view)))
         });
         cx.spawn_in(window, async move |this, cx| {

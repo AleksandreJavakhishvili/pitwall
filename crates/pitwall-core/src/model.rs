@@ -7,7 +7,7 @@ use crate::kind::{AgentKind, HookMode};
 use crate::provider::{HookTransport, Locator, ProviderCaps};
 
 // The wire shapes live in pitwall-proto (architecture.md §1).
-pub use pitwall_proto::{AgentCaps, AgentView, MachineView, QueueItem, QueueOrigin, Source, Status};
+pub use pitwall_proto::{AgentCaps, AgentView, MachineView, Source, Status};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -247,17 +247,12 @@ pub struct AgentRecord {
     /// A prompt has been sent in this session, so resuming it is meaningful.
     #[serde(default)]
     pub has_conversation: bool,
-    #[serde(default)]
-    pub queue: Vec<QueueItem>,
-    #[serde(default = "yes")]
-    pub auto_send: bool,
-    #[serde(default)]
-    pub last_sent: Option<String>,
-    #[serde(default)]
-    pub last_sent_at: Option<u64>,
-    /// The extension whose item was sent last (`None`: the user's own).
+    /// Its first instruction (`agent.create`'s prompt, the Race
+    /// Engineer's greeting), sent once, verbatim, when it is first free
+    /// (ticker.rs). An older state file's `queue`, `autoSend` and
+    /// `lastSent…` (Next up, removed) are ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_sent_by: Option<pitwall_proto::QueueOrigin>,
+    pub first_prompt: Option<String>,
     pub created_at: u64,
     /// Per-task snapshots for the review screen (tasks.rs).
     #[serde(default)]
@@ -351,10 +346,6 @@ impl AgentRecord {
         self.rows = Some(rows);
         changed
     }
-}
-
-fn yes() -> bool {
-    true
 }
 
 /// "Add to Pitwall" on a session found on another machine (`discover`).

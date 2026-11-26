@@ -57,8 +57,8 @@ pub struct Entry {
     /// The method called (or what Pitwall did, for [`Via::Pitwall`]).
     pub method: String,
     pub outcome: Outcome,
-    /// What a call that acts asked for, in a few words (which agent, the
-    /// text it queued, the agent it asked to start).
+    /// What a call that acts asked for, in a few words (which agent, or
+    /// the agent it asked to start).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }

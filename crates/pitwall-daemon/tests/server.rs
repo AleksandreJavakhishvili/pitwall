@@ -496,7 +496,7 @@ fn an_unanswered_remove_times_out_and_the_ui_is_never_asked() {
 }
 
 #[test]
-fn renaming_queueing_and_reading_never_ask() {
+fn renaming_and_reading_never_ask() {
     let w = world(Duration::from_millis(100));
     let dir = TempDir::new("proj");
     let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
@@ -518,21 +518,10 @@ fn renaming_queueing_and_reading_never_ask() {
     assert_eq!(v["tracked"], json!([]));
     assert_eq!(server_error(c.call("agent.track", json!({"agentId": a.id, "path": "wt"})).unwrap_err()).code, code::BAD_PARAMS);
 
-    c.call("queue.add", json!({"agentId": a.id, "text": "run the tests"})).unwrap();
-    let v = c.call("queue.add", json!({"agentId": a.id, "text": "then lint"})).unwrap();
-    let items = v["queue"].as_array().unwrap().clone();
-    assert_eq!(items.len(), 2);
-    assert_eq!(server_error(c.call("queue.add", json!({"agentId": a.id, "text": "  "})).unwrap_err()).code, code::BAD_PARAMS);
-    let all = c.call("queue.list", json!({})).unwrap();
-    assert_eq!((all[0]["name"].as_str(), all[0]["items"][1]["text"].as_str()), (Some("api"), Some("then lint")));
-    let v = c.call("queue.remove", json!({"agentId": a.id, "itemId": items[1]["id"]})).unwrap();
-    assert_eq!(v["queue"].as_array().unwrap().len(), 1);
-    assert_eq!(server_error(c.call("queue.remove", json!({"agentId": a.id, "itemId": "nope"})).unwrap_err()).code, code::NOT_FOUND);
-    // Send now: the first item goes to the agent's terminal.
-    let v = c.call("queue.send", json!({"agentId": a.id})).unwrap();
-    assert!(v["queue"].as_array().unwrap().is_empty());
-    assert_eq!(v["lastSent"], "run the tests");
-    assert_eq!(server_error(c.call("queue.send", json!({"agentId": a.id})).unwrap_err()).code, code::NOT_FOUND, "nothing queued");
+    // Next up is gone: its methods are unknown.
+    for m in ["queue.add", "queue.list", "queue.remove", "queue.send"] {
+        assert_eq!(server_error(c.call(m, json!({"agentId": a.id, "text": "hi"})).unwrap_err()).code, code::UNKNOWN_METHOD, "{m}");
+    }
 
     let d = c.call("agent.status", agent_ref(&a.id)).unwrap();
     assert_eq!((d["status"].as_str(), d["source"].as_str(), d["running"].as_bool()), (Some("unknown"), Some("activity"), Some(true)));
@@ -832,9 +821,9 @@ fn an_extensions_process_gets_only_what_it_is_granted() {
     let e = server_error(c.call("project.list", json!({})).unwrap_err());
     assert_eq!(e.code, code::DENIED);
     assert!(e.message.contains("CI isn't granted projects.read"), "{}", e.message);
-    let e = server_error(c.call("queue.add", json!({"agentId": "a1", "text": "hi"})).unwrap_err());
+    let e = server_error(c.call("agent.focus", json!({"agentId": "a1"})).unwrap_err());
     assert_eq!(e.code, code::DENIED);
-    assert!(e.message.contains("CI isn't granted agents.queue"), "{}", e.message);
+    assert!(e.message.contains("CI isn't granted agents.focus"), "{}", e.message);
     let e = server_error(c.call("agent.stop", json!({"agentId": "a1"})).unwrap_err());
     assert_eq!(e.code, code::UNSUPPORTED, "no approval is even asked");
     assert!(w.approvals.pending().is_empty());
@@ -843,7 +832,7 @@ fn an_extensions_process_gets_only_what_it_is_granted() {
     assert_eq!(server_error(c.call("agent.list", json!({})).unwrap_err()).code, code::DENIED);
     let entries = log.lock().unwrap().entries();
     let seen: Vec<(&str, bool)> = entries.iter().map(|e| (e.method.as_str(), e.refused())).collect();
-    assert_eq!(seen, [("agent.list", false), ("project.list", true), ("queue.add", true), ("agent.stop", true), ("agent.list", true)]);
+    assert_eq!(seen, [("agent.list", false), ("project.list", true), ("agent.focus", true), ("agent.stop", true), ("agent.list", true)]);
     assert!(entries.iter().all(|e| e.via == pitwall_core::extensions::activity::Via::Socket));
     // The user's own terminal is as it was.
     let mut me = w.client();
@@ -896,7 +885,7 @@ fn in_process(w: &World) -> Arc<pitwall_daemon::Server> {
 
 /// Every action is refused without its grant, the same on the socket, on
 /// the adapter's stdio and from a view's button Pitwall runs; nothing is
-/// queued, started, shown or asked. Granting one grants only that one.
+/// started, shown or asked. Granting one grants only that one.
 #[test]
 fn each_action_is_refused_without_its_grant_on_every_path() {
     use pitwall_core::extensions::activity::Via;
@@ -905,11 +894,10 @@ fn each_action_is_refused_without_its_grant_on_every_path() {
     let mine = local_agent(&mut w.client(), "worker", &dir);
     pitwall_core::onboarding::add_project(&w.engine, dir.path().to_string_lossy().into()).unwrap();
     let log: pitwall_core::extensions::activity::Shared = Arc::default();
-    // Everything but the four actions.
+    // Everything but the three actions.
     let reads: Vec<String> = ["agents.read", "projects.read", "worktrees.read", "profiles.read", "notify"].map(String::from).to_vec();
     w.extensions.set("ci", "CI", reads, Some(log.clone()));
     let calls = [
-        ("queue.add", json!({"agentId": mine.id, "text": "rm -rf the repo"}), "agents.queue"),
         ("agent.create", json!({"kind": "shell", "project": dir.path(), "prompt": "go"}), "agents.start"),
         ("agent.focus", json!({"agentId": mine.id}), "agents.focus"),
         ("viewer.open", json!({"agentId": mine.id, "files": ["a.txt"]}), "show"),
@@ -927,25 +915,24 @@ fn each_action_is_refused_without_its_grant_on_every_path() {
         }
     }
     assert!(w.approvals.pending().is_empty(), "nothing was asked");
-    assert!(w.engine.views().iter().all(|v| v.queue.is_empty()), "nothing was queued");
     assert_eq!(w.engine.views().len(), 1, "nothing was started");
     // Logged, each refused, with what it asked for.
     let entries = log.lock().unwrap().entries();
     assert_eq!(entries.len(), calls.len() * 3);
     assert!(entries.iter().all(|e| e.refused()));
-    let queued = entries.iter().find(|e| e.method == "queue.add").unwrap();
-    assert_eq!(queued.detail.as_deref(), Some("to “worker”: “rm -rf the repo”"));
+    let start = entries.iter().find(|e| e.method == "agent.create").unwrap();
+    assert!(start.detail.as_deref().is_some_and(|d| d.ends_with("with the prompt “go”")), "{:?}", start.detail);
     // `show` alone: the agent actions stay refused.
     w.extensions.set("ci", "CI", vec!["show".into()], Some(log.clone()));
-    assert_eq!(server.call_as(&me, "queue.add", calls[0].1.clone(), Via::Adapter).unwrap_err().code, code::DENIED);
-    assert_eq!(server.call_as(&me, "agent.focus", calls[2].1.clone(), Via::View).unwrap_err().code, code::DENIED);
+    assert_eq!(server.call_as(&me, "agent.create", calls[0].1.clone(), Via::Adapter).unwrap_err().code, code::DENIED);
+    assert_eq!(server.call_as(&me, "agent.focus", calls[1].1.clone(), Via::View).unwrap_err().code, code::DENIED);
     // Past the grant, `viewer.open` reaches the host (none here).
-    assert_eq!(server.call_as(&me, "viewer.open", calls[3].1.clone(), Via::View).unwrap_err().code, code::UNSUPPORTED);
+    assert_eq!(server.call_as(&me, "viewer.open", calls[2].1.clone(), Via::View).unwrap_err().code, code::UNSUPPORTED);
 }
 
-/// Never an extension's, whatever it is granted: sending Next up,
-/// answering or listing approvals, changing settings (its own grants and
-/// switches live there), removing queued items, stopping agents.
+/// Never an extension's, whatever it is granted: answering or listing
+/// approvals, changing settings (its own grants and switches live there),
+/// stopping agents.
 #[test]
 fn an_extension_never_sends_approves_or_grants_itself() {
     let w = world(Duration::from_secs(5));
@@ -955,11 +942,9 @@ fn an_extension_never_sends_approves_or_grants_itself() {
     w.extensions.set("ci", "CI", all, None);
     let mut c = w.client_as(ext_caller("ci", "CI"));
     for (m, p) in [
-        ("queue.send", json!({"agentId": a.id})),
-        ("queue.remove", json!({"agentId": a.id, "itemId": "x"})),
         ("approval.list", json!({})),
         ("approval.answer", json!({"id": "x", "allow": true})),
-        ("settings.set", json!({"key": "extensions.ci.grants", "value": ["agents.queue"]})),
+        ("settings.set", json!({"key": "extensions.ci.grants", "value": ["agents.start"]})),
         ("settings.reset", json!({"key": "extensions"})),
         ("agent.stop", json!({"agentId": a.id})),
         ("agent.restart", json!({"agentId": a.id})),
@@ -976,15 +961,15 @@ fn an_extension_never_sends_approves_or_grants_itself() {
     let mut agent = w.client_as(agent_caller("eng", "Race Engineer"));
     assert_eq!(server_error(agent.call("agent.focus", json!({"agentId": a.id})).unwrap_err()).code, code::DENIED);
     assert_eq!(server_error(w.client().call("agent.focus", json!({"agentId": a.id})).unwrap_err()).code, code::DENIED);
-    // Anyone else's `prompt` is their own item, as `queue.add` would put it
+    // Anyone else's `prompt` is kept as the new agent's first prompt
     // (agent_create_with_a_first_instruction).
     let v = w.client().call("agent.create", json!({"kind": "shell", "project": dir.path(), "prompt": "go"})).unwrap();
-    assert!(v["queue"][0].get("origin").is_none(), "{v}");
+    assert_eq!(v["promptPending"], true, "{v}");
 }
 
-/// `agent.create` with a `prompt`: made and queued in one request, as
-/// `queue.add` would (the caller's own item, Auto-send's usual rules); a
-/// blank one creates nothing; an older client reads the view as before.
+/// `agent.create` with a `prompt`: made, and the prompt kept to be sent
+/// once when the agent is first free, in one request; a blank one creates
+/// nothing; an older client reads the view as before.
 #[test]
 fn agent_create_with_a_first_instruction() {
     let w = world(Duration::from_secs(10));
@@ -993,15 +978,11 @@ fn agent_create_with_a_first_instruction() {
     // An agent asks, as `pitwall agent new` from inside one would.
     let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
     let v = c.call("agent.create", json!({"kind": "shell", "project": project, "name": "worker", "prompt": "run the tests\nand fix them"})).unwrap();
-    let item = &v["queue"][0];
-    assert_eq!((item["text"].as_str(), v["queue"].as_array().unwrap().len()), (Some("run the tests\nand fix them"), 1));
-    assert!(item.get("origin").is_none(), "the caller's own item, as queue.add: {v}");
-    assert_eq!(v["queued"], json!({"id": item["id"], "position": 1}));
-    assert!(v.get("queueError").is_none());
-    assert_eq!(v["autoSend"], true, "sent when it is first free");
+    assert_eq!(v["promptPending"], true, "{v}");
+    assert!(v.get("promptError").is_none() && v.get("queue").is_none(), "{v}");
     assert!(w.approvals.pending().is_empty(), "nothing more is asked than without a prompt");
-    let listed = c.agents().unwrap();
-    assert_eq!(listed.iter().find(|a| a.name == "worker").unwrap().queue.len(), 1);
+    let id = v["id"].as_str().unwrap().to_string();
+    assert_eq!(w.engine.first_prompt(&id).as_deref(), Some("run the tests\nand fix them"), "sent when it is first free");
 
     // Blank: refused before anything is made.
     for blank in ["", " \n "] {
@@ -1012,77 +993,40 @@ fn agent_create_with_a_first_instruction() {
 
     // An older client (no prompt, reads an AgentView): as before.
     let old = c.create_agent(&AgentCreate { kind: "shell".into(), project: project.clone(), name: Some("old".into()), ..Default::default() }).unwrap();
-    assert!(old.queue.is_empty());
+    assert_eq!(w.engine.first_prompt(&old.id), None);
     let raw = c.call("agent.create", json!({"kind": "shell", "project": project})).unwrap();
-    assert!(raw.get("queued").is_none() && raw.get("queueError").is_none(), "{raw}");
+    assert!(raw.get("promptPending").is_none() && raw.get("promptError").is_none(), "{raw}");
     // A newer client reads what became of it.
-    let made = c.create_agent_queued(&AgentCreate { kind: "shell".into(), project: project.clone(), prompt: Some("go".into()), ..Default::default() }).unwrap();
-    assert_eq!(made.queued.as_ref().map(|q| q.position), Some(1));
-    assert_eq!(made.agent.queue[0].text, "go");
+    let made = c.create_agent_with_prompt(&AgentCreate { kind: "shell".into(), project: project.clone(), prompt: Some("go".into()), ..Default::default() }).unwrap();
+    assert!(made.prompt_pending);
+    assert_eq!(w.engine.first_prompt(&made.agent.id).as_deref(), Some("go"));
 
     // On a platform's machine: still asked first, the instruction shown,
-    // then queued like on this Mac.
+    // then kept like on this Mac.
     w.vm.set_caps(ProviderCaps { create: true, start: true, attach_existing: true, survives_detach: true, ..Default::default() });
     w.vm.set_form(vm_form());
     let asked = w.answer_when_asked(false);
-    let e = server_error(c.create_agent_queued(&AgentCreate { prompt: Some("deploy it".into()), ..create_on_vm("work") }).unwrap_err());
+    let e = server_error(c.create_agent_with_prompt(&AgentCreate { prompt: Some("deploy it".into()), ..create_on_vm("work") }).unwrap_err());
     let view = asked.join().unwrap();
     assert_eq!(e.code, code::DENIED);
-    assert!(view.details.iter().any(|d| d == "Its first instruction, put in its Next up:\ndeploy it"), "{:?}", view.details);
+    assert!(view.details.iter().any(|d| d == "Its first instruction, sent once it is ready:\ndeploy it"), "{:?}", view.details);
     assert!(w.vm.created().is_empty());
     let asked = w.answer_when_asked(true);
-    let made = c.create_agent_queued(&AgentCreate { prompt: Some("deploy it".into()), ..create_on_vm("work") }).unwrap();
+    let made = c.create_agent_with_prompt(&AgentCreate { prompt: Some("deploy it".into()), ..create_on_vm("work") }).unwrap();
     asked.join().unwrap();
-    assert_eq!((made.agent.queue[0].text.as_str(), made.queued.map(|q| q.position)), ("deploy it", Some(1)));
+    assert!(made.prompt_pending);
+    assert_eq!(w.engine.first_prompt(&made.agent.id).as_deref(), Some("deploy it"));
     // A blank one there is refused before anyone is asked.
-    let e = server_error(c.create_agent_queued(&AgentCreate { prompt: Some(" ".into()), ..create_on_vm("work") }).unwrap_err());
+    let e = server_error(c.create_agent_with_prompt(&AgentCreate { prompt: Some(" ".into()), ..create_on_vm("work") }).unwrap_err());
     assert_eq!(e.code, code::BAD_PARAMS);
     assert!(w.approvals.pending().is_empty());
     assert_eq!(w.vm.created().len(), 1);
 }
 
-/// `agents.queue`: the item is the extension's (its name on it), bounded
-/// in length, paced per agent and capped per agent; the user removes it
-/// like any other; turned off, its items go.
-#[test]
-fn queued_text_is_marked_paced_and_bounded() {
-    let w = world(Duration::from_secs(5));
-    let dir = TempDir::new("proj");
-    let a = local_agent(&mut w.client(), "worker", &dir);
-    let b = local_agent(&mut w.client(), "other", &dir);
-    w.extensions.set("ci", "CI", vec!["agents.queue".into()], None);
-    let mut c = w.client_as(ext_caller("ci", "CI"));
-    let long = "x".repeat(pitwall_daemon::actions::MAX_QUEUE_TEXT + 1);
-    assert_eq!(server_error(c.call("queue.add", json!({"agentId": a.id, "text": long})).unwrap_err()).code, code::BAD_PARAMS);
-    assert_eq!(server_error(c.call("queue.add", json!({"agentId": a.id, "text": " \n "})).unwrap_err()).code, code::BAD_PARAMS);
-    assert_eq!(server_error(c.call("queue.add", json!({"agentId": "nope", "text": "hi"})).unwrap_err()).code, code::NOT_FOUND);
-    let v = c.call("queue.add", json!({"agentId": a.id, "text": "fix the failing test"})).unwrap();
-    assert_eq!(v["queue"][0]["origin"], json!({"extension": "ci", "name": "CI"}));
-    let e = server_error(c.call("queue.add", json!({"agentId": a.id, "text": "again"})).unwrap_err());
-    assert_eq!(e.code, "busy", "one per agent every 10 s: {}", e.message);
-    assert!(c.call("queue.add", json!({"agentId": b.id, "text": "another agent"})).is_ok());
-    // The user's own items are as they were: unmarked.
-    let mine = w.client().call("queue.add", json!({"agentId": a.id, "text": "mine"})).unwrap();
-    assert!(mine["queue"][1].get("origin").is_none());
-    // Three of its items waiting is the most.
-    for t in ["2", "3"] {
-        w.engine.queue_add_from(&a.id, t.into(), Some(pitwall_proto::QueueOrigin { extension: "ci".into(), name: "CI".into() })).unwrap();
-    }
-    assert_eq!(w.engine.queued_by(&a.id, "ci"), 3);
-    // The user removes its item like any other.
-    let first = w.engine.views().into_iter().find(|v| v.id == a.id).unwrap().queue[0].id.clone();
-    w.client().call("queue.remove", json!({"agentId": a.id, "itemId": first})).unwrap();
-    assert_eq!(w.engine.queued_by(&a.id, "ci"), 2);
-    // Turned off: its items go, the user's stay.
-    assert_eq!(w.engine.queue_remove_origin("ci"), 3);
-    let left: Vec<String> = w.engine.views().into_iter().find(|v| v.id == a.id).unwrap().queue.into_iter().map(|q| q.text).collect();
-    assert_eq!(left, ["mine"]);
-}
-
 /// `agents.start`: asked every time (never remembered), the dialog names
 /// the extension, the project, the tool and the prompt in full; a no or
-/// no answer starts nothing; a yes starts it with the prompt in Next up as
-/// the extension's item. Only Pitwall's projects, this computer, no
+/// no answer starts nothing; a yes starts it with the prompt kept, sent
+/// once when it is first free. Only Pitwall's projects, this computer, no
 /// account; one request waiting at a time.
 #[test]
 fn starting_an_agent_asks_the_user_every_time() {
@@ -1104,7 +1048,7 @@ fn starting_an_agent_asks_the_user_every_time() {
         (json!({"machine": "box", "provider": "vmhost"}), code::BAD_PARAMS),
         (json!({"account": "work"}), code::BAD_PARAMS),
         (json!({"resume": "abc"}), code::BAD_PARAMS),
-        (json!({"prompt": "y".repeat(pitwall_daemon::actions::MAX_QUEUE_TEXT + 1)}), code::BAD_PARAMS),
+        (json!({"prompt": "y".repeat(pitwall_daemon::actions::MAX_PROMPT + 1)}), code::BAD_PARAMS),
     ] {
         assert_eq!(server_error(c.call("agent.create", ask(extra.clone())).unwrap_err()).code, code, "{extra}");
     }
@@ -1122,17 +1066,16 @@ fn starting_an_agent_asks_the_user_every_time() {
     assert_eq!(view.requester.kind, RequesterKind::Extension);
     assert!(view.summary.starts_with("start a "), "{}", view.summary);
     let details = view.details.join("\n");
-    for want in ["Asked by the extension “CI”, not by you.", &format!("Project: {project}"), "Tool: ", "look at CI", "sent only when you press Send"] {
+    for want in ["Asked by the extension “CI”, not by you.", &format!("Project: {project}"), "Tool: ", "look at CI", "sent once it is ready, as if you typed it"] {
         assert!(details.contains(want), "{want} in {details}");
     }
     assert!(w.engine.views().is_empty());
     // Allowed (the third request in ten minutes): started, its prompt
-    // waiting in Next up as CI's.
+    // kept for when it is first free.
     let asked = w.answer_when_asked(true);
     let v = c.call("agent.create", ask(json!({"prompt": "look at CI\nline two"}))).unwrap();
     asked.join().unwrap();
-    assert_eq!(v["queue"][0]["text"], "look at CI\nline two");
-    assert_eq!(v["queue"][0]["origin"]["name"], "CI");
+    assert_eq!(w.engine.first_prompt(v["id"].as_str().unwrap()).as_deref(), Some("look at CI\nline two"));
     assert_eq!(w.engine.views().len(), 1);
     // A fourth in ten minutes is refused without asking.
     let e = server_error(c.call("agent.create", ask(json!({}))).unwrap_err());

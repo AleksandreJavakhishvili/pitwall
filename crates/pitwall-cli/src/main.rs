@@ -1,5 +1,5 @@
 //! `pitwall`: set up and manage Pitwall from a terminal — agents, sessions,
-//! queues, spaces, projects, rules, review, settings and peers — and show
+//! spaces, projects, rules, review, settings and peers — and show
 //! the user files (`open`, and the `mcp` server agents get).
 //!
 //! Output is JSON on stdout (the call's result); `--human` prints text.
@@ -63,20 +63,21 @@ fn first_instruction(a: &args::AgentNew) -> Result<Option<String>, Error> {
     Ok(Some(text))
 }
 
-/// Error code: the agent was made, but its first instruction wasn't queued.
-pub const QUEUE_FAILED: &str = "queue_failed";
+/// Error code: the agent was made, but its first instruction couldn't be
+/// kept.
+pub const PROMPT_FAILED: &str = "prompt_failed";
 
 /// What `agent new` printed, and its first instruction's fate.
 fn agent_new_output(made: &AgentCreated) -> Output {
     let a = &made.agent;
     let mut human = render::agent_new(a);
     let mut failed = None;
-    if made.queued.is_some() {
-        human.push_str(&render::first_queued(a));
-    } else if let Some(e) = &made.queue_error {
+    if made.prompt_pending {
+        human.push_str(&render::first_prompt(a));
+    } else if let Some(e) = &made.prompt_error {
         failed = Some(ErrorBody::new(
-            QUEUE_FAILED,
-            format!("{} was created (id {}), but its first instruction couldn't be queued: {e}. Queue it with `pitwall queue add {} -`.", a.name, a.id, a.id),
+            PROMPT_FAILED,
+            format!("{} was created (id {}), but its first instruction couldn't be kept: {e}. Type it into the agent in Pitwall.", a.name, a.id),
         ));
     }
     Output { failed, ..out(made, human) }
@@ -169,7 +170,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
             let options = machine_options(a).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
             let prompt = first_instruction(a)?;
-            let made = c.create_agent_queued(&AgentCreate {
+            let made = c.create_agent_with_prompt(&AgentCreate {
                 kind: a.kind.clone().unwrap_or_default(),
                 project: if a.machine.is_some() { String::new() } else { absolute(a.project.as_deref(), &cwd) },
                 name: a.name.clone(),
@@ -225,7 +226,6 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             out(&opened, text)
         }
         Command::Agent(a) => manage::agent_cmd(a, &mut c)?,
-        Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
         Command::Space(sp) => manage::space_cmd(sp, &mut c)?,
         Command::Project(p) => manage::project_cmd(p, &mut c)?,
         Command::Account(a) => profiles::account_cmd(a, &mut c)?,

@@ -1,7 +1,6 @@
 //! Talking to a running agent: its output stream, keystrokes, size, prompts.
 
 use super::{tasks, Engine, Shared};
-use crate::model::AgentView;
 use crate::term::{FrameSink, OutputSink, ScreenSource};
 
 type Res<T> = Result<T, String>;
@@ -130,11 +129,10 @@ pub fn resize(engine: &Engine, agent_id: &str, cols: u16, rows: u16) -> Res<()> 
 
 /// Send a prompt now (pasted verbatim, then Enter).
 pub fn send_prompt(engine: &Shared, agent_id: &str, text: String) -> Res<()> {
-    let now = engine.now();
     let session = engine.with(agent_id, |a| {
         let s = a.host.clone().filter(|_| a.running());
         if s.is_some() {
-            a.note_sent(&text, now);
+            a.note_sent();
         }
         s
     })?;
@@ -144,24 +142,6 @@ pub fn send_prompt(engine: &Shared, agent_id: &str, text: String) -> Res<()> {
     session.touch_input();
     session.send_text(text);
     Ok(())
-}
-
-/// Take a queue item out and send it now.
-pub fn queue_send_now(engine: &Shared, agent_id: &str, item_id: &str) -> Res<AgentView> {
-    let now = engine.now();
-    let (session, text, view) = engine
-        .with(agent_id, |a| {
-            let session = a.host.clone().filter(|_| a.running()).ok_or("agent is not running")?;
-            let pos = a.rec.queue.iter().position(|q| q.id == item_id).ok_or("queue item not found")?;
-            let item = a.rec.queue.remove(pos);
-            a.note_sent_by(&item.text, item.origin.clone(), now);
-            Ok::<_, &str>((session, item.text, a.view()))
-        })?
-        .map_err(String::from)?;
-    engine.changed(true);
-    tasks::begin_for(engine, agent_id, Some(&text), true);
-    session.send_text(text);
-    Ok(view)
 }
 
 #[cfg(test)]
@@ -183,9 +163,6 @@ mod tests {
         assert!(watch_screen(e, "a", Box::new(|_| true), std::time::Duration::from_millis(100)).is_err());
         unwatch_screen(e, "a", 7);
         unwatch_screen(e, "ghost", 7);
-        let item = e.queue_add("a", "later".into()).unwrap().queue[0].id.clone();
-        assert_eq!(queue_send_now(e, "a", &item).unwrap_err(), "agent is not running");
-        assert_eq!(e.views()[0].queue.len(), 1, "a refused send keeps the item");
 
         resize(e, "a", 90, 30).unwrap();
         assert_eq!((e.views()[0].cols, e.views()[0].rows), (90, 30));

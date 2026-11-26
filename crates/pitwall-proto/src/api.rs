@@ -70,14 +70,6 @@ pub mod method {
     /// [`AgentWait`](crate::AgentWait) → [`WaitResult`](crate::WaitResult);
     /// error `timeout` when it didn't get there in time.
     pub const AGENT_WAIT: &str = "agent.wait";
-    /// [`QueueAdd`](crate::QueueAdd) → `AgentView`
-    pub const QUEUE_ADD: &str = "queue.add";
-    /// [`QueueFilter`](crate::QueueFilter) → [`AgentQueue`](crate::AgentQueue)`[]`
-    pub const QUEUE_LIST: &str = "queue.list";
-    /// [`QueueItemRef`](crate::QueueItemRef) → `AgentView`
-    pub const QUEUE_REMOVE: &str = "queue.remove";
-    /// [`QueueItemRef`](crate::QueueItemRef) → `AgentView`: send it now.
-    pub const QUEUE_SEND: &str = "queue.send";
     /// → [`ProjectView`](crate::ProjectView)`[]`
     pub const PROJECT_LIST: &str = "project.list";
     /// → `ProjectWorktrees[]`: every project's git worktrees, as the
@@ -229,8 +221,8 @@ pub mod caps {
     pub const APPROVALS: &str = "approvals";
     /// `settings.*` (a Pitwall that hosts the settings: the app).
     pub const SETTINGS: &str = "settings";
-    /// Agents stop/restart/remove/rename/status/wait, `queue.*`,
-    /// `project.*`, `rules.*`, `review.changes`.
+    /// Agents stop/restart/remove/rename/status/wait, `project.*`,
+    /// `rules.*`, `review.changes`.
     pub const MANAGE: &str = "manage";
     /// `space.*` and `agent.move` (a Pitwall with windows: the app).
     pub const SPACES: &str = "spaces";
@@ -329,12 +321,11 @@ pub struct AgentCreate {
     /// (default: the project's account, else the user's own).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
-    /// Its first instruction, put in the new agent's Next up as it is
-    /// created, as `queue.add` would (sent when it is first free, if
-    /// Auto-send is on); the answer says what became of it
-    /// ([`AgentCreated`]). Blank: refused, nothing created. From an
-    /// extension (`agents.start`) it is shown in full in the approval and
-    /// queued as the extension's item (sent as its other items are).
+    /// Its first instruction, kept with the new agent as it is created and
+    /// sent once, verbatim, when the agent is first free; the answer says
+    /// what became of it ([`AgentCreated`]). Blank: refused, nothing
+    /// created. From an extension (`agents.start`) it is shown in full in
+    /// the approval the user answers first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -345,27 +336,18 @@ pub struct AgentCreate {
 
 /// What `agent.create` answers: the new agent (an `AgentView`'s fields, so
 /// a client that reads only those still can) and, when it was given a
-/// `prompt`, what became of it: `queued`, or `queueError` when the agent
-/// was created but the prompt couldn't be queued (the agent stays; queue
-/// it again with `queue.add`).
+/// `prompt`, what became of it: `promptPending` (it goes in when the agent
+/// is first free), or `promptError` when the agent was created but its
+/// first instruction couldn't be kept (the agent stays).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCreated {
     #[serde(flatten)]
     pub agent: AgentView,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prompt_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queued: Option<Queued>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queue_error: Option<String>,
-}
-
-/// A prompt put in an agent's Next up: its item, and where it stands
-/// (1 = the next to go).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Queued {
-    pub id: String,
-    pub position: usize,
+    pub prompt_error: Option<String>,
 }
 
 /// Narrow `session.list` to one provider and/or machine.
@@ -593,23 +575,21 @@ mod tests {
             "branch": null, "worktree": false, "worktreePending": false, "location": "local",
             "agentInTerminal": false, "restartAs": null, "status": "unknown",
             "statusSource": "screen", "statusDetail": null, "running": true, "cols": 120, "rows": 40,
-            "added": 0, "removed": 0, "filesChanged": 0, "autoSend": true, "lastSent": null,
-            "lastSentAt": null, "createdAt": 1, "currentTaskId": null
+            "added": 0, "removed": 0, "filesChanged": 0, "createdAt": 1, "currentTaskId": null
         });
         v["machine"] = json!({"provider": "local", "id": "this-mac", "label": "This Mac", "canCreate": true});
-        v["queue"] = json!([{"id": "q1", "text": "go"}]);
         v["caps"] = json!({"input": true, "restart": true, "resume": false, "stop": true, "removeWorktree": false,
                  "diff": false, "review": false, "merge": false, "rules": false, "hooks": false, "removeKeepsSession": true});
         let view: AgentView = serde_json::from_value(v).unwrap();
-        let made = AgentCreated { agent: view.clone(), queued: Some(Queued { id: "q1".into(), position: 1 }), queue_error: None };
+        let made = AgentCreated { agent: view.clone(), prompt_pending: true, prompt_error: None };
         let wire = serde_json::to_value(&made).unwrap();
-        assert_eq!((wire["id"].clone(), wire["queued"].clone()), (json!("a1"), json!({"id": "q1", "position": 1})));
-        assert!(wire.get("queueError").is_none());
+        assert_eq!((wire["id"].clone(), wire["promptPending"].clone()), (json!("a1"), json!(true)));
+        assert!(wire.get("promptError").is_none());
         assert_eq!(serde_json::from_value::<AgentView>(wire.clone()).unwrap(), view, "an older client reads the view");
         assert_eq!(serde_json::from_value::<AgentCreated>(wire).unwrap(), made);
-        // An older server's answer (the view alone) reads as nothing queued.
+        // An older server's answer (the view alone) reads as no prompt.
         let old: AgentCreated = serde_json::from_value(serde_json::to_value(&view).unwrap()).unwrap();
-        assert_eq!((old.queued, old.queue_error), (None, None));
+        assert_eq!((old.prompt_pending, old.prompt_error), (false, None));
     }
 
     #[test]

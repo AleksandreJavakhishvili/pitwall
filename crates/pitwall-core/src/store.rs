@@ -86,10 +86,25 @@ mod tests {
             "cwd":"/tmp","project":"/tmp","createdAt":1}]}"#;
         let state: StateFile = serde_json::from_str(src).unwrap();
         let a = &state.agents[0];
-        assert!(a.auto_send);
-        assert!(a.queue.is_empty());
+        assert_eq!(a.first_prompt, None);
         assert_eq!(a.session_id, None);
         assert!(!a.worktree_pending);
+    }
+
+    /// A state file from before Next up was removed: its queue, Auto-send
+    /// and Last sent are ignored; the agent and everything else load.
+    #[test]
+    fn records_with_a_next_up_queue_load() {
+        let src = r#"{"version":1,"agents":[{"id":"a","name":"n","kind":"claude","kindName":"Claude Code",
+            "cwd":"/tmp","project":"/tmp","createdAt":1,"sessionId":"s1","hasConversation":true,
+            "queue":[{"id":"q1","text":"run the tests","origin":{"extension":"ci","name":"CI"}}],
+            "autoSend":false,"lastSent":"hi","lastSentAt":5,"lastSentBy":{"extension":"ci","name":"CI"}}]}"#;
+        let state: StateFile = serde_json::from_str(src).unwrap();
+        let a = &state.agents[0];
+        assert_eq!((a.id.as_str(), a.session_id.as_deref(), a.has_conversation), ("a", Some("s1"), true));
+        assert_eq!(a.first_prompt, None, "nothing queued is sent");
+        let again = serde_json::to_value(a).unwrap();
+        assert!(again.get("queue").is_none() && again.get("autoSend").is_none(), "{again}");
     }
 
     #[test]

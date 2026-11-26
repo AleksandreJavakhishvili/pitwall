@@ -25,8 +25,7 @@ fn agent(id: &str, name: &str, running: bool) -> AgentView {
         "machine": {"provider": "agw", "id": "vm-1", "label": "vm-1", "canCreate": false},
         "agentInTerminal": false, "restartAs": null, "status": if running { "idle" } else { "stopped" },
         "statusSource": "screen", "statusDetail": null, "running": running, "cols": 120, "rows": 40,
-        "added": 0, "removed": 0, "filesChanged": 0, "queue": [], "autoSend": true, "lastSent": null,
-        "lastSentAt": null, "createdAt": 1, "currentTaskId": null,
+        "added": 0, "removed": 0, "filesChanged": 0, "createdAt": 1, "currentTaskId": null,
         "caps": {"input": running, "restart": true, "resume": false, "stop": running, "removeWorktree": false,
                  "diff": false, "review": false, "merge": false, "rules": false, "hooks": false, "removeKeepsSession": true}
     }))
@@ -483,7 +482,7 @@ impl Drop for Host {
 }
 
 /// `agent new --prompt`/`--prompt-file`: made and its first instruction
-/// queued in one request; the output says so; a blank one makes nothing.
+/// kept in one request; the output says so; a blank one makes nothing.
 #[test]
 fn a_new_agent_with_its_first_instruction() {
     let h = Host::new("fi", Duration::from_secs(10), false);
@@ -491,22 +490,20 @@ fn a_new_agent_with_its_first_instruction() {
     let p = project.path().to_string_lossy().into_owned();
     let o = h.run(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "worker", "--prompt", "run the tests"]).unwrap();
     let id = o.json["id"].as_str().unwrap().to_string();
-    assert_eq!(o.json["queue"][0]["text"], "run the tests");
-    assert_eq!(o.json["queued"], json!({"id": o.json["queue"][0]["id"], "position": 1}));
+    assert_eq!(o.json["promptPending"], true);
+    assert!(o.json.get("queue").is_none(), "no Next up");
     assert!(o.failed.is_none());
     let started = format!("Started worker (Shell) in {} — id {id}\n", o.json["cwdDisplay"].as_str().unwrap());
-    assert_eq!(o.human, format!("{started}Queued its first instruction: it goes in when worker is first free.\n"));
-    let o = h.run(&["queue", "list", "worker"]).unwrap();
-    assert_eq!(o.json[0]["items"][0]["text"], "run the tests", "in its Next up, as queue add puts it");
+    assert_eq!(o.human, format!("{started}Kept its first instruction: it goes in when worker is first free.\n"));
 
     // From a file (trailing newlines dropped, as from stdin).
     let file = project.path().join("task.md");
     std::fs::write(&file, "review the diff\nlist problems only\n\n").unwrap();
     let o = h.run(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "reviewer", "--prompt-file", &file.to_string_lossy()]).unwrap();
-    assert_eq!(o.json["queue"][0]["text"], "review the diff\nlist problems only");
+    assert_eq!(o.json["promptPending"], true);
     // Without one: the output is as it was.
     let o = h.run(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "plain"]).unwrap();
-    assert!(o.json.get("queued").is_none() && o.json["queue"] == json!([]));
+    assert!(o.json.get("promptPending").is_none());
     assert_eq!(o.human.lines().count(), 1);
 
     // Blank, or a file that isn't there: refused (exit 2), nothing made.
@@ -517,28 +514,24 @@ fn a_new_agent_with_its_first_instruction() {
     assert_eq!(h.run(&["agent", "list"]).unwrap().json.as_array().unwrap().len(), 3);
 }
 
-/// Made, but its first instruction wasn't queued: the agent is printed,
-/// then the error naming its id, and the exit status isn't 0.
+/// Made, but its first instruction couldn't be kept: the agent is
+/// printed, then the error naming its id, and the exit status isn't 0.
 #[test]
-fn a_first_instruction_that_failed_to_queue() {
+fn a_first_instruction_that_failed_to_be_kept() {
     let a = agent("a-1", "work", true);
-    let made = pitwall_proto::AgentCreated { agent: a.clone(), queued: None, queue_error: Some("no agent \"a-1\"".into()) };
+    let made = pitwall_proto::AgentCreated { agent: a.clone(), prompt_pending: false, prompt_error: Some("no agent \"a-1\"".into()) };
     let o = agent_new_output(&made);
     assert_eq!(o.json["id"], "a-1");
-    assert_eq!(o.json["queueError"], "no agent \"a-1\"");
+    assert_eq!(o.json["promptError"], "no agent \"a-1\"");
     assert_eq!(o.human, render::agent_new(&a), "the human output: only what was done");
     let e = o.failed.unwrap();
-    assert_eq!(e.code, QUEUE_FAILED);
-    assert_eq!(e.message, "work was created (id a-1), but its first instruction couldn't be queued: no agent \"a-1\". Queue it with `pitwall queue add a-1 -`.");
+    assert_eq!(e.code, PROMPT_FAILED);
+    assert_eq!(e.message, "work was created (id a-1), but its first instruction couldn't be kept: no agent \"a-1\". Type it into the agent in Pitwall.");
     assert_eq!(exit_status(&e.code), 1);
-    // Auto-send off: it says it waits.
-    let mut off = agent("a-1", "work", true);
-    off.auto_send = false;
-    assert_eq!(render::first_queued(&off), "Queued its first instruction; Auto-send is off for work, so it waits in Next up until you send it (`pitwall queue send a-1`).\n");
 }
 
 #[test]
-fn managing_agents_queues_and_spaces() {
+fn managing_agents_and_spaces() {
     let h = Host::new("m", Duration::from_secs(10), true);
     let project = TempDir::new("cli-m-proj");
     let p = project.path().to_string_lossy().into_owned();
@@ -557,26 +550,6 @@ fn managing_agents_queues_and_spaces() {
     assert_eq!(h.run(&["agent", "status", &id]).unwrap().json["agentId"], id.as_str());
     let e = h.run(&["agent", "status", "nobody"]).err().unwrap();
     assert_eq!(failure(&e), (json!({"error": {"code": "not_found", "message": "no agent \"nobody\" in Pitwall (see `pitwall agent list`)"}}), 1));
-
-    // Queue: add, list (numbered), remove by number, send.
-    h.run(&["queue", "add", "api", "run the tests"]).unwrap();
-    let o = h.run(&["queue", "add", "api", "then lint"]).unwrap();
-    assert_eq!(o.human, "Queued for api (2 in its queue)\n");
-    let o = h.run(&["queue", "list", "--human"]).unwrap();
-    assert_eq!(o.json[0]["items"].as_array().unwrap().len(), 2);
-    assert!(o.human.contains("  1. run the tests\n  2. then lint\n"), "{}", o.human);
-    assert_eq!(h.run(&["queue", "remove", "api", "2"]).unwrap().json["queue"].as_array().unwrap().len(), 1);
-    let e = h.run(&["queue", "remove", "api", "5"]).err().unwrap();
-    assert_eq!(failure(&e).0["error"]["code"], "not_found");
-    let o = h.run(&["queue", "send", "api"]).unwrap();
-    assert_eq!(o.json["lastSent"], "run the tests");
-    // Batch: every agent with a status (both are "unknown" here).
-    let o = h.run(&["queue", "add", "--status", "unknown", "hello"]).unwrap();
-    assert_eq!(o.json.as_array().unwrap().len(), 2);
-    assert!(o.human.starts_with("Queued for 2 agents"), "{}", o.human);
-    assert_eq!(h.run(&["queue", "add", "--status", "blocked", "x"]).unwrap().human, "No agent has that status: nothing queued.\n");
-    let e = h.run(&["queue", "add", "--status", "sleepy", "x"]).err().unwrap();
-    assert_eq!(failure(&e).1, 2, "a bad status is a bad argument");
 
     // Spaces.
     let o = h.run(&["space", "create", "API work"]).unwrap();

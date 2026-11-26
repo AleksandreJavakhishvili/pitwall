@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::explorer::FileStatus;
-use crate::views::{AgentView, QueueItem, Source, Status};
+use crate::views::{AgentView, Source, Status};
 
 // ------------------------------------------------------------ agents
 
@@ -146,45 +146,6 @@ pub struct ActivitySignal {
     /// Output this recent counts as working.
     #[ts(type = "number")]
     pub window_ms: u64,
-}
-
-// ------------------------------------------------------------ queue
-
-/// `queue.add`: queue a prompt (sent when the agent is free, if it
-/// auto-sends).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueAdd {
-    pub agent_id: String,
-    pub text: String,
-}
-
-/// `queue.remove` / `queue.send`: one queued prompt.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueItemRef {
-    pub agent_id: String,
-    /// The item's id; `queue.send` without it sends the first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item_id: Option<String>,
-}
-
-/// `queue.list`: one agent, or every agent with a queue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentQueue {
-    pub agent_id: String,
-    pub name: String,
-    pub status: Status,
-    pub auto_send: bool,
-    pub items: Vec<QueueItem>,
 }
 
 // ------------------------------------------------------------ spaces
@@ -785,9 +746,6 @@ mod tests {
         );
         let w: AgentWait = serde_json::from_value(json!({"agentId":"a1","until":["blocked"]})).unwrap();
         assert_eq!((w.timeout_ms, w.fresh), (None, false));
-        round_trip(&QueueAdd { agent_id: "a1".into(), text: "run tests".into() }, json!({"agentId":"a1","text":"run tests"}));
-        round_trip(&QueueItemRef { agent_id: "a1".into(), item_id: None }, json!({"agentId":"a1"}));
-        round_trip(&QueueFilter::default(), json!({}));
         round_trip(&SpaceCreate { name: "api".into() }, json!({"name":"api"}));
         round_trip(&SpaceRename { space: "s1".into(), name: "web".into() }, json!({"space":"s1","name":"web"}));
         round_trip(&SpaceMove { space: "s1".into(), window: "new".into() }, json!({"space":"s1","window":"new"}));
@@ -821,16 +779,6 @@ mod tests {
                 members: vec!["a1".into(), "a2".into()],
             },
             json!({"id":"s1","name":"api","kind":"custom","project":null,"window":"main","shown":["a1"],"members":["a1","a2"]}),
-        );
-        round_trip(
-            &AgentQueue {
-                agent_id: "a1".into(),
-                name: "api".into(),
-                status: Status::Working,
-                auto_send: true,
-                items: vec![QueueItem { id: "q1".into(), text: "next".into(), origin: None }],
-            },
-            json!({"agentId":"a1","name":"api","status":"working","autoSend":true,"items":[{"id":"q1","text":"next"}]}),
         );
         round_trip(
             &ReviewChanges {

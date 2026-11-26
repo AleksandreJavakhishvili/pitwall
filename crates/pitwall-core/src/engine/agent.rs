@@ -77,7 +77,6 @@ pub struct Agent {
     pub nested: Vec<(String, String)>,
     /// mono ms when they were last looked for (`None`: not yet).
     pub nested_at: Option<u64>,
-    pub last_auto_send: u64,
     /// Looking for the worktree the agent makes itself (worktree.rs).
     pub watch: Option<super::worktree::Watch>,
     /// Terminals: the agent the user started in it, while it runs (terminals.rs).
@@ -153,7 +152,6 @@ impl Agent {
             fs: Default::default(),
             nested: Vec::new(),
             nested_at: None,
-            last_auto_send: 0,
             watch: None,
             inner: None,
             fg: Default::default(),
@@ -323,11 +321,6 @@ impl Agent {
             added: self.added,
             removed: self.removed,
             files_changed: self.files_changed,
-            queue: r.queue.clone(),
-            auto_send: r.auto_send,
-            last_sent: r.last_sent.clone(),
-            last_sent_at: r.last_sent_at,
-            last_sent_by: r.last_sent_by.clone(),
             created_at: r.created_at,
             current_task_id: super::tasks::current_task_id(r),
             caps: self.caps(),
@@ -390,18 +383,9 @@ impl Agent {
         }
     }
 
-    /// Record a prompt as sent (verbatim) at `now` (mono ms).
-    pub fn note_sent(&mut self, text: &str, now: u64) {
-        self.note_sent_by(text, None, now);
-    }
-
-    /// [`Agent::note_sent`] of an item queued by `by` (an extension).
-    pub fn note_sent_by(&mut self, text: &str, by: Option<pitwall_proto::QueueOrigin>, now: u64) {
-        self.rec.last_sent_by = by;
-        self.rec.last_sent = Some(text.to_string());
-        self.rec.last_sent_at = Some(crate::clock::unix_ms());
+    /// A prompt was sent: resuming its conversation is meaningful now.
+    pub fn note_sent(&mut self) {
         self.rec.has_conversation = true;
-        self.last_auto_send = now;
     }
 }
 

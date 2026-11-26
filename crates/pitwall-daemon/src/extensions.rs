@@ -44,8 +44,6 @@ struct Ext {
     grants: Vec<String>,
     activity: Option<activity::Shared>,
     calls: VecDeque<Instant>,
-    /// When it last queued text for each agent (by id).
-    queued: HashMap<String, Instant>,
     /// A start request of its waits for the user's answer.
     asking: bool,
     /// When it asked to start agents (the last [`crate::actions::START_WINDOW`]).
@@ -92,7 +90,7 @@ impl Registry {
                 e.activity = activity;
             }
             None => {
-                exts.insert(id.to_string(), Ext { name: name.to_string(), grants, activity, calls: VecDeque::new(), queued: HashMap::new(), asking: false, asks: VecDeque::new() });
+                exts.insert(id.to_string(), Ext { name: name.to_string(), grants, activity, calls: VecDeque::new(), asking: false, asks: VecDeque::new() });
             }
         }
     }
@@ -164,25 +162,6 @@ impl Registry {
             return Err(ErrorBody::new(BUSY, format!("More than {MAX_CALLS} calls a second: slow down.")));
         }
         e.calls.push_back(now);
-        Ok(())
-    }
-
-    /// Extension `id` may put text in agent `agent`'s Next up now (one item
-    /// per agent per [`crate::actions::QUEUE_EVERY`]); counted when it may.
-    pub fn may_queue(&self, id: &str, agent: &str) -> Result<(), ErrorBody> {
-        self.may_queue_at(id, agent, Instant::now())
-    }
-
-    fn may_queue_at(&self, id: &str, agent: &str, now: Instant) -> Result<(), ErrorBody> {
-        let every = crate::actions::QUEUE_EVERY;
-        let mut exts = lock(&self.exts);
-        let e = exts.get_mut(id).ok_or_else(|| ErrorBody::new(code::DENIED, "This extension is off."))?;
-        if let Some(at) = e.queued.get(agent).filter(|at| now.duration_since(**at) < every) {
-            let wait = every.saturating_sub(now.duration_since(*at)).as_secs().max(1);
-            return Err(ErrorBody::new(BUSY, format!("One item per agent every {} seconds: wait {wait} s.", every.as_secs())));
-        }
-        e.queued.retain(|_, at| now.duration_since(*at) < every);
-        e.queued.insert(agent.to_string(), now);
         Ok(())
     }
 
@@ -281,20 +260,6 @@ mod tests {
         assert!(r.admit_at("ci", t + WINDOW).is_ok(), "a second later it may call again");
     }
 
-    /// One item per agent every 10 s; another agent is its own; off, none.
-    #[test]
-    fn queueing_is_paced_per_agent() {
-        let r = Registry::new();
-        r.set("ci", "CI", vec![], None);
-        let t = Instant::now();
-        assert!(r.may_queue_at("ci", "a1", t).is_ok());
-        assert_eq!(r.may_queue_at("ci", "a1", t + Duration::from_secs(3)).unwrap_err().code, BUSY);
-        assert!(r.may_queue_at("ci", "a2", t + Duration::from_secs(3)).is_ok(), "another agent");
-        assert!(r.may_queue_at("ci", "a1", t + crate::actions::QUEUE_EVERY).is_ok());
-        r.remove("ci");
-        assert_eq!(r.may_queue_at("ci", "a1", t + Duration::from_secs(60)).unwrap_err().code, code::DENIED);
-    }
-
     /// One start request waiting at a time; at most three in ten minutes.
     #[test]
     fn start_requests_wait_one_at_a_time_and_are_counted() {
@@ -315,7 +280,7 @@ mod tests {
         let r = Registry::new();
         let log: activity::Shared = Arc::default();
         r.set("ci", "CI", vec![], Some(log.clone()));
-        r.record_call("ci", Via::Socket, "queue.add", &Err(ErrorBody::new(code::UNSUPPORTED, "not yet")));
+        r.record_call("ci", Via::Socket, "agent.create", &Err(ErrorBody::new(code::UNSUPPORTED, "not yet")));
         r.record_call("ci", Via::Adapter, "agent.status", &Err(ErrorBody::new(code::NOT_FOUND, "no agent")));
         r.record_call("ci", Via::Adapter, "agent.list", &Ok(serde_json::json!([])));
         let e = lock(&log).entries();

@@ -9,13 +9,13 @@ use pitwall_core::engine::{changes, lifecycle};
 use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
 use pitwall_core::onboarding::{self, places};
 use pitwall_core::provider::{Locator, MachineId, ProviderId};
-use pitwall_proto::{code, method, AgentCreate, AgentCreated, AgentRef, AgentView, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Queued, Risk, SessionAdd, SessionAdded, SessionFilter};
+use pitwall_proto::{code, method, AgentCreate, AgentCreated, AgentRef, AgentView, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
 use pitwall_core::extensions::permissions::AGENTS_FOCUS;
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
 use pitwall_core::extensions::activity::Via;
-use pitwall_core::extensions::permissions::{AGENTS_QUEUE, AGENTS_READ, AGENTS_START, PROFILES_READ, PROJECTS_READ, SHOW, WORKTREES_READ};
+use pitwall_core::extensions::permissions::{AGENTS_READ, AGENTS_START, PROFILES_READ, PROJECTS_READ, SHOW, WORKTREES_READ};
 use crate::{manage, workspace};
 use crate::server::Server;
 
@@ -88,13 +88,6 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     // Only which worktrees Review and the sidebar show as the agent's.
     (method::AGENT_TRACK, Access::Open, Ext::Never),
     (method::AGENT_WAIT, Access::Open, Ext::Never),
-    // Queued prompts go to agents already in Pitwall, as the UI's queue.
-    // An extension's item is marked as its own and paced (actions.rs).
-    (method::QUEUE_ADD, Access::Open, Ext::Grant(AGENTS_QUEUE)),
-    (method::QUEUE_LIST, Access::Open, Ext::Never),
-    (method::QUEUE_REMOVE, Access::Open, Ext::Never),
-    // Sending is the user's (or Auto-send's, as the user set it).
-    (method::QUEUE_SEND, Access::Open, Ext::Never),
     // Pitwall's project list; never touches the folders.
     (method::PROJECT_LIST, Access::Open, Ext::Grant(PROJECTS_READ)),
     // Every project's git worktrees (read-only git calls).
@@ -326,14 +319,7 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::AGENT_STATUS => manage::status(s, required(p)?),
         method::AGENT_TRACK => manage::track(s, required(p)?),
         method::AGENT_WAIT => manage::wait(s, required(p)?),
-        method::QUEUE_ADD => match &caller.extension {
-            Some(ext) => crate::actions::queue_add(s, ext, required(p)?),
-            None => manage::queue_add(s, required(p)?),
-        },
         method::AGENT_FOCUS => crate::viewer::focus(s, required(p)?),
-        method::QUEUE_LIST => manage::queue_list(s, params(p)?),
-        method::QUEUE_REMOVE => manage::queue_remove(s, required(p)?),
-        method::QUEUE_SEND => manage::queue_send(s, required(p)?),
         method::PROJECT_LIST => manage::project_list(s),
         method::WORKTREE_LIST => ok(pitwall_core::worktrees::list(&s.engine)),
         method::PROJECT_ADD => manage::project_add(s, required(p)?),
@@ -456,21 +442,17 @@ fn agent_create(s: &Server, caller: &Caller, mut req: AgentCreate) -> Res {
     )
     .map_err(other)?;
     onboarding::add_agent_project(&s.engine, &view);
-    ok(first_instruction(view, prompt, |id, text| s.engine.queue_add(id, text)))
+    ok(first_instruction(view, prompt, |id, text| s.engine.set_first_prompt(id, text)))
 }
 
-/// The new agent, with its first instruction (`prompt`) put in its Next up
-/// by `queue` as `queue.add` does: the user's item, sent by Auto-send's
-/// usual rules. When that fails the agent stays and the answer says why.
-pub(crate) fn first_instruction(view: AgentView, prompt: Option<String>, queue: impl FnOnce(&str, String) -> Result<AgentView, String>) -> AgentCreated {
-    let Some(text) = prompt else { return AgentCreated { agent: view, queued: None, queue_error: None } };
-    match queue(&view.id, text) {
-        Ok(after) => {
-            // queue.add puts it last.
-            let queued = after.queue.last().map(|q| Queued { id: q.id.clone(), position: after.queue.len() });
-            AgentCreated { agent: after, queued, queue_error: None }
-        }
-        Err(e) => AgentCreated { agent: view, queued: None, queue_error: Some(e) },
+/// The new agent, with its first instruction (`prompt`) kept by `keep`
+/// (the engine's first prompt: sent once, verbatim, when it is first
+/// free). When that fails the agent stays and the answer says why.
+pub(crate) fn first_instruction(view: AgentView, prompt: Option<String>, keep: impl FnOnce(&str, String) -> Result<AgentView, String>) -> AgentCreated {
+    let Some(text) = prompt else { return AgentCreated { agent: view, prompt_pending: false, prompt_error: None } };
+    match keep(&view.id, text) {
+        Ok(after) => AgentCreated { agent: after, prompt_pending: true, prompt_error: None },
+        Err(e) => AgentCreated { agent: view, prompt_pending: false, prompt_error: Some(e) },
     }
 }
 
@@ -489,7 +471,7 @@ fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: Creat
     details.extend(summary.creates.iter().map(|c| format!("Also creates {c} on {}.", form.machine_label)));
     details.push("It keeps running there after Pitwall quits; removing it from Pitwall leaves it there.".into());
     if let Some(p) = &prompt {
-        details.push(format!("Its first instruction, put in its Next up:\n{p}"));
+        details.push(format!("Its first instruction, sent once it is ready:\n{p}"));
     }
     let risk = if summary.creates.is_empty() { Risk::Low } else { Risk::High };
     let decision = s.approvals.ask(Ask {
@@ -524,7 +506,7 @@ fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: Creat
         },
     )
     .map_err(other)?;
-    ok(first_instruction(view, prompt, |id, text| s.engine.queue_add(id, text)))
+    ok(first_instruction(view, prompt, |id, text| s.engine.set_first_prompt(id, text)))
 }
 
 /// Adopt a session (only tracks it: nothing changes there), then — when
@@ -596,8 +578,7 @@ mod tests {
             method::VIEWER_OPEN => "Shows files (`files`, `line`) or a folder in an agent's file viewer (`agentId` required), next to its terminal; never a window of its own, never brings Pitwall forward. Off while the user turned off \"Agents can show you files\".",
             method::WEB_OPEN => "Shows a web page (`url`, http or https) in an agent's page tile (`agentId` required), next to its terminal; never brings Pitwall forward. Off while the user turned off agents' web pages.",
             method::AGENT_FOCUS => "Moves the focus to an agent's tile (`agentId`) while Pitwall is in front; otherwise does nothing and says so (`focused: false`, `note`).",
-            method::QUEUE_ADD => "Puts `text` in an agent's Next up (`agentId`), marked with the extension's name. It waits for the user's Send unless the user lets the extension send without asking. At most 4000 characters, one item per agent every 10 seconds, three of its items waiting per agent: see [actions](actions.md).",
-            method::AGENT_CREATE => "Asks the user to start an agent (`kind`, `project`: one of Pitwall's projects; maybe `name` and a first `prompt`, put in its Next up). Asked every time, showing all of it; no answer in time is a no. One request at a time, three in ten minutes: see [actions](actions.md).",
+            method::AGENT_CREATE => "Asks the user to start an agent (`kind`, `project`: one of Pitwall's projects; maybe `name` and a first `prompt`, sent once the new agent is ready). Asked every time, showing all of it; no answer in time is a no. One request at a time, three in ten minutes: see [actions](actions.md).",
             _ => "",
         }
     }
@@ -679,7 +660,7 @@ mod tests {
         assert!(matches!(access(method::RULES_LIBRARY_NEW), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::RULES_PROJECT_UPDATES), Some(Access::Open));
         // Read-only methods never ask.
-        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST, method::VIEWER_OPEN, method::MCP_TOOLS, method::MCP_CALL, method::WEB_OPEN, method::SETTINGS_OPEN, method::DEVICE_OPEN] {
+        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST, method::VIEWER_OPEN, method::MCP_TOOLS, method::MCP_CALL, method::WEB_OPEN, method::SETTINGS_OPEN, method::DEVICE_OPEN] {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
         assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
@@ -688,18 +669,17 @@ mod tests {
     }
 
     /// The permission column: extensions read with a grant, and act only
-    /// through the four action permissions (each a method of its own);
+    /// through the three action permissions (each a method of its own);
     /// sending, approving, settings and the rest are never theirs.
     #[test]
     fn extensions_read_with_a_grant_and_act_only_with_one() {
         assert_eq!(ext_access(method::AGENT_LIST), Some(Ext::Grant(AGENTS_READ)));
         assert_eq!(ext_access(method::WORKTREE_LIST), Some(Ext::Grant(WORKTREES_READ)));
-        assert_eq!(ext_access(method::QUEUE_ADD), Some(Ext::Grant(AGENTS_QUEUE)));
         assert_eq!(ext_access(method::AGENT_CREATE), Some(Ext::Grant(AGENTS_START)));
         assert_eq!(ext_access(method::AGENT_FOCUS), Some(Ext::Grant(AGENTS_FOCUS)));
         assert_eq!(ext_access(method::VIEWER_OPEN), Some(Ext::Grant(SHOW)));
         assert_eq!(ext_access(method::WEB_OPEN), Some(Ext::Grant(SHOW)));
-        let acting = [method::QUEUE_ADD, method::AGENT_CREATE, method::AGENT_FOCUS, method::VIEWER_OPEN, method::WEB_OPEN];
+        let acting = [method::AGENT_CREATE, method::AGENT_FOCUS, method::VIEWER_OPEN, method::WEB_OPEN];
         // Core's list (the author's checks use it) says the same.
         for (m, p) in pitwall_core::extensions::permissions::ACTION_METHODS {
             assert!(acting.contains(&m), "{m}");
@@ -709,7 +689,7 @@ mod tests {
         for (m, a, e) in METHODS {
             if let Ext::Grant(p) = e {
                 assert!(pitwall_core::extensions::permissions::available(p), "{m}: {p}");
-                // Reads are open to anyone; the actions are these five.
+                // Reads are open to anyone; the actions are these four.
                 assert!(*a == Access::Open || acting.contains(m), "{m}");
             }
             assert!(!matches!(e, Ext::Later(_)), "{m}: nothing is left for later");
@@ -718,7 +698,7 @@ mod tests {
         assert_eq!(ext_access(method::SETTINGS_OPEN), Some(Ext::Never));
         assert_eq!(ext_allowed(method::SETTINGS_OPEN, &("ci".to_string(), "CI".to_string()), |_| true).unwrap_err().code, code::UNSUPPORTED);
         assert_eq!(ext_access(method::DEVICE_OPEN), Some(Ext::Never));
-        for m in [method::AGENT_STOP, method::SETTINGS_SET, method::SETTINGS_RESET, method::APPROVAL_ANSWER, method::APPROVAL_LIST, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD, method::QUEUE_SEND, method::QUEUE_REMOVE, method::SESSION_ADD, method::AGENT_RESTART, method::AGENT_REMOVE] {
+        for m in [method::AGENT_STOP, method::SETTINGS_SET, method::SETTINGS_RESET, method::APPROVAL_ANSWER, method::APPROVAL_LIST, method::RULES_APPLY, method::MCP_CALL, method::PROJECT_ADD, method::SESSION_ADD, method::AGENT_RESTART, method::AGENT_REMOVE] {
             assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
         }
         let ext = ("ci".to_string(), "CI".to_string());
@@ -730,8 +710,9 @@ mod tests {
         for m in acting {
             assert_eq!(ext_allowed(m, &ext, granted).unwrap_err().code, code::DENIED, "{m} without its grant");
         }
-        assert!(ext_allowed(method::QUEUE_ADD, &ext, |p| p == AGENTS_QUEUE).is_ok());
-        assert_eq!(ext_allowed(method::QUEUE_SEND, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED, "sending stays the user's");
+        assert!(ext_allowed(method::AGENT_CREATE, &ext, |p| p == AGENTS_START).is_ok());
+        // Next up's methods are gone: an old extension's call is unknown.
+        assert_eq!(ext_allowed("queue.add", &ext, |_| true).unwrap_err().code, code::UNKNOWN_METHOD);
         assert_eq!(ext_allowed(method::AGENT_STOP, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED);
         // Setting up extensions is the user's (and their agents'), never
         // an extension's: not even reading another's state.
@@ -771,8 +752,7 @@ mod tests {
             "branch": null, "worktree": false, "worktreePending": false, "location": "local",
             "agentInTerminal": false, "restartAs": null, "status": "unknown",
             "statusSource": "screen", "statusDetail": null, "running": true, "cols": 120, "rows": 40,
-            "added": 0, "removed": 0, "filesChanged": 0, "queue": [], "autoSend": true, "lastSent": null,
-            "lastSentAt": null, "createdAt": 1, "currentTaskId": null
+            "added": 0, "removed": 0, "filesChanged": 0, "createdAt": 1, "currentTaskId": null
         });
         v["machine"] = serde_json::json!({"provider": "local", "id": "this-mac", "label": "This Mac", "canCreate": true});
         v["caps"] = serde_json::json!({"input": true, "restart": true, "resume": false, "stop": true, "removeWorktree": false,
@@ -780,22 +760,19 @@ mod tests {
         serde_json::from_value(v).unwrap()
     }
 
-    /// The first instruction is queued as `queue.add` does; when that
-    /// fails the agent is still answered, with why.
+    /// The first instruction is kept as the agent's first prompt; when
+    /// that fails the agent is still answered, with why.
     #[test]
-    fn a_first_instruction_is_queued_or_its_failure_said() {
-        let none = first_instruction(new_view(), None, |_, _| panic!("nothing to queue"));
-        assert_eq!((none.queued, none.queue_error), (None, None));
+    fn a_first_instruction_is_kept_or_its_failure_said() {
+        let none = first_instruction(new_view(), None, |_, _| panic!("nothing to keep"));
+        assert_eq!((none.prompt_pending, none.prompt_error), (false, None));
         let made = first_instruction(new_view(), Some("run the tests".into()), |id, text| {
-            let mut after = new_view();
-            assert_eq!(id, "a1");
-            after.queue.push(pitwall_proto::QueueItem { id: "q1".into(), text, origin: None });
-            Ok(after)
+            assert_eq!((id, text.as_str()), ("a1", "run the tests"));
+            Ok(new_view())
         });
-        assert_eq!(made.queued, Some(Queued { id: "q1".into(), position: 1 }));
-        assert_eq!(made.agent.queue[0].text, "run the tests");
+        assert_eq!((made.prompt_pending, made.prompt_error), (true, None));
         let failed = first_instruction(new_view(), Some("run the tests".into()), |_, _| Err("no agent \"a1\"".into()));
-        assert_eq!((failed.agent.id.as_str(), failed.queued, failed.queue_error.as_deref()), ("a1", None, Some("no agent \"a1\"")));
+        assert_eq!((failed.agent.id.as_str(), failed.prompt_pending, failed.prompt_error.as_deref()), ("a1", false, Some("no agent \"a1\"")));
     }
 
     #[test]
@@ -805,7 +782,7 @@ mod tests {
         }
         assert_eq!(peer_access(method::AGENT_LIST), Some(PeerAccess::View));
         assert_eq!(peer_access(method::EVENTS_SUBSCRIBE), Some(PeerAccess::View));
-        for m in [method::AGENT_CREATE, method::AGENT_STOP, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::QUEUE_ADD, method::MACHINE_LIST] {
+        for m in [method::AGENT_CREATE, method::AGENT_STOP, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::AGENT_RENAME, method::MACHINE_LIST] {
             assert_eq!(peer_access(m), None, "{m}");
         }
     }

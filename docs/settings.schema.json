@@ -67,7 +67,7 @@
     },
     "engineerGreeting": {
       "default": "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, set up an extension, tune settings.",
-      "description": "`engineer.greeting`: The prompt queued for a new Race Engineer when it first opens (empty: none).",
+      "description": "`engineer.greeting`: The first prompt a new Race Engineer gets, sent when it is first free (empty: none).",
       "maxLength": 1000,
       "type": "string"
     },

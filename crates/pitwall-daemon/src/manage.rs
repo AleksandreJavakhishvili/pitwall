@@ -1,5 +1,5 @@
 //! Managing what Pitwall has (docs/spec/engineer.md): stop, restart,
-//! remove, rename, diagnose and wait for agents; their queues; projects;
+//! remove, rename, diagnose and wait for agents; projects;
 //! rules; read-only review. The same `pitwall-core` calls the UI makes.
 //! Risky requests (stop, restart, remove, deleting a worktree, writing
 //! rules into a main checkout) wait for the user's answer in Pitwall unless
@@ -9,11 +9,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use pitwall_core::engine::{diagnose, input, lifecycle};
+use pitwall_core::engine::{diagnose, lifecycle};
 use pitwall_core::rules::{self, Dirs, ImportRequest, SaveRuleSet};
 use pitwall_proto::{
-    code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentTrack, AgentTracked, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
-    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied,
+    code, method, AgentRef, AgentRemove, AgentRename, AgentTrack, AgentTracked, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
+    ProjectRulesView, ProjectView, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied,
     RulesApply, RulesDefault, RulesFailed, RulesImport, RulesImported, RulesOverview, RulesReapplied, RulesReapply, RulesShow, Status, WaitResult,
 };
 
@@ -206,55 +206,6 @@ pub fn wait(s: &Server, r: AgentWait) -> Res {
 
 fn word(st: Status) -> String {
     serde_json::to_value(st).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
-}
-
-// ------------------------------------------------------------ queue
-
-fn queue_of(a: AgentView) -> AgentQueue {
-    AgentQueue { agent_id: a.id, name: a.name, status: a.status, auto_send: a.auto_send, items: a.queue }
-}
-
-pub fn queue_add(s: &Server, r: QueueAdd) -> Res {
-    agent(s, &r.agent_id)?;
-    if r.text.trim().is_empty() {
-        return Err(bad("the prompt is empty"));
-    }
-    ok(s.engine.queue_add(&r.agent_id, r.text).map_err(other)?)
-}
-
-pub fn queue_list(s: &Server, r: QueueFilter) -> Res {
-    let list: Vec<AgentQueue> = match r.agent_id {
-        Some(id) => vec![queue_of(agent(s, &id)?)],
-        None => s.engine.views().into_iter().filter(|a| !a.queue.is_empty()).map(queue_of).collect(),
-    };
-    ok(list)
-}
-
-fn item(a: &AgentView, id: Option<&str>) -> Result<String, ErrorBody> {
-    let found = match id {
-        Some(id) => a.queue.iter().find(|q| q.id == id),
-        None => a.queue.first(),
-    };
-    found.map(|q| q.id.clone()).ok_or_else(|| match id {
-        Some(id) => ErrorBody::new(code::NOT_FOUND, format!("\"{}\" has no queued prompt {id}", a.name)),
-        None => ErrorBody::new(code::NOT_FOUND, format!("\"{}\" has nothing queued", a.name)),
-    })
-}
-
-pub fn queue_remove(s: &Server, r: QueueItemRef) -> Res {
-    let a = agent(s, &r.agent_id)?;
-    let id = r.item_id.as_deref().ok_or_else(|| bad("which item (itemId)"))?;
-    let id = item(&a, Some(id))?;
-    ok(s.engine.queue_remove(&a.id, &id).map_err(other)?)
-}
-
-pub fn queue_send(s: &Server, r: QueueItemRef) -> Res {
-    let a = agent(s, &r.agent_id)?;
-    let id = item(&a, r.item_id.as_deref())?;
-    if !a.running {
-        return Err(ErrorBody::new(code::NOT_RUNNING, format!("\"{}\" isn't running", a.name)));
-    }
-    ok(input::queue_send_now(&s.engine, &a.id, &id).map_err(other)?)
 }
 
 // ------------------------------------------------------------ projects

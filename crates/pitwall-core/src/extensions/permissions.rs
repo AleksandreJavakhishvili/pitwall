@@ -29,9 +29,10 @@ pub const PROFILES_READ: &str = "profiles.read";
 pub const SHOW: &str = "show";
 /// Focus an agent's tile while Pitwall is in front (`agent.focus`).
 pub const AGENTS_FOCUS: &str = "agents.focus";
-/// Put text into an agent's Next up, marked as the extension's
-/// (`queue.add`); never sent without the user unless they allow it.
-pub const AGENTS_QUEUE: &str = "agents.queue";
+/// Was: put text into an agent's Next up (`queue.add`). Next up was
+/// removed: a manifest that still asks for it is shown, never granted
+/// ([`unavailable_why`]).
+pub const RETIRED_AGENTS_QUEUE: &str = "agents.queue";
 /// Ask to start an agent, approved by the user every time
 /// (`agent.create`).
 pub const AGENTS_START: &str = "agents.start";
@@ -68,7 +69,7 @@ pub struct Permission {
 /// it (the daemon's method table says the same; its tests hold them
 /// together). `pitwall extension test`'s fake Pitwall side refuses them
 /// without the grant, as Pitwall does.
-pub const ACTION_METHODS: [(&str, &str); 5] = [("queue.add", AGENTS_QUEUE), ("agent.create", AGENTS_START), ("agent.focus", AGENTS_FOCUS), ("viewer.open", SHOW), ("web.open", SHOW)];
+pub const ACTION_METHODS: [(&str, &str); 4] = [("agent.create", AGENTS_START), ("agent.focus", AGENTS_FOCUS), ("viewer.open", SHOW), ("web.open", SHOW)];
 
 /// The permission method `m` needs when it acts.
 pub fn action_needs(m: &str) -> Option<&'static str> {
@@ -76,14 +77,13 @@ pub fn action_needs(m: &str) -> Option<&'static str> {
 }
 
 /// Every permission this Pitwall knows, the ones it serves first.
-pub const ALL: [Permission; 9] = [
+pub const ALL: [Permission; 8] = [
     Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: PROFILES_READ, title: "Read profile names", detail: "The names of your profiles and of its own connections, and which of its connections each project uses. Never another extension's settings, never secrets or logins.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: SHOW, title: "Show you files and pages", detail: "Open a file (at a line) or a web page in Pitwall, next to an agent, as agents' own show tools do. It never brings Pitwall forward or takes the keyboard.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: AGENTS_FOCUS, title: "Focus an agent", detail: "Move the focus to an agent's tile while Pitwall is in front, as a click on its row does. Never brings Pitwall forward from another app.", risk: Risk::Low, risk_note: None, available: true },
-    Permission { name: AGENTS_QUEUE, title: "Send text to your agents", detail: "Put text in an agent's Next up, marked with its name. Nothing it puts there is sent until you press Send, unless you let it send without asking.", risk: Risk::High, risk_note: Some("Text an agent gets becomes what it does: it acts on it with its own permissions in your repositories (edit files, run commands, push). A service that is wrong or compromised could slip instructions in."), available: true },
     Permission { name: AGENTS_START, title: "Start agents", detail: "Ask to start an agent in one of your projects, maybe with a first prompt. Every request asks you first, showing the project, the tool and the prompt in full.", risk: Risk::High, risk_note: Some("An agent it starts runs as you, with the project's accounts, in your repository. Allowed without looking, it can set work going that you didn't ask for."), available: true },
     Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name.", risk: Risk::Low, risk_note: None, available: true },
 ];
@@ -100,7 +100,7 @@ pub fn available(name: &str) -> bool {
 
 /// Whether the permission screen offers `name` switched on: the ones that
 /// only read (and notifications), yes; any that acts (showing, focusing,
-/// queueing, starting), never.
+/// starting), never.
 pub fn on_by_default(name: &str) -> bool {
     find(name).is_some_and(|p| p.available && p.risk != Risk::High) && !ACTION_METHODS.iter().any(|(_, p)| *p == name)
 }
@@ -110,6 +110,7 @@ pub fn unavailable_why(name: &str) -> Option<&'static str> {
     match find(name) {
         Some(p) if p.available => None,
         Some(_) => Some("not available in this Pitwall yet"),
+        None if name == RETIRED_AGENTS_QUEUE => Some("removed from Pitwall with Next up"),
         None => Some("not available in this Pitwall"),
     }
 }
@@ -172,20 +173,20 @@ mod tests {
 
     #[test]
     fn only_granted_known_ones_count() {
-        let m = asking(&[AGENTS_READ, PROJECTS_READ, AGENTS_QUEUE, "weather.read"]);
+        let m = asking(&[AGENTS_READ, PROJECTS_READ, AGENTS_START, "weather.read"]);
         let mut d = Decisions::new();
         assert!(effective(&m, &d).is_empty(), "nothing until the user answers");
         let names = |v: Vec<&PermissionAsk>| v.into_iter().map(|p| p.name.clone()).collect::<Vec<_>>();
-        assert_eq!(names(undecided(&m, &d)), [AGENTS_READ, PROJECTS_READ, AGENTS_QUEUE], "only ones this Pitwall can grant are asked");
+        assert_eq!(names(undecided(&m, &d)), [AGENTS_READ, PROJECTS_READ, AGENTS_START], "only ones this Pitwall can grant are asked");
         d.insert(AGENTS_READ.into(), Decision { granted: true, at: 1 });
         d.insert(PROJECTS_READ.into(), Decision { granted: false, at: 1 });
         // One this Pitwall doesn't know, even marked granted by hand, isn't
-        // served; sending text to agents is, once granted.
+        // served; starting agents is, once granted.
         d.insert("weather.read".into(), Decision { granted: true, at: 1 });
-        assert_eq!(names(undecided(&m, &d)), [AGENTS_QUEUE]);
+        assert_eq!(names(undecided(&m, &d)), [AGENTS_START]);
         assert_eq!(effective(&m, &d), [AGENTS_READ]);
-        d.insert(AGENTS_QUEUE.into(), Decision { granted: true, at: 1 });
-        assert_eq!(effective(&m, &d), [AGENTS_READ, AGENTS_QUEUE]);
+        d.insert(AGENTS_START.into(), Decision { granted: true, at: 1 });
+        assert_eq!(effective(&m, &d), [AGENTS_READ, AGENTS_START]);
         assert!(undecided(&m, &d).is_empty(), "refused is answered");
         // An update adds one: it isn't granted until answered.
         let newer = asking(&[AGENTS_READ, PROJECTS_READ, WORKTREES_READ]);
@@ -199,16 +200,21 @@ mod tests {
     #[test]
     fn defaults_and_words() {
         assert!(on_by_default(AGENTS_READ) && on_by_default(PROFILES_READ) && on_by_default(NOTIFY));
-        for p in [SHOW, AGENTS_FOCUS, AGENTS_QUEUE, AGENTS_START] {
+        for p in [SHOW, AGENTS_FOCUS, AGENTS_START] {
             assert!(!on_by_default(p), "{p} acts: never on by default");
         }
         assert_eq!(unavailable_why(AGENTS_READ), None);
         assert_eq!(unavailable_why(SHOW), None);
-        for p in [SHOW, AGENTS_FOCUS, AGENTS_QUEUE, AGENTS_START] {
+        for p in [SHOW, AGENTS_FOCUS, AGENTS_START] {
             assert!(available(p), "{p} is served");
         }
-        // The two that act on agents say what can go wrong.
-        assert!(find(AGENTS_QUEUE).unwrap().risk_note.is_some() && find(AGENTS_START).unwrap().risk_note.is_some());
+        // Starting agents says what can go wrong.
+        assert!(find(AGENTS_START).unwrap().risk_note.is_some());
+        // Sending text to agents (Next up) is gone: an old manifest that
+        // asks for it is told so, and it is never granted.
+        assert!(!available(RETIRED_AGENTS_QUEUE) && !on_by_default(RETIRED_AGENTS_QUEUE));
+        assert_eq!(unavailable_why(RETIRED_AGENTS_QUEUE), Some("removed from Pitwall with Next up"));
+        assert_eq!(action_needs("queue.add"), None);
         assert!(ALL.iter().filter(|p| p.risk == Risk::High).all(|p| p.risk_note.is_some()));
         assert_eq!(unavailable_why("weather.read"), Some("not available in this Pitwall"));
         assert_eq!((of_topic("attention"), of_topic("blocked"), of_topic("approvals")), (Some(AGENTS_READ), Some(AGENTS_READ), None));

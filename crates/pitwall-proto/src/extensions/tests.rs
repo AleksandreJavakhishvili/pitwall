@@ -173,7 +173,7 @@ fn acts_on_the_wire() {
     assert_eq!(a.op, ExtOp::Setup { action: None, connection: None });
     let a: ExtAct = serde_json::from_value(json!({"id": "inbox", "op": "set", "key": "server", "value": "https://x"})).unwrap();
     assert_eq!(a.op.word(), "set");
-    assert!(serde_json::from_value::<ExtAct>(json!({"id": "inbox", "op": "grant", "permission": "agents.queue"})).is_err(), "granting isn't an act");
+    assert!(serde_json::from_value::<ExtAct>(json!({"id": "inbox", "op": "grant", "permission": "agents.start"})).is_err(), "granting isn't an act");
     assert_eq!(ServiceOp::parse("restart").map(ServiceOp::word), Some("restart"));
     assert_eq!(ServiceOp::parse("kill"), None);
 }

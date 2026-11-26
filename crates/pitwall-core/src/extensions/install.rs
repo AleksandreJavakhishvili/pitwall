@@ -990,7 +990,7 @@ mod tests {
         // In either key order (serde_json's `preserve_order` may be on in a
         // workspace build).
         assert!(more.lines.iter().any(|l| l == "Read your projects (projects.read): To list projects"), "{:?}", more.lines);
-        assert!(more.lines.iter().any(|l| l.starts_with("Send text to your agents (agents.queue): To send failures — Text an agent gets becomes what it does")), "{:?}", more.lines);
+        assert!(more.lines.iter().any(|l| l == "agents.queue: To send failures (removed from Pitwall with Next up)"), "{:?}", more.lines);
         assert_eq!(more.lines.len(), 2);
         assert!(more.title.contains("not granted until you allow them"));
         assert_eq!(up.iter().find(|c| c.title.starts_with("It no longer asks for these")).unwrap().lines, ["agents.start", "weather.read"]);

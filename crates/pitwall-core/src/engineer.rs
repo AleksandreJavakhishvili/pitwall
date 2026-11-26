@@ -16,7 +16,7 @@
 //!   `--read ENGINEER.md` (Aider reads no instruction file by itself).
 //! - **Fallback**: an agent that reads none of these (a custom command, a
 //!   kind of the user's own) is told "Read ENGINEER.md in this folder first"
-//!   in its first queued prompt ([`first_prompt`]).
+//!   in its first prompt ([`first_prompt`]).
 //! - **CLI**: the shipped `pitwall-cli`, linked as `pitwall` in
 //!   `<data>/bin/engineer/`, goes first on the agent's PATH, so it works even
 //!   when the user never installed the command-line tool.

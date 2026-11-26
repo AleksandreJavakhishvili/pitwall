@@ -4,8 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-/// Set up and manage Pitwall from a terminal: agents, sessions, queues,
-/// spaces, projects, rules, review and settings. Prints JSON (use --human
+/// Set up and manage Pitwall from a terminal: agents, sessions, spaces, projects, rules, review and settings. Prints JSON (use --human
 /// for text). Risky requests (stopping or removing agents, changing another
 /// machine, settings outside Pitwall's own look) wait for your approval in
 /// Pitwall. Exit status: 0 ok, 1 error, 2 bad arguments, 3 not approved.
@@ -41,9 +40,6 @@ pub enum Command {
     /// (safe settings only).
     #[command(subcommand)]
     Settings(SettingsCmd),
-    /// Prompts queued for agents (sent when they are free).
-    #[command(subcommand)]
-    Queue(QueueCmd),
     /// Spaces (tabs of agents) and the windows they are in.
     #[command(subcommand)]
     Space(SpaceCmd),
@@ -133,10 +129,7 @@ pub enum ExtensionCmd {
     /// test/pitwall.json. Its id is the folder's name. With --protocol 2 it
     /// asks for agents.read and shows your agents in its thread. With
     /// --view it draws a list view tile instead, with a palette command and
-    /// a note on your agents' rows. With --panel it draws a section in the
-    /// right panel for the focused agent, with buttons Pitwall runs (open a
-    /// file, focus an agent) behind the show and agents.focus permissions.
-    /// With --service it adds a tiny local server (server.mjs) that Pitwall
+    /// a note on your agents' rows. With --service it adds a tiny local server (server.mjs) that Pitwall
     /// keeps running while the extension is on, once the user confirms its
     /// command.
     New {
@@ -153,13 +146,9 @@ pub enum ExtensionCmd {
         /// protocol 2) instead of an inbox.
         #[arg(long, conflicts_with = "protocol")]
         view: bool,
-        /// A right-panel section for the focused agent, with buttons
-        /// Pitwall runs itself (format 2, protocol 2).
-        #[arg(long, conflicts_with_all = ["protocol", "view"])]
-        panel: bool,
         /// An inbox and a small local server Pitwall keeps running while it
         /// is on: the extension's service (format 2, protocol 1).
-        #[arg(long, conflicts_with_all = ["protocol", "view", "panel"])]
+        #[arg(long, conflicts_with_all = ["protocol", "view"])]
         service: bool,
     },
     /// The installed extensions (id, name, version, on or off, where it
@@ -355,40 +344,6 @@ pub struct EventsArgs {
     /// Stop after this many events.
     #[arg(long, value_name = "N")]
     pub count: Option<usize>,
-}
-
-#[derive(Debug, Subcommand, PartialEq)]
-pub enum QueueCmd {
-    /// Queue a prompt for an agent (`queue add api "run the tests"`), or for
-    /// every agent with a status (`queue add --status idle "run the tests"`).
-    /// `-` reads the prompt from stdin.
-    Add {
-        /// [AGENT] TEXT: the agent (id or name; not with --status) and the prompt.
-        #[arg(required = true, num_args = 1..=2, value_name = "AGENT TEXT")]
-        args: Vec<String>,
-        /// Queue it for every agent that has this status now (idle, done, …).
-        #[arg(long, value_name = "STATUS")]
-        status: Option<String>,
-    },
-    /// What is queued: one agent's, or every agent with a queue.
-    List {
-        /// An agent (id or name).
-        agent: Option<String>,
-    },
-    /// Take the Nth prompt (1 = first) out of an agent's queue.
-    Remove {
-        /// The agent (id or name).
-        agent: String,
-        /// Its place in `queue list` (1 = first).
-        n: usize,
-    },
-    /// Send the Nth queued prompt (default: the first) to the agent now.
-    Send {
-        /// The agent (id or name).
-        agent: String,
-        /// Its place in `queue list` (default: 1, the first).
-        n: Option<usize>,
-    },
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -977,9 +932,8 @@ pub struct AgentNew {
     /// → Accounts), or `default` for your own (default: the project's).
     #[arg(long, value_name = "ACCOUNT", conflicts_with = "machine")]
     pub account: Option<String>,
-    /// Its first instruction: put in its Next up as it is created, as
-    /// `queue add` does, and sent when it is first free (if Auto-send is
-    /// on). `-` reads it from stdin.
+    /// Its first instruction: kept as it is created and sent once,
+    /// verbatim, when it is first free. `-` reads it from stdin.
     #[arg(long, value_name = "TEXT", conflicts_with = "prompt_file")]
     pub prompt: Option<String>,
     /// Its first instruction, read from this file (as --prompt).
@@ -1199,16 +1153,6 @@ mod tests {
             Command::Agent(AgentCmd::Move { agent: "a1".into(), space: "Work".into() })
         );
         assert_eq!(
-            parse(&["queue", "add", "api", "run tests"]).unwrap().command,
-            Command::Queue(QueueCmd::Add { args: vec!["api".into(), "run tests".into()], status: None })
-        );
-        assert_eq!(
-            parse(&["queue", "add", "--status", "idle", "run tests"]).unwrap().command,
-            Command::Queue(QueueCmd::Add { args: vec!["run tests".into()], status: Some("idle".into()) })
-        );
-        assert_eq!(parse(&["queue", "send", "api"]).unwrap().command, Command::Queue(QueueCmd::Send { agent: "api".into(), n: None }));
-        assert_eq!(parse(&["queue", "remove", "api", "2"]).unwrap().command, Command::Queue(QueueCmd::Remove { agent: "api".into(), n: 2 }));
-        assert_eq!(
             parse(&["space", "move", "Work", "--to-window", "new"]).unwrap().command,
             Command::Space(SpaceCmd::Move { space: "Work".into(), to_window: "new".into() })
         );
@@ -1317,11 +1261,9 @@ mod tests {
             &["session", "add", "agw", "vm"],
             &["agent", "remove"],
             &["agent", "move", "a"],
-            &["queue", "add"],
-            &["queue", "add", "a", "b", "c"],
+            &["queue", "add", "a", "hi"],
             &["space", "move", "s"],
             &["wait", "a"],
-            &["queue", "remove", "a", "x"],
             &["nope"],
             // Platform options need a machine; a session there needs a name; no folder there.
             &["agent", "new", "--kind", "shell", "--workspace", "w"],

@@ -25,30 +25,6 @@ pub enum Source {
     Activity,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueItem {
-    pub id: String,
-    pub text: String,
-    /// Who queued it when it wasn't the user: an extension (with the
-    /// `agents.queue` permission). Such an item is drawn with its name and
-    /// never sent by Auto-send unless the user lets that extension send
-    /// without asking.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub origin: Option<QueueOrigin>,
-}
-
-/// An extension that put text in an agent's Next up.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueOrigin {
-    /// Its id.
-    pub extension: String,
-    /// Its name, as the user knows it.
-    pub name: String,
-}
-
 /// What the UI may offer for one agent right now (architecture.md §3). The
 /// UI reads only this; it never asks which provider or kind an agent has.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -178,15 +154,6 @@ pub struct AgentView {
     pub added: u32,
     pub removed: u32,
     pub files_changed: u32,
-    pub queue: Vec<QueueItem>,
-    pub auto_send: bool,
-    pub last_sent: Option<String>,
-    #[ts(type = "number | null")]
-    pub last_sent_at: Option<u64>,
-    /// The extension whose Next up item was sent last (`None`: the user's).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub last_sent_by: Option<QueueOrigin>,
     #[ts(type = "number")]
     pub created_at: u64,
     pub current_task_id: Option<String>,

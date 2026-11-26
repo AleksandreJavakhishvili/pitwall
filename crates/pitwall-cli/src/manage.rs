@@ -1,6 +1,6 @@
-//! `pitwall agent stop|restart|remove|rename|status|move`, `queue`,
-//! `space`, `project`, `rules`, `review` and `wait`: the socket's managing
-//! methods (`pitwall_proto::manage`), with agents and spaces named by id or
+//! `pitwall agent stop|restart|remove|rename|status|move`, `space`,
+//! `project`, `rules`, `review` and `wait`: the socket's managing methods
+//! (`pitwall_proto::manage`), with agents and spaces named by id or
 //! name.
 
 use std::fmt::Write;
@@ -13,8 +13,8 @@ use serde_json::Value;
 
 use pitwall_client::{Client, Error};
 use pitwall_proto::{
-    caps, code, method, AgentDiagnosis, AgentMove, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentTrack, AgentTracked, AgentView, AgentWait, ErrorBody, ProjectPath,
-    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied, RulesApply, RulesDefault, RulesImport,
+    caps, code, method, AgentDiagnosis, AgentMove, AgentRef, AgentRemove, AgentRename, AgentTrack, AgentTracked, AgentView, AgentWait, ErrorBody, ProjectPath,
+    ProjectRulesView, ProjectView, ReviewChanges, ReviewRequest, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied, RulesApply, RulesDefault, RulesImport,
     RulesImported, RulesReapplied, RulesReapply,
     RulesOverview, RulesShow, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
 };
@@ -26,7 +26,7 @@ use pitwall_proto::{
 
 use pitwall_proto::{LibraryAdded, LibraryNew};
 
-use crate::args::{AgentCmd, ProjectCmd, ProjectRulesCmd, QueueCmd, ReviewCmd, RuleSetCmd, RulesCmd, SkillCmd, SpaceCmd, WaitArgs};
+use crate::args::{AgentCmd, ProjectCmd, ProjectRulesCmd, ReviewCmd, RuleSetCmd, RulesCmd, SkillCmd, SpaceCmd, WaitArgs};
 use crate::Output;
 
 fn err(code: &str, message: impl Into<String>) -> Error {
@@ -74,17 +74,6 @@ pub fn resolve(list: &[AgentView], key: &str) -> Result<AgentView, Error> {
 fn agent(c: &mut Client, key: &str) -> Result<AgentView, Error> {
     let list = c.agents()?;
     resolve(&list, key)
-}
-
-/// The queued item at 1-based `n`.
-fn nth(a: &AgentView, n: usize) -> Result<String, Error> {
-    if n == 0 {
-        return Err(err(code::BAD_PARAMS, "items are numbered from 1"));
-    }
-    a.queue
-        .get(n - 1)
-        .map(|q| q.id.clone())
-        .ok_or_else(|| err(code::NOT_FOUND, format!("\"{}\" has {} queued prompt(s), not {n}", a.name, a.queue.len())))
 }
 
 pub fn agent_cmd(cmd: &AgentCmd, c: &mut Client) -> Result<Output, Error> {
@@ -179,59 +168,6 @@ pub(crate) fn prompt_text(text: &str) -> Result<String, Error> {
     let mut s = String::new();
     std::io::stdin().read_to_string(&mut s).map_err(Error::Io)?;
     Ok(s.trim_end_matches('\n').to_string())
-}
-
-pub fn queue_cmd(cmd: &QueueCmd, c: &mut Client) -> Result<Output, Error> {
-    Ok(match cmd {
-        QueueCmd::Add { args, status } => {
-            let (targets, text) = match (status, args.as_slice()) {
-                (Some(st), [text]) => {
-                    let want = parse_status(st)?;
-                    let list: Vec<AgentView> = c.agents()?.into_iter().filter(|a| a.status == want).collect();
-                    (list, text)
-                }
-                (None, [key, text]) => (vec![agent(c, key)?], text),
-                (Some(_), _) => return Err(err(code::BAD_PARAMS, "with --status give only the prompt: queue add --status idle \"…\"")),
-                (None, _) => return Err(err(code::BAD_PARAMS, "give the agent and the prompt: queue add <agent> \"…\"")),
-            };
-            let text = prompt_text(text)?;
-            let mut done = vec![];
-            for a in &targets {
-                let v: AgentView = manage(c, method::QUEUE_ADD, QueueAdd { agent_id: a.id.clone(), text: text.clone() })?;
-                done.push(v);
-            }
-            let human = match done.as_slice() {
-                [] => "No agent has that status: nothing queued.\n".to_string(),
-                [one] => format!("Queued for {} ({} in its queue)\n", one.name, one.queue.len()),
-                many => format!("Queued for {} agents: {}\n", many.len(), many.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")),
-            };
-            // One agent: its view (as `queue.add` answers); several: the list.
-            match done.as_slice() {
-                [one] => out(one, human),
-                _ => out(&done, human),
-            }
-        }
-        QueueCmd::List { agent: key } => {
-            let id = match key {
-                Some(k) => Some(agent(c, k)?.id),
-                None => None,
-            };
-            let list: Vec<AgentQueue> = manage(c, method::QUEUE_LIST, QueueFilter { agent_id: id })?;
-            out(&list, queues(&list))
-        }
-        QueueCmd::Remove { agent: key, n } => {
-            let a = agent(c, key)?;
-            let item = nth(&a, *n)?;
-            let v: AgentView = manage(c, method::QUEUE_REMOVE, QueueItemRef { agent_id: a.id.clone(), item_id: Some(item) })?;
-            out(&v, format!("Removed #{n} from {}'s queue ({} left)\n", v.name, v.queue.len()))
-        }
-        QueueCmd::Send { agent: key, n } => {
-            let a = agent(c, key)?;
-            let item = n.map(|n| nth(&a, n)).transpose()?;
-            let v: AgentView = manage(c, method::QUEUE_SEND, QueueItemRef { agent_id: a.id.clone(), item_id: item })?;
-            out(&v, format!("Sent to {} ({} still queued)\n", v.name, v.queue.len()))
-        }
-    })
 }
 
 pub fn space_cmd(cmd: &SpaceCmd, c: &mut Client) -> Result<Output, Error> {
@@ -722,21 +658,6 @@ pub fn diagnosis(d: &AgentDiagnosis) -> String {
     );
     for l in &d.explanation {
         let _ = writeln!(h, "- {l}");
-    }
-    h
-}
-
-pub fn queues(list: &[AgentQueue]) -> String {
-    if list.iter().all(|q| q.items.is_empty()) {
-        return "Nothing queued.\n".into();
-    }
-    let mut h = String::new();
-    for q in list {
-        let send = if q.auto_send { "auto-send" } else { "manual" };
-        let _ = writeln!(h, "{} ({}, {send}) — id {}", q.name, word(q.status), q.agent_id);
-        for (i, it) in q.items.iter().enumerate() {
-            let _ = writeln!(h, "  {}. {}", i + 1, it.text.lines().next().unwrap_or(""));
-        }
     }
     h
 }

@@ -33,8 +33,8 @@ fn agent(id: &str, name: &str, status: &str) -> AgentView {
         "machine": {"provider": "local", "id": "this-mac", "label": "This Mac", "canCreate": true},
         "agentInTerminal": false, "restartAs": null, "status": status,
         "statusSource": "screen", "statusDetail": null, "running": true, "cols": 120, "rows": 40,
-        "added": 0, "removed": 0, "filesChanged": 0, "queue": [], "autoSend": true, "lastSent": null,
-        "lastSentAt": null, "createdAt": 1, "currentTaskId": null,
+        "added": 0, "removed": 0, "filesChanged": 0,
+        "createdAt": 1, "currentTaskId": null,
         "caps": {"input": true, "restart": true, "resume": false, "stop": true, "removeWorktree": false,
                  "diff": true, "review": true, "merge": false, "rules": true, "hooks": true, "removeKeepsSession": false}
     }))
@@ -350,7 +350,7 @@ fn a_view_peer_may_only_list_and_follow() {
     *lock(&studio.feed.views) = vec![work];
     assert_eq!(call(&mut d, 10, method::AGENT_LIST, Value::Null).unwrap()[0]["accountName"], json!("Work"));
     assert_eq!(call(&mut d, 9, PEER_PING, Value::Null).unwrap(), Value::Null);
-    for (i, m) in [method::AGENT_CREATE, method::AGENT_STOP, method::AGENT_REMOVE, method::QUEUE_ADD, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::MACHINE_LIST, method::SESSION_LIST, "term.attach", "term.input", "term.write", "term.resize", "agent.prompt"].iter().enumerate() {
+    for (i, m) in [method::AGENT_CREATE, method::AGENT_STOP, method::AGENT_REMOVE, method::AGENT_RENAME, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::MACHINE_LIST, method::SESSION_LIST, "term.attach", "term.input", "term.write", "term.resize", "agent.prompt"].iter().enumerate() {
         assert_eq!(call(&mut d, 20 + i as u64, m, json!({})).unwrap_err().code, code::DENIED, "{m}");
     }
     assert_eq!(call(&mut d, 40, method::EVENTS_SUBSCRIBE, json!({"topics":["approvals"]})).unwrap_err().code, code::DENIED);

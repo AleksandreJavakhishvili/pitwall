@@ -230,13 +230,11 @@ pub enum Root {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     pub id: String,
-    /// A right-panel section's: the agent it is for.
+    /// The agent it was sent for: only an old right-panel section has
+    /// one, and Pitwall (with no right panel now) refuses it.
     pub agent_id: Option<String>,
     pub root: Result<Root, String>,
 }
-
-/// The most rows a right-panel section draws (the rest are counted).
-pub const PANEL_ROWS: usize = 8;
 
 /// What a badge, a note or a notification opens when clicked.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -636,14 +634,14 @@ mod tests {
             {"id": "log", "label": "Open log", "open": {"file": "logs/ci.txt", "line": 12}},
             {"id": "page", "label": "Open run", "open": {"url": "https://ci.example.com/r1", "agentId": "a2"}},
             {"id": "go", "label": "Go to agent", "focus": "a1"},
-            {"id": "send", "label": "Send failure", "needs": "agents.queue"},
+            {"id": "send", "label": "Send failure", "needs": "agents.start"},
             {"id": "bad", "open": {"url": "javascript:alert(1)"}}]}]}]}))
         .unwrap();
         let Root::List { list, .. } = r else { panic!() };
         let i = list.item("r1").unwrap();
         assert_eq!(i.agent.as_deref(), Some("a1"));
         let a: Vec<(&str, Option<&str>)> = i.actions.iter().map(|a| (a.id.as_str(), a.needs())).collect();
-        assert_eq!(a, [("log", Some("show")), ("page", Some("show")), ("go", Some("agents.focus")), ("send", Some("agents.queue"))], "a link Pitwall can't open is dropped");
+        assert_eq!(a, [("log", Some("show")), ("page", Some("show")), ("go", Some("agents.focus")), ("send", Some("agents.start"))], "a link Pitwall can't open is dropped");
         assert_eq!(i.actions[0].run, Some(Run::File { file: "logs/ci.txt".into(), line: Some(12), agent: None }));
         assert_eq!(i.actions[1].run, Some(Run::Url { url: "https://ci.example.com/r1".into(), agent: Some("a2".into()) }));
         assert_eq!(i.actions[2].run, Some(Run::Focus("a1".into())));
