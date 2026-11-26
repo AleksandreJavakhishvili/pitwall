@@ -3,6 +3,7 @@ import type { AgentView } from "../types";
 import { api } from "../api";
 import { useActions } from "../lib/actions";
 import { STATUS_WORD } from "../lib/status";
+import { openNextUp } from "../lib/nextUp";
 import { Modal } from "./Modal";
 import { StatusGlyph } from "./StatusGlyph";
 import { Kbd } from "./Kbd";
@@ -20,7 +21,6 @@ interface Commands {
   newTerminalAt?(): void;
   nextBlocked(): void;
   toggleSidebar(): void;
-  toggleRight(): void;
   toggleWall(): void;
   toggleReview?(): void;
   /** The focused agent's files (only when they can be read). */
@@ -186,6 +186,17 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
           return false;
         },
       })),
+      // Next up: its tile's popover (listed while something waits there).
+      ...agents.map<Item>((a) => ({
+        id: `next-up-${a.id}`,
+        icon: <span className="pal-icon">↳</span>,
+        label: `Show Next up for ${a.name}`,
+        search: `show next up auto-send waiting for ${a.name}`,
+        run: () => {
+          showAgent(a.id);
+          setTimeout(() => openNextUp(a.id), 0);
+        },
+      })),
       { id: "wall", icon: <span className="pal-icon">▦</span>, label: "Toggle Wall (all terminals)", search: "wall overview all terminals expose", hint: <Kbd>⌘E</Kbd>, run: commands.toggleWall },
       ...(commands.toggleReview
         ? [{ id: "review", icon: <span className="pal-icon">±</span>, label: "Review changes (diffs, comments, merge)", search: "review changes diff merge commit comments", hint: <Kbd>⌘R</Kbd>, run: commands.toggleReview }]
@@ -234,7 +245,6 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
         run: () => commands.density(null, "space"),
       },
       { id: "sidebar", icon: <span className="pal-icon">⇤</span>, label: "Toggle agents sidebar", search: "toggle sidebar agents panel hide show", hint: <Kbd>⌘B</Kbd>, run: commands.toggleSidebar },
-      { id: "right", icon: <span className="pal-icon">⇥</span>, label: "Toggle details panel", search: "toggle right panel details queue changes hide show", hint: <Kbd>⌘.</Kbd>, run: commands.toggleRight },
       { id: "settings", icon: <span className="pal-icon">⚙</span>, label: "Settings", search: "settings codex hooks preferences", hint: <Kbd>⌘,</Kbd>, run: commands.settings },
       { id: "quit", icon: <span className="pal-icon">⏻</span>, label: "Quit Pitwall (agents keep running)", search: "quit exit close app leave running", run: () => void api.quitApp(false).catch(() => {}) },
       { id: "quit-stop", icon: <span className="pal-icon">⏻</span>, label: "Quit and stop all agents", search: "quit exit stop all agents end", run: () => void api.quitApp(true).catch(() => {}) },
@@ -248,7 +258,8 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
           }))
         : []),
     ];
-    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-") && !i.id.startsWith("theme-"));
+    const waiting = new Set(agents.filter((a) => a.queue.length > 0).map((a) => `next-up-${a.id}`));
+    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !(i.id.startsWith("next-up-") && !waiting.has(i.id)) && !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-") && !i.id.startsWith("theme-"));
     // A typed path: "Terminal at <path>" first.
     return base.filter((i) => i.id === "term-at" || matches(i.search, q)).sort((a, b) => Number(b.id === "term-at") - Number(a.id === "term-at"));
   }, [q, agents, selectedId, projects, commands, showAgent, run, patch]);

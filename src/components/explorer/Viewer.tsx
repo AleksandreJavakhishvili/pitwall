@@ -13,7 +13,6 @@ import { Icon } from "../Icon";
 import { Kbd } from "../Kbd";
 import { RefreshControl } from "../Freshness";
 import { ExplorerTree } from "./ExplorerTree";
-import { IgnoredToggle } from "./FilesPanel";
 import { SearchPane } from "./SearchPane";
 import { noteRecent } from "./QuickOpen";
 import { useShowIgnored, useTree } from "./useTree";
@@ -23,6 +22,16 @@ import "./explorer.css";
 
 // The editor (CodeMirror, shared with Review's chunk) loads only when a text file is shown.
 const FileEditor = lazy(() => import("./FileEditor"));
+
+/** A small "Show ignored files" switch (off by default). */
+function IgnoredToggle({ on, onChange }: { on: boolean; onChange(on: boolean): void }) {
+  return (
+    <label className="ex-check ex-ignored" title="Also list what .gitignore leaves out (dimmed)">
+      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
+      Ignored
+    </label>
+  );
+}
 
 /** What the viewer is asked to show (a new `nonce`: show it again). */
 export interface ViewerTarget extends ExplorerTarget {
@@ -105,7 +114,7 @@ export default function Viewer({
     [agent.id, model],
   );
 
-  // Asked from outside (tree in the panel, ⌘P, ⇧⌘F, a search hit).
+  // Asked from outside (⌘P, ⇧⌘F, a search hit, an agent).
   useEffect(() => {
     if (target.path) open(target.path, target.line ? { line: target.line, from: target.from, to: target.to } : undefined);
     if (target.pane) setPane(target.pane);

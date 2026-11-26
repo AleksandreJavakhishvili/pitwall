@@ -290,7 +290,6 @@
 }
 
 .app[data-bp="xs"] .ex-bar-hint,
-.app[data-bp="sm"] .ex-bar-hint,
-.app[data-bp="xs"] .ex-tool .kbd {
+.app[data-bp="sm"] .ex-bar-hint {
   display: none;
 }

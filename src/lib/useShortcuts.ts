@@ -12,7 +12,6 @@ export interface ShortcutHandlers {
   newTerminalAt?(): void;
   nextBlocked(): void;
   toggleSidebar(): void;
-  toggleRight(): void;
   toggleWall(): void;
   /** ⌘R (also stops the webview from reloading). ⌘⇧R refreshes source control (`lib/freshness`). */
   toggleReview?(): void;
@@ -42,7 +41,7 @@ export function useShortcuts(h: ShortcutHandlers) {
       ev.stopPropagation();
       if (shift && k === "n") x.moveSpaceToWindow();
       else if (shift && k === "t") x.newTerminalAt?.();
-      // ⌘⇧R: open source-control views (Changes, Review, worktrees) refresh now.
+      // ⌘⇧R: open source-control views (Review, worktrees) refresh now.
       else if (shift && k === "r") requestRefresh();
       else if (shift && k === "f") x.searchFiles?.();
       else if (k === "p") x.quickOpen?.();
@@ -53,7 +52,6 @@ export function useShortcuts(h: ShortcutHandlers) {
       else if (k === "b") x.toggleSidebar();
       else if (k === "e") x.toggleWall();
       else if (k === "r") x.toggleReview?.();
-      else if (k === ".") x.toggleRight();
       else if (k === ",") x.settings?.();
       else if (k === "enter") x.toggleMaximize();
       else if (k === "=" || k === "+") x.fontSize(1);

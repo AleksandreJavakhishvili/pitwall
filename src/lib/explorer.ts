@@ -192,8 +192,8 @@ type Listener = (s: TreeState) => void;
 /**
  * One agent's tree: which folders are open and what they hold. Folders load
  * when first expanded; `refresh` lists the agent's folder and every open
- * folder again (coalesced while one runs). Shared by the Files tab and the
- * viewer, so both show the same folders open.
+ * folder again (coalesced while one runs). Kept per agent, so the viewer
+ * shows the same folders open each time.
  */
 export class TreeModel {
   private s: TreeState = EMPTY_TREE;

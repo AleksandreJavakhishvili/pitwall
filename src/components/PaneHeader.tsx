@@ -10,6 +10,7 @@ import { RulesStaleButton } from "./rules/RulesStaleButton";
 import { keys } from "../lib/host";
 import { accountOf, useAccounts } from "../lib/useAccounts";
 import { AgentLogo } from "./AgentLogo";
+import { NextUpChip } from "./NextUp";
 import { portOf, previewOf } from "../mockWeb";
 import "./webTile.css";
 
@@ -68,6 +69,7 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
         <DiffStat added={a.added} removed={a.removed} />
       </span>
       <span className="spacer" />
+      <NextUpChip agent={a} />
       {preview && (
         <button className="small-btn pane-preview" data-preview onClick={() => openWeb(a.id, preview)} title={`Open ${preview} in a web tile`}>
           <Icon name="globe" size={12} />

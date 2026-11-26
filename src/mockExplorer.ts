@@ -1,6 +1,6 @@
 // Mock backend for the read-only code explorer (browser `pnpm dev`, the site's
 // demo). A small made-up folder per agent; changed files come from the review
-// mock so letters and contents agree with Changes and Review.
+// mock so letters and contents agree with Review.
 import type { AgentView, FileChange } from "./types";
 import type { DirListing, ExplorerApi, FileEntry, FileView, SearchMatch, SearchResult } from "./explorerApi";
 import { SEARCH_CANCELLED, LARGE_CAP, TEXT_CAP } from "./explorerApi";
