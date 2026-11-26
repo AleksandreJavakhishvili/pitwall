@@ -24,8 +24,8 @@ user granted, what it offers, and which connection this adapter serves:
   asks for. Calls that need another are refused.
 - `offers`: what this Pitwall can do for an adapter. Check it rather than
   the version: `inbox`, `views`, `commands`, `badges`, `notify`,
-  `panels`, `webViews` (what it draws: [views, panels, commands, badges
-  and notifications](views.md)), `call` (calls and replies), `events`
+  `webViews` (what it draws: [views, commands, badges and
+  notifications](views.md)), `call` (calls and replies), `events`
   (`events.subscribe`). A later Pitwall adds to it.
 - `settings` are typed: a `bool` setting is `true` or `false`, a `number`
   a number, the others strings ([settings](manifest-2.md#setting-types)).
@@ -69,12 +69,12 @@ approval in time), `bad_params`, `not_found`, `too_large` or
 `message` is plain words you can show. A refusal never stops the adapter.
 Persistent abuse of the limits does (see [permissions](permissions.md#limits)).
 
-Four permissions let calls act: `show` (`viewer.open`, `web.open`),
-`agents.focus` (`agent.focus`), `agents.queue` (`queue.add`) and
-`agents.start` (`agent.create`, which asks the user every time). Their
-rules are in [actions](actions.md). Every other method that acts (send
-what is queued, stop or remove an agent, answer an approval, change a
-setting) is never an extension's: `unsupported` or `denied`.
+Three permissions let calls act: `show` (`viewer.open`, `web.open`),
+`agents.focus` (`agent.focus`) and `agents.start` (`agent.create`, which
+asks the user every time). Their rules are in [actions](actions.md).
+Every other method that acts (stop or remove an agent, answer an
+approval, change a setting) is never an extension's: `unsupported` or
+`denied`.
 
 ## Events
 

@@ -64,7 +64,7 @@ crates/pitwall-app            (bin "pitwall")
 ├─ terminal.rs   pitwall-term-view in panes, fed through the engine
 ├─ window_state  main window bounds (app-windows.json)
 ├─ menu.rs       actions, key bindings, native menu
-├─ main_screen/  sidebar, spaces and panes, right panel, dialogs, Elsewhere
+├─ main_screen/  sidebar, spaces and panes, dialogs, Elsewhere
 ├─ explorer/ settings/ approvals/ remote/ platform/ packaging/
 └─ ui/           MainView: the main screen, explorer, settings layer, approvals
 crates/pitwall-term-view      GPUI terminal element over alacritty_terminal (separate branch)
@@ -237,7 +237,7 @@ OSes and the app usable for that slice in a separate `PITWALL_HOME`.
 |---|---|---|---|
 | 0 | **Shell**: crate, window + bounds, app menu, theme tokens, engine hosted, live sidebar, terminal placeholder, CI on 3 OSes | — | this commit |
 | 1 | **Foundation**: in-house kit (button, text input, list, scroll, popover/menu, modal, tooltip, tabs, toast), title bar + in-window menu (Windows/Linux), fonts, `UiState` on `ui.json`, keyboard/focus model | §1, §23 (base) | kit has tests; shortcuts table per OS works |
-| 2 | **Terminal + main screen**: `pitwall-term-view` wired to holders, spaces, tiling and panes, full sidebar, right panel (Next up, queue, prompt box), top bar, status strip, command palette, new-agent and terminal dialogs, drag and drop, multi-window | §2–§8, §10, §16–§18, §25 | daily use of agents and terminals works without the Tauri app |
+| 2 | **Terminal + main screen**: `pitwall-term-view` wired to holders, spaces, tiling and panes, full sidebar, right panel (Next up, queue, prompt box; removed 2026-11-26), top bar, status strip, command palette, new-agent and terminal dialogs, drag and drop, multi-window | §2–§8, §10, §16–§18, §25 | daily use of agents and terminals works without the Tauri app |
 | 3 | **Wall** | §9 | Wall matches perf budget with 20 agents |
 | 4 | **Review**: task list, diff viewer (in-house), commit and merge | §11–§13 | review and merge of a worktree agent end to end |
 | 5 | **Explorer + worktrees**: file tree, viewer, quick open, search | §14, §15 | |

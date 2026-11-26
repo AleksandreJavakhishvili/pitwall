@@ -109,7 +109,7 @@ than the column scroll sideways on their own.
   Diff.
 
 ## Per-task diffs (backend)
-A task = one prompt delivered to an agent (send_prompt, queue send, typed Enter,
+A task = one prompt delivered to an agent (send_prompt, its first prompt, typed Enter,
 or UserPromptSubmit hook) until it is done/idle. Snapshot the working tree
 WITHOUT side effects at task start and end: use a temporary index
 (`GIT_INDEX_FILE=<tmp> git add -A && git write-tree`) to get a tree id that
@@ -120,7 +120,8 @@ agent is removed). Store tasks in state: `{ id, prompt, startedAt, endedAt?, sta
 ## Comments
 Click a line in the diff → add a comment. "Send comments" composes ONE prompt
 (shown to the user, editable, before sending): `Review comments:\n- <path>:<line> — <comment>`
-and sends it verbatim via send_prompt (or adds to Next up if the agent is busy).
+and sends it verbatim via send_prompt (the agent must be running; a busy one
+gets it at once, as if typed).
 
 ## Commit & merge (explicit user actions only, with confirmations)
 - Commit: in the agent's worktree, `git add -A && git commit -m <user message>`.

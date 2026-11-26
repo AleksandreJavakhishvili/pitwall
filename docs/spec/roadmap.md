@@ -27,7 +27,7 @@ agents plug in without touching the rest. Design first, review, then build.
    reviewed before implementation).
 2. Core extraction + background daemon (`pitwalld`) + Local provider: agents
    survive ⌘Q; the Tauri app becomes a thin client; menu-bar item.
-3. agw provider: agw sessions as real agents (terminal, status, Next up), then
+3. agw provider: agw sessions as real agents (terminal, status), then
    create on VM, diffs/Review over ssh, rules via agw artifact bundles.
 4. Pitwall CLI + API with approval prompts for risky actions → [engineer.md](engineer.md)
 5. Race Engineer preset (optional assistant) → [engineer.md](engineer.md):

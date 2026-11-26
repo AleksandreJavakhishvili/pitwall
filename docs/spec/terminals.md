@@ -16,7 +16,7 @@ there by hand show up too.
 ## 2. Agents started by hand are recognised
 - **Inside a Pitwall terminal**: when the user types `claude`, `codex`,
   `gemini`… in a shell pane, Pitwall notices the foreground process and the
-  pane becomes that agent (kind badge, status detection rules, Next up,
+  pane becomes that agent (kind badge, status detection rules,
   resume info) — and goes back to "shell" when it exits. Detection: the
   shell's terminal foreground process group (`ps -o tpgid= -p <shell pid>`,
   then that group's command; behind the platform layer per architecture §9

@@ -1,6 +1,6 @@
 ---
 name: pitwall
-description: "Set up and manage Pitwall, the desktop app that runs and watches coding agents: list, add, stop, restart, remove and rename agents; queue prompts; arrange spaces and windows; manage projects and rules; read what agents changed; wait for an agent to finish; change settings; diagnose an agent's status. Use when the user asks you to do any of that in Pitwall, or to coordinate other agents running in it. Requires the `pitwall` CLI and a running Pitwall app."
+description: "Set up and manage Pitwall, the desktop app that runs and watches coding agents: list, add, stop, restart, remove and rename agents; start an agent with its task; arrange spaces and windows; manage projects and rules; read what agents changed; wait for an agent to finish; change settings; diagnose an agent's status. Use when the user asks you to do any of that in Pitwall, or to coordinate other agents running in it. Requires the `pitwall` CLI and a running Pitwall app."
 ---
 
 # Pitwall
@@ -52,14 +52,13 @@ importing a project's own `.rulesync/`).
 ## Discover (read-only)
 
 ```bash
-pitwall agent list                         # id, name, kind, status, running, machine, queue, caps…
+pitwall agent list                         # id, name, kind, status, running, machine, caps…
 pitwall agent status api                   # why it shows its status (see Diagnose)
 pitwall machine list                       # providers and machines; canCreate / canAddSessions
 pitwall machine form <vm>                  # what a new session on an agw VM can be
 pitwall session list [--provider agw] [--machine <vm>]   # sessions that can be added
 pitwall space list                         # spaces: window, agents shown, members
 pitwall project list
-pitwall queue list [<agent>]
 pitwall rules list                         # rule files, each agent's rules state
 pitwall rules sets                         # rule sets and project defaults
 pitwall rules show ~/code/api              # a project's default set; each agent's own set and effective rules
@@ -87,12 +86,13 @@ pitwall agent new --machine <vm> --name <session> --new-workspace [<name>] [--wo
 - Kind ids: `claude`, `codex`, `shell`, … (Pitwall's New-agent list).
   `--project` defaults to the current folder.
 - To start an agent to do something, give it the task with `--prompt` in the
-  same command: it is queued in its Next up as it is created (as `queue add`
-  does) and goes in when the agent is first free. The JSON has `queued`
-  (`{id, position}`); if Auto-send is off it waits there for the user's Send.
-  Should queueing fail, the agent still exists: the exit status is 1 (code
-  `queue_failed`), stdout has the agent (with `queueError`), so retry with
-  `queue add <id>`. An empty prompt creates nothing.
+  same command: it is kept as the agent is created and typed into it once,
+  verbatim, when it is first free. The JSON has `promptPending: true`.
+  Should that fail, the agent still exists: the exit status is 1 (code
+  `prompt_failed`), stdout has the agent (with `promptError`); tell the user
+  to type the task into it. An empty prompt creates nothing.
+- Pitwall can't send a prompt to an agent that already runs: give an agent
+  its task when you start it, or ask the user to type it in.
 - `--account` picks the login (an account's name or id from Settings →
   Agents → Accounts, or `default` for the user's own); without it the
   project's account is used.
@@ -115,29 +115,16 @@ pitwall agent remove api --worktree        # asks; also deletes its own worktree
 Stopping or restarting an agent on another machine (agw) is asked every
 time; on this Mac the user may "remember" it for you.
 
-## Queue prompts
-
-```bash
-pitwall queue add api "run the tests and fix failures"
-pitwall queue add api -  < prompt.md       # the prompt from stdin
-pitwall queue add --status idle "git pull and rebuild"   # every agent that is idle now
-pitwall queue list api                     # numbered 1, 2, …
-pitwall queue remove api 2
-pitwall queue send api [<n>]               # send the first (or nth) queued prompt now
-```
-
-Queued prompts go out on their own when the agent is free (if it
-auto-sends); `queue send` sends now (the agent must be running).
-
 ## Wait (coordinate agents)
 
 ```bash
 pitwall wait reviewer --for idle,done --timeout 600
-pitwall wait reviewer --for blocked,done --fresh     # after sending it a prompt
+pitwall wait reviewer --for blocked,done --fresh     # after it was given a task
 ```
 
 `--fresh` ignores the status it has now and waits for a change first (use it
-right after `queue send`, or an earlier `done` ends the wait at once). An
+right after starting it with `--prompt`, or an earlier `done` ends the wait
+at once). An
 agent that stops while you wait for something else → `not_running`;
 `--for stopped` / `exited` match any agent that isn't running. Timeout →
 exit 1, code `timeout`.
@@ -286,8 +273,7 @@ ask again unless the user asks.
   Settings next to your terminal at that field; the user enters it there.
   You only ever see whether it is set.
 - **Only the user** grants permissions beyond what turning on shows,
-  deletes an extension's data, allows "send without asking", enters
-  secrets and signs in.
+  deletes an extension's data, enters secrets and signs in.
 - **Service "running elsewhere"**: something else already listens on its
   address (the user runs it). Use it; never start or stop it.
 - **"Version too old"** (both versions in `service`): `pitwall extension

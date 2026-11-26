@@ -7,7 +7,7 @@ teaching it the Pitwall CLI and agw. Pitwall must work fully without it.
 ## Building blocks
 1. **Pitwall CLI + API** (`pitwall …` talking to the app/daemon socket), the same
    operations the UI uses: `agent list|create|stop|restart|remove`,
-   `queue add|list`, `space create|move`, `project add|list`, `rules show|apply|set|import`,
+   `space create|move`, `project add|list`, `rules show|apply|set|import`,
    `review changes`, JSON output by default. Also useful for agents
    coordinating each other (spawn a reviewer, prompt it, wait for idle/blocked).
 2. **Approval prompts in the Pitwall UI** for risky actions regardless of who
@@ -26,8 +26,9 @@ Set up agw (VMs, templates, plugins) by conversation; rearrange spaces
 rules from an existing CLAUDE.md; set up an extension (`pitwall extension
 status` → `next` → `status`, each step approved by the user in Pitwall;
 secrets and sign-ins stay the user's: docs/spec/extensions.md, "Setup by
-an agent"); diagnose "why is this agent unknown?"; batch queueing ("queue
-'run tests' for every idle agent").
+an agent"); diagnose "why is this agent unknown?". It can't prompt an
+agent that already runs (Next up was removed on 2026-11-26): it gives a
+new agent its task with `agent new --prompt`.
 
 ## The preset (built)
 
@@ -82,10 +83,10 @@ resources). The app looks there (and in `$PITWALL_SKILLS_DIR`, then the
 repo's `skills/` in a workspace build), like the other sidecars
 (`crates/pitwall-app/src/engineer`).
 
-**First prompt.** A new engineer gets `engineer.greeting` queued (default:
-"Introduce yourself in two lines and offer: set up agw, arrange spaces,
-create agents per project, set up rules, tune settings."; empty = none). It
-is sent like any Next up item, once the agent is idle.
+**First prompt.** A new engineer gets `engineer.greeting` as its first
+prompt (default: "Introduce yourself in two lines and offer: set up agw,
+arrange spaces, create agents per project, set up rules, tune settings.";
+empty = none). It is sent once, verbatim, when the agent is first idle.
 
 **Web demo.** The top bar button, ⌘K row, chip and Settings → Agents section
 are mirrored in the React demo with a mock engineer (`src/lib/engineer.ts`).

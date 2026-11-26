@@ -415,7 +415,7 @@ GPUI from Zed commit `58e29b6` (`third_party/zed/`,
 
 Since the screen's parts (`main_screen/part.rs`), the main screen itself is
 drawn on every frame of its window and only its big pieces (sidebar, top
-bar, right panel, Wall / Review) and its terminals are cached views (a
+bar, Wall / Review) and its terminals are cached views (a
 ring frame renders the screen and replays those). In GPUI a notified view
 dirties every view above it, so a frame for anything in the window drew
 the screen: scrolling Settings re-ran the screen's render, layout and

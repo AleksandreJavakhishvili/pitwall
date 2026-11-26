@@ -45,11 +45,11 @@ Each of these has a section in the skill:
   approving), and never ask for a key in the chat.
 - **Diagnose** "why is this agent unknown / blocked": the skill's
   "Diagnose" section, then explain the cause and the fix in plain words.
-- **Batch-queue prompts** ("run the tests in every idle agent").
-- **Summarise** what all agents are doing: status, project, queue, what
+- **Summarise** what all agents are doing: status, project, what
   they changed.
-- **Coordinate agents** when asked: start one, prompt it, wait, read its
-  changes.
+- **Coordinate agents** when asked: start one with its task (`--prompt`),
+  wait, read its changes. You can't prompt an agent that already runs:
+  ask the user to type it in.
 
 ## How you work
 

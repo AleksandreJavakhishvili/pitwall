@@ -17,7 +17,7 @@ Being worked on.
 
 Designed, starting after the current work.
 
-- **Agents that don't depend on the app.** A small background service owns the agents, so they keep running, with their status and Next up queues, while the app is closed or being updated. With a menu-bar item and Start at login.
+- **Agents that don't depend on the app.** A small background service owns the agents, so they keep running, with their status, while the app is closed or being updated. With a menu-bar item and Start at login.
 - **Rules and hooks on agw machines.** The same rules and status hooks for agw sessions as for local agents.
 - **Plain SSH machines.** Run and watch agents on any machine you can reach over SSH, not only agw sessions.
 

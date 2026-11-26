@@ -1,27 +1,31 @@
-# Actions: showing, focusing, queueing, starting
+# Actions: showing, focusing, starting
 
-An extension that only reads stays out of the way. Four
+An extension that only reads stays out of the way. Three
 [permissions](permissions.md) let it act in Pitwall:
 
 | Permission | What it may do | Method |
 |---|---|---|
 | `show` | Open a file (at a line) or a web page beside an agent | `viewer.open`, `web.open` |
 | `agents.focus` | Focus an agent's tile, only while Pitwall is in front | `agent.focus` |
-| `agents.queue` | Put text in an agent's Next up, marked with its name | `queue.add` |
 | `agents.start` | Ask the user to start an agent, every time | `agent.create` |
 
-Each starts **off** on the permission screen. The two that reach an
-agent carry a risk note there, in plain words. Without the grant, a call
-is refused with `denied` ("<name> isn't granted agents.queue"). Every
-call, refused or not, is in the extension's Activity with what it asked
-for (which agent, the text, the project).
+Each starts **off** on the permission screen. `agents.start` carries a
+risk note there, in plain words. Without the grant, a call is refused
+with `denied` ("<name> isn't granted agents.start"). Every call, refused
+or not, is in the extension's Activity with what it asked for (which
+agent, the project, the prompt).
 
 None of them changes what an agent may do. An agent's own permissions,
 its tools and its rules stay as they are. Pitwall checks the grant in one
 place, its method table. The adapter's stdio, a program the adapter
 started on the socket and a button in a view all go through it. An
-extension can never send what it queued, answer an approval, grant
+extension can never type into an agent, answer an approval, grant
 itself anything or change Pitwall's settings.
+
+`agents.queue` (putting text in an agent's Next up, `queue.add`) is
+gone with Next up. A manifest that still asks for it installs; the
+permission screen and `pitwall extension check` show it as removed, and
+it is never granted. `queue.add` is an unknown method.
 
 ## `show`
 
@@ -53,29 +57,6 @@ says why:
 {"focused": false, "note": "Pitwall isn't the app in front: nothing was focused (an extension never brings it forward)."}
 ```
 
-## `agents.queue`
-
-```json
-{"type":"call","id":"c4","method":"queue.add","params":{"agentId":"a1","text":"Re-run the failing test and fix it"}}
-```
-
-The text goes to the end of the agent's **Next up**, drawn in its own
-colour with "From <name>". It waits there until the user presses Send.
-
-- **Auto-send skips it.** The user can turn on "Send what <name> queues
-  without asking" in its card, under the permission. It starts off and
-  is shown with a warning. Then Auto-send sends it like the user's own.
-- **Bounded**: at most 4000 characters (trimmed; empty is refused), one
-  item per agent every 10 seconds, three of its items waiting per agent.
-  Past those the call is refused with `busy` or `bad_params`.
-- **Only Pitwall's own agents**, by id (`agent.list`).
-- The user removes it like any other item. Turning the extension off, or
-  its `agents.queue` grant, removes its items that are still waiting.
-- **Logged**: Activity records which agent and the text. The agent's
-  "last sent" line says "from <name>" once it is sent.
-
-`queue.send` and `queue.remove` are never an extension's.
-
 ## `agents.start`
 
 ```json
@@ -93,8 +74,7 @@ It shows:
 > - Project: /Users/me/code/api
 > - Tool: Claude
 > - Name: fix-ci
-> - Its first prompt, put in its Next up marked “<name>” (sent only when
->   you press Send, unless you let <name> send without asking):
+> - Its first prompt, sent once it is ready, as if you typed it:
 >   *the prompt in full*
 > - It runs as you, in this project's folder, with the project's
 >   accounts and its own permissions there.
@@ -107,9 +87,9 @@ It shows:
   folder is `not_found`.
 - **One request at a time, three in ten minutes** (a timed-out one
   counts). Past that, `busy`.
-- **The prompt** (at most 4000 characters) isn't typed into the agent. It
-  is put in its Next up as the extension's item and follows the rules
-  above.
+- **The prompt** (at most 4000 characters) is kept with the new agent
+  and typed into it once, verbatim, when it is first free: the user saw
+  it in full when they allowed the start.
 
 The answer is the new agent, as `agent.list` gives it.
 
@@ -125,7 +105,7 @@ are pressed, as the extension, through the same check:
    {"id": "src", "label": "Open test", "open": {"file": "tests/auth.rs", "line": 88}},
    {"id": "ci", "label": "Open run", "open": {"url": "https://ci.example.com/runs/812"}},
    {"id": "jump", "label": "Go to agent", "focus": "a1"},
-   {"id": "fix", "label": "Ask it to fix", "needs": "agents.queue"}
+   {"id": "rerun", "label": "Re-run", "needs": "agents.read"}
  ]}
 ```
 
@@ -133,11 +113,10 @@ are pressed, as the extension, through the same check:
   agent's name. With `agents.focus` granted, clicking it focuses the
   agent.
 - `"open": {"file", "line", "agentId"}` or `"open": {"url", "agentId"}`
-  needs `show`. Without an `agentId` it opens beside the item's agent,
-  or, in a right-panel section, beside the section's agent.
+  needs `show`. Without an `agentId` it opens beside the item's agent.
 - `"focus": "<agent id>"` needs `agents.focus`.
 - `"needs": "<permission>"` marks a button the adapter acts on with a
-  permission (here, queueing). The adapter is told as usual.
+  permission (here, reading the agents). The adapter is told as usual.
 
 A button whose permission isn't granted is drawn disabled, and says
 which permission it needs. Pressed anyway (from a key, say), it is
@@ -147,7 +126,7 @@ runs.
 ## Checking it
 
 `pitwall extension check` describes each of these permissions and warns
-about `agents.queue` and `agents.start`. A view fixture
+about `agents.start`. A view fixture
 ([`views`](checks.md#views)) lists the buttons Pitwall runs and the
 permission each needs. In `calls`, the fake Pitwall refuses an action
 method without its grant, the same as Pitwall does.

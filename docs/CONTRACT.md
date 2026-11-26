@@ -1,8 +1,8 @@
 # Pitwall — developer docs
 
 Pitwall is a macOS, Linux and Windows desktop app (native Rust, drawn with GPUI) that hosts terminal coding
-agents (Claude Code, Codex, any CLI) and shows who needs you, a per-agent
-"Next up" queue, and git diffs. **It is a tool, not an agent**: it never
+agents (Claude Code, Codex, any CLI) and shows who needs you and what
+they changed. **It is a tool, not an agent**: it never
 rewrites prompts, never decides what agents do, and delivers user text verbatim.
 
 ## Spec index

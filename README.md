@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/demo.webp" alt="Pitwall with several agents: one flagged amber because it needs you, the Wall of live terminals, Next up and Review" width="900" />
+  <img src="docs/media/demo.webp" alt="Pitwall with several agents: one flagged amber because it needs you, the Wall of live terminals and Review" width="900" />
 </p>
 <p align="center"><sub>Recorded from the web demo of the UI, with made-up projects. <a href="https://aleksandrejavakhishvili.github.io/pitwall/">Try it live on the website.</a></sub></p>
 
@@ -47,9 +47,8 @@
 | **Status** | Flags for needs you, done, working, idle, exited and stopped. From hooks when the agent offers them (Claude Code per launch, Codex opt-in), else its screen matched against per-agent rules, else output activity. Native notifications when the window isn't focused. |
 | **Answer from anywhere** | While you're in another app and an agent's screen asks something, a small pill floats over your desktop (every Space, full-screen apps too): which agent waits, what it wants ("Run: pnpm test"), and Accept / Reject right there for a plain yes/no. Click it for one card at a time, oldest first, with the live terminal rows that ask; ⏎ accepts, esc rejects, ←/→ go to the next one (Accept all when every one is a yes/no). Drag it anywhere; turn it off in Settings → General. |
 | **Wall** `⌘E` | Every live terminal at once, grouped by project, the ones that need you first. View-only; click a tile to take over. |
-| **Next up** `⌘.` | Queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it. |
 | **Review** `⌘R` | What each agent changed, per task. Comment on lines and send them back as one prompt; commit and merge only when you click. |
-| **Files** `⌘P` `⇧⌘F` | An explorer of the agent's folder: file tree, viewer, quick open and search, with quick fixes in the viewer (⌘S saves; agents on this computer, off in Settings). ⌘-click a path in a terminal to open it, even outside the folder. The Changes panel matches `git status`: staged and unstaged apart, each repository inside the folder (or linked into it) in its own collapsible section with its branch. |
+| **Files** `⌘P` `⇧⌘F` | An explorer of the agent's folder: file tree, viewer, quick open and search, with quick fixes in the viewer (⌘S saves; agents on this computer, off in Settings). ⌘-click a path in a terminal to open it, even outside the folder. |
 | **Editor** | A text editor tile for any file on this computer: tabs, several cursors (⌘-click, ⌘D), comment toggle, bracket pairs, go to line, Find and Replace, git's changed lines in the margin. Save, Save As, Save all and new files; closing asks about unsaved edits, and an agent's change to an open file shows at once or, with unsaved edits, asks Keep mine / Take theirs. No language server or autocomplete. |
 | **Simulators and emulators** | An iOS Simulator or Android emulator in a tile next to your terminals, to watch and use. One an agent starts opens beside that agent on its own (or is offered, when Pitwall can't tell whose it is); ask an agent to "show me on the simulator" and it boots one and shows it (`show_device`). View-only for the agent. |
 | **Spaces and tiles** | From one pane up to 4×4, spaces in their own windows (drag a tab out or onto another window, or `⌘⇧N`), density settings for big walls. |
@@ -100,7 +99,7 @@ claude --session-id …   still running
 
 If you run agents on VMs with `agw`, its sessions sit next to your local agents, grouped by machine.
 
-- **Works today:** add an existing session and get its live terminal, its status (screen detection), Next up, stop and start; diffs and Review run git on the VM through agw; New agent → *Runs on* creates a session on a VM using agw's own workspaces, users and templates.
+- **Works today:** add an existing session and get its live terminal, its status (screen detection), stop and start; diffs and Review run git on the VM through agw; New agent → *Runs on* creates a session on a VM using agw's own workspaces, users and templates.
 - **Not yet:** hooks and rules on VMs, merging from Review, and deleting a session on the VM. Removing an agw agent from Pitwall only detaches it.
 
 </details>
@@ -118,13 +117,13 @@ pitwall session add agw <vm> <session> --start
 pitwall machine form <vm>      # what a new session on that VM can be
 pitwall settings list          # every setting: value, allowed values, description
 pitwall settings set appearance.theme dark
-pitwall queue add api "run the tests"      # or --status idle for every idle agent
+pitwall agent new --kind claude --name fix --prompt "run the tests"   # start it with its task
 pitwall space move "API" --to-window new   # spaces, windows, projects, rules
 pitwall wait api --for done --fresh        # agents can coordinate each other
 pitwall agent stop api                     # stop, restart, remove: you approve in Pitwall
 ```
 
-The CLI does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review (`review changes`) and settings, plus `wait`. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON: `~/.pitwall/ui.json` (schema: [`docs/settings.schema.json`](docs/settings.schema.json)) applies live when edited, and a value that isn't allowed is reported and the last good one kept. Settings that change something outside Pitwall (installing Codex hooks or the CLI link) ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer; a denial exits with status 3. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request. There's an agent skill for it in [`skills/pitwall/SKILL.md`](skills/pitwall/SKILL.md). Every command and option is in the [CLI reference](docs/reference/cli.md), and every setting in the [settings reference](docs/reference/settings.md).
+The CLI does what the UI does: agents (new with a first instruction, stop, restart, remove, rename, status), spaces and windows, projects, rules, read-only review (`review changes`) and settings, plus `wait`. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON: `~/.pitwall/ui.json` (schema: [`docs/settings.schema.json`](docs/settings.schema.json)) applies live when edited, and a value that isn't allowed is reported and the last good one kept. Settings that change something outside Pitwall (installing Codex hooks or the CLI link) ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer; a denial exits with status 3. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request. There's an agent skill for it in [`skills/pitwall/SKILL.md`](skills/pitwall/SKILL.md). Every command and option is in the [CLI reference](docs/reference/cli.md), and every setting in the [settings reference](docs/reference/settings.md).
 
 </details>
 
@@ -251,9 +250,8 @@ PITWALL_SIGN_IDENTITY="My Identity" scripts/install-local.sh path/to/Pitwall.app
 1. **Open Pitwall.** The first launch is a read-only scan: agent CLIs on your PATH, recent projects and conversations you can continue. Tick what you want and press **Start**.
 2. **Start an agent** with `⌘N`: pick a project, a kind and a name. Tick *Separate worktree* to use the agent's own `--worktree` flag (Claude Code and Codex).
 3. **Watch the flags.** `⌘J` jumps to the next agent that needs you, `⌘E` opens the Wall, `⌘K` the command palette.
-4. **Queue follow-ups** in Next up (`⌘.`, then `⌘↵`); with Auto-send on they go in when the agent is done or idle.
-5. **Review** with `⌘R`: comment on lines, send them back as one prompt, commit and merge when you're happy.
-6. **Quit any time.** `⌘Q` closes the UI only; **Quit and Stop Agents** ends everything.
+4. **Review** with `⌘R`: comment on lines, send them back as one prompt, commit and merge when you're happy.
+5. **Quit any time.** `⌘Q` closes the UI only; **Quit and Stop Agents** ends everything.
 
 The [quick start on the website](https://aleksandrejavakhishvili.github.io/pitwall/docs/quick-start/) has every shortcut and where Pitwall keeps its files.
 

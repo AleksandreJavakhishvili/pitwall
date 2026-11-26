@@ -3,7 +3,9 @@
 > **History.** This was the Tauri shell's interface (up to v0.1.x). The GPUI
 > app (v0.2.0+) has no IPC layer: it calls the same `pitwall-core` functions
 > directly (docs/spec/gpui/README.md "Commands and events"). The web demo's
-> mock (`src/mock.ts`) still implements these shapes.
+> mock (`src/mock.ts`) still implements these shapes, except Next up's
+> (`queue_*`, `set_auto_send`, `QueueItem`, `queue`, `autoSend`,
+> `lastSent…`), removed with Next up on 2026-11-26.
 
 ## Commands (JS names; Rust snake_case args become camelCase in JS)
 

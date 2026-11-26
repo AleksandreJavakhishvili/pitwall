@@ -14,7 +14,7 @@ runs its own code, and the adapter process described here is removed
 once each bundled extension has a component version, ported by Pitwall
 or built by its authors on the public SDK.
 
-*Removed (owner, 2026-11-26): Next up and the right Details panel are being removed from Pitwall, with the queue, Auto-send, Last sent, `queue.add`/`queue.send`, the `agents.queue` permission and right-panel sections. Text below that describes them is kept as history until the code removal lands.*
+*Removed (owner, 2026-11-26): Next up and the right Details panel were removed from Pitwall, with the queue, Auto-send, Last sent, `queue.add`/`queue.send`, the `agents.queue` permission and right-panel sections. Text below that describes them is kept as history; docs/spec/extensions.md and docs/extensions/ say what is served now. An extension-started agent's prompt is its first prompt, sent once when it is ready.*
 
 Marks used below: **[today]** is built and described in extensions.md or
 profiles.md; **[proposed]** is new here.
@@ -995,9 +995,9 @@ The plan as proposed:
 
 ### Phase 5 — Acting on agents, panel sections, floating cards, web view [built]
 
-Built as below (docs/spec/extensions.md, "Actions, right-panel sections
-and web views"; docs/extensions/actions.md), with these differences from
-the proposal:
+Built as below (docs/spec/extensions.md, "Actions and web views", then
+named "Actions, right-panel sections and web views";
+docs/extensions/actions.md), with these differences from the proposal:
 - All four acting permissions start off on the permission screen,
   `show` and `agents.focus` included.
 - `show`: an extension's `viewer.open`/`web.open` needs `agentId` (it

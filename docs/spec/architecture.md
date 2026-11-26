@@ -35,7 +35,7 @@ in easily, with few ties to specific things. In concrete terms:
 │   pitwall-detect    │ │   pitwall-core    │   │  pitwall-client   │
 │ Screen (alacritty)+ │◄┤ domain, traits,   │   │ UDS connect,      │
 │ TOML screen rules   │ │ Engine, status,   │   │ handshake, calls, │
-│ (pure)              │ │ queue, tasks, git │   │ events, term      │
+│ (pure)              │ │ prompts,tasks,git │   │ events, term      │
 └─────────────────────┘ │ over Exec, kinds  │   │ streams           │
                         │ testing::{Fake*,  │   └───┬──────────┬────┘
                         │  contract}        │       │          │
@@ -62,7 +62,7 @@ in easily, with few ties to specific things. In concrete terms:
 | `pitwall-proto` | Request/response/event types, `AgentView`, `KindView`, `Caps`, `PROTOCOL_VERSION`. Depends only on serde. | The one contract that the daemon, the client, the CLI and the TS types share. Clients must not have to pull in the engine to talk to it. |
 | `pitwall-detect` | `screen.rs`, `detect.rs`, `detect/*.toml` and their fixtures. | Pure, has heavy dependencies (alacritty_terminal, regex), and is maintained on its own. Today's boundary, now enforced by the compiler. |
 | `pitwall-hold` (bin + lib) | The per-agent terminal holder (§9 decision 1): owns one PTY + child, serves a frozen, versioned protocol (documented in its `lib.rs`) on `run/hold/<agentId>.sock`; the lib has the protocol and the client. OS code only in `platform/` (unix today). Deps: `interprocess`, `libc`. | Must outlive every other Pitwall process and almost never change, so it is tiny and has no Pitwall dependencies. |
-| `pitwall-core` | Domain model, the traits in §2, the `Engine` (today's registry, ticker policy, auto-send, status folding, tasks), kinds and launch planning, git operations written against `Exec`, the `Store` trait. Also `testing::{FakeProvider, MemStore, contract}` behind the `testing` feature. | All the logic, runnable and testable without sockets, Tauri, real processes or `$HOME`. It has no knowledge of macOS, PTYs, ssh or agw. |
+| `pitwall-core` | Domain model, the traits in §2, the `Engine` (today's registry, ticker policy, first prompts, status folding, tasks), kinds and launch planning, git operations written against `Exec`, the `Store` trait. Also `testing::{FakeProvider, MemStore, contract}` behind the `testing` feature. | All the logic, runnable and testable without sockets, Tauri, real processes or `$HOME`. It has no knowledge of macOS, PTYs, ssh or agw. |
 | `pitwall-providers` | `local` (portable-pty, lsof, login shell), `agw` (agw CLI + ssh), `ssh` (wave 3). Each is a cargo feature. | It is the only crate that knows about specific places to run. Every provider runs the same contract test suite. |
 | `pitwall-daemon` (`pitwalld`) | Hosts the Engine: socket server, `FileStore` (`~/.pitwall`), hook ingest, approvals, rules (rulesync), onboarding scan, the daemon lifecycle. | It is the process that owns sessions. Tokio lives here only. |
 | `pitwall-client` | Connect, handshake, typed calls, event stream, terminal streams. | Shared by the app and the CLI, so the protocol is implemented on the client side exactly once. |
@@ -348,7 +348,7 @@ their Tailscale IP.
 | kind | `harness_integration` matched against kind `id`/`aliases` (`claude-code` → `claude`); no match → a view-only "shell-like" kind with screen/activity status |
 | `create` | step 8c: `create_form(vm)` lists the choices from `agw workspace list --vm <vm>`, `agw agent list --vm <vm>`, `agw resource list --kind session-template,workspace-template,agent-template` (`--output json`, 15 s each, cached 30 s); `create` runs `agw --non-interactive session create --vm <vm> [--workspace <ws> \| --new-workspace [--workspace-name] [--workspace-template]] [--template <t>] [--admin \| --agent <a> \| --new-agent [--agent-name] [--agent-template]] <name>` (creates and starts), then attaches like an adopted session. From the CLI it needs the user's approval |
 | `start` | `agw session start <name>` (step 8a: agw's harness integration continues the conversation when it can, so `caps.resume` is false and `start(Resume)` is `Unsupported`; `--resume-only` / `--force-new` are not offered yet) |
-| `attach` | `agw session attach <name>` (a tmux client) in a `pitwall-hold` holder, so the attachment survives Pitwall restarts; input (typing, Next up) goes through this stream. Its EOF means the attachment dropped, not that the agent exited |
+| `attach` | `agw session attach <name>` (a tmux client) in a `pitwall-hold` holder, so the attachment survives Pitwall restarts; input (typing, a first prompt) goes through this stream. Its EOF means the attachment dropped, not that the agent exited |
 | `stop` / `remove` | `agw session stop <name>` / adopted sessions: close the attachment only (`session delete` only for sessions Pitwall creates, slice c, behind approval) |
 | `state` | `agw session list --vm <vm> --status --output json` → that session's `status` (missing → `Gone`) |
 | `exec(vm)` / `exec_at(session)` | `AgwExec` (step 8b): agw's own `agw vm exec [--workspace <ws>] <vm> -- sh -c <script>` (admin) or `agw agent exec [--workspace <ws>] <agent> -- …` (the session's agent user, per `agw session describe`), never raw ssh; one framed script per call, independent commands batched; workspace path from `agw workspace describe <ws> --output json` → `path` |
@@ -479,7 +479,8 @@ Compatibility rules:
 ```
 
 Method names map one to one onto today's commands. For example,
-`list_agents` becomes `agent.list`, `queue_add` becomes `queue.add`,
+`list_agents` becomes `agent.list`, `queue_add` became `queue.add` (both
+gone with Next up since 2026-11-26),
 `get_task_changes` becomes `review.task_changes`, and `apply_rules` becomes
 `rules.apply`. This keeps api.md as the reference and lets the CLI mirror it.
 
@@ -725,7 +726,8 @@ the UI build green.
 
 - CLI coverage for the Race Engineer (docs/spec/engineer.md) done: caps
   `manage` and `spaces`; `agent.stop|restart|remove|rename|status|wait`,
-  `queue.add|list|remove|send`, `project.list|add|remove`,
+  `queue.add|list|remove|send` (removed with Next up on 2026-11-26),
+  `project.list|add|remove`,
   `rules.list|sets|apply|default`, `review.changes` (pitwall-daemon
   `manage.rs`, the same core calls the UI makes), and `space.list|create|
   rename|move` + `agent.move` through the host's `WorkspaceBackend` (the
@@ -845,7 +847,7 @@ still links it in-process. The couplings to cut:
 - `paths::*` free functions → `Paths`. `persist::load` and `save` → `Store`.
 - Global statics become Engine-owned values: the `kinds::cache()` OnceLock,
   the `detect::cache()` RwLock, and the `project_list` lock.
-- `model::mono_ms()` global clock → a `Clock` trait, so auto-send and status
+- `model::mono_ms()` global clock → a `Clock` trait, so first prompts and status
   timing can be tested deterministically.
 
 **Step 3 — Run git and other commands through `Exec`.** With `LocalExec`
@@ -903,7 +905,7 @@ tests.**
 **Step 7 — Approvals and mutating CLI commands** (engineer.md part 1 and 2).
 
 **Step 8 — agw provider, in slices:**
-- a) adopt and attach existing sessions: terminal, screen status, Next up,
+- a) adopt and attach existing sessions: terminal, screen status,
   stop and start
 - b) `SshExec`: diffs and Review
 - c) create on a VM
@@ -940,7 +942,7 @@ Where today's modules end up:
   - `exec` is a `ScriptExec` with canned outputs, or a `LocalExec` on a temp
     git repo.
   - Together with `MemStore` and a manual `Clock`, Engine tests cover
-    status folding, `done`→`mark_seen`, auto-send timing, task boundaries,
+    status folding, `done`→`mark_seen`, first-prompt timing, task boundaries,
     worktree discovery and restarts without real processes or sleeps.
 - **Provider contract suite** in `pitwall_core::testing::contract`. Each
   provider crate calls

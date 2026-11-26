@@ -5,6 +5,13 @@ machine on the same Tailscale tailnet: the laptop shows the desktop's agents
 next to its own, opens their terminals, reviews their changes, gets their
 "needs you" notifications and starts new agents there.
 
+> **Changed 2026-11-26.** Next up (the queue, Auto-send, Last sent) and the
+> right panel were removed. What this page says about them is the plan as
+> it was; the `queue.*` methods it lists no longer exist. `AgentView` lost
+> `queue`, `autoSend`, `lastSent` and `lastSentAt`, so a Pitwall from
+> before can't read a newer peer's agent list (and a newer one reads an
+> older peer's, ignoring those fields).
+
 Status: **P1 built** (read-only "see them": the `pitwall-peer` crate, the
 protocol, `pitwall peers` in the CLI, and the GPUI app's sidebar headings,
 Settings → Peers, notifications, badge and offers; see "Phase 1 as built"
@@ -890,7 +897,7 @@ approval dialog, and the Settings row style.
   remote `ScreenFrame`s at the reduced rate, and offline tiles show their
   last frame dimmed.
 - **Right panel** (Next up, Changes, Files, Last sent). Unchanged, driven by
-  caps.
+  caps. (Removed from Pitwall on 2026-11-26.)
 - **New agent → "Runs on".**
   - It lists `studio` and `studio › vm-1` when the peer granted Start
     agents and is online.

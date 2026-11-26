@@ -1,4 +1,4 @@
-# Views, panels, commands, badges and notifications
+# Views, commands, badges and notifications
 
 Beyond an inbox, an extension can add these to Pitwall's UI. Each is
 declared in a [format 2 manifest](manifest-2.md) under `contributes`, and
@@ -11,16 +11,23 @@ loads no code, and none of it changes what an agent may do.
 | [Commands](#commands) | `"commands": [{"id","title","context"}]` (≤ 20) | Entries in the command palette |
 | [Badges and notes](#badges-and-notes) | `"badges": true` | A count or a few words on agents' and projects' rows |
 | [Notifications](#notifications) | `"notifications": true` and the `notify` permission | A notification, at most 3 a minute |
-| [Right-panel sections](#right-panel-sections) | `"panels": [{"id","title","icon","more"}]` (≤ 3) and `agents.read` | A section about the focused agent in its right panel |
 | [Web views](#web-views) | `"webViews": [{"id","title","icon","url"}]` (≤ 5) | A web page in a web tile, in a browser store of its own |
 
 There are no floating-control cards: the floating control shows only what
 blocks an agent, and an extension's blocking asks reach it through its
 inbox. A manifest with `cards` is refused as needing a newer Pitwall.
 
+There are no right-panel sections either: Pitwall no longer has a right
+panel. A manifest with `panels` still installs, its sections are never
+shown, `pitwall extension check` warns, and Pitwall no longer offers
+`panels` in its `hello`. Draw the same content as a [view tile](#view-tiles)
+(a section's `show`, `hide` and `action` lines are a view's, without the
+`agentId`). A `view` line that still names an `agentId` is refused and
+logged in Activity.
+
 Each needs an `adapter`. The protocol version doesn't matter: a protocol 1
 adapter may send them too. Pitwall's `hello` lists what it draws in
-`offers` (`views`, `commands`, `badges`, `notify`, `panels`, `webViews`); check it there rather
+`offers` (`views`, `commands`, `badges`, `notify`, `webViews`); check it there rather
 than by version. `pitwall extension new --view` writes a starter with a
 list view, a command and badges ([the starter](starter.md)).
 
@@ -182,38 +189,6 @@ another, each named after its connection; the ids your adapter gets back
 in `select` and `action` are its own. Any other root is the first
 connection's.
 
-## Right-panel sections
-
-A section in the right panel (⌘.) of the focused agent, under Pitwall's
-own. It needs `agents.read` (a section is about one agent): a manifest
-with panels that doesn't ask for it is refused, and a section isn't
-shown while it isn't granted.
-
-```json
-"contributes": { "panels": [{ "id": "ci", "title": "CI", "icon": "list", "more": "runs" }] }
-```
-
-| Pitwall → adapter | When |
-| --- | --- |
-| `{"type":"show","view":"ci","agentId":"a1"}` | Agent `a1`'s panel shows the section, unfolded. Send it for that agent. |
-| `{"type":"hide","view":"ci","agentId":"a1"}` | It is folded, or the panel shows another agent. |
-| `{"type":"action","req":3,"view":"ci","agentId":"a1","item":"r812","action":"rerun"}` | A button in it was pressed. |
-
-The adapter answers with a view line naming the agent:
-
-```json
-{"type":"view","view":"ci","agentId":"a1","root":{"kind":"list","sections":[{"items":[{"id":"r812","title":"tests failed","tone":"bad"}]}]}}
-```
-
-- The same components as a view tile. A list shows its first 8 items and
-  "and N more"; no pane beside it.
-- At most 280 points high, then it scrolls. Its header folds it; folded,
-  the adapter is told `hide`. Pitwall remembers it while it runs.
-- `more` names one of its views: a "More…" link under the section opens
-  it in a tile.
-- Its ids share one list with `views` and `webViews`.
-- Not shown for an agent on another computer's Pitwall (a peer).
-
 ## Web views
 
 A web page in a [web tile](../spec/web.md), opened with **Open <title>
@@ -317,7 +292,7 @@ the extension's card at any time):
 ## In `pitwall extension check` and `test`
 
 `check` lists what an extension contributes and warns about a `notify`
-permission without `notifications`, or badges that can name no row. A
-panel without `agents.read` is refused when the manifest is read.
+permission without `notifications`, badges that can name no row, or
+`panels` (right-panel sections, never shown now).
 `test` runs the `views` part of `test/pitwall.json` against a fake
 Pitwall ([checks](checks.md#views)).

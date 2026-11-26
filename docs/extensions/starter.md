@@ -54,20 +54,6 @@ inbox:
 In Pitwall, turn it on and pick **Open <name>** in the command palette
 (⌘K): the view opens as a tile beside the focused one.
 
-## `pitwall extension new <folder> --panel`
-
-Writes an extension that draws a [section in the right
-panel](views.md#right-panel-sections) for the focused agent, with
-buttons Pitwall runs itself ([actions](actions.md#in-a-view)):
-
-| File | What it is |
-| --- | --- |
-| `extension.json` | [Format 2](manifest-2.md): `agents.read`, `show` and `agents.focus` with their reasons, and one panel (`about`). |
-| `adapter.mjs` | While the section is shown for an agent, it sends a list of two items linked to that agent: README.md with **Open** (Pitwall opens it at line 1 in the agent's file viewer: `show`) and the agent with **Focus** (`agents.focus`). Without those grants the buttons are drawn disabled. |
-| `test/pitwall.json` | A [`views`](checks.md#views) check: the section shown for agent `a1` arrives with its two items. |
-
-`--panel` can't be used with `--protocol` or `--view`.
-
 ## `pitwall extension new <folder> --service`
 
 Writes the inbox starter plus a tiny local server, declared as the
@@ -83,7 +69,7 @@ extension is on:
 In Pitwall, turning it on asks you to confirm the server's command; then
 the card shows it running, and its output is in the Log.
 
-`--service` can't be used with `--protocol`, `--view` or `--panel`.
+`--service` can't be used with `--protocol` or `--view`.
 
 ## From here
 
