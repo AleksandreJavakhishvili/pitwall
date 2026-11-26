@@ -25,8 +25,8 @@ adapter, a tile's code *can't* do more than it is given.
 | `memory` (a number, MiB) | Linear memory above the 64 MiB default | shown, not a switch | Low |
 
 The existing ones (`agents.read`, `projects.read`, `worktrees.read`,
-`profiles.read`, `show`, `agents.focus`, `agents.start`, `notify`)
-keep their meaning, defaults, risk notes and
+`profiles.read`, `show`, `agents.focus`, `agents.queue`,
+`agents.start`, `notify`) keep their meaning, defaults, risk notes and
 limits [today].
 
 What agents may do with a tile's tools is a separate grant, shown in
@@ -60,9 +60,9 @@ Pitwall refuses unknown `contributes` keys [today]).
 ### 5.3 What a hostile tile can still do
 Honestly:
 - Use what it was granted, for anything: send project files it may read
-  to a host it may reach. (It can't send text to agents:
-  `agents.queue` went with Next up, which the owner removed from Pitwall on
-  2026-11-26.)
+  to a host it may reach; queue misleading text to agents if
+  `agents.queue` is on (still lands in Next up, marked, waiting for
+  Send by default [today]).
 - Show misleading content inside its own tile (a fake "sign in" form
   asking for a password). Mitigations: the host-drawn header, secrets
   entered only in Settings [today], and Verified review.
