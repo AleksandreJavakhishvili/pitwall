@@ -358,7 +358,7 @@ do, with the same limits, approvals and activity log ([permissions.md]
 (../extensions/permissions.md) [today]). One API, two transports.
 
 Not offered: running programs, raw sockets (TCP to databases is an
-open question, [10.3](README.md#103-risks-and-open-questions-each-with-a-recommendation)), other extensions' data, the agents' terminals or
+decided in [10.3](README.md#103-decisions): not in v1), other extensions' data, the agents' terminals or
 screens, Pitwall's own settings.
 
 Not all of this is built at once: [section 14](platform-services.md#14-platform-services-what-pitwall-gives-every-tile) says which services make

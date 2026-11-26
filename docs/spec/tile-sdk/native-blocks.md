@@ -252,19 +252,19 @@ matches it feature for feature; until then the native tile stays the
 default. If a port can't match it, the native tile stays and the gap is
 written down.
 
-### 16.4 Open questions (each with a recommendation)
-1. **Terminal view in v0.x?** *Recommend no* ([16.2](#162-native-building-blocks)); on demand later,
+### 16.4 Decisions
+1. **Terminal view in v0.x?** Decided (owner, 2026-11-26): no ([16.2](#162-native-building-blocks)); on demand later,
    show-only, per agent, if ever.
-2. **Web view: minimum or on demand?** *Recommend on demand*; `web.open`
+2. **Web view: minimum or on demand?** Decided (owner, 2026-11-26): on demand; `web.open`
    covers today's needs.
-3. **Port the review screen before WIT 1.0?** *Recommend yes*: start it
+3. **Port the review screen before WIT 1.0?** Decided (owner, 2026-11-26): yes: start it
    in phase 2 as the proof tile, so its gaps reach WIT before 1.0
    freezes it.
-4. **Review as a tile or keep a full-window mode?** *Recommend* a tile
+4. **Review as a tile or keep a full-window mode?** Decided (owner, 2026-11-26): a tile
    first, maximised by ⌘R (layouts can already maximise a tile); a
    full-window mode for extensions only if the port shows it is needed.
-5. **Send comments at once?** *Recommend* keeping Next up's Send step
+5. **Send comments at once?** Decided (owner, 2026-11-26): keep Next up's Send step
    for the port at first (the same safety as every extension), and
    revisit if users find the extra step slows review.
-6. **Drop the native tiles once ported?** *Recommend yes*, one release
+6. **Drop the native tiles once ported?** Decided (owner, 2026-11-26): yes, one release
    after each port matches its native tile, so there is one code path.

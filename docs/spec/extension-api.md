@@ -8,7 +8,7 @@ that exist today (docs/spec/extensions.md: one manifest, one adapter
 process, one kind of view, the inbox) into a small public API.
 
 Third-party tiles in Rust/WebAssembly, signed packages and the
-marketplace: [tile-sdk/](tile-sdk/README.md). It also proposes one extension
+marketplace: [tile-sdk/](tile-sdk/README.md). The owner decided on one extension
 model ([tile-sdk/extension-model.md](tile-sdk/extension-model.md)): a wasm component becomes the way an extension
 runs its own code, and the adapter process described here is removed
 once each bundled extension has a component version, ported by Pitwall
@@ -28,7 +28,10 @@ extension, as in VS Code, and an API others can build on.
 
 **Principles (kept, with reasons in "Principles").**
 - An extension is a declarative manifest plus a separate process (the
-  adapter), in any language. No third-party code in Pitwall's process.
+  adapter), in any language. No third-party code with access to
+  Pitwall's process (reworded by the owner on 2026-11-26: sandboxed
+  wasm components run in it without its rights; see
+  [tile-sdk/README.md](tile-sdk/README.md#103-decisions), item 2).
 - Pitwall draws everything natively from data the adapter sends, from a
   small set of components. A web tile (an http(s) page, no bridge) is the
   escape hatch, not the default.
@@ -108,8 +111,10 @@ curated list.
 ## Principles
 
 ### A separate process, not code in the app
-*Proposed to change: see [tile-sdk/extension-model.md](tile-sdk/extension-model.md) (sandboxed
-wasm components in the app; native code only in a managed service).*
+*Changed (owner, 2026-11-26): see [tile-sdk/extension-model.md](tile-sdk/extension-model.md) (sandboxed
+wasm components in the app; native code only in a managed service).
+The principle now reads "no third-party code with access to Pitwall's
+process".*
 For. Pitwall is Rust and GPUI. Loading a dynamic library means one crash
 takes the app down and the extension shares the app's memory, keychain
 access and windows. The real alternative is WebAssembly, Zed's choice:

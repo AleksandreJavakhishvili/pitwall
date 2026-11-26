@@ -19,7 +19,7 @@ one-step update.
 Terms ([15.2](extension-model.md#152-terms-used-in-this-document)): the **extension** is the package; a **tile** is a UI
 contribution; the **component** is the extension's wasm code, with or
 without tiles; a **service** is a long-running server; the **adapter**
-is today's process runtime. [Section 15](extension-model.md#15-one-extension-model) proposes making the component
+is today's process runtime. [Section 15](extension-model.md#15-one-extension-model) decides that the component is
 the one way an extension runs its own code.
 
 Marks: **[today]** is built; **[new]** is proposed here.
@@ -28,7 +28,7 @@ in [sources.md](sources.md)) or the word *unverified*.
 
 ## Contents
 
-- [Summary](#summary-one-page), [goals](#1-goals-non-goals-user-stories) and the [plan](#10-plan-risks-and-open-questions) (this file)
+- [Summary](#summary-one-page), [goals](#1-goals-non-goals-user-stories) and the [plan](#10-plan-risks-and-decisions) (this file)
 - [runtime.md](runtime.md): Architecture, the WIT interface and versioning: how a tile's component runs, its limits, and how it reaches the host.
 - [ui.md](ui.md): The element tree a tile sends, how the host draws it with GPUI, events, keyboard, drag and drop, canvas.
 - [native-blocks.md](native-blocks.md): No native plugin API; native building blocks; which built-in tiles move to the SDK.
@@ -43,15 +43,17 @@ in [sources.md](sources.md)) or the word *unverified*.
 - [alternatives.md](alternatives.md): Alternatives considered.
 - [sources.md](sources.md): Sources (S1…) cited across the Tile SDK spec, and the claims not verified.
 
-## Open questions
+## Decisions
 
-Each with a recommendation; the owner decides.
+Every open question was decided by the owner on 2026-11-26, each as
+recommended. Unverified claims stay unverified: they are facts to
+check, not decisions ([sources.md](sources.md#not-verified)).
 
-- [10.3](#103-risks-and-open-questions-each-with-a-recommendation): Runtime, packaging and marketplace risks
-- [11.13](agent-tools.md#1113-open-questions-each-with-a-recommendation): Tools for agents
-- [13.6](services.md#136-open-questions-each-with-a-recommendation): Tile apps with a server
-- [15.8](extension-model.md#158-open-questions-each-with-a-recommendation): One extension model
-- [16.4](native-blocks.md#164-open-questions-each-with-a-recommendation): Native building blocks and ports
+- [10.3](#103-decisions): Runtime, packaging and marketplace
+- [11.13](agent-tools.md#1113-decisions): Tools for agents
+- [13.6](services.md#136-decisions): Tile apps with a server
+- [15.8](extension-model.md#158-decisions): One extension model
+- [16.4](native-blocks.md#164-decisions): Native building blocks and ports
 
 ## Summary (one page)
 
@@ -139,7 +141,7 @@ model and IME. The tile's code never touches a window.
     includes what today's extensions already have for agents' questions
     (badges and row notes, questions in the floating control, Next up),
     so inbox-style tiles are a v0.x target.
-14. **One extension model** ([section 15](extension-model.md#15-one-extension-model), proposed). The extension is
+14. **One extension model** ([section 15](extension-model.md#15-one-extension-model), decided). The extension is
     the one concept; a tile is one thing it contributes. The component
     becomes the only way an extension runs its own code, with or
     without a tile. The extensions bundled today are ported by Pitwall
@@ -169,8 +171,8 @@ Next up (6.5 wk) → 3 agent tools, skill and commands (4 wk) → 4
 package, signing, install, update (3 wk) → 5 index and Browse (4 wk) →
 6 seed tiles (in parallel from phase 2), with on-demand services as
 they trigger them → 7 WIT 1.0 once the seed tiles ship. Tile plus
-managed service: documented and wired during phase 2 (1 wk). If the
-one extension model is accepted: 8 port or hand over the bundled
+managed service: documented and wired during phase 2 (1 wk). With the
+one extension model (decided): 8 port or hand over the bundled
 extensions (≈ 4 wk, less for those their authors build) → 9 remove
 adapters (≈ 1 wk) once each has a component version. The authoring
 skill and `llms.txt` reference come with the SDK docs from phase 1
@@ -183,8 +185,8 @@ Each phase also publishes or updates its website docs pages
 ([9.6](authoring.md#96-website-docs)): ≈ 0.5 wk per phase with a public surface, plus
 ≈ 1 wk for the docs build in phase 1.
 
-**Owner decisions needed** are in [10.3](#103-risks-and-open-questions-each-with-a-recommendation), [11.13](agent-tools.md#1113-open-questions-each-with-a-recommendation), [13.6](services.md#136-open-questions-each-with-a-recommendation), [15.8](extension-model.md#158-open-questions-each-with-a-recommendation) and [16.4](native-blocks.md#164-open-questions-each-with-a-recommendation), each
-with a recommendation.
+**Owner decisions** (2026-11-26, every recommendation accepted) are
+recorded in [10.3](#103-decisions), [11.13](agent-tools.md#1113-decisions), [13.6](services.md#136-decisions), [15.8](extension-model.md#158-decisions) and [16.4](native-blocks.md#164-decisions).
 
 
 ## 1. Goals, non-goals, user stories
@@ -262,7 +264,7 @@ with a recommendation.
    entry; within a day every Pitwall turns that tile off and says why.
 
 
-## 10. Plan, risks and open questions
+## 10. Plan, risks and decisions
 
 ### 10.1 Seed tiles (first party, public SDK only)
 Built in their own repositories (or `tiles/` in this repo, outside the
@@ -275,7 +277,7 @@ gap in the SDK.
 | CI and pull requests | net, secrets, virtual list, agents, Next up, notifications | `net`, `agents.read`, `agents.queue`, `notify` |
 | API client | inputs, tabs, code view, `net.ask`, storage | `net.ask` |
 | Git client | tree, table, diff in code view, keyboard, drag | `git.read/write/remote`, `files.read` |
-| Database browser | table with 100k rows (virtual), code view for SQL, canvas for a schema | `files.read` (SQLite in the guest); Postgres needs [10.3](#103-risks-and-open-questions-each-with-a-recommendation), item 3 |
+| Database browser | table with 100k rows (virtual), code view for SQL, canvas for a schema | `files.read` (SQLite in the guest); Postgres needs [10.3](#103-decisions), item 3 |
 | Diagrams | canvas, drag, agent tools of all four kinds ([4.2](authoring.md#42-a-diagram-tile-as-an-author-writes-it)) | `files.write` for export only |
 | Review and source control (proof tile, a port of the built-in one; [16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) | code view, diff view, lists, comments, Next up, git operations | `agents.read`, `worktrees.read`, `git.read/write`, `files.read`, `agents.queue` |
 
@@ -302,53 +304,55 @@ publish Migrating from adapters and replace the adapter pages.
 | On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …); 0.5–2 wk each | with 6 | Platform services and Permissions gain a row for each service as it ships |
 | 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | 2 wk | Preview label removed; WIT reference 1.0 and one page per published WIT version; the deprecation policy on the overview |
 
-### 10.3 Risks and open questions (each with a recommendation)
+### 10.3 Decisions
+Each was an open question with a recommendation; the owner accepted
+every recommendation on 2026-11-26.
 
 1. **In process or a helper process?** In process is simpler and
    faster; a Wasmtime escape or crash then hits the app.
-   *Recommend in process for v1*, behind a message interface so moving
-   the worker loop into a `pitwall-tiled` helper later changes no WIT
-   and no SDK.
+   Decided (owner, 2026-11-26): in process for v1, behind a message interface so
+   moving the worker loop into a `pitwall-tiled` helper later changes
+   no WIT and no SDK.
 2. **This reverses "no third-party code in Pitwall's process"**
-   (extension-api.md, Principles [today]). *Recommend* rewording it to
-   "no third-party code with access to Pitwall's process": wasm code
-   has none of the process's rights, unlike an adapter that has all of
-   the user's. Needs the owner's yes.
+   (extension-api.md, Principles [today]). Decided (owner, 2026-11-26): the principle
+   now reads "no third-party code with access to Pitwall's process":
+   wasm code has none of the process's rights, unlike an adapter that
+   has all of the user's. extension-api.md is updated to match.
 3. **TCP for databases.** WASI sockets exist (S7) but raw TCP widens
-   what a tile can reach. *Recommend*: not in v1; the database browser
+   what a tile can reach. Decided (owner, 2026-11-26): not in v1; the database browser
    ships SQLite first; then `net.tcp` with `host:port` pairs the user
-   enters, through the same allow-list code, if the owner agrees.
+   enters, through the same allow-list code.
 4. **Binary size.** Wasmtime's only published numbers are for its C
    library on Linux x86-64: 19 MB with default features, 2.1 MB with
    none, 1.2 MB with LTO and `panic=abort` (S17). Pitwall needs
    Cranelift, the component model and part of WASI, so the real cost
    is somewhere between, and no size work has been done on Cranelift
-   yet (S17). *Recommend* measuring in phase 0 with default features
-   off, and accepting up to ~10 MB per platform; Winch (still in
+   yet (S17). Decided (owner, 2026-11-26): measure in phase 0 with default features
+   off, and accept up to ~10 MB per platform; Winch (still in
    development) or the Pulley interpreter (S17) are fallbacks, not a
    different runtime.
 5. **Wasmtime releases.** A new major version ships every month; most
    are supported for 2 months, every 12th (36, 48, …) for 24 months,
    and security fixes are backported to all supported releases (S1).
-   *Recommend* following the LTS line (48 now, 60 next), checking
-   advisories in the release checklist, and shipping a Pitwall patch
+   Decided (owner, 2026-11-26): follow the LTS line (48 now, 60 next), check
+   advisories in the release checklist, and ship a Pitwall patch
    within a week of a sandbox-escape fix.
-6. **Signatures: minisign now, Sigstore later?** *Recommend minisign*
+6. **Signatures: minisign now, Sigstore later?** Decided (owner, 2026-11-26): minisign
    (small, offline, keys in the index); add Sigstore attestations as a
    second signal for reproducible Verified builds once the index is
    busy.
-7. **Full tree vs. patches.** *Recommend full tree + host diff* in WIT
-   0.1 and decide on patches from phase 0–2 measurements.
+7. **Full tree vs. patches.** Decided (owner, 2026-11-26): full tree + host diff in
+   WIT 0.1; decide on patches from phase 0–2 measurements.
 8. **Colours outside canvases.** Authors will ask for brand colours.
-   *Recommend no* in 0.x (tokens keep tiles native in both themes);
+   Decided (owner, 2026-11-26): no in 0.x (tokens keep tiles native in both themes);
    revisit with a small "accent" token per tile if real tiles need it.
-9. **Background work while hidden.** *Recommend none* (suspend, drop
+9. **Background work while hidden.** Decided (owner, 2026-11-26): none (suspend, drop
    after 10 min); a tile that needs to watch something all day pairs
    with an adapter or service, which already exist.
-10. **Verified review load.** *Recommend* Verified only for tiles that
+10. **Verified review load.** Decided (owner, 2026-11-26): Verified only for tiles that
     ask for a High permission or for the first version of an author;
-    automated checks for the rest; say so on the badge's tooltip.
-11. **Index name and owner.** *Recommend* a separate public repo under
+    automated checks for the rest; the badge's tooltip says so.
+11. **Index name and owner.** Decided (owner, 2026-11-26): a separate public repo under
     the same owner as Pitwall. CI signs `index.json` with an index key
     kept as a repository secret; Pitwall ships that key and the next
     one ([6.2](packaging.md#62-signing)), and the next key is held offline, so a leaked CI key is
@@ -365,7 +369,7 @@ publish Migrating from adapters and replace the adapter pages.
     index requires each extension to carry a licence from a fixed list
     (MIT, Apache-2.0, BSD, GPLv3, LGPLv3, CC-BY-4.0, zlib, Unlicense)
     (S18). Pitwall's theme is a fixed token set and its editor links
-    grammars natively (`tree-sitter` 0.25 [today]). *Recommend* not in
+    grammars natively (`tree-sitter` 0.25 [today]). Decided (owner, 2026-11-26): not in
     this plan. Later, as separate designs: a "theme import" mapping a
     Zed theme's colours onto Pitwall's tokens (lossy: Zed has many more
     keys; whether the mapping looks right is *unverified*), and wasm
@@ -374,7 +378,10 @@ publish Migrating from adapters and replace the adapter pages.
     licence must allow redistribution, and GPL-licensed ones need a
     licence review before Pitwall bundles any (installing them by the
     user's choice is simpler).
-13. **Agent tools.** Their own questions are in [11.13](agent-tools.md#1113-open-questions-each-with-a-recommendation).
+13. **Agent tools.** Their own decisions are in [11.13](agent-tools.md#1113-decisions).
+14. **Caller kind for tiles' `METHODS` calls** ([10.4](#104-what-gets-in-the-way-in-todays-code)): a new
+    `tile(<id>)` or reuse `extension(<id>)`? Decided (owner, 2026-11-26): reuse
+    `extension(<id>)`: one identity per extension.
 
 ### 10.4 What gets in the way in today's code
 - `contributes` keys are checked against a fixed list; `tiles` must be
@@ -393,8 +400,8 @@ publish Migrating from adapters and replace the adapter pages.
   daemon's `mcp.tools` with the tiles that are on. A new daemon method
   `tile.call` (Access: agents only, checked per kind) and the approval
   dialog's requester gain the tile and tool.
-- `METHODS` calls from tiles need a caller kind `tile(<id>)` or reuse
-  `extension(<id>)` (*recommend reuse*: one identity per extension).
+- `METHODS` calls from tiles use the caller kind `extension(<id>)`
+  (decided, [10.3](#103-decisions) item 14: one identity per extension).
 
 
 ## What this replaces in extension-api.md
@@ -407,7 +414,8 @@ publish Migrating from adapters and replace the adapter pages.
   are here; the opt-in OS sandbox for adapters stays as written there.
 - "Principles: A separate process, not code in the app": still true for
   services; adapters are removed ([section 15](extension-model.md#15-one-extension-model)) and components are the
-  exception argued in [10.3](#103-risks-and-open-questions-each-with-a-recommendation) (2).
+  exception decided in [10.3](#103-decisions) (2): the principle now
+  reads "no third-party code with access to Pitwall's process".
 - Author experience "Dev mode": for tiles, reload on save ([9.2](authoring.md#92-dev-reload));
   adapters' manual Reload is unchanged.
 - "Later: agents as callers" (extension commands as MCP tools): for
