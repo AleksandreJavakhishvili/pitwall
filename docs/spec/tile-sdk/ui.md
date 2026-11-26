@@ -437,6 +437,5 @@ interface toolbar {
 #### Phase
 **Decided (owner):** toolbar items are part of the v0.x minimum and are
 built in phase 2. They are cheap, and useful for inbox-style
-extensions that show unread counts. *Recommendation:* the size is about
-1 wk, inside phase 2. The website's Tiles and UI components page
+extensions that show unread counts. The website's Tiles and UI components page
 documents them in the same phase ([9.6](authoring.md#96-website-docs)).

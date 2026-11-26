@@ -331,12 +331,12 @@ extensions' data, or keep running after the extension is turned off
   and Browse shows it.
 
 ### 13.5 Order of work
-| Step | Content | Size |
-|---|---|---|
-| A, during phase 2 | the automatic loopback grant, the tile's `service` interface and event, the "Runs a program" wording in install, Browse and Verified, a starter, docs | 1 wk |
-| B1, after phase 7 | `pitwall-svc` (process, socket, logs, rediscovery), the service world 0.1, incoming-handler over hyper, the HTTP front (Host check, key, caps), `net.listen` on loopback | 3 wk |
-| B2 | backups and `migrate` in `safe_update` (the `sql` host code comes from tiles, [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)), limits and watchdog, the quit question | 1 wk |
-| B3 | `interfaces` (Tailscale), service tools for agents, `tile new --service`, test harness | 1–2 wk |
+| Step | Content |
+|---|---|
+| A, during phase 2 | the automatic loopback grant, the tile's `service` interface and event, the "Runs a program" wording in install, Browse and Verified, a starter, docs |
+| B1, after phase 7 | `pitwall-svc` (process, socket, logs, rediscovery), the service world 0.1, incoming-handler over hyper, the HTTP front (Host check, key, caps), `net.listen` on loopback |
+| B2 | backups and `migrate` in `safe_update` (the `sql` host code comes from tiles, [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)), limits and watchdog, the quit question |
+| B3 | `interfaces` (Tailscale), service tools for agents, `tile new --service`, test harness |
 
 ### 13.6 Decisions
 1. **May a package ship a native server binary** for A, instead of an

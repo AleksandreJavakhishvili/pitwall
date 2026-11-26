@@ -172,11 +172,11 @@ only tiles; a component that contributes anything above stays.
   has `pitwall extension check|test|new` [today]), before anything is
   published.
 - Two new steps after phase 7:
-  **8. Port or hand over the bundled extensions** (about 4 weeks of
-  Pitwall's time, less for each one its authors build): component
+  **8. Port or hand over the bundled extensions** (Pitwall's work,
+  less for each one its authors build): component
   instances per connection, the `inbox` interface, `ws`, the headless lifecycle, then porting the bundled
   extensions their authors don't take, and the demo. **9. Remove
-  adapters** (about 1 week), once each bundled extension has a
+  adapters**, once each bundled extension has a
   component version: the protocol, the hub, the manifest key, the CLI
   parts, the docs. User-visible effect: one update of each bundled extension, with
   settings, secrets and connections carried over.
@@ -207,7 +207,9 @@ only tiles; a component that contributes anything above stays.
 6. **When does the index open?** Decided (owner, 2026-11-26): for component-based
    extensions as soon as packages and the index ship (phases 4–5), so
    authors on the preview can publish their versions; never for
-   adapter-based ones.
+   adapter-based ones. Browse opens to the public only after phase 5's
+   security review ([5.5](permissions.md#55-threat-model-and-outside-review)); before packages, preview authors
+   share folders ([6.3](packaging.md#63-install)).
 7. **Who gets the SDK preview?** Decided (owner, 2026-11-26): the makers of the services
    the bundled extensions connect to first, then anyone who asks;
    breaking changes announced to them one release ahead ([8.2](runtime.md#82-how-old-tiles-keep-working)).
