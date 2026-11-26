@@ -351,7 +351,7 @@ function setupDemo(demo) {
   // The app lays out by window width and only shows its full sidebar from 1100 px, so it
   // renders at 1120x700 and is scaled to the frame. Phones (frame 4:5) show its left half,
   // or its right half for views whose tab has data-phone="right" (a files or web tile
-  // beside the terminal, the details drawer).
+  // beside the terminal, the Next up popover on its tile).
   const APP_W = 1120;
   const APP_H = 700;
   const narrow = matchMedia("(max-width: 600px)");

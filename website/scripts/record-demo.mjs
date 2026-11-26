@@ -18,7 +18,7 @@ const row = (name) => `[...document.querySelectorAll('.agent-row')].find(r=>r.qu
 const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
 const backBtn = `[...document.querySelectorAll('button.small-btn')].find(b=>b.textContent.trim().startsWith('Back'))`;
 const jumpBtn = `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('Jump'))`;
-const queueBtn = `[...document.querySelectorAll('aside.right button.small-btn')].find(b=>b.textContent.trim().startsWith('Queue'))`;
+const queuedChip = q('.pane[data-agent-id="a-api-fix"] .next-up-chip');
 
 await click(q('.preset-btn[title="Tile 2×2"]'));
 await sleep(600);
@@ -57,14 +57,16 @@ await sleep(300);
 mark("next-up");
 await click(row("api-fix"));
 await sleep(400);
-if (!(await ev(`!!document.querySelector('aside.right')`))) await click(q('button[title^="Show details"]'));
-await sleep(700);
-await click(q("aside.right textarea"));
-for (const ch of "Then run the full suite and fix anything red.") { await s("Input.insertText", { text: ch }); await sleep(35); }
+// Queued from the palette ("name: prompt"); the tile's "queued" chip opens Next up.
+await click(q("button.palette-hint"));
+await sleep(500);
+for (const ch of "api-fix: Then run the full suite and fix anything red.") { await s("Input.insertText", { text: ch }); await sleep(35); }
 await sleep(400);
-await click(queueBtn);
+await click(q(".palette-item"));
+await sleep(700);
+await click(queuedChip);
 await sleep(2200);
-await click(q('aside.right button[aria-label="Close details"]'));
+await click(queuedChip);
 await sleep(300);
 
 mark("review");
