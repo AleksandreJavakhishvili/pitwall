@@ -293,6 +293,8 @@ box
       text \"web: login flickers\"
       text \"Editing…\"
       tabs [*Edit, Preview] #mode [select]
+      box #send-at
+        button \"\" #send label=\"Send to an agent\" [click]
       button \"\" #trash label=\"Delete note\" [click]
     box #n2
       input placeholder=\"Title on the first line, then anything\" text=\"web: login flickers\\non reload\" multiline focused #text [change, submit]
@@ -337,4 +339,95 @@ fn preview_draws_the_note_and_ticks_its_tasks() {
     assert_eq!(stored_text(&tile, 1).as_deref(), Some("Plan\n- [x] one\n- [x] two"));
     tile.select_tab("editor/head/mode", "Edit");
     assert_eq!(tile.field_text("editor/n1/text"), "Plan\n- [x] one\n- [x] two");
+}
+
+#[test]
+fn cmd_slash_switches_edit_and_preview_while_typing() {
+    let mut tile = notes();
+    write(&mut tile, "Plan\n- [ ] one");
+    assert_eq!(tile.focused(), Some("editor/n1/text"));
+    tile.press("cmd-/");
+    assert!(tile.find_key("editor/n1/text").is_none(), "Preview: {}", tile.text_snapshot());
+    assert!(tile.text_snapshot().contains("markdown \"Plan\""), "{}", tile.text_snapshot());
+    // Saved before it is shown.
+    assert_eq!(stored_text(&tile, 1).as_deref(), Some("Plan\n- [ ] one"));
+    tile.press("cmd-/");
+    assert_eq!(tile.focused(), Some("editor/n1/text"), "back in the editor, typing");
+}
+
+/// Notes with web (Claude Code) and api (Codex) and a plain terminal, and
+/// the grants Send needs.
+fn notes_with_agents() -> Session {
+    let mut codex = pitwall_extension_test::agent("a2", "api");
+    codex.kind = "codex".into();
+    codex.kind_name = "Codex".into();
+    let mut shell = pitwall_extension_test::agent("t1", "zsh");
+    shell.kind = "shell".into();
+    Harness::build(env!("CARGO_MANIFEST_DIR")).grant("agents.read").grant("agents.queue").agent(pitwall_extension_test::agent("a1", "web")).agent(codex).agent(shell).open("main")
+}
+
+#[test]
+fn send_puts_the_note_in_an_agents_next_up() {
+    let mut tile = notes_with_agents();
+    write(&mut tile, "web: the login page flickers\non reload, only in Safari");
+    tile.click_label("Send to an agent");
+    let snap = tile.text_snapshot();
+    assert!(snap.contains("Send to an agent") && snap.contains("\"web\"") && snap.contains("Claude Code · idle"), "{snap}");
+    assert!(snap.contains("Codex · idle"), "{snap}");
+    assert!(!snap.contains("zsh"), "plain terminals take no notes: {snap}");
+    tile.click_key("a-a1");
+    assert_eq!(tile.queued(), [pitwall_extension_test::Queued { agent: "a1".into(), text: "web: the login page flickers\non reload, only in Safari".into() }]);
+    assert!(tile.toasts().iter().any(|(t, _)| t == "In web's Next up, waiting for your Send"), "{:?}", tile.toasts());
+    assert!(tile.find_key("picker").is_none(), "closed after sending");
+}
+
+#[test]
+fn a_section_can_be_sent_alone() {
+    let mut tile = notes_with_agents();
+    write(&mut tile, "Plan\n## Today\n- rebase api\n## Tomorrow\n- release 0.9");
+    tile.click_label("Send to an agent");
+    tile.select_option("what", "§ Tomorrow");
+    tile.click_key("a-a2");
+    assert_eq!(tile.queued()[0].text, "## Tomorrow\n- release 0.9");
+}
+
+#[test]
+fn too_long_a_note_is_refused_before_sending() {
+    let mut tile = notes_with_agents();
+    write(&mut tile, &format!("Log\n{}", "x".repeat(5205)));
+    tile.click_label("Send to an agent");
+    assert!(tile.text_snapshot().contains("Too long to send: 5 209 of 4 000 characters. Make it shorter, or split it under headings."), "{}", tile.text_snapshot());
+    assert!(!tile.find_key("a-a1").unwrap().listens(pitwall_extension_test::Listen::Click), "can't be clicked");
+    assert!(tile.queued().is_empty());
+}
+
+#[test]
+fn pitwalls_refusal_shows_in_the_picker() {
+    let mut tile = notes_with_agents();
+    write(&mut tile, "Ping");
+    for _ in 0..3 {
+        tile.click_label("Send to an agent").click_key("a-a1");
+    }
+    tile.click_label("Send to an agent").click_key("a-a1");
+    assert_eq!(tile.queued().len(), 3);
+    assert!(tile.text_snapshot().contains("web already has Notes' items waiting"), "{}", tile.text_snapshot());
+}
+
+#[test]
+fn without_agents_queue_send_says_so_and_notes_still_work() {
+    let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).grant("agents.read").agent(pitwall_extension_test::agent("a1", "web")).open("main");
+    write(&mut tile, "Ping");
+    tile.click_label("Send to an agent").click_key("a-a1");
+    assert!(tile.queued().is_empty());
+    assert!(tile.text_snapshot().contains("Notes may not put text in an agent's Next up"), "{}", tile.text_snapshot());
+    assert_eq!(stored_text(&tile, 1).as_deref(), Some("Ping"));
+}
+
+#[test]
+fn without_the_grants_send_says_what_to_allow() {
+    let mut tile = notes();
+    write(&mut tile, "Ping");
+    tile.click_label("Send to an agent");
+    assert!(tile.text_snapshot().contains("Notes can't see your agents yet."), "{}", tile.text_snapshot());
+    assert!(tile.find_key("settings").is_some());
 }
