@@ -157,6 +157,8 @@ pub(super) struct ListUi {
 pub(super) struct ViewUi {
     menus: HashMap<String, usize>,
     open: Option<OpenMenu>,
+    /// Rows' image assets, checked once each (rows are drawn often).
+    assets: std::cell::RefCell<HashMap<String, Option<PathBuf>>>,
 }
 
 #[derive(Clone)]
@@ -923,8 +925,15 @@ impl TileView {
                 let (d, _) = render::apply(div(), &node.style, t);
                 let image = match &im.source {
                     ui::ImageSource::Data(name) => self.tiles.read(cx).get(&self.ext).and_then(|r| r.comps.images.get(name).cloned()).map(img),
-                    // Rows are drawn often: assets are checked as they are.
-                    ui::ImageSource::Asset(p) => crate::extensions::folder_of(&self.ext, cx).and_then(|d| asset_file(&d, p).ok()).map(img),
+                    ui::ImageSource::Asset(p) => {
+                        let known = self.ui.assets.borrow().get(p).cloned();
+                        let file = known.unwrap_or_else(|| {
+                            let f = crate::extensions::folder_of(&self.ext, cx).and_then(|d| asset_file(&d, p).ok());
+                            self.ui.assets.borrow_mut().insert(p.clone(), f.clone());
+                            f
+                        });
+                        file.map(img)
+                    }
                 };
                 d.id(eid).children(image.map(|i| i.size_full().object_fit(ObjectFit::Contain))).into_any_element()
             }
