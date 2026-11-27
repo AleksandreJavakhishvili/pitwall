@@ -96,6 +96,14 @@ a path from a note to an agent's prompt.
 - **Open in editor** for long writing, through `viewer.open` (the `show`
   permission).
 - **Changes on disk** are picked up and never silently overwritten.
+- **An agent can open Notes with a draft note** (story 7 without Undo
+  or `append`), through the SDK's show-only tools in phase 2
+  ([agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds)): the
+  host-provided `notes__open` with a draft as the tile's content, next
+  to the agent's terminal; the same item updates the draft in place.
+  v1, because it is cheap: Notes v1 already waits for phase 2, and the
+  draft stays unsaved in the tile until the user keeps it, so the agent
+  writes nothing. Reading notes back stays v2.
 
 **Why this cut:**
 - Capture and send-to-agent are the jobs a supervisor does many times a
@@ -187,7 +195,8 @@ design the grant still covers the whole project ([gap G4](#7-sdk-gaps)).
 ## 6. Out of scope
 
 Out of v1 and v2, with the reason:
-- **Agent tools** (`show`, `present`, `read`): v2, phase 3.
+- **Agent tools beyond opening with a draft** (`read`, Undo, `append`):
+  v2, phase 3.
 - **An `act` tool that writes project notes**: agents already edit files
   in their project with their own tools.
 - **Rich editing** (WYSIWYG, highlighting while typing, live
