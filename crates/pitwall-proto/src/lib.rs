@@ -16,6 +16,7 @@
 //! - [`show`]: agents showing files and folders to the user (`viewer.open`).
 //! - [`mcp`]: the agents' `pitwall` MCP tools, served by Pitwall (`mcp.*`).
 //! - [`web`]: agents showing web pages to the user (`web.open`).
+//! - [`tile_tools`]: extensions' tile tools in the agents' MCP server.
 //! - [`settings_open`]: agents showing the user Pitwall's Settings
 //!   (`settings.open`).
 //! - [`device_open`]: agents showing the user a device's screen
@@ -43,6 +44,7 @@ pub mod profiles;
 pub mod settings;
 pub mod settings_open;
 pub mod show;
+pub mod tile_tools;
 pub mod views;
 pub mod web;
 

@@ -28,6 +28,11 @@
       "description": "`agents.showWeb`: Agents can show you a web page in Pitwall when you ask them to (\"open the docs on the left\", \"open a browser window\"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in the project's browser account in Pitwall, where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses.",
       "type": "boolean"
     },
+    "agentsTileTools": {
+      "default": true,
+      "description": "`agents.tileTools`: Agents can open extensions' tiles and show you things in them when you ask (\"draft that as a note\", \"show me the diagram\"): every tile's `<extension>__open` and the show tools a tile declares, in Pitwall's `pitwall` MCP server (the agents that get it for files get these too). They only change what the tile shows: the agent gets nothing of the tile back, and it can't replace what you edited. Each tile has its own switch on its card in Settings → Extensions. false: no tile tools in any agent's list.",
+      "type": "boolean"
+    },
     "density": {
       "default": "compact",
       "description": "`appearance.density`: Smallest tile before extra agents fold into chips (spaces may override it).",
