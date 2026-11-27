@@ -21,7 +21,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use pitwall_proto::extensions::{ExtAct, ExtActed, ExtList, ExtLog, ExtLogRequest, ExtRef, ExtSecret, ExtStatus, EXT_PROTO};
+use pitwall_proto::extensions::{ExtAct, ExtActed, ExtDevReload, ExtDevReloaded, ExtList, ExtLog, ExtLogRequest, ExtRef, ExtSecret, ExtStatus, EXT_PROTO};
 use pitwall_proto::{code, method, ErrorBody, Risk, SettingsOpen, SETTINGS_PROTO};
 
 use crate::approvals::{Ask, Decision};
@@ -60,6 +60,20 @@ pub trait ExtensionsBackend: Send + Sync {
     fn run(&self, token: u64) -> Result<ExtActed, ErrorBody>;
     /// The user declined `token` (or nobody answered): forget it.
     fn discard(&self, token: u64);
+    /// `extension.devReload` of the folder `path`: what loading it for
+    /// development would do, to ask the user (`None`: it is loaded
+    /// already, and a reload asks nothing), or why it can't be.
+    fn dev_check(&self, path: &str) -> Result<Option<Prepared>, ErrorBody> {
+        let _ = path;
+        Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't load tiles for development (update Pitwall)"))
+    }
+    /// Load the folder `path` for development and turn it on (approved),
+    /// or reload it in place, replacing its running tiles with the state
+    /// they saved.
+    fn dev_reload(&self, path: &str) -> Result<ExtDevReloaded, ErrorBody> {
+        let _ = path;
+        Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't load tiles for development (update Pitwall)"))
+    }
 }
 
 /// The extensions a request waits for (or runs) for.
@@ -188,6 +202,33 @@ pub fn act(s: &Server, caller: &Caller, a: ExtAct) -> Res {
     let mut done = b.run(p.token)?;
     done.approved = true;
     ok(done)
+}
+
+/// `extension.devReload` (`pitwall extension dev`): the first load of a
+/// folder asks the user; each reload after that doesn't.
+pub fn dev_reload(s: &Server, caller: &Caller, r: ExtDevReload) -> Res {
+    let path = r.path.trim().to_string();
+    if path.is_empty() {
+        return Err(ErrorBody::new(code::BAD_PARAMS, "which folder? (the one with its extension.json)"));
+    }
+    let b = backend(s)?;
+    let _turn = s.ext_waiting.take(&format!("dev:{path}"))?;
+    if let Some(p) = b.dev_check(&path)? {
+        let decision = s.approvals.ask(Ask {
+            action: method::EXTENSION_DEV_RELOAD.to_string(),
+            summary: p.summary.clone(),
+            details: p.details.clone(),
+            requester: caller.requester(),
+            caller_key: caller.key(),
+            risk: p.risk,
+        });
+        match decision {
+            Decision::Allowed | Decision::Remembered => {}
+            Decision::Denied => return Err(ErrorBody::new(code::DENIED, format!("The user declined in Pitwall (load {path} for development). Nothing was loaded."))),
+            Decision::TimedOut => return Err(ErrorBody::new(code::APPROVAL_TIMEOUT, format!("Nobody answered the approval in Pitwall in time (load {path} for development). Nothing was loaded."))),
+        }
+    }
+    ok(b.dev_reload(&path)?)
 }
 
 #[cfg(test)]
