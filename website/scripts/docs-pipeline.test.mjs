@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { extractRegion, resolveIncludes } from "./includes.mjs";
 import { parseWit, readWit, undocumented, witMarkdown } from "./wit-docs.mjs";
 import { checkSite } from "./check-links.mjs";
-import { EXTENSION_PAGES, SOURCES, docsNavHtml, llmsTxt, renderPage, splitChildren } from "./pages.mjs";
+import { EXTENSION_PAGES, SKILL, SOURCES, docsNavHtml, llmsTxt, renderPage, splitChildren } from "./pages.mjs";
 
 const SITE = resolve(import.meta.dirname, "..");
 const temp = () => mkdtempSync(join(tmpdir(), "pitwall-docs-"));
@@ -230,4 +230,11 @@ test("llms.txt holds every Extensions page with absolute links", () => {
   assert.match(txt, /\]\(https:\/\/o\.github\.io\/r\/docs\/extensions\/quick-start\/\)/);
   assert.doesNotMatch(txt, /\]\((?!https?:)[^)]*\)/, "no relative links left");
   assert.doesNotMatch(txt, /<!--/);
+});
+
+test("the authoring skill offered for download is the SDK's, and the For coding agents page links to it", () => {
+  assert.match(readFileSync(SKILL.source, "utf8"), /^---\nname: pitwall-extension-authoring\n/);
+  const out = renderPage("extensions-for-agents", { repoUrl: "https://github.com/o/r" });
+  assert.ok(out.includes(`href="/sdk/${SKILL.path}"`), "links to the download");
+  assert.ok(out.includes('href="/sdk/llms.txt"'), "links to llms.txt");
 });

@@ -36,7 +36,18 @@ export const EXTENSION_PAGES = [
   ["extensions-permissions", "permissions.md", "/docs/extensions/permissions/", "Permissions"],
   ["extensions-platform-services", "platform-services.md", "/docs/extensions/platform-services/", "Platform services"],
   ["extensions-wit", "wit.md", "/docs/extensions/wit/", "WIT reference 0.1"],
+  ["extensions-for-agents", "for-agents.md", "/docs/extensions/for-agents/", "For coding agents"],
 ];
+
+/**
+ * The tile authoring skill (authoring.md §9.5), served for download at
+ * /sdk/<SKILL.path> (the For coding agents page links to it). The file is the
+ * SDK's own, which `pitwall extension new` also writes into new projects.
+ */
+export const SKILL = {
+  path: "pitwall-extension-authoring/SKILL.md",
+  source: resolve(ROOT, "sdk/pitwall-extension/skills/pitwall-extension-authoring/SKILL.md"),
+};
 
 export const SOURCES = {
   changelog: resolve(ROOT, "CHANGELOG.md"),

@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, COMMUNITY_URL, NEW_LABEL } from "./site.config.js";
-import { renderPage, docsNavHtml, watchedFiles, llmsTxt, writeChildPages, EXTENSION_PAGES, ROOT } from "./scripts/pages.mjs";
+import { renderPage, docsNavHtml, watchedFiles, llmsTxt, writeChildPages, EXTENSION_PAGES, SKILL, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
@@ -42,7 +42,8 @@ function siteLinks() {
 // content goes, and docs pages a <!-- docs-nav --> marker for the sidebar. Runs
 // before pitwall-site-links, so the generated root-absolute links get the base
 // too. It also writes /sdk/llms.txt, the Extensions pages as one file for coding
-// agents. In dev, editing a source file, a file it includes or the WIT reloads.
+// agents, and /sdk/pitwall-extension-authoring/SKILL.md, the SDK's authoring
+// skill. In dev, editing a source file, a file it includes or the WIT reloads.
 function markdownPages() {
   let server = null;
   const watched = new Set(watchedFiles());
@@ -68,6 +69,10 @@ function markdownPages() {
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.end(llms());
       });
+      server.middlewares.use(`/sdk/${SKILL.path}`, (_req, res) => {
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.end(readFileSync(SKILL.source, "utf8"));
+      });
     },
     transformIndexHtml: {
       order: "pre",
@@ -86,6 +91,7 @@ function markdownPages() {
     },
     generateBundle() {
       this.emitFile({ type: "asset", fileName: "sdk/llms.txt", source: llms() });
+      this.emitFile({ type: "asset", fileName: `sdk/${SKILL.path}`, source: readFileSync(SKILL.source, "utf8") });
     },
   };
 }

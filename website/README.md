@@ -122,6 +122,14 @@ its own `<title>`, description and `<!-- markdown:extensions-<page> -->` marker.
 - **`/sdk/llms.txt`.** The Extensions pages in sidebar order as one plain Markdown file
   for coding agents, with includes and the WIT reference filled in and links absolute
   (`llmsTxt` in `scripts/pages.mjs`; served in dev too).
+- **`/sdk/pitwall-extension-authoring/SKILL.md`.** The SDK's authoring skill
+  (`sdk/pitwall-extension/skills/`, the file `pitwall extension new` writes into
+  projects), copied as is for the For coding agents page to link to (`SKILL` in
+  `scripts/pages.mjs`; served in dev too).
+- **Examples in the templates.** Most examples are regions of the tile templates in
+  `crates/pitwall-cli/templates/tile/`, which CI builds and tests. `pitwall extension
+  new` drops the `docs:start` / `docs:end` lines when it writes a project, so they
+  never reach an author's code.
 - **Link check.** After `vite build`, `scripts/check-links.mjs` checks every `href` and
   `src` in `dist`: each must name a built file under the base, and each `#anchor` an id
   on that page; unfilled `%PLACEHOLDER%`s fail too. External links are skipped unless
