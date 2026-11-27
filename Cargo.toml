@@ -4,7 +4,7 @@ resolver = "2"
 # Vendored crates (third_party/zed/README.md) are dependencies, not members:
 # their own tests and lints aren't ours to run.
 exclude = ["third_party"]
-members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-peer", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-simhost","crates/pitwall-app", "crates/pitwall-term-view"]
+members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-peer", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-simhost","crates/pitwall-app", "crates/pitwall-term-view", "crates/pitwall-tile-host"]
 
 # Profiles only take effect at the workspace root.
 [profile.release]
@@ -13,6 +13,52 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# The tile runtime's Wasmtime and Cranelift crates for size, the rest of the
+# app at 3: the lean build that keeps each architecture's growth under the
+# 10 MB gate (docs/spec/tile-sdk/README.md §10.3 item 19,
+# spike-results.md "Binary size": −1.9 MB arm64, −3.7 MB x86-64; a 1 MB
+# tile compiles in 93 ms instead of 70 ms).
+[profile.release.package.cranelift-assembler-x64]
+opt-level = "s"
+[profile.release.package.cranelift-bforest]
+opt-level = "s"
+[profile.release.package.cranelift-bitset]
+opt-level = "s"
+[profile.release.package.cranelift-codegen]
+opt-level = "s"
+[profile.release.package.cranelift-control]
+opt-level = "s"
+[profile.release.package.cranelift-entity]
+opt-level = "s"
+[profile.release.package.cranelift-frontend]
+opt-level = "s"
+[profile.release.package.cranelift-native]
+opt-level = "s"
+[profile.release.package.regalloc2]
+opt-level = "s"
+[profile.release.package.pulley-interpreter]
+opt-level = "s"
+[profile.release.package.wasmparser]
+opt-level = "s"
+[profile.release.package.wasm-encoder]
+opt-level = "s"
+[profile.release.package.wasmtime]
+opt-level = "s"
+[profile.release.package.wasmtime-environ]
+opt-level = "s"
+[profile.release.package.wasmtime-internal-core]
+opt-level = "s"
+[profile.release.package.wasmtime-internal-cranelift]
+opt-level = "s"
+[profile.release.package.wasmtime-internal-fiber]
+opt-level = "s"
+[profile.release.package.wasmtime-internal-unwinder]
+opt-level = "s"
+[profile.release.package.wasmtime-wasi]
+opt-level = "s"
+[profile.release.package.wasmtime-wasi-io]
+opt-level = "s"
 
 # Dependencies (gpui, alacritty_terminal, …) optimized in dev builds too:
 # gpui at opt-level 0 can't keep up with 120 Hz scrolling. Our own crates

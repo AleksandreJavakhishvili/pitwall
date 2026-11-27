@@ -1,0 +1,35 @@
+# The hello tile, the tile host's test fixture, built against WIT 0.1
+# (../../../wit) to a WebAssembly component for wasm32-wasip2. Its own
+# workspace (the empty [workspace] below), so the main workspace and CI
+# never need the wasm target. The built component is committed as
+# ../hello/tile.wasm, in the hello extension's folder; rebuild it with
+# ../build-hello-tile.sh.
+[package]
+name = "hello-tile"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Only the bindings macro and the allocator hook: no async runtime.
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc", "std"] }
+regex = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+chrono = { version = "0.4", optional = true }
+
+[features]
+# A tile-sized build for compile-time measurements (src/lib.rs `heavy`).
+heavy = ["dep:regex", "dep:serde_json", "dep:chrono"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]

@@ -1,0 +1,22 @@
+{
+  "v": 2,
+  "id": "hello",
+  "name": "Hello",
+  "version": "0.1.0",
+  "icon": "grid",
+  "description": "The tile host's test fixture: a counter, a greeting and a text field",
+  "license": "Apache-2.0",
+  "settings": [
+    { "key": "greeting", "type": "text", "label": "Greeting", "default": "Hello" },
+    { "key": "token", "type": "secret", "label": "Token" }
+  ],
+  "permissions": {
+    "memory": { "reason": "To test the memory grant", "mib": 128 }
+  },
+  "contributes": {
+    "tiles": [
+      { "id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json" },
+      { "id": "second", "title": "Hello again", "wasm": "tile.wasm" }
+    ]
+  }
+}
