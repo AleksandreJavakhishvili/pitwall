@@ -7,6 +7,8 @@
 //   node scripts/check-links.mjs --dir <folder>        # another build folder
 //   node scripts/check-links.mjs --external            # also request each http(s) link (needs the network)
 //
+// An anchor that a split page moved to a child page counts when the parent's
+// moved-anchors map (scripts/pages.mjs) sends it to an id that exists there.
 // External links are skipped by default, so the check (and CI) works offline.
 // Links that JavaScript builds at run time aren't seen. Exits 1 when a link is broken.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -39,6 +41,16 @@ export function linksIn(html) {
   return links;
 }
 
+/** A split page's map of old anchors to child pages (scripts/pages.mjs), or {}. */
+export function movedAnchors(html) {
+  const m = html.match(/<script type="application\/json" id="moved-anchors">([\s\S]*?)<\/script>/);
+  try {
+    return m ? JSON.parse(m[1]) : {};
+  } catch {
+    return {};
+  }
+}
+
 const decode = (s) =>
   s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 
@@ -52,6 +64,11 @@ export function checkSite(dir, { base = "/" } = {}) {
   const ids = (file) => {
     if (!idCache.has(file)) idCache.set(file, idsIn(readFileSync(file, "utf8")));
     return idCache.get(file);
+  };
+  const movedCache = new Map();
+  const moved = (file) => {
+    if (!movedCache.has(file)) movedCache.set(file, movedAnchors(readFileSync(file, "utf8")));
+    return movedCache.get(file);
   };
   const broken = [];
   const external = [];
@@ -103,7 +120,18 @@ export function checkSite(dir, { base = "/" } = {}) {
         continue;
       }
       const hash = decodeURIComponent(url.hash.slice(1));
-      if (hash && target.endsWith(".html") && !ids(target).has(hash)) fail(`no id "${hash}" on ${relative(dir, target).split(sep).join("/")}`);
+      if (!hash || !target.endsWith(".html") || ids(target).has(hash)) continue;
+      // A split page's old anchor: its moved-anchors map sends it to a child page.
+      const to = moved(target)[hash];
+      if (to) {
+        const next = new URL(to, url);
+        const file = fileFor(next.pathname);
+        const h = decodeURIComponent(next.hash.slice(1));
+        if (file && (!h || ids(file).has(h))) continue;
+        fail(`moved to ${to}, which doesn't exist`);
+        continue;
+      }
+      fail(`no id "${hash}" on ${relative(dir, target).split(sep).join("/")}`);
     }
   }
   return { pages: files.length, links: count, broken, external };

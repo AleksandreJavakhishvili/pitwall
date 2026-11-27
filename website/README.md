@@ -53,6 +53,7 @@ download/index.html           per-OS downloads, first-launch notes, build from s
 docs/how-it-works/index.html  flags, Wall, Next up, Review, files agents show you, terminals, agents, rules, agw, CLI, roadmap
 docs/quick-start/index.html   install, build from source, first steps
 docs/{cli,settings,agents,detection}/index.html  page chrome; content from ../docs/reference/*.md
+docs/cli/<command>/index.html one page per CLI command, generated at build time (not committed)
 docs/extensions/**/index.html page chrome; content from ../docs/reference/extensions/*.md (Preview)
 changelog/index.html          page chrome; content from ../CHANGELOG.md
 roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Next / Later lanes)
@@ -90,6 +91,23 @@ feeds the sidebar, the sources, the Vite input and `llms.txt`), and copy
 `docs/extensions/quick-start/index.html` to `docs/extensions/<page>/index.html` with
 its own `<title>`, description and `<!-- markdown:extensions-<page> -->` marker.
 
+- **Child pages.** A docs page can have child pages: in the sidebar they are a sub-list
+  under it (open on the family's own pages, closed elsewhere; on phones a second row of
+  pills), and each child page gets breadcrumbs in place of its eyebrow and Previous /
+  Next through the family. The Extensions overview's children are the other Extensions
+  pages (listed flat in their group). Families are built in `docsNav()` in
+  `scripts/pages.mjs`.
+- **Split pages.** `SPLIT` in `scripts/pages.mjs` turns a long Markdown file into a
+  parent and one child page per `## ` section at build time, so the source stays one
+  file. The CLI reference is split: Install, How it works, Exit status, Recipes, Global
+  options and Commands stay on `/docs/cli/`, and each command gets `/docs/cli/<command>/`
+  with its `### ` headings moved up a level. The child pages' HTML is generated from the
+  parent's page (`writeChildPages`, ignored by git). Links to the old anchors
+  (`cli.md#agent-new`, `#agent` in the file itself) are rewritten to the child page, and
+  the parent page carries a moved-anchors map and a small script that sends an old
+  `/docs/cli/#agent-new` on to `/docs/cli/agent/#agent-new`; the link check reads the
+  same map. Settings, Agent definitions and Detection rules are short enough to stay
+  whole.
 - **Examples from source.** A page never holds example code of its own. Inside a fenced
   block, a line `{{#include <path>#<region>}}` (path from the repository root; without
   `#<region>` the whole file) is replaced by that region, which the source marks with

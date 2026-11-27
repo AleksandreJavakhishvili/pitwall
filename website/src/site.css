@@ -670,8 +670,48 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .docs-nav a { display: block; margin: 1px 0; padding: 5px 10px; border-radius: 8px; color: var(--text-2); text-decoration: none; }
 .docs-nav a:hover { color: var(--text); background: var(--chip); }
 .docs-nav a[aria-current="page"] { color: var(--text); background: var(--chip-on); font-weight: 600; }
+/* A page with child pages: its sub-list opens under it (open on the family's own pages). */
+.docs-nav summary { position: relative; display: block; list-style: none; cursor: pointer; }
+.docs-nav summary::-webkit-details-marker { display: none; }
+.docs-nav summary a { padding-right: 30px; }
+.docs-nav summary::after {
+  content: ""; position: absolute; top: 50%; right: 11px; width: 6px; height: 6px; margin-top: -4px;
+  border: solid var(--text-3); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform 0.15s;
+}
+.docs-nav details[open] > summary::after { transform: rotate(45deg); margin-top: -5px; }
+.docs-nav details > ul { margin: 2px 0 6px 12px; padding-left: 8px; border-left: 1px solid var(--line); font-size: 0.88rem; }
+.docs-nav details > ul a { padding: 3px 10px; }
+.docs-subnav { display: none; }
+/* Breadcrumbs on a child page, in the eyebrow's place. */
+.crumbs { margin: 0; }
+.crumbs ol { display: flex; flex-wrap: wrap; gap: 0 8px; margin: 0; padding: 0; list-style: none; }
+.crumbs li + li::before { content: "/"; margin-right: 8px; color: var(--text-3); }
+.crumbs a { color: var(--text-2); text-decoration: none; }
+.crumbs a:hover { color: var(--text); }
+/* Previous / Next at the end of a page in a family. */
+.docs-pager { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line); }
+.docs-pager .doc-cards { margin-top: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.docs-pager .doc-cards a { gap: 2px; }
+.docs-pager .doc-cards span { font: 600 0.74rem var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.docs-pager .prev span::before { content: "← "; }
+.docs-pager .next span::after { content: " →"; }
+.docs-pager .next { grid-column: 2; text-align: right; }
 @media (max-width: 980px) {
   .docs-wrap { grid-template-columns: minmax(0, 1fr); }
+  .docs-nav details, .docs-nav summary { display: contents; }
+  .docs-nav summary::after, .docs-nav details > ul { display: none; }
+  .docs-nav summary a { padding-right: 12px; }
+  .docs-nav .docs-nav-parent:has(a[aria-current]) > details > summary a { color: var(--text); background: var(--chip-on); }
+  .docs-subnav { display: flex; gap: 6px; overflow-x: auto; margin: -10px 0 22px; padding-bottom: 6px; scrollbar-width: none; font-size: 0.82rem; }
+  .docs-subnav a { white-space: nowrap; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--glass-line); color: var(--text-2); text-decoration: none; }
+  .docs-subnav a:hover { color: var(--text); background: var(--chip); }
+  .docs-subnav a[aria-current="page"] { color: var(--text); background: var(--chip-on); font-weight: 600; }
+}
+@media (max-width: 600px) {
+  .docs-pager .doc-cards { grid-template-columns: minmax(0, 1fr); }
+  .docs-pager .next { grid-column: auto; }
+}
+@media (max-width: 980px) {
   .docs-nav { position: static; max-height: none; display: flex; gap: 6px; overflow-x: auto; margin-bottom: 22px; padding-bottom: 6px; scrollbar-width: none; }
   .docs-nav-title { display: none; }
   .docs-nav ul { display: contents; }
