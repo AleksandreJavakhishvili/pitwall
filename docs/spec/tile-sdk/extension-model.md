@@ -215,6 +215,8 @@ in the UI words (tile, `TileView`, `tile.wasm`, `.pwtile`).
    generated form removed ([15.5](#155-removed)); Agention rebuilt fresh on this
    model.
 9. **Agent environment as a platform service** (`agents.env`, replacing
-   `agentEnv`). Proposed here, to confirm with the owner: Agention's
-   plugin reads `AGENTION_URL` and the agent's name and session from the
-   environment, and only Pitwall starts agents.
+   `agentEnv`). Decided (owner, 2026-11-28): yes, generic and limited:
+   variable names shown on the permission screen; values only literals,
+   non-secret settings or the agent's own identity (name, session,
+   project), never secrets; only for agents Pitwall starts in that
+   extension's projects ([14.6](platform-services.md#146-settings-secrets-and-the-setup-view)).

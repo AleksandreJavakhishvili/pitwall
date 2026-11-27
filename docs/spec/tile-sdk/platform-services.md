@@ -292,10 +292,18 @@ without a Setup view shows only the host's parts of its page.
 ```wit
 set-env: func(vars: list<env-var>) -> result<_, host-error>;  // the whole set, ≤ 16
 ```
-on the `agents` interface. Names must be in the permission's `names`;
-values may use `{project}` and `{agent_id}`, filled in for each agent
-Pitwall starts, and `secret(key)`. Applied to agents started after the
-call; agents already running with an older set are "running agents
-that use an old setup" ([updates.md](../../extensions/updates.md)), handled as today. The page shows
-the names and values (secrets as "(secret)").
+on the `agents` interface. Decided (owner, 2026-11-28): generic and
+limited.
+- **Names** must be in the permission's `names`, which the permission
+  screen shows as written.
+- **Values** are only: a literal; a non-secret setting
+  (`{setting:KEY}`); or the agent's own identity, filled in for each
+  agent (`{agent_name}`, `{agent_id}` for its session, `{project}`).
+  Never a secret: a `secret` setting in a value is refused.
+- **Which agents:** only agents Pitwall starts, and only in that
+  extension's projects (the projects the extension is on for). Never
+  agents started elsewhere.
+Applied to agents started after the call; agents already running with
+an older set are "running agents that use an old setup"
+([updates.md](../../extensions/updates.md)), handled as today. The page shows the names and values.
 
