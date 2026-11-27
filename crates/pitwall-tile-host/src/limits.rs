@@ -78,3 +78,29 @@ pub const MAX_DRAG_DATA: usize = 64 << 10;
 
 /// A component file.
 pub const MAX_WASM_BYTES: u64 = 20 << 20;
+
+/// Rows of a virtual list, table or tree.
+pub const MAX_LIST_ROWS: u32 = 1_000_000;
+/// A row's height, in logical pixels.
+pub const MIN_ROW_HEIGHT: f32 = 12.;
+pub const MAX_ROW_HEIGHT: f32 = 200.;
+/// Rows one `guest.rows` call may return.
+pub const MAX_ROWS_PER_CALL: u32 = 256;
+/// The page of rows Pitwall asks for at a time.
+pub const ROWS_PAGE: u32 = 64;
+/// Nodes in one row.
+pub const MAX_ROW_NODES: usize = 64;
+/// A table's columns.
+pub const MAX_COLUMNS: usize = 64;
+/// Tabs, a select's options, a menu's entries.
+pub const MAX_ITEMS: usize = 1000;
+/// Selected rows a frame names.
+pub const MAX_SELECTED: usize = 10_000;
+/// A Markdown node's text.
+pub const MAX_MARKDOWN_BYTES: usize = 1 << 20;
+/// One image handed over with `ui.put-image`.
+pub const MAX_IMAGE_BYTES: usize = 8 << 20;
+/// All of a tile's images from `ui.put-image` at once.
+pub const MAX_IMAGES_BYTES: usize = 64 << 20;
+/// An image file in the extension's folder.
+pub const MAX_ASSET_BYTES: u64 = 16 << 20;

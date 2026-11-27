@@ -467,6 +467,203 @@ interface types {
     disabled: bool,
   }
 
+  // ---- Components: lists, tables, trees, tabs, selects, menus, Markdown
+  // and images (ui.md §3.3). ---------------------------------------------
+
+  /// A list too long to send whole: the frame names how many rows there
+  /// are and how tall each is, and Pitwall asks the tile for the rows it
+  /// is about to show with `guest.rows`, a page at a time, as the user
+  /// scrolls (runtime.md §2.7). Drawn with Pitwall's own list: only the
+  /// rows in sight are laid out, so 100 000 rows scroll as smoothly as
+  /// 100. A click selects a row, a double click or Enter activates it,
+  /// and Up, Down, Home, End, Page Up and Page Down move the selection
+  /// while the list has focus (each sends `select`).
+  record virtual-list {
+    /// How many rows (at most 1 000 000).
+    count: u32,
+    /// Each row's height, in logical pixels (12–200); every row has it.
+    row-height: f32,
+    /// Moves when rows Pitwall already has may be out of date: it asks
+    /// for the rows in sight again, and keeps showing the old ones until
+    /// they arrive, so nothing flickers.
+    revision: u64,
+    /// The selected rows' keys (`row.key`), drawn selected.
+    selected: list<string>,
+  }
+
+  /// A row of a virtual list, table or tree, as `guest.rows` returns it.
+  record row {
+    /// The row's item, stable while the item is the same (an id, not
+    /// its index): selection and events name it. At most 128 bytes.
+    key: string,
+    /// What the row shows: a small tree as in a frame (node 0 is the
+    /// row's root, filling the row). Boxes, text, icons, buttons,
+    /// images and context menus only (no fields, scrolls or nested
+    /// lists); at most 64 nodes. In a table, the root's children are
+    /// the cells, one per column in order.
+    nodes: list<node>,
+    /// A tree's row: how deep it is (0 at the top); 0 elsewhere.
+    depth: u16,
+    /// A tree's row: `none` for a leaf, `some(true)` for an open branch,
+    /// `some(false)` for a closed one. `none` elsewhere.
+    expanded: option<bool>,
+  }
+
+  /// Which way a table column is sorted.
+  enum sort-direction {
+    ascending,
+    descending,
+  }
+
+  /// A table's column.
+  record column {
+    /// Its key, unique in the table; events name it.
+    key: string,
+    /// Its title in the header.
+    title: string,
+    /// Its width in logical pixels (`none`: it shares the room left with
+    /// the other columns without one). The user can drag a column's
+    /// edge; Pitwall then keeps their width until this value changes,
+    /// and sends `column-resized`.
+    width: option<f32>,
+    /// Its cells' alignment across: `start`, `center` or `end`.
+    align: align,
+    /// Its header can be clicked to sort (sends `sort`).
+    sortable: bool,
+  }
+
+  /// A table's sort: by which column, which way.
+  record sort-state {
+    column: string,
+    direction: sort-direction,
+  }
+
+  /// A table: a header of columns over a virtual list of rows, whose
+  /// roots' children are the cells. Columns can be resized and sorted;
+  /// rows are selected as in a virtual list.
+  record table {
+    columns: list<column>,
+    /// The column sorted by and how, drawn with an arrow in its header.
+    sort: option<sort-state>,
+    /// The rows: count, height, revision, selection.
+    rows: virtual-list,
+  }
+
+  /// A tree: a virtual list of the open nodes, flattened in order, each
+  /// row with its depth and whether it is a branch (`row.depth`,
+  /// `row.expanded`). Pitwall draws the indent and the disclosure
+  /// chevron; a click on the chevron, Left or Right, or a double click
+  /// on a branch sends `toggle`; the tile opens or closes it and renders
+  /// again with the new count.
+  record tree {
+    rows: virtual-list,
+  }
+
+  /// One tab of a tab strip.
+  record tab {
+    /// Its key, sent in `select`.
+    key: string,
+    label: string,
+    icon: option<icon>,
+  }
+
+  /// A row of tabs, drawn as Pitwall's own; the tile shows the selected
+  /// one's content below it. Choosing a tab sends `select`.
+  record tabs {
+    items: list<tab>,
+    /// The selected tab's key.
+    selected: option<string>,
+  }
+
+  /// One choice of a select.
+  record select-option {
+    /// Its key, sent in `select`.
+    key: string,
+    label: string,
+  }
+
+  /// A dropdown, drawn as Pitwall's own: a button showing the choice,
+  /// opening a list of the options. Choosing one sends `select`.
+  record select {
+    options: list<select-option>,
+    /// The chosen option's key.
+    selected: option<string>,
+    /// Shown while nothing is chosen.
+    placeholder: option<string>,
+    disabled: bool,
+  }
+
+  /// A choice in a menu.
+  record menu-item {
+    /// Its key, sent in `select`.
+    key: string,
+    label: string,
+    icon: option<icon>,
+    /// A shortcut shown at its right, as text (`"⌘D"`). Only shown: bind
+    /// the key in the frame's keymap.
+    hint: option<string>,
+    /// Drawn dimmed and can't be chosen.
+    disabled: bool,
+    /// A destructive choice, drawn in red.
+    danger: bool,
+  }
+
+  /// A line of a menu.
+  variant menu-entry {
+    item(menu-item),
+    /// A thin line between groups of items.
+    separator,
+  }
+
+  /// A button that opens a menu under it, drawn by Pitwall with its own
+  /// menus' look. Choosing an item sends `select`. An empty label with
+  /// an icon makes a small square icon button (give the node a `label`).
+  record menu-button {
+    label: string,
+    icon: option<icon>,
+    entries: list<menu-entry>,
+    disabled: bool,
+  }
+
+  /// Markdown, drawn as Pitwall's own Preview draws it (headings, lists,
+  /// task lists, tables, code with highlighting, quotes), and inert: no
+  /// HTML runs, no image or link is fetched. A link click is `link`
+  /// (with no `link` listener, web and mail links open in the browser
+  /// and others do nothing); a task's checkbox click is `toggle` with
+  /// its line (with no `toggle` listener, checkboxes can't be clicked).
+  /// At most 1 MiB.
+  record markdown {
+    text: string,
+  }
+
+  /// How an image fills its box.
+  enum image-fit {
+    /// Whole, as large as fits.
+    contain,
+    /// Filling the box, cut at the edges.
+    cover,
+    /// Stretched to the box.
+    fill,
+  }
+
+  /// Where an image's bytes come from.
+  variant image-source {
+    /// A file in the extension's folder, by its path there
+    /// (`"assets/logo.png"`): PNG, JPEG, GIF, WebP or SVG, at most
+    /// 16 MiB.
+    asset(string),
+    /// Bytes the tile handed over with `ui.put-image` under this name.
+    data(string),
+  }
+
+  /// An image, sized by the node's styles (without a width, as wide as
+  /// its box). Images never come from the network. The node's `label`
+  /// is read as its description.
+  record image {
+    source: image-source,
+    fit: image-fit,
+  }
+
   /// What a node is.
   variant element {
     /// A box: a flex container with no look of its own beyond its
@@ -493,6 +690,26 @@ interface types {
     code-view(code-view),
     /// Pitwall's diff view of two versions of a text, as Review draws it.
     diff-view(diff-view),
+    /// A long list, its rows fetched as they come into sight.
+    virtual-list(virtual-list),
+    /// A table: columns over a virtual list of rows.
+    table(table),
+    /// A tree: a virtual list of the open nodes.
+    tree(tree),
+    /// A row of tabs.
+    tabs(tabs),
+    /// A dropdown.
+    select(select),
+    /// A button that opens a menu.
+    menu-button(menu-button),
+    /// The menu a right-click opens on this node's parent, drawn by
+    /// Pitwall. Not drawn in place; a parent has at most one. Choosing an
+    /// item sends `select` with this node's `select` handler.
+    context-menu(list<menu-entry>),
+    /// Markdown, drawn and inert.
+    markdown(markdown),
+    /// An image.
+    image(image),
   }
 
   /// The events a node can ask for, each with the handler it should
@@ -522,6 +739,15 @@ interface types {
     wheel,
     /// A click on a line number of a code or diff view.
     line-click,
+    /// A tree's branch opened or closed; a Markdown task's checkbox
+    /// clicked.
+    toggle,
+    /// A link in Markdown clicked.
+    link,
+    /// A table's header clicked to sort.
+    sort,
+    /// A table's column resized by the user.
+    column-resized,
   }
 
   /// An event a node asks for, and the handler it should carry.
@@ -794,6 +1020,59 @@ interface types {
     bad,
   }
 
+  /// A row, tab, option or menu item chosen (`select`): in a virtual
+  /// list, table or tree, a row clicked or moved to with the keys; in
+  /// tabs, a select or a menu, the item chosen.
+  record selection {
+    handler: handler,
+    /// The item's key: the row's, tab's, option's or menu item's.
+    key: string,
+    /// The row's index (lists, tables, trees), or the item's place among
+    /// its siblings (tabs, options, menu items; separators not counted).
+    index: u32,
+    /// Keys held (⌘/Ctrl or Shift, to add to a selection).
+    modifiers: modifiers,
+    /// The row was activated: a double click, or Enter.
+    activate: bool,
+  }
+
+  /// A tree's branch opened or closed, or a Markdown task ticked
+  /// (`toggle`).
+  record toggled {
+    handler: handler,
+    /// A tree: the row's key. Markdown: empty.
+    key: string,
+    /// A tree: the row's index. Markdown: the task's line in the text
+    /// (0-based).
+    index: u32,
+    /// Open (or ticked) now.
+    on: bool,
+  }
+
+  /// A link in Markdown clicked (`link`).
+  record link-click {
+    handler: handler,
+    /// The link's target as written.
+    url: string,
+    modifiers: modifiers,
+  }
+
+  /// A table's header clicked to sort (`sort`): the column, and the
+  /// direction asked for (the other way when it was sorted by it).
+  record sort-change {
+    handler: handler,
+    column: string,
+    direction: sort-direction,
+  }
+
+  /// A table's column resized by the user (`column-resized`), when the
+  /// drag ends.
+  record column-width {
+    handler: handler,
+    column: string,
+    width: f32,
+  }
+
   /// Something that happened, sent to `guest.handle`.
   variant event {
     /// A node with a `click` listener was clicked.
@@ -868,6 +1147,16 @@ interface types {
     /// The user answered one of the tile's questions (`asks.set`), in the
     /// floating control. Reply with `asks.reply`.
     ask-answered(ask-answer),
+    /// A row, tab, option or menu item was chosen.
+    select(selection),
+    /// A tree's branch opened or closed; a Markdown task ticked.
+    toggle(toggled),
+    /// A link in Markdown was clicked.
+    link(link-click),
+    /// A table's header was clicked to sort.
+    sort(sort-change),
+    /// A table's column was resized.
+    column-resized(column-width),
   }
 
   /// What the tile gets when it starts.

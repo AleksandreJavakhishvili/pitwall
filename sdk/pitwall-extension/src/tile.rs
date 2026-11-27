@@ -257,7 +257,29 @@ pub struct Cx<T> {
     /// The blur listener of a focused node a frame took away, kept until
     /// the focus moves (its blur comes after that frame).
     lost_blur: HashMap<String, (String, Shared<T>)>,
+    /// Renders so far: a list's revision unless the tile names one.
+    renders: u64,
+    /// The virtual lists, tables and trees of each view, by (view, key
+    /// path): how to make their rows, and their rows' handlers.
+    lists: HashMap<(String, String), ListRows<T>>,
 }
+
+/// How a row is made (`Cx::rows`).
+type RowFn<T> = dyn Fn(&mut T, usize, &mut Cx<T>) -> crate::components::TreeRow;
+
+/// A list's row closure and the handler numbers of the rows fetched.
+struct ListRows<T> {
+    make: Rc<Box<RowFn<T>>>,
+    /// Handler numbers by slot, stable while a row stays fetched.
+    slots: HashMap<Slot, u32>,
+    /// The rows fetched, oldest first (their key paths): the oldest let go
+    /// past [`KEEP_ROWS`].
+    fetched: std::collections::VecDeque<String>,
+}
+
+/// Rows whose listeners are kept per list. Pitwall keeps fewer, so a row it
+/// shows always has its listeners.
+const KEEP_ROWS: usize = 4096;
 
 impl<T: 'static> Cx<T> {
     fn new(init: wit::InitContext) -> Cx<T> {
@@ -282,7 +304,23 @@ impl<T: 'static> Cx<T> {
             firing: None,
             focused: HashMap::new(),
             lost_blur: HashMap::new(),
+            renders: 0,
+            lists: HashMap::new(),
         }
+    }
+
+    /// How a virtual list's, table's or tree's rows are made, for
+    /// [`virtual_list`](crate::virtual_list), [`table`](crate::table) and
+    /// [`tree`](crate::tree): `f` gets the tile, the row's index and this
+    /// context, and returns the row (any element; a
+    /// [`tree_row`](crate::tree_row) for a tree). Pitwall calls it only for
+    /// the rows coming into sight, a page at a time, with the tile's state
+    /// as it is then; listeners made in it work as anywhere
+    /// (`cx.listener`). Keep it quick: a page of 64 rows within a few
+    /// milliseconds.
+    pub fn rows<R: crate::components::IntoRow>(&mut self, f: impl Fn(&mut T, usize, &mut Cx<T>) -> R + 'static) -> crate::components::Rows {
+        let make: Box<RowFn<T>> = Box::new(move |t, i, cx| f(t, i, cx).into_row());
+        crate::components::Rows(Rc::new(make))
     }
 
     /// A listener for an element: `f` runs with the tile, the event and
@@ -459,8 +497,9 @@ impl<T: 'static> Cx<T> {
     /// paths, listeners numbered by (key path, event), text fields' values
     /// sent only when they change.
     fn frame(&mut self, view: &str, root: AnyElement) -> wit::Frame {
-        let mut b = Build { view: view.to_string(), nodes: Vec::new(), fresh: HashMap::new(), seen_inputs: HashSet::new() };
+        let mut b = Build { view: view.to_string(), nodes: Vec::new(), fresh: HashMap::new(), seen_inputs: HashSet::new(), lists: HashSet::new() };
         self.walk(&mut b, root, None, String::new(), "root".to_string());
+        self.forget_lists(view, Some(&b.lists));
         let mut keymap = Vec::new();
         for (keys, slot, generation) in std::mem::take(&mut self.pending_keys) {
             let id = self.intern(view, Slot::Key(keys.clone()), &mut b.fresh);
@@ -577,6 +616,11 @@ impl<T: 'static> Cx<T> {
             }
             Kind::Code(spec) => wit::Element::CodeView(spec.0),
             Kind::Diff(spec) => wit::Element::DiffView(spec.0),
+            Kind::Component(crate::components::Spec::List(l)) => {
+                b.lists.insert(path.clone());
+                self.list_node(&b.view, &path, l)
+            }
+            Kind::Component(spec) => spec.wit().unwrap_or(wit::Element::Box),
         };
         b.nodes.push(wit::Node { parent, key, element, style, on, focusable, tooltip, label });
         let mut used: HashSet<String> = HashSet::new();
@@ -662,6 +706,7 @@ impl<T: 'static> Cx<T> {
         self.views.remove(view);
         self.focused.remove(view);
         self.lost_blur.remove(view);
+        self.forget_lists(view, None);
     }
 }
 
@@ -670,6 +715,98 @@ struct Build {
     nodes: Vec<wit::Node>,
     fresh: HashMap<Slot, u32>,
     seen_inputs: HashSet<String>,
+    /// The key paths of the lists in it.
+    lists: HashSet<String>,
+}
+
+impl<T: 'static> Cx<T> {
+    /// A virtual list, table or tree node: its row closure kept by (view,
+    /// key path) for `rows`, its revision this render's unless the tile
+    /// named one.
+    fn list_node(&mut self, view: &str, path: &str, l: crate::components::ListSpec) -> wit::Element {
+        use crate::components::ListForm;
+        match l.rows.0.downcast::<Box<RowFn<T>>>() {
+            Ok(make) => {
+                let key = (view.to_string(), path.to_string());
+                match self.lists.get_mut(&key) {
+                    Some(e) => e.make = make,
+                    None => {
+                        self.lists.insert(key, ListRows { make, slots: HashMap::new(), fetched: Default::default() });
+                    }
+                }
+            }
+            Err(_) => log::warn(format!("the rows of “{path}” were made for another tile's type")),
+        }
+        let rows = wit::VirtualList { count: l.count.min(u32::MAX as usize) as u32, row_height: l.row_height, revision: l.revision.unwrap_or(self.renders), selected: l.selected };
+        match l.form {
+            ListForm::Plain => wit::Element::VirtualList(rows),
+            ListForm::Table { columns, sort } => wit::Element::Table(wit::Table {
+                columns: columns.iter().map(|c| c.wit()).collect(),
+                sort: sort.map(|(column, d)| wit::SortState { column, direction: d.wit() }),
+                rows,
+            }),
+            ListForm::Tree => wit::Element::Tree(wit::Tree { rows }),
+        }
+    }
+
+    /// Let go of view `view`'s lists not in `keep` (all, with `None`), and
+    /// their rows' listeners.
+    fn forget_lists(&mut self, view: &str, keep: Option<&HashSet<String>>) {
+        let gone: Vec<(String, String)> = self.lists.keys().filter(|(v, p)| v == view && keep.is_none_or(|k| !k.contains(p))).cloned().collect();
+        for k in gone {
+            if let Some(l) = self.lists.remove(&k) {
+                for id in l.slots.values() {
+                    self.handlers.remove(id);
+                }
+            }
+        }
+    }
+
+    /// Rows `start..start + count` of the list at `path` in `view`.
+    fn rows_of(&mut self, tile: &mut T, view: &str, path: &str, start: u32, count: u32) -> Vec<wit::Row> {
+        let key = (view.to_string(), path.to_string());
+        let Some(make) = self.lists.get(&key).map(|l| l.make.clone()) else { return Vec::new() };
+        let mut fresh = self.lists.get_mut(&key).map(|l| std::mem::take(&mut l.slots)).unwrap_or_default();
+        self.generation += 1;
+        self.pending.clear();
+        let mut out = Vec::with_capacity(count as usize);
+        let mut keys = HashSet::new();
+        let mut fetched = Vec::new();
+        for i in start..start.saturating_add(count) {
+            let row = make(tile, i as usize, self);
+            let mut k = clean_key(row.element.key.as_deref().unwrap_or(&i.to_string()));
+            if !keys.insert(k.clone()) {
+                k = format!("{k}~{i}");
+                keys.insert(k.clone());
+            }
+            let row_path = format!("{path}/{k}");
+            let mut b = Build { view: view.to_string(), nodes: Vec::new(), fresh, seen_inputs: HashSet::new(), lists: HashSet::new() };
+            self.walk(&mut b, row.element, None, row_path.clone(), k.clone());
+            fresh = b.fresh;
+            fetched.push(row_path);
+            out.push(wit::Row { key: k, nodes: b.nodes, depth: row.depth, expanded: row.expanded });
+        }
+        self.pending.clear();
+        if let Some(l) = self.lists.get_mut(&key) {
+            l.slots = fresh;
+            l.fetched.extend(fetched);
+            if l.fetched.len() > KEEP_ROWS {
+                // The oldest quarter let go, with their listeners.
+                let old: HashSet<String> = l.fetched.drain(..KEEP_ROWS / 4).collect();
+                let handlers = &mut self.handlers;
+                l.slots.retain(|slot, id| {
+                    let Slot::Node(p, _) = slot else { return true };
+                    let row = p.strip_prefix(path).and_then(|r| r.strip_prefix('/')).map(|r| r.split('/').next().unwrap_or(r));
+                    let drop = row.is_some_and(|r| old.contains(&format!("{path}/{r}")));
+                    if drop {
+                        handlers.remove(id);
+                    }
+                    !drop
+                });
+            }
+        }
+        out
+    }
 }
 
 /// A key as Pitwall takes it: no `/` (it joins key paths), at most 128
@@ -700,6 +837,10 @@ impl Listen {
             Listen::Wheel => wit::Listen::Wheel,
             Listen::LineClick => wit::Listen::LineClick,
             Listen::Focus | Listen::Blur | Listen::Drop => return None,
+            Listen::Toggle => wit::Listen::Toggle,
+            Listen::Link => wit::Listen::Link,
+            Listen::Sort => wit::Listen::Sort,
+            Listen::ColumnResized => wit::Listen::ColumnResized,
         })
     }
 }
@@ -753,6 +894,7 @@ pub fn init<T: Tile>(init: wit::InitContext) -> Result<(), String> {
 pub fn render<T: Tile>(view: String) -> wit::Frame {
     with::<T, _>(|rt| {
         rt.cx.generation += 1;
+        rt.cx.renders += 1;
         rt.cx.pending.clear();
         rt.cx.pending_keys.clear();
         rt.cx.pending_focus = None;
@@ -847,10 +989,27 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
             }
             wit::Event::AgentsChanged => tile.on_event(&Event::AgentsChanged, cx),
             wit::Event::AskAnswered(a) => tile.on_event(&Event::AskAnswered(a.into()), cx),
+            wit::Event::Select(s) => {
+                let picked = crate::events::Picked { key: s.key, index: s.index as usize, modifiers: mods(s.modifiers), activate: s.activate };
+                cx.fire(tile, None, s.handler, Fired::Pick(picked));
+            }
+            wit::Event::Toggle(t) => cx.fire(tile, None, t.handler, Fired::Toggle(crate::events::Toggled { key: t.key, index: t.index as usize, on: t.on })),
+            wit::Event::Link(l) => cx.fire(tile, None, l.handler, Fired::Link(crate::events::LinkClick { url: l.url, modifiers: mods(l.modifiers) })),
+            wit::Event::Sort(s) => cx.fire(tile, None, s.handler, Fired::Sort(crate::events::SortChange { column: s.column, direction: s.direction.into() })),
+            wit::Event::ColumnResized(c) => cx.fire(tile, None, c.handler, Fired::ColumnResized(crate::events::ColumnWidth { column: c.column, width: c.width })),
         }
         std::mem::take(&mut cx.notified)
     })
     .unwrap_or(false)
+}
+
+#[doc(hidden)]
+pub fn rows<T: Tile>(view: String, key_path: String, start: u32, count: u32) -> Vec<wit::Row> {
+    with::<T, _>(|rt| {
+        let Runtime { tile, cx } = rt;
+        cx.rows_of(tile, &view, &key_path, start, count)
+    })
+    .unwrap_or_default()
 }
 
 #[doc(hidden)]

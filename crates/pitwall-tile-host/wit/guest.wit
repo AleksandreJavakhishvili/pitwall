@@ -32,4 +32,14 @@ interface guest {
   /// `init-context.state`. At most 1 MiB; deadline 50 ms. Data the user
   /// must not lose belongs in `storage`, which is kept on disk at once.
   save-state: func() -> list<u8>;
+
+  use types.{row};
+
+  /// Rows `start` to `start + count` (fewer at the end) of the virtual
+  /// list, table or tree at `key-path` in view `view` (keys from the root
+  /// down, joined by `/`, as `ui.scroll-to`), as the rows come into
+  /// sight (runtime.md §2.7). Pitwall asks again when the list's
+  /// `revision` moves. At most 256 rows a call, each at most 64 nodes.
+  /// Deadline: 250 ms, as `render`.
+  rows: func(view: view-id, key-path: string, start: u32, count: u32) -> list<row>;
 }

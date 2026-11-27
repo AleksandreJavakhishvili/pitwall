@@ -64,6 +64,10 @@ pub(crate) enum Listen {
     Wheel,
     LineClick,
     Drop,
+    Toggle,
+    Link,
+    Sort,
+    ColumnResized,
 }
 
 /// One of Pitwall's icons, drawn in the node's text colour: the whole set
@@ -276,6 +280,9 @@ pub(crate) enum Kind {
     Canvas(Box<crate::canvas::CanvasSpec>),
     Code(Box<crate::blocks::CodeSpec>),
     Diff(Box<crate::blocks::DiffSpec>),
+    /// A list, table, tree, tabs, select, menu, Markdown or image
+    /// (`crate::components`).
+    Component(crate::components::Spec),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -313,7 +320,7 @@ pub(crate) struct Dnd {
 }
 
 impl AnyElement {
-    fn new(kind: Kind) -> AnyElement {
+    pub(crate) fn new(kind: Kind) -> AnyElement {
         AnyElement { key: None, kind, style: StyleSet::default(), listeners: Vec::new(), focusable: false, tooltip: None, label: None, children: Vec::new(), dnd: None }
     }
 
@@ -474,6 +481,26 @@ pub trait Interactive: Sized {
         let node = self.node();
         node.dnd.get_or_insert_with(Default::default).accepts = accepts.into_iter().map(Into::into).collect();
         node.listen(Listen::Drop, handler);
+        self
+    }
+
+    /// A right-click on it opens this menu, drawn by Pitwall with its own
+    /// menus' look; choosing an item calls `on_pick` with it (or its key,
+    /// `&str`). Works on rows of lists, tables and trees too.
+    ///
+    /// ```ignore
+    /// text(&note.title).context_menu(
+    ///     vec![menu_item("rename", "Rename"), separator(), menu_item("delete", "Delete").danger()],
+    ///     cx.listener(|this, key: &str, cx| this.act(key, cx)),
+    /// )
+    /// ```
+    fn context_menu<E: crate::events::PickEvent + ?Sized>(mut self, entries: Vec<crate::components::MenuEntry>, on_pick: Handler<E>) -> Self {
+        let mut menu = AnyElement::new(Kind::Component(crate::components::Spec::ContextMenu(entries)));
+        menu.key = Some("context-menu".into());
+        menu.listen(Listen::Select, on_pick);
+        let kids = &mut self.node().children;
+        kids.retain(|c| !matches!(c.kind, Kind::Component(crate::components::Spec::ContextMenu(_))));
+        kids.push(menu);
         self
     }
 
