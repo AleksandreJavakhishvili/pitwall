@@ -641,6 +641,9 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .prose strong { color: var(--text); }
 .prose ul, .prose ol { padding-left: 1.3em; }
 .prose li { margin: 6px 0; }
+/* Headless screenshots of a component, dark and light side by side. */
+.prose img.shot { border: 1px solid var(--line); border-radius: 10px; }
+.prose p:has(> img.shot + img.shot) { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: start; }
 .prose pre {
   margin: 18px 0; padding: 16px 20px; overflow-x: auto; border-radius: 14px;
   color: var(--text); font-size: 0.85rem; line-height: 1.65;

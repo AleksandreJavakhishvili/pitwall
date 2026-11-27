@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, COMMUNITY_URL, NEW_LABEL } from "./site.config.js";
-import { renderPage, docsNavHtml, watchedFiles, llmsTxt, writeChildPages, EXTENSION_PAGES, SKILL, ROOT } from "./scripts/pages.mjs";
+import { renderPage, docsNavHtml, watchedFiles, llmsTxt, writeChildPages, EXTENSION_PAGES, SKILL, ROOT, DOC_IMAGES, docImages } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
@@ -69,6 +69,12 @@ function markdownPages() {
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.end(llms());
       });
+      server.middlewares.use(`/${DOC_IMAGES.path}/`, (req, res, next) => {
+        const f = decodeURIComponent((req.url ?? "").split("?")[0]).replace(/^\/+/, "");
+        if (!docImages().includes(f)) return next();
+        res.setHeader("Content-Type", f.endsWith(".svg") ? "image/svg+xml" : `image/${f.split(".").pop().replace("jpg", "jpeg")}`);
+        res.end(readFileSync(resolve(ROOT, DOC_IMAGES.source, f)));
+      });
       server.middlewares.use(`/sdk/${SKILL.path}`, (_req, res) => {
         res.setHeader("Content-Type", "text/markdown; charset=utf-8");
         res.end(readFileSync(SKILL.source, "utf8"));
@@ -92,6 +98,7 @@ function markdownPages() {
     generateBundle() {
       this.emitFile({ type: "asset", fileName: "sdk/llms.txt", source: llms() });
       this.emitFile({ type: "asset", fileName: `sdk/${SKILL.path}`, source: readFileSync(SKILL.source, "utf8") });
+      for (const f of docImages()) this.emitFile({ type: "asset", fileName: `${DOC_IMAGES.path}/${f}`, source: readFileSync(resolve(ROOT, DOC_IMAGES.source, f)) });
     },
   };
 }
