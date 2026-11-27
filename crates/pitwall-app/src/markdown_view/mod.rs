@@ -104,6 +104,7 @@ pub struct MarkdownView {
     /// Drawn in the flow of something else (a message): as tall as its
     /// text, no scrolling or padding of its own.
     inline: bool,
+    hooks: Hooks,
 }
 
 impl Focusable for MarkdownView {
@@ -129,6 +130,22 @@ impl MarkdownView {
             generation: 0,
             _load: None,
             inline: false,
+            hooks: Hooks::default(),
+        }
+    }
+
+    /// Send link clicks and task boxes to `hooks` (a tile's Markdown).
+    pub fn set_hooks(&mut self, hooks: Hooks, cx: &mut Context<Self>) {
+        self.hooks = hooks;
+        cx.notify();
+    }
+
+    /// Drawn in the flow of what is around it (`true`) or filling its box
+    /// and scrolling.
+    pub fn set_inline(&mut self, inline: bool, cx: &mut Context<Self>) {
+        if self.inline != inline {
+            self.inline = inline;
+            cx.notify();
         }
     }
 
@@ -414,6 +431,7 @@ impl Render for MarkdownView {
             fit: false,
             small: self.inline,
             selecting: self.selecting.clone(),
+            hooks: self.hooks.clone(),
         };
         let mut col: Vec<AnyElement> = Vec::new();
         let mut removed = doc.removed.iter().peekable();
@@ -564,7 +582,25 @@ struct Draw<'a> {
     /// the text, not a document's.
     small: bool,
     selecting: Rc<Cell<bool>>,
+    hooks: Hooks,
 }
+
+/// Where a link click and a task's checkbox go instead of the browser and
+/// nowhere: a tile's Markdown sends them to the tile
+/// ([`MarkdownView::set_hooks`]).
+#[derive(Clone, Default)]
+pub struct Hooks {
+    /// Every link, with its target as written.
+    pub link: Option<OnLink>,
+    /// A task's box clicked: its first line (0-based) and whether it is
+    /// ticked now.
+    pub task: Option<OnTask>,
+}
+
+/// [`Hooks::link`].
+pub type OnLink = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+/// [`Hooks::task`].
+pub type OnTask = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
 
 fn change_color(c: Change, t: &Theme) -> Hsla {
     match c {
@@ -767,7 +803,19 @@ impl Draw<'_> {
         let marker: AnyElement = match (it.task, n) {
             (Some(on), _) => {
                 let (fill, edge, mark) = kit::check_colors(on, t);
+                let line = it.lines.start;
+                let id = self.id();
                 div()
+                    .id(id)
+                    .when_some(self.hooks.task.clone(), |d, h| {
+                        d.cursor_pointer()
+                            .debug_selector(move || format!("md-task-{line}"))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                h(line, !on, window, cx)
+                            })
+                    })
                     .mt(px(5.))
                     .size(px(13.))
                     .rounded(px(3.))
@@ -837,12 +885,13 @@ impl Draw<'_> {
             .map(|(r, st)| self.run(r.len(), *st, weight, color, text))
             .collect();
         let styled = self.piece(SharedString::from(text.text.clone()), runs);
+        let hook = self.hooks.link.clone();
         let clicks: Vec<(std::ops::Range<usize>, String)> = text
             .runs
             .iter()
             .filter_map(|(r, st)| {
                 let url = &text.links[st.link?];
-                opens(url).then(|| (r.clone(), url.clone()))
+                (hook.is_some() || opens(url)).then(|| (r.clone(), url.clone()))
             })
             .collect();
         let fit = self.fit;
@@ -865,13 +914,15 @@ impl Draw<'_> {
             .cursor_text()
             .child(
                 InteractiveText::new(self.id(), styled)
-                    .on_click(clicks.into_iter().map(|(r, _)| r).collect(), move |ix, _, cx| {
+                    .on_click(clicks.into_iter().map(|(r, _)| r).collect(), move |ix, window, cx| {
                         // A drag over a link selects it.
                         if selecting.get() {
                             return;
                         }
-                        if let Some(u) = urls.get(ix) {
-                            crate::platform::files::open_url(cx, u);
+                        match (urls.get(ix), &hook) {
+                            (Some(u), Some(h)) => h(u, window, cx),
+                            (Some(u), None) => crate::platform::files::open_url(cx, u),
+                            _ => {}
                         }
                     })
                     .tooltip(move |ix, _, cx| {
@@ -891,7 +942,9 @@ impl Draw<'_> {
             font.style = FontStyle::Italic;
         }
         let link = st.link.map(|i| &text.links[i]);
-        let color = if st.note || link.is_some_and(|u| !opens(u)) {
+        // A tile's links all go to the tile, so all look like links.
+        let live = |u: &String| opens(u) || self.hooks.link.is_some();
+        let color = if st.note || link.is_some_and(|u| !live(u)) {
             t.text_2
         } else {
             color
@@ -901,7 +954,7 @@ impl Draw<'_> {
             font,
             color,
             background_color: st.code.then_some(t.surface_3),
-            underline: link.filter(|u| opens(u)).map(|_| UnderlineStyle {
+            underline: link.filter(|u| live(u)).map(|_| UnderlineStyle {
                 thickness: px(1.),
                 color: Some(t.text_3),
                 wavy: false,

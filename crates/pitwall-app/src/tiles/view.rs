@@ -34,6 +34,9 @@ use super::{State, Tiles};
 use crate::kit::{self, InputEvent, TextInput};
 use crate::theme::{theme, Theme};
 
+mod comp;
+pub use comp::Comps;
+
 /// How often a field's typing reaches the tile at most.
 const CHANGE_EVERY: Duration = Duration::from_millis(50);
 
@@ -68,6 +71,8 @@ struct NodeState {
     focus: Option<FocusHandle>,
     /// A code or diff view's (native-blocks.md §16.2).
     block: Option<super::blocks::Block>,
+    /// A component's own (a list's scroll, a select open…).
+    comp: Option<comp::Comp>,
 }
 
 pub struct TileView {
@@ -95,6 +100,8 @@ pub struct TileView {
     scrolled: u64,
     scroll_want: Option<(String, u64)>,
     shown: bool,
+    /// Its menus: which node opens which, the one open.
+    ui: comp::ViewUi,
     _subs: Vec<Subscription>,
 }
 
@@ -172,6 +179,7 @@ impl TileView {
             scrolled: 0,
             scroll_want: None,
             shown: false,
+            ui: Default::default(),
             _subs: subs,
         };
         me.sync(cx);
@@ -280,6 +288,7 @@ impl TileView {
                 _ => st.scroll = None,
             }
             super::blocks::Block::sync(&mut st.block, path, &node.element, cx);
+            self.sync_comp(&mut st, node, path, cx);
             // Buttons are focusable whatever the node says; fields have
             // their own.
             if (node.focusable || matches!(node.element, Element::Button(_))) && st.focus.is_none() && !matches!(node.element, Element::Input(_)) {
@@ -294,6 +303,7 @@ impl TileView {
         self.kids = kids;
         self.nodes = nodes;
         self.frame = Some(frame);
+        self.comps_applied();
     }
 
     /// Make or update the field of input node `path`.
@@ -556,6 +566,11 @@ impl TileView {
         let Some(frame) = self.frame.clone() else { return };
         let ks = &e.keystroke;
         let plain = !(ks.modifiers.platform || ks.modifiers.control || ks.modifiers.alt);
+        // Esc closes an open menu.
+        if ks.key == "escape" && self.close_menu(cx) {
+            cx.stop_propagation();
+            return;
+        }
         // Tab moves focus, in a field too.
         if plain && ks.key == "tab" {
             if self.move_focus(ks.modifiers.shift, window, cx).is_some() {
@@ -750,6 +765,8 @@ impl TileView {
                     .children(children)
                     .into_any_element()
             }
+            // Lists, tables, trees, tabs, selects, menus, Markdown, images.
+            _ => self.build_comp(i, node, &path, inherit, window, t, cx),
         }
     }
 
@@ -778,6 +795,7 @@ impl TileView {
         if let Some(h) = st.and_then(|s| s.focus.clone()) {
             d = d.track_focus(&h);
         }
+        let mut d = self.context_menu_on(d, path, cx);
         let wheel = handler(node, Listen::Wheel);
         let drag = node.style.iter().rev().find_map(|s| match s {
             ui::Style::Drag(d) => Some(d.clone()),
@@ -864,7 +882,6 @@ impl TileView {
                 }
             }));
         }
-        let _ = path;
         d
     }
 
@@ -1130,6 +1147,7 @@ impl Render for TileView {
             return root.child(s).into_any_element();
         }
         let body = self.build(0, Inherit::root(&t), window, &t, cx);
-        root.child(div().flex_1().min_h_0().min_w_0().flex().flex_col().child(body)).into_any_element()
+        let menu = self.menu_overlay(window, &t, cx);
+        root.child(div().flex_1().min_h_0().min_w_0().flex().flex_col().child(body)).children(menu).into_any_element()
     }
 }

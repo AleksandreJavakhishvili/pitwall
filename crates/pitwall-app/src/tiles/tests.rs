@@ -25,11 +25,19 @@ fn fixture() -> PathBuf {
 }
 
 /// A copy of the fixture at `to`.
-fn copy_fixture(to: &Path) {
+pub(super) fn copy_fixture(to: &Path) {
+    copy_dir(&fixture(), to);
+}
+
+fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
-    for e in std::fs::read_dir(fixture()).unwrap() {
+    for e in std::fs::read_dir(from).unwrap() {
         let e = e.unwrap();
-        std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+        if e.file_type().unwrap().is_dir() {
+            copy_dir(&e.path(), &to.join(e.file_name()));
+        } else {
+            std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+        }
     }
 }
 
@@ -49,7 +57,7 @@ fn foreign_component() -> Vec<u8> {
 
 /// Pitwall's state for a test: data folder `root` (its extensions in
 /// `root/extensions`), nothing on, Settings at Extensions.
-fn init(root: &Path, cx: &mut TestAppContext) {
+pub(super) fn init(root: &Path, cx: &mut TestAppContext) {
     let root = root.to_path_buf();
     // The component runs on its own thread: real time passes.
     cx.executor().allow_parking();
@@ -161,7 +169,7 @@ fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     view.update_in(cx, |s, window, cx| s.demo_project_menu("/work/alpha", window, cx));
     let labels = view.read_with(cx, |s, _| s.menu_labels());
     let at = labels.iter().position(|l| l == "Tiles").expect("a Tiles section");
-    assert_eq!(labels[at + 1..], ["Open Hello", "Open Hello again (Hello)"], "{labels:?}");
+    assert_eq!(labels[at + 1..], ["Open Hello", "Open Hello again (Hello)", "Open Gallery (Hello)"], "{labels:?}");
     view.update_in(cx, |s, window, cx| s.run_menu_label("Open Hello", window, cx));
     frame(cx);
     let tile = cx.update(|_, cx| crate::main_screen::view_tile::get("hello/main", cx)).and_then(|v| v.read_with(cx, |v, _| v.tile().cloned())).expect("the view tile draws the tile");
