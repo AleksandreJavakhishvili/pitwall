@@ -190,7 +190,7 @@ jobs:
       - name: templates generate, build, pass check and their tests
         env:
           PITWALL_TEST_TEMPLATES: "1"
-        run: cargo test -p pitwall-cli -- tile::
+        run: "cargo test -p pitwall-cli -- tile::"
 
   rust-windows:
     name: Rust on Windows (build + test + clippy)
