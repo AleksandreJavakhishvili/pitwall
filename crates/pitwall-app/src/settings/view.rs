@@ -848,6 +848,12 @@ impl Render for SettingsView {
                 return div()
                     .id("extensions-surface")
                     .debug_selector(|| "extensions-surface".into())
+                    // Its keys are here, as the page list's are in
+                    // Settings: drawn, so the tile's keys (⌘⏎, ⌘F) reach
+                    // it and the screen around it.
+                    .track_focus(&self.focus)
+                    .key_context(NAV_CONTEXT)
+                    .map(|d| super::extensions::page::on_nav(d, cx))
                     .relative()
                     .size_full()
                     .min_w_0()

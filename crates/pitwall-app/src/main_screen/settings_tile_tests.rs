@@ -402,3 +402,54 @@ fn an_agent_shows_settings_without_taking_anything(cx: &mut TestAppContext) {
     assert!(e.message.contains("agents.showSettings"));
     assert_eq!(tiles(cx), 0);
 }
+
+/// The bug: ⌘⏎ did nothing in Settings while one of its fields had the
+/// keys (a one-line field took ⌘⏎ as its own), nor anywhere in the
+/// Extensions tile (its keys were on nothing drawn, so no key reached
+/// it). Both maximise and restore with it now, from the page and from
+/// its search field, which keeps the keys.
+#[gpui::test]
+fn command_enter_maximises_settings_and_extensions_from_a_field_too(cx: &mut TestAppContext) {
+    app(cx, 1500.);
+    let data = pitwall_core::testing::TempDir::new("settings-max");
+    cx.update(|cx| crate::extensions::init(Some(data.path().to_path_buf()), cx));
+    let maximized = |what: Content, cx: &mut TestAppContext| cx.update(|cx| {
+        let ui = crate::ui_state::get(cx);
+        let (space, pane) = ui.tile_of(&what).unwrap();
+        ui.space(&space).and_then(|s| s.maximized_pane_id.clone()) == Some(pane)
+    });
+    let keys_in = |cx: &mut TestAppContext| main_view(cx).update(cx, |_, window, _| window.context_stack().iter().map(|c| format!("{c:?}")).collect::<Vec<_>>().join(" ")).unwrap();
+
+    // Settings, on its Extensions page.
+    main_view(cx).update(cx, |v, window, cx| v.screen().unwrap().update(cx, |s, cx| s.open_settings_tile(None, window, cx))).unwrap();
+    frames(cx);
+    cx.update(|cx| crate::settings::data::set_page(cx, Page::Extensions));
+    frames(cx);
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Settings, cx), "from the page");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Settings, cx));
+    // Its search field (⌘F) has the keys: ⌘⏎ still maximises.
+    keys(cx, "cmd-f");
+    assert!(keys_in(cx).contains("PwTextInput"), "the search has the keys: {}", keys_in(cx));
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Settings, cx), "from a field");
+    assert!(keys_in(cx).contains("PwTextInput"), "and the field keeps them");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Settings, cx));
+
+    // The Extensions tile: its keys are in it.
+    main_view(cx).update(cx, |v, window, cx| v.screen().unwrap().update(cx, |s, cx| s.open_extensions_tile(window, cx))).unwrap();
+    frames(cx);
+    assert!(keys_in(cx).contains("ExtensionsTile"), "the tile has the keys: {}", keys_in(cx));
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Extensions, cx), "the Extensions tile");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Extensions, cx));
+    keys(cx, "cmd-f");
+    assert!(keys_in(cx).contains("PwTextInput"), "its search has the keys: {}", keys_in(cx));
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Extensions, cx), "from its search");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Extensions, cx));
+}
