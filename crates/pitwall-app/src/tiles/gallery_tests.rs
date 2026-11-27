@@ -6,6 +6,10 @@
 //! times a jump through the long list:
 //!
 //! `PITWALL_TILE_SHOTS=<folder> cargo test -p pitwall-app gallery_shots -- --ignored --nocapture`
+//!
+//! Besides the whole window it saves each component cut out of it
+//! (`components-<component>-<theme>.png`); the docs show those from
+//! `docs/reference/extensions/images/components/`.
 
 use std::time::{Duration, Instant};
 
@@ -108,13 +112,25 @@ fn gallery_shots() {
         let _ = cx.update_window(w, |_, window, _| window.refresh());
         cx.run_until_parked();
     };
-    let shot = |cx: &mut HeadlessAppContext, w: AnyWindowHandle, name: &str| {
+    // The whole window, and each component cut out of it (`crops`: a
+    // name and the bounds to cut, in window pixels), dark and light.
+    type Crops<'a> = &'a dyn Fn(&mut HeadlessAppContext) -> Vec<(&'static str, gpui::Bounds<gpui::Pixels>)>;
+    let shot = |cx: &mut HeadlessAppContext, w: AnyWindowHandle, name: &str, crops: Crops| {
         for (theme, light) in [("dark", false), ("light", true)] {
             cx.update(|cx| cx.set_global(if light { crate::theme::Theme::light() } else { crate::theme::Theme::dark() }));
             refresh(cx, w);
             refresh(cx, w);
             let img = cx.capture_screenshot(w).expect("rendered");
             img.save(out.join(format!("components-{name}-{theme}.png"))).expect("saved");
+            let scale = img.width() as f32 / 960.;
+            for (part, b) in crops(cx) {
+                let pad = 8.;
+                let x = ((f32::from(b.origin.x) - pad).max(0.) * scale) as u32;
+                let y = ((f32::from(b.origin.y) - pad).max(0.) * scale) as u32;
+                let cw = (((f32::from(b.size.width) + 2. * pad) * scale) as u32).min(img.width() - x);
+                let ch = (((f32::from(b.size.height) + 2. * pad) * scale) as u32).min(img.height() - y);
+                image::imageops::crop_imm(&img, x, y, cw, ch).to_image().save(out.join(format!("components-{part}-{theme}.png"))).expect("saved");
+            }
         }
         cx.update(|cx| cx.set_global(crate::theme::Theme::dark()));
     };
@@ -129,6 +145,14 @@ fn gallery_shots() {
         .unwrap();
     let w: AnyWindowHandle = win.into();
     let tile: Entity<TileView> = vt.borrow().clone().unwrap();
+    let parts = [("virtual-list", "panes/left/list-box"), ("table", "panes/left/table-box"), ("tree", "panes/right/tree-box"), ("toolbar", "toolbar"), ("markdown", "panes/right/notes"), ("image", "panes/right/images")];
+    cx.update(|cx| tile.update(cx, |t, _| t.probe(&parts.map(|(_, p)| p))));
+    let bounds = |cx: &mut HeadlessAppContext, path: &str| cx.update(|cx| tile.read(cx).node_bounds(path)).expect("drawn");
+    // A menu opened from the toolbar: from the toolbar's right half down.
+    let below_toolbar = |cx: &mut HeadlessAppContext| {
+        let b = bounds(cx, "toolbar");
+        gpui::Bounds::new(gpui::point(b.origin.x + b.size.width * 0.5, b.origin.y), gpui::size(b.size.width * 0.5, px(190.)))
+    };
     let kept = |cx: &mut HeadlessAppContext, list: &str, key: &str| {
         let (l, k) = (list.to_string(), key.to_string());
         cx.update(|cx| tile.read(cx).row_keys(&l, cx).iter().any(|(_, have)| *have == k))
@@ -146,7 +170,7 @@ fn gallery_shots() {
     ready(&mut cx, LIST, "r0");
     ready(&mut cx, TABLE, "README.md");
     ready(&mut cx, TREE, "README.md");
-    shot(&mut cx, w, "gallery");
+    shot(&mut cx, w, "gallery", &|cx| parts.iter().map(|(name, p)| (*name, bounds(cx, p))).collect());
 
     // A jump to the middle: from the scroll to the rows drawn.
     let t0 = Instant::now();
@@ -165,9 +189,9 @@ fn gallery_shots() {
 
     // The menu button's menu and a row's context menu.
     cx.update(|cx| tile.update(cx, |t, cx| t.open_menu_of("toolbar/Actions", gpui::point(px(760.), px(52.)), cx)));
-    shot(&mut cx, w, "menu");
+    shot(&mut cx, w, "menu", &|cx| vec![("menu-button", below_toolbar(cx))]);
     cx.update(|cx| tile.update(cx, |t, cx| t.close_menu(cx)));
     // The select open.
     cx.update(|cx| tile.update(cx, |t, cx| t.open_menu_of("toolbar/size", gpui::point(px(0.), px(0.)), cx)));
-    shot(&mut cx, w, "select");
+    shot(&mut cx, w, "select", &|cx| vec![("select", below_toolbar(cx))]);
 }
