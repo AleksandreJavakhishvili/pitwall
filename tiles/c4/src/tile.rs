@@ -795,11 +795,7 @@ impl C4 {
                 cx.notify();
             }
         }));
-        let mut title = h_flex().id("crumbs").flex_1().min_w(px(0.)).child(crumbs);
-        if let Some(targets) = &vs.menu {
-            title = title.child(self.menu(view, targets, cx));
-        }
-        bar = bar.child(title);
+        bar = bar.child(h_flex().id("crumbs").flex_1().min_w(px(0.)).child(crumbs));
         if self.has_changes(&id) && !vs.source {
             let v = view.to_string();
             bar = bar.child(
@@ -857,8 +853,9 @@ impl C4 {
         )
     }
 
-    /// The menu of a box several diagrams detail (FR-13).
-    fn menu(&self, view: &str, targets: &[String], cx: &mut Cx<Self>) -> Popover {
+    /// The menu of a box several diagrams detail (FR-13), anchored under
+    /// the box (`at`, in the canvas node's pixels).
+    fn menu(&self, view: &str, targets: &[String], at: (f32, f32), cx: &mut Cx<Self>) -> Popover {
         let v = view.to_string();
         let mut list = v_flex().id("targets").gap_0p5().p_1().child(text("Open which diagram?").text_xs().text_color(Token::Text3).px_2().py_1());
         for (n, t) in targets.iter().enumerate() {
@@ -882,7 +879,7 @@ impl C4 {
                     })),
             );
         }
-        popover().id("menu").width(300.).on_dismiss(cx.listener(move |this: &mut C4, _: &Dismissed, cx| {
+        popover().id("menu").width(300.).at(at.0, at.1).on_dismiss(cx.listener(move |this: &mut C4, _: &Dismissed, cx| {
             this.view_mut(&v).menu = None;
             cx.notify();
         })).child(list)
@@ -977,7 +974,7 @@ impl C4 {
             for p in &notice.problems {
                 if let Some(l) = p.line {
                     let l = l.saturating_sub(1) as usize;
-                    code = code.mark(l..l + 1, Mark::Changed);
+                    code = code.mark_with(l..l + 1, Mark::Error, p.message.clone());
                     first = first.or(Some(l));
                 }
             }
@@ -1030,13 +1027,21 @@ impl C4 {
             }
         };
         let mut c = c;
+        let mut menu_at = None;
         for HitBox { index: i, key, rect, label } in hits {
+            if vs.menu.is_some() && vs.selected == Some(i) {
+                // Under the box, at its left edge.
+                menu_at = Some(vs.viewport.to_view(rect.x as f32, (rect.y + rect.h) as f32));
+            }
             let tip = if detailed.get(i).copied().unwrap_or(false) { format!("{label}: click to open its diagram") } else { label.clone() };
             let v = view.to_string();
             c = c.region(Region::new(key, rect.x as f32, rect.y as f32, rect.w as f32, rect.h as f32, label).tooltip(tip).on_click(cx.listener(move |this: &mut C4, _: &Click, cx| {
                 this.clicked(&v, i);
                 cx.notify();
             })));
+        }
+        if let Some(targets) = &vs.menu {
+            c = c.popover(self.menu(view, targets, menu_at.unwrap_or((16., 16.)), cx));
         }
         let v = view.to_string();
         let pan = move |this: &mut C4, p: &Pointer, cx: &mut Cx<C4>| {

@@ -14,14 +14,14 @@ diagram in place, with Now / Changes to see what changed.
   `class x new|changed|external` colours a box. What isn't drawn is listed
   under "Not shown".
 - **Click to zoom**: a box another shown diagram details (by its boundary's
-  name) opens it; several ask which in a menu. Backspace or the path in the
+  name) opens it; several ask which in a menu under the box. Backspace or the path in the
   bar goes back up.
 - **Keys**: `+` `-` zoom, `F` or `0` fit, the arrows move the selection,
   Enter opens it, `B` switches Now and Changes. The wheel zooms, dragging
   pans.
 - **All or nothing**: bad Mermaid changes nothing; the agent gets each
-  problem with its line and column, and you get a notice with the source
-  and the lines marked.
+  problem with its line and column, and you get a notice with the source,
+  each bad line marked as an error with what is wrong.
 - **Kept** across restarts in the tile's storage (`d/<id>`), at most 50
   diagrams a project; the oldest not opened for a week (else the least
   recently opened) makes room. Asks for no permissions.
