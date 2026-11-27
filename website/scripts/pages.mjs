@@ -40,6 +40,7 @@ export const EXTENSION_PAGES = [
   ["extensions-canvas", "canvas.md", "/docs/extensions/canvas/", "Canvas and drag"],
   ["extensions-blocks", "blocks.md", "/docs/extensions/blocks/", "Native building blocks"],
   ["extensions-agent-tools", "agent-tools.md", "/docs/extensions/agent-tools/", "Agent tools"],
+  ["extensions-seed-tiles", "seed-tiles.md", "/docs/extensions/seed-tiles/", "C4 diagrams and Notes"],
   ["extensions-permissions", "permissions.md", "/docs/extensions/permissions/", "Permissions"],
   ["extensions-packaging", "packaging.md", "/docs/extensions/packaging/", "Packaging"],
   ["extensions-install", "install.md", "/docs/extensions/install/", "Install from a file"],
