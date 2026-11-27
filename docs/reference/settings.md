@@ -130,6 +130,15 @@ Agents can show you a device's screen in Pitwall when you ask to see the app on 
 - **Stored in:** `ui.json` → `agentsShowDevice`
 - **When an agent changes it:** applies directly
 
+### `agents.tileTools`
+
+Agents can open extensions' tiles and show you things in them when you ask ("draft that as a note", "show me the diagram"): every tile's `<extension>__open` and the show tools a tile declares, in Pitwall's `pitwall` MCP server (the agents that get it for files get these too). They only change what the tile shows: the agent gets nothing of the tile back, and it can't replace what you edited. Each tile has its own switch on its card in Settings → Extensions. false: no tile tools in any agent's list.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsTileTools`
+- **When an agent changes it:** applies directly
+
 ### `agents.editFiles`
 
 You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB, and an SVG's source. Files of agents on other machines, other images, binary files (PDFs too) and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.
