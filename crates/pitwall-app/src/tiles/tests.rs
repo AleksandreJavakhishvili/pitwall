@@ -238,6 +238,80 @@ fn a_dev_reload_replaces_the_running_tile(cx: &mut TestAppContext) {
     assert!(log.iter().any(|l| l.from_host && l.message.contains("Reloaded")), "{log:?}");
 }
 
+/// `pitwall extension dev` end to end over a socket, as the CLI calls it
+/// (`extension.devReload` with `{path}`, `message` in the answer): the
+/// first load asks the user in Pitwall; a reload after it doesn't and
+/// replaces the running tile; a folder without tiles is refused.
+#[gpui::test]
+fn the_cli_loads_and_reloads_a_dev_folder(cx: &mut TestAppContext) {
+    use pitwall_core::testing::{ManualClock, MemStore, RecordingSink};
+    use pitwall_proto::ApprovalAnswer;
+    use serde_json::{json, Value};
+    let t = TempDir::new("tile-cli-dev");
+    let root = t.path().join("data");
+    std::fs::create_dir_all(root.join("extensions")).unwrap();
+    let src = t.path().join("my-tile");
+    copy_fixture(&src);
+    init(&root, cx);
+    let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+    let engine = pitwall_core::Engine::open(pitwall_core::Deps { paths: pitwall_core::paths::Paths::new(t.path().join("engine")), events: RecordingSink::new(), clock: ManualClock::new(1), store: MemStore::with(vec![]), providers: vec![] });
+    let approvals = pitwall_daemon::Approvals::new(Duration::from_secs(60));
+    let backend = crate::extensions::agent_setup::AppExtensions::new();
+    // A short socket path (Unix sockets have a small limit).
+    let sock_dir = std::env::temp_dir().join(format!("pwtile-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("d.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "test".into(), settings: None, workspace: None, viewer: None, events: None, extensions: None, ext_backend: Some(backend.clone()) };
+    let identify = pitwall_daemon::ProcessIdentity::with_extensions(engine.clone(), pitwall_daemon::Registry::new());
+    let server = pitwall_daemon::serve(engine, approvals.clone(), identify, cfg).unwrap();
+    cx.update(|_, cx| crate::extensions::agent_setup::attach(backend, cx));
+    // What `pitwall extension dev` does after a build (crates/pitwall-cli/src/tile.rs).
+    let reload = |folder: &Path| {
+        let (socket, folder) = (socket.clone(), folder.to_path_buf());
+        std::thread::spawn(move || -> Result<Value, pitwall_client::Error> {
+            let mut c = pitwall_client::Client::connect(&socket)?;
+            c.call("extension.devReload", json!({ "path": folder }))
+        })
+    };
+    let finish = |cx: &mut VisualTestContext, h: std::thread::JoinHandle<Result<Value, pitwall_client::Error>>| {
+        until(cx, "the answer", |_| h.is_finished());
+        h.join().unwrap()
+    };
+    // The first load asks.
+    let h = reload(&src);
+    until(cx, "the approval", |_| !approvals.pending().is_empty());
+    let p = approvals.pending()[0].clone();
+    assert!(p.summary.contains("load the extension Hello for development"), "{}", p.summary);
+    assert!(p.details.iter().any(|d| d.contains("128 MiB")), "{:?}", p.details);
+    approvals.answer(&ApprovalAnswer { id: p.id.clone(), allow: true, remember: false }).unwrap();
+    let first = finish(cx, h).unwrap();
+    assert_eq!((first["id"].as_str(), first["loaded"].as_bool()), (Some("hello"), Some(true)));
+    assert!(first["message"].as_str().unwrap().starts_with("Loaded Hello"), "{first}");
+    assert!(cx.update(|_, cx| crate::ui_state::get(cx).extension_on("hello")));
+    // Its tile open (not drawn: suspended) and running.
+    let _tile = cx.update(|_, cx| cx.new(|cx| TileView::new("hello", "main", cx)));
+    let r = tiles(cx);
+    until(cx, "it runs", |cx| r.read_with(cx, |r, _| r.get("hello").is_some_and(|x| x.state == State::Running)));
+    let before = r.read_with(cx, |r, _| r.generation("hello")).unwrap();
+    // A reload asks nothing and replaces it.
+    let again = finish(cx, reload(&src)).unwrap();
+    assert_eq!(again["loaded"].as_bool(), Some(false), "{again}");
+    assert_eq!(again["reloaded"], json!(["main"]));
+    assert!(again["message"].as_str().unwrap().starts_with("Reloaded Hello"), "{again}");
+    assert!(approvals.pending().is_empty(), "nothing asked");
+    until(cx, "a new component", |cx| r.read_with(cx, |r, _| r.generation("hello").is_some_and(|g| g != before)));
+    // Not a folder of tiles: refused, saying why.
+    let empty = t.path().join("not-tiles");
+    std::fs::create_dir_all(&empty).unwrap();
+    std::fs::write(empty.join("extension.json"), r#"{"v": 2, "id": "plain", "name": "Plain", "version": "1.0.0"}"#).unwrap();
+    match finish(cx, reload(&empty)) {
+        Err(pitwall_client::Error::Server(e)) => assert_eq!(e.code, pitwall_proto::code::BAD_PARAMS, "{}", e.message),
+        other => panic!("not refused: {other:?}"),
+    }
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
 /// Why a tile stopped, as the tile says it: a sentence, a crash by its
 /// trap without the backtrace.
 #[test]
