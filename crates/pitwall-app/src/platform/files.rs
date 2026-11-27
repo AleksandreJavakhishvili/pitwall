@@ -39,6 +39,26 @@ pub fn pick_folder(cx: &mut App, title: impl Into<SharedString>) -> Task<Option<
     })
 }
 
+/// Pick one file with the system's file dialog (Install from file…).
+pub fn pick_file(cx: &mut App, title: impl Into<SharedString>) -> Task<Option<PathBuf>> {
+    let picked = cx.prompt_for_paths(PathPromptOptions {
+        files: true,
+        directories: false,
+        multiple: false,
+        prompt: Some(title.into()),
+    });
+    cx.background_spawn(async move {
+        match picked.await {
+            Ok(Ok(Some(mut paths))) => paths.pop(),
+            Ok(Ok(None)) | Err(_) => None,
+            Ok(Err(e)) => {
+                eprintln!("pitwall: file picker failed: {e}");
+                None
+            }
+        }
+    })
+}
+
 /// Show a path in Finder / Explorer / the file manager (the rules library).
 pub fn reveal(cx: &App, path: &Path) {
     cx.reveal_path(path);
