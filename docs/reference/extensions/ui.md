@@ -36,8 +36,8 @@ End the crate with `pitwall_extension::export!(MyTile);`. The [quick start](quic
 |---|---|---|
 | Box | `div()`, `v_flex()`, `h_flex()` | A flex container. `div()` and `v_flex()` are columns; `h_flex()` is a row with its children centred across it. The usual root |
 | Text | `text("…")` | A paragraph. Its children are inline runs, each with its own style: `text("Built in ").child(text("3 s").font_bold())`. Plain `&str` and `String` children become text |
-| Button | `button("Save")`, `icon_button(Icon::X, "Remove")` | Pitwall's own buttons. Looks: `.primary()` (one main action per area), the default hairline, `.danger()`, `.small()`, `.link()`. `.icon(Icon::Plus)` puts an icon before the label; `.disabled(true)` dims it and drops clicks. An icon button's label is its accessible name and tooltip |
-| Icon | `icon(Icon::Check)` | One of Pitwall's icons, in the text colour and size: `Refresh`, `Check`, `X`, `Plus`, `Search`, `Gear`, `Folder`, `File`, `Branch`, `Terminal`, `Trash`, `Copy`, `External`, or `Icon::Named("…")` |
+| Button | `button("Save")`, `icon_button(Icon::X, "Remove")` | Pitwall's own buttons. Looks: `.primary()` (one main action per area), the default hairline, `.danger()`, `.link()`. Size: regular, or `.small()`, with any look (`.small().danger()`). `.icon(Icon::Plus)` puts an icon before the label; `.disabled(true)` dims it and drops clicks. An icon button is square; its label is its accessible name and tooltip |
+| Icon | `icon(Icon::Check)` | One of Pitwall's icons ([the list](#icons)), in the text colour and size |
 | Text field | `input("key")` | A one-line or multi-line field ([below](#text-fields)). Its key is required |
 | Scroll | `.overflow_y_scroll()`, `.overflow_x_scroll()`, `.overflow_scroll()` on a box | Its children scroll inside it. Pitwall draws the scrollbar and keeps the position |
 
@@ -49,6 +49,8 @@ Every element can have:
 - `.focusable()`: it can take keyboard focus. Buttons and fields always can.
 - `.when(condition, |el| …)` and `.when_some(option, |el, value| …)`: apply styles or children only sometimes.
 
+`Div` (what `div()`, `v_flex()` and `h_flex()` return), `Button`, `Input`, `Text` and `IconElement` are in the prelude, for helpers that build part of a tree.
+
 Children are added with `.child(…)` and `.children(iter)`. `.into_any()` turns any element into an `AnyElement`, so different builders fit one type (for a helper function, or the arms of a `match`).
 
 A row of the `list` template: a button that toggles the item, its text, and a button to remove it.
@@ -56,6 +58,12 @@ A row of the `list` template: a button that toggles the item, its text, and a bu
 ```rust
 {{#include crates/pitwall-cli/templates/tile/list/lib.rs.tmpl#list-row}}
 ```
+
+### Icons
+
+`Icon` has one variant per icon Pitwall draws, and `Icon::from_name` and `.name()` go between them and their names, which are also what `extension.json` names an icon by. An unknown `Icon::Named("…")` draws a dot (`pitwall-extension-test` warns of it), and `pitwall extension check` warns of an unknown icon in the manifest. The names:
+
+`sidebar`, `search`, `gear`, `plus`, `x`, `send`, `stop`, `restart`, `refresh`, `trash`, `branch`, `folder`, `chevron`, `grid`, `wall`, `maximize`, `restore`, `window`, `more`, `review`, `terminal`, `file`, `expand`, `copy`, `chevron-down`, `check`, `headset`, `user`, `laptop`, `server`, `eye`, `external`, `image`, `browser`, `back`, `phone`, `inspect`, `page-right`, `page-left`, `page-below`, `pin`, `grip`, `minus`, `chevron-up`, `lock`, `alert`, `extension`, `inbox`, `bell`, `chat`, `list`.
 
 ## Styles
 
@@ -66,10 +74,11 @@ Styles use GPUI's names:
 | Flex | `flex`, `flex_row`, `flex_col`, `flex_wrap`, `flex_1`, `flex_grow`, `flex_shrink_0`, `flex_none`, `gap_0` … `gap_8`, `gap(length)` |
 | Alignment | `items_start`, `items_center`, `items_end`, `items_baseline`, `justify_start`, `justify_center`, `justify_end`, `justify_between`, `justify_around`, `self_align` |
 | Size | `w`, `h`, `size`, `w_full`, `h_full`, `size_full`, `min_w`, `max_w`, `min_h`, `max_h` |
-| Spacing | `p_0` … `p_6`, `px_1` … `px_4`, `py_1` … `py_3`, `pt_*`, `pb_*`, `pl_2`, `pr_2`, `m_1`, `m_2`, `mx_2`, `my_2`, `mt_2`, `mb_2`, `p(length)`, `m(length)` |
+| Spacing | `p_0` … `p_6`, `px_1` … `px_4`, `py_1` … `py_3`, `pt_*`, `pb_*`, `pl_2`, `pl_3`, `pr_1`, `pr_2`, `m_1`, `m_2`, `mx_2`, `my_2`, `mt_2`, `mb_2`, `p(length)`, `m(length)` |
 | Borders and corners | `border_1`, `border_t_1`, `border_b_1`, `border_l_1`, `border_r_1`, `border_color`, `rounded_none`, `rounded_sm`, `rounded_md`, `rounded_lg`, `rounded_full` |
 | Colour | `text_color`, `bg`, `hover_bg`, `opacity` |
 | Text | `text_xs`, `text_sm`, `text_base`, `text_lg`, `text_xl`, `font_mono`, `font_ui`, `font_normal`, `font_medium`, `font_semibold`, `font_bold`, `italic`, `underline`, `truncate`, `line_clamp(n)`, `selectable` |
+| Hover groups | `group("row")` names a hover group; `visible_on_group_hover("row")` on an element inside it keeps the element hidden (its space kept) until the pointer is over the group, drawn by Pitwall without a round trip: a row's Delete |
 | Other | `overflow_hidden`, `cursor_pointer`, `cursor_text` |
 
 Lengths are `px(n)` (logical pixels), `rems(n)` (multiples of Pitwall's text size, so they follow the user's font size), `relative(f)` (a fraction of the parent) or a bare number (pixels). The spacing scale (`gap_2`, `p_3`) is in rems.
@@ -105,6 +114,7 @@ A listener is made with `cx.listener` while rendering and handed to the element 
 | `on_submit` | Text field | `Submit`: Enter (⌘Enter, Ctrl+Enter off macOS, in a multi-line field) |
 | `on_select` | Text field | `Selection`: the cursor or selection moved |
 | `on_scroll` | Scroll container | `ScrollPosition`: offset and content size, for loading more at the end |
+| `on_focus`, `on_blur` | Text field or focusable element | `Focused` / `Blur`: it took the keyboard, or lost it (to another element, or out of the tile). A field's blur is the moment to save it |
 
 Events that aren't for one element (shown or hidden, focus, a view's size, the theme, settings, grants) go to `Tile::on_event`.
 
@@ -126,7 +136,7 @@ Pitwall owns what the user types: typing, selection, undo and input methods neve
 {{#include crates/pitwall-cli/templates/tile/list/lib.rs.tmpl#list-submit}}
 ```
 
-`.placeholder(…)` shows faint text while it is empty. `.multiline()` makes it several lines (Enter adds a line, ⌘Enter submits) and `.rows(n)` its height; `.select(range)` places the cursor when `.value` changes the text; `.disabled(true)` makes it read-only. The `form` template's fields:
+`.placeholder(…)` shows faint text while it is empty. `.multiline()` makes it several lines (Enter adds a line, ⌘Enter submits) and `.rows(n)` its height, or, given a height or room to grow (`.size_full()`, `.flex_1()`), it fills that, at least its rows; `.select(range)` places the cursor when `.value` changes the text; `.disabled(true)` makes it read-only. The `form` template's fields:
 
 ```rust
 {{#include crates/pitwall-cli/templates/tile/form/lib.rs.tmpl#form-inputs}}
@@ -136,8 +146,10 @@ Pitwall owns what the user types: typing, selection, undo and input methods neve
 
 - A tile gets keys only while it has focus. Pitwall's own shortcuts always win.
 - Tab and Shift-Tab move focus among focusable elements in tree order, with Pitwall's focus ring.
-- While rendering, `cx.bind_key("j", handler)` makes a key call a listener (`Handler<KeyPress>`) while the view has focus. Keys are written like `j`, `enter`, `/`, `shift-tab` or `cmd-r`; `cmd` is ⌘ on macOS and Ctrl elsewhere.
-- While rendering, `cx.focus("list/row-3")` asks for focus on the element at that key path. Pitwall honours it only while the tile already has focus, so a tile can't take the keyboard from an agent's terminal.
+- While rendering, `cx.bind_key("j", handler)` makes a key call a listener (`Handler<KeyPress>`) while the view has focus. Keys are written like `j`, `enter`, `/`, `shift-tab` or `cmd-s`; `cmd` is ⌘ on macOS and Ctrl elsewhere.
+- A binding without ⌘, Ctrl or Alt (`j`, `/`, `shift-n`) doesn't fire while a text field has focus: the key types into the field.
+- Pitwall's own keys are never a tile's: a binding of one is dropped, with a line in the tile's Log. They are Esc, Tab, Shift-Tab, Ctrl-Enter (and Ctrl-Shift-Enter), `cmd-` and `cmd-shift-` with any of `enter`, `0`–`9`, `=`, `+`, `-`, `,`, `a`, `b`, `c`, `e`, `h`, `i`, `j`, `k`, `l`, `m`, `n`, `p`, `q`, `r`, `t`, `v`, `w`, `x`, `z`, and `cmd-shift-f`, `cmd-alt-h`, `cmd-ctrl-f`, `cmd-shift-alt-e`, `-n`, `-r` and `-t`. (Off macOS Pitwall's keys are Ctrl+Shift ones; the list is the same everywhere, so a tile's keys work the same on every system.)
+- While rendering, `cx.focus("list/row-3")` asks for focus on the element at that key path: the keys from the root down, joined by `/`, without the root's (the same path `ui::scroll_to` takes). Pitwall honours it only while the tile already has focus, so a tile can't take the keyboard from an agent's terminal. `cx.focused(view)` is the element that has it.
 
 ## Opening a tile with content
 
