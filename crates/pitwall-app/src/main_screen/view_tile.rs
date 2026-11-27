@@ -837,6 +837,34 @@ impl MainScreen {
         }
     }
 
+    /// A tile's tool the palette offers (`"expose": ["palette"]`, no
+    /// input it must be given), run as the user's own: no approval, since
+    /// they chose it here. Its answer is a toast.
+    pub fn tile_command(&mut self, req: pitwall_proto::tile_tools::TileRun, title: String, cx: &mut Context<Self>) {
+        let running = match crate::tiles::agents::start_run(&req, cx) {
+            Ok(r) => r,
+            Err(e) => {
+                self.toast(Toast::error(format!("Couldn't run “{title}”"), e.message), cx);
+                return;
+            }
+        };
+        let within = if req.kind == "read" { pitwall_tile_host::agent::READ_TIME } else { pitwall_tile_host::agent::ACT_TIME };
+        let waited = cx.background_executor().spawn(async move {
+            let ran = crate::tiles::agents::wait_run(&running, within);
+            (running.call, ran)
+        });
+        cx.spawn(async move |this, cx| {
+            let (call, ran) = waited.await;
+            let ran = ran.unwrap_or_else(|| pitwall_proto::tile_tools::TileRan { text: format!("It didn't answer within {} seconds.", within.as_secs()), timed_out: true, ..Default::default() });
+            let _ = this.update(cx, |s, cx| {
+                crate::tiles::agents::ran(&req, Some(call), &ran, cx);
+                let toast = if ran.ok { Toast::info(&title, Some(ran.text.clone())) } else { Toast::error(format!("Couldn't run “{title}”"), ran.text.clone()) };
+                s.toast(toast, cx);
+            });
+        })
+        .detach();
+    }
+
     /// Tile `pane` showing view `key`: a tile like the inbox's.
     pub(super) fn render_view_pane(&mut self, pane: &str, key: &str, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let v = view(key, cx);

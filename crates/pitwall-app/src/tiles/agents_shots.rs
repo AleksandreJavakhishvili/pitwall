@@ -88,7 +88,7 @@ fn agents_shots() {
         let id = cx.update(|cx| {
             let tiles = super::tiles(cx);
             tiles.update(cx, |t, cx| {
-                let c = ShowCall { tool, tile: "main".into(), item: Some(item), input: Some(input.to_string()), caller: Caller { agent_id: "api".into(), agent_name: "api".into(), project: None } };
+                let c = ShowCall { tool, tile: "main".into(), item: Some(item), input: Some(input.to_string()), caller: Caller { agent_id: "api".into(), agent_name: "api".into(), project: None }, append: false, large: None };
                 let (id, content) = t.calls(&ext).begin(&c, Instant::now()).unwrap();
                 t.deliver(&ext, "main", id, content, tx, cx).unwrap();
                 id

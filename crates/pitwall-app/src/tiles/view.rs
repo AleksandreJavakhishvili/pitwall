@@ -220,10 +220,27 @@ impl TileView {
     /// call it shows last; pressed, that agent's terminal is focused.
     fn origin_chip(&self, id: &str, agent: &str, t: &crate::theme::Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let id = id.to_string();
+        // Undo, beside it, after a `present` call: the tile restores what
+        // that call changed (agent-tools.md §11.6).
+        let undo = self.tiles.read(cx).last_present(&self.ext, &self.tile);
         div()
             .absolute()
             .bottom(px(6.))
             .right(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .when_some(undo, |d, call| {
+                d.child(
+                    crate::kit::text_button(SharedString::from(format!("tile-undo-{}-{}", self.ext, self.tile)), "Undo", crate::kit::BtnKind::Small, false, t)
+                        .debug_selector(|| "tile-undo".into())
+                        .tooltip(crate::kit::tooltip(format!("Put back what {agent} changed")))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let (ext, tile) = (this.ext.clone(), this.tile.clone());
+                            this.tiles.update(cx, |t, cx| t.undo_present(&ext, &tile, call, cx));
+                        })),
+                )
+            })
             .child(
                 div()
                     .id(SharedString::from(format!("tile-origin-{}-{}", self.ext, self.tile)))

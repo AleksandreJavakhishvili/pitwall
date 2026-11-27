@@ -193,8 +193,8 @@ fn an_agent_opens_a_tile_with_content_through_the_mcp_server(cx: &mut TestAppCon
     until(cx, "the update", |cx| has("api: two", cx) && !has("api: one", cx));
     assert_eq!(at(cx), Some(Whereabouts::Next(Side::Right, "api".into())), "not moved");
     // Input that doesn't fit: nothing shown, the problem named.
-    let (text, error) = call(&server, "hello__show_message", json!({ "item": "b" }), cx);
-    assert!(error && text.contains("`message` is required"), "{text}");
+    let (text, error) = call(&server, "hello__show_message", json!({ "item": "b", "message": 5 }), cx);
+    assert!(error && text.contains("`message` must be a string"), "{text}");
     // The calls are in its activity log, as the agent's.
     let log = cx.update(|cx| crate::extensions::calls::activity("hello", cx).lock().unwrap().entries());
     assert!(log.iter().filter(|e| e.via == Via::Agent).count() >= 3, "{log:?}");

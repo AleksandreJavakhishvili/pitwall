@@ -44,6 +44,8 @@ mod agents_tests;
 mod c4_tests;
 #[cfg(test)]
 mod c4_shots;
+#[cfg(test)]
+mod agents_run_tests;
 pub mod blocks;
 #[cfg(test)]
 mod blocks_tests;
@@ -64,6 +66,8 @@ mod gallery_tests;
 mod services_shots;
 #[cfg(test)]
 mod agents_shots;
+#[cfg(test)]
+mod agent_tools_shots;
 #[cfg(test)]
 mod widgets_tests;
 pub mod view;
@@ -175,6 +179,8 @@ pub struct Tiles {
     /// The agent whose call each view shows last (`(id, name)`), for the
     /// host's "from <agent>" mark.
     origins: HashMap<(String, String), (String, String)>,
+    /// The last `present` call each view shows (Undo beside the mark).
+    last_present: HashMap<(String, String), u64>,
 }
 
 struct Handle(Entity<Tiles>);
@@ -219,7 +225,7 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             })
             .detach();
         }
-        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new(), calls: HashMap::new(), waiting: HashMap::new(), pending: HashMap::new(), origins: HashMap::new() }
+        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new(), calls: HashMap::new(), waiting: HashMap::new(), pending: HashMap::new(), origins: HashMap::new(), last_present: HashMap::new() }
     });
     cx.set_global(Handle(e.clone()));
     // Turned off: its component stops at once (runtime.md §2.3).
@@ -516,6 +522,64 @@ impl Tiles {
         }
     }
 
+    /// Give a `read` or `act` call to extension `id`'s component (started
+    /// without a view when it isn't running, as for its badge); its
+    /// answer comes on `answer`.
+    pub fn tool_call(&mut self, id: &str, call: pitwall_tile_host::agent::ToolCall, answer: std::sync::mpsc::Sender<pitwall_tile_host::agent::Answer>, cx: &mut Context<Self>) -> Result<(), String> {
+        match self.running.get(id).map(|r| &r.state) {
+            Some(State::Stopped(s)) => {
+                let why = stop_words(s);
+                return Err(format!("{} It shows “Stopped” until the user restarts it.", why.trim_end_matches('.')));
+            }
+            Some(State::Dropped) => {
+                let saved = self.running.get_mut(id).and_then(|r| r.saved.take());
+                self.revive(id, saved, cx);
+            }
+            Some(_) => {}
+            None => self.start(id, BTreeSet::new(), None, cx),
+        }
+        let call_id = call.id;
+        let sent = self.running.get(id).and_then(|r| r.handle.as_ref()).is_some_and(|h| h.tool_call(call));
+        if !sent {
+            return Err("it isn't running".into());
+        }
+        self.waiting.insert((id.to_string(), call_id), answer);
+        cx.notify();
+        Ok(())
+    }
+
+    /// A `read` or `act` call that ran out of time: the component hears
+    /// `tool-cancelled`, its answer is no longer waited for.
+    pub fn cancel_tool(&mut self, id: &str, call: u64) {
+        self.waiting.remove(&(id.to_string(), call));
+        if let Some(h) = self.running.get(id).and_then(|r| r.handle.as_ref()) {
+            h.cancel_tool(call);
+        }
+    }
+
+    /// Where a `present` call's file text waits for the component's
+    /// `input-part` reads.
+    pub fn large_inputs(&mut self, cx: &App) -> Option<pitwall_tile_host::agent::LargeInputs> {
+        self.host(cx).ok().map(|h| h.large_inputs().clone())
+    }
+
+    /// The user's Undo on view `view`'s "from <agent>" mark: the
+    /// component restores what call `call` changed.
+    pub fn undo_present(&mut self, id: &str, view: &str, call: u64, cx: &mut Context<Self>) {
+        if self.send(id, ui::Event::UndoPresent(call)) {
+            self.origins.remove(&(id.to_string(), view.to_string()));
+            self.last_present.remove(&(id.to_string(), view.to_string()));
+            self.seq += 1;
+            cx.notify();
+        }
+    }
+
+    /// The last `present` call view `view` of extension `id` showed (what
+    /// Undo takes back).
+    pub fn last_present(&self, id: &str, view: &str) -> Option<u64> {
+        self.last_present.get(&(id.to_string(), view.to_string())).copied()
+    }
+
     /// Extension `id`'s calls (made on first use).
     pub fn calls(&mut self, id: &str) -> &mut pitwall_tile_host::agent::ShowCalls {
         self.calls.entry(id.to_string()).or_default()
@@ -529,6 +593,15 @@ impl Tiles {
     /// Note that agent `agent` (`(id, name)`) showed something in view
     /// `view` of extension `id` (the view's mark says so).
     pub fn set_origin(&mut self, id: &str, view: &str, agent: (String, String), cx: &mut Context<Self>) {
+        self.origins.insert((id.to_string(), view.to_string()), agent);
+        self.seq += 1;
+        cx.notify();
+    }
+
+    /// [`set_origin`](Self::set_origin) for `present` call `call`, which
+    /// Undo can take back.
+    pub fn set_presented(&mut self, id: &str, view: &str, agent: (String, String), call: u64, cx: &mut Context<Self>) {
+        self.last_present.insert((id.to_string(), view.to_string()), call);
         self.origins.insert((id.to_string(), view.to_string()), agent);
         self.seq += 1;
         cx.notify();

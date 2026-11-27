@@ -78,6 +78,7 @@ pub(crate) mod tests {
             risk: Risk::Low,
             rememberable: true,
             created_at: 0,
+            always: None,
             expires_at: 120_000,
         }
     }
