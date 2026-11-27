@@ -434,6 +434,10 @@ pub enum ExtOp {
         connection: Option<String>,
     },
     ConnectionAdd { name: String },
+    /// Install an extension of tiles from the folder `path` on this
+    /// computer: a preview, copied, unsigned and never updated
+    /// (docs/spec/tile-sdk/packaging.md §6.3). The id is the manifest's.
+    InstallFolder { path: String },
     ConnectionRename { connection: String, name: String },
     /// `default`: the connection that becomes the default when it was the
     /// default (else none).
@@ -458,6 +462,7 @@ impl ExtOp {
             ExtOp::FirstRun => "first-run".into(),
             ExtOp::Set { .. } => "set".into(),
             ExtOp::ConnectionAdd { .. } => "connection add".into(),
+            ExtOp::InstallFolder { .. } => "install".into(),
             ExtOp::ConnectionRename { .. } => "connection rename".into(),
             ExtOp::ConnectionRemove { .. } => "connection remove".into(),
         }
@@ -491,6 +496,34 @@ pub struct ExtActed {
     /// How the extension stands now.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ExtStatus>,
+}
+
+/// `extension.devReload`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExtDevReload {
+    /// The extension's folder (where its `extension.json` is), absolute.
+    pub path: String,
+}
+
+/// What `extension.devReload` did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExtDevReloaded {
+    pub proto: u32,
+    pub id: String,
+    pub name: String,
+    /// Loaded and turned on now (the user approved it); false: it was
+    /// loaded before and is reloaded.
+    pub loaded: bool,
+    /// Its tiles' ids.
+    pub tiles: Vec<String>,
+    /// The tiles that were running and were replaced.
+    pub reloaded: Vec<String>,
+    /// What happened, in plain words.
+    pub text: String,
+    /// The same words, for `pitwall extension dev` (it prints `message`).
+    pub message: String,
 }
 
 /// One line of the card's Log.

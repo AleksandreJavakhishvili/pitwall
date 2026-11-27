@@ -214,6 +214,13 @@ pub mod method {
     /// [`ExtActed`](crate::extensions::ExtActed): asks the user, then does
     /// what Settings' button does.
     pub const EXTENSION_ACT: &str = "extension.act";
+    /// [`ExtDevReload`](crate::extensions::ExtDevReload) →
+    /// [`ExtDevReloaded`](crate::extensions::ExtDevReloaded): an extension
+    /// of tiles loaded from its folder where it is, as Settings' "Load from
+    /// folder…" does, and turned on (the first time asks the user); after
+    /// that its running tiles are replaced in place with the state they
+    /// saved (`pitwall extension dev`).
+    pub const EXTENSION_DEV_RELOAD: &str = "extension.devReload";
 
     // Events (`caps::EVENTS`).
     /// [`EventsSubscribe`](crate::EventsSubscribe) →
