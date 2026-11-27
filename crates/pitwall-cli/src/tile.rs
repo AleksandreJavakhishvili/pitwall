@@ -692,6 +692,20 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../pitwall-tile-host/tests/fixtures/hello")
     }
 
+    /// Every interface of the world counts as provided: the fixtures, which
+    /// use all of them between them, pass.
+    #[test]
+    fn every_interface_of_the_world_is_provided() {
+        for f in ["hello", "blocks", "questions", "services"] {
+            let wasm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../pitwall-tile-host/tests/fixtures").join(f).join("tile.wasm");
+            let shape = inspect(&std::fs::read(wasm).unwrap()).unwrap();
+            assert!(shape.imports.iter().all(|i| provided(i)), "{f}: {shape:?}");
+        }
+        for i in INTERFACES {
+            assert!(provided(&format!("pitwall:tile/{i}@0.1.0")), "{i}");
+        }
+    }
+
     /// The constants this crate copies from the tile host.
     #[test]
     fn worlds_and_limits_match_the_tile_host() {
