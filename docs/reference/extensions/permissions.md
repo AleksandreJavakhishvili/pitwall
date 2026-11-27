@@ -52,6 +52,18 @@ An installed extension is off until you turn it on in Settings → Extensions. B
 
 After that, the extension's card in Settings → Extensions lists each permission and whether it is granted. A permission with a switch can be taken back at any time; the tile hears it at once (`GrantsChanged`), and its next call that needs it is refused. `memory` and `sql` have no switch; a larger `sql` size takes effect when the tile starts again. Turning the extension off stops its tiles at once, and its badges and questions go. Every call a tile makes to your agents is in the extension's Activity, marked "tile".
 
+## Agents opening a tile
+
+Agents need no permission from the extension to open its tiles: every tile can be opened by the agents Pitwall starts, with content in it, and an extension can declare tools that show things in its tile ([Agent tools](agent-tools.md)). These tools only change what the sandboxed tile shows. The agent gets nothing of the tile back, and Pitwall refuses to let it replace anything you edited there, so they are on by default and allowed in agents without asking.
+
+You decide which tiles agents may use:
+
+- **Per tile:** "Agents can use <name>" on the extension's card in Settings → Extensions, with the names of its tools. Off, its tools are gone from every agent's list at once.
+- **All tiles:** "Agents can use tiles" in Settings → Agents (`agents.tileTools`).
+- **Before turning it on:** the permission screen lists a tile's tools under "Adds to Pitwall", and an author can keep a tile from agents with `"agents": false`.
+
+Each call is in the extension's Activity on its card: which agent, which tool and item, and whether it was shown.
+
 ## Unsigned preview tiles
 
 Before signed packages exist, an author can share a tile as a folder, which you install from Settings → Extensions → Install from folder… or with `pitwall extension install <folder>` ([Quick start](quick-start.md#share-a-preview-tile)). Only extensions that add tiles and run no programs install this way.
@@ -79,7 +91,6 @@ Test both cases with the harness: `Harness::build(…).grant("memory")` starts t
 
 | Phase | Grants |
 |---|---|
-| 2 | What agents may do with a tile: open it and put content in it, allowed by default, with a switch per tile ([Agent tools](agent-tools.md)) |
 | 3 | Agents reading a tile (asks once), and tools that act outside the tile (asks each time) |
 | On demand | `files.read`, `files.write`, `git.read`, `git.write`, `git.remote`, `clipboard.read`, each when a tile needs it |
 
