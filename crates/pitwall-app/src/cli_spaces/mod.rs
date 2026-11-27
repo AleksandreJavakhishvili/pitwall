@@ -193,6 +193,29 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
         self.on_main(move |cx| device_auto::show_for_agent(&device, &agent, waited, cx))
     }
 
+    /// The tile tools agents may use now (`crate::tiles::agents`).
+    fn tile_tools(&self) -> Vec<pitwall_proto::tile_tools::TileTool> {
+        self.on_main(|cx| Ok(crate::tiles::agents::tools(cx))).unwrap_or_default()
+    }
+
+    /// A tile tool call: placed and delivered on the main thread, its
+    /// answer waited for here, then recorded.
+    fn show_tile(&self, req: &pitwall_proto::tile_tools::TileShow) -> Result<pitwall_proto::tile_tools::TileShown, ErrorBody> {
+        let r = req.clone();
+        let placed = match self.on_main(move |cx| crate::tiles::agents::show(&r, cx))? {
+            Ok(p) => p,
+            Err(refused) => return Ok(refused),
+        };
+        let (ext, tile, call) = (placed.extension.clone(), placed.tile.clone(), placed.call);
+        let (shown, outcome) = crate::tiles::agents::finish(placed, pitwall_daemon::viewer::TILE_CALL_TIME);
+        let r = req.clone();
+        let _ = self.on_main(move |cx| {
+            crate::tiles::agents::finished(&ext, &tile, call, &r, &outcome, cx);
+            Ok(())
+        });
+        Ok(shown)
+    }
+
     fn mirrored(&self, id: &str) -> Option<String> {
         let id = id.to_string();
         self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()

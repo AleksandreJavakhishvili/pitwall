@@ -31,7 +31,15 @@
 //!   control.
 //!
 //! [`TileView`] draws a view's frames with the kit ([`render`]).
+//!
+//! Agents open tiles and show content in them through Pitwall's MCP
+//! server ([`agents`]): a call's content waits here until its view opens
+//! ([`Tiles::deliver`]), and the component's answer goes back to the
+//! waiting call.
 
+pub mod agents;
+#[cfg(test)]
+mod agents_tests;
 pub mod blocks;
 #[cfg(test)]
 mod blocks_tests;
@@ -50,6 +58,8 @@ mod notes_shots;
 mod gallery_tests;
 #[cfg(test)]
 mod services_shots;
+#[cfg(test)]
+mod agents_shots;
 pub mod view;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -147,6 +157,18 @@ pub struct Tiles {
     /// Extensions whose component runs without a view, for their toolbar
     /// badge ([`Tiles::keep`]): never suspended or dropped.
     kept: BTreeSet<String>,
+    /// Agents' calls by extension: ids, items per agent, the items the
+    /// user edited, the rate (kept while the app runs, also across the
+    /// component's restarts).
+    calls: HashMap<String, pitwall_tile_host::agent::ShowCalls>,
+    /// Calls delivered and waiting for the component's answer, by
+    /// (extension, call id).
+    waiting: HashMap<(String, u64), std::sync::mpsc::Sender<pitwall_tile_host::agent::Answer>>,
+    /// Content for a view that isn't open yet: it opens with it.
+    pending: HashMap<(String, String), ui::Content>,
+    /// The agent whose call each view shows last (`(id, name)`), for the
+    /// host's "from <agent>" mark.
+    origins: HashMap<(String, String), (String, String)>,
 }
 
 struct Handle(Entity<Tiles>);
@@ -191,7 +213,7 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             })
             .detach();
         }
-        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new() }
+        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new(), calls: HashMap::new(), waiting: HashMap::new(), pending: HashMap::new(), origins: HashMap::new() }
     });
     cx.set_global(Handle(e.clone()));
     // Turned off: its component stops at once (runtime.md §2.3).
@@ -207,6 +229,7 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
                 cx.emit(group::MarksChanged);
                 cx.defer(crate::float::sync);
                 t.kept.remove(&id);
+                t.fail_waiting(&id, "it was turned off");
                 cx.notify();
             }
         });
@@ -414,25 +437,106 @@ impl Tiles {
     /// a window): its component started when it isn't running, the view
     /// opened when it is.
     pub fn open(&mut self, id: &str, view: &str, cx: &mut Context<Self>) {
+        let content = self.pending.remove(&(id.to_string(), view.to_string()));
         match self.running.get_mut(id) {
             Some(r) if r.handle.is_some() => {
                 if r.views.insert(view.to_string()) {
                     let spec = crate::extensions::manifest_of(id, cx).and_then(|m| spec_of(&m, view));
                     if let (Some(h), Some(spec)) = (&r.handle, spec) {
-                        h.open_view(spec);
+                        h.open_view(ViewSpec { content, ..spec });
                     }
+                } else if let (Some(c), Some(h)) = (content, &r.handle) {
+                    h.set_content(view, c);
                 }
             }
             Some(r) => {
                 // Stopped: it stays so until Restart; the view is noted.
                 r.views.insert(view.to_string());
+                if let Some(c) = content {
+                    self.pending.insert((id.to_string(), view.to_string()), c);
+                }
             }
             None => {
+                if let Some(c) = content {
+                    self.pending.insert((id.to_string(), view.to_string()), c);
+                }
                 let views = BTreeSet::from([view.to_string()]);
                 self.start(id, views, None, cx);
             }
         }
         cx.notify();
+    }
+
+    /// An agent's call `call` brings `content` for view `view` of
+    /// extension `id`: given to the open view, else kept until the view
+    /// opens ([`Tiles::open`]); `answer` hears how it ended. Whether it
+    /// can be delivered (a stopped component can't).
+    pub fn deliver(&mut self, id: &str, view: &str, call: u64, content: ui::Content, answer: std::sync::mpsc::Sender<pitwall_tile_host::agent::Answer>, cx: &mut Context<Self>) -> Result<(), String> {
+        let key = (id.to_string(), view.to_string());
+        match self.running.get_mut(id) {
+            Some(r) if matches!(r.state, State::Stopped(_)) => {
+                let why = match &r.state {
+                    State::Stopped(s) => stop_words(s),
+                    _ => String::new(),
+                };
+                return Err(format!("{} It shows “Stopped” until the user restarts it.", why.trim_end_matches('.')));
+            }
+            Some(r) if r.handle.is_some() && r.views.contains(view) => {
+                if let Some(h) = &r.handle {
+                    h.set_content(view, content);
+                }
+            }
+            Some(r) if r.state == State::Dropped && r.views.contains(view) => {
+                self.pending.insert(key.clone(), content);
+                let saved = r.saved.take();
+                self.revive(id, saved, cx);
+            }
+            _ => {
+                self.pending.insert(key.clone(), content);
+            }
+        }
+        self.waiting.insert((id.to_string(), call), answer);
+        cx.notify();
+        Ok(())
+    }
+
+    /// A call that was given up (its tile couldn't be placed, or it took
+    /// too long): its content and wait dropped.
+    pub fn forget_call(&mut self, id: &str, view: &str, call: u64) {
+        self.waiting.remove(&(id.to_string(), call));
+        let key = (id.to_string(), view.to_string());
+        if self.pending.get(&key).is_some_and(|c| c.call == Some(call)) {
+            self.pending.remove(&key);
+        }
+    }
+
+    /// Extension `id`'s calls (made on first use).
+    pub fn calls(&mut self, id: &str) -> &mut pitwall_tile_host::agent::ShowCalls {
+        self.calls.entry(id.to_string()).or_default()
+    }
+
+    /// The agent whose call view `view` of extension `id` shows last.
+    pub fn origin(&self, id: &str, view: &str) -> Option<&(String, String)> {
+        self.origins.get(&(id.to_string(), view.to_string()))
+    }
+
+    /// Note that agent `agent` (`(id, name)`) showed something in view
+    /// `view` of extension `id` (the view's mark says so).
+    pub fn set_origin(&mut self, id: &str, view: &str, agent: (String, String), cx: &mut Context<Self>) {
+        self.origins.insert((id.to_string(), view.to_string()), agent);
+        self.seq += 1;
+        cx.notify();
+    }
+
+    /// Every call of extension `id` waiting for an answer ends: `why`.
+    fn fail_waiting(&mut self, id: &str, why: &str) {
+        let keys: Vec<(String, u64)> = self.waiting.keys().filter(|(e, _)| e == id).cloned().collect();
+        for k in keys {
+            if let Some(tx) = self.waiting.remove(&k) {
+                let _ = tx.send(pitwall_tile_host::agent::Answer::NotDelivered(why.to_string()));
+            }
+        }
+        self.pending.retain(|(e, _), _| e != id);
     }
 
     /// View `view` closed: the component hears it; with no view left it
@@ -443,11 +547,13 @@ impl Tiles {
         r.views.remove(view);
         r.shown.remove(view);
         r.frames.remove(view);
+        self.origins.remove(&(id.to_string(), view.to_string()));
         if r.views.is_empty() && !self.kept.contains(id) {
             // Its badges and questions go with it.
             self.running.remove(id);
             cx.emit(group::MarksChanged);
             cx.defer(crate::float::sync);
+            self.fail_waiting(id, "its tile was closed");
         } else {
             if let Some(h) = &r.handle {
                 h.close_view(view);
@@ -741,7 +847,7 @@ impl Tiles {
             let ext = host.load(&dir).map_err(|e| format!("It can't be loaded: {e}."))?;
             let m = ext.manifest().clone();
             self.remember_secrets(&m, cx);
-            let views: Vec<ViewSpec> = views.iter().filter_map(|v| spec_of(&m, v)).collect();
+            let views: Vec<ViewSpec> = views.iter().filter_map(|v| spec_of(&m, v).map(|s| ViewSpec { content: self.pending.remove(&(id.to_string(), v.to_string())), ..s })).collect();
             let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state, clock: Default::default() };
             let tx = self.tx.clone();
             let ext_id = id.to_string();
@@ -831,6 +937,16 @@ impl Tiles {
                 cx.defer(move |cx| ui_request(&id, req, cx));
                 return;
             }
+            TileOutput::Answered { call, answer } => {
+                if let Some(tx) = self.waiting.remove(&(id.to_string(), call)) {
+                    let _ = tx.send(answer);
+                }
+                return;
+            }
+            TileOutput::UserEdited(call) => {
+                self.calls.entry(id.to_string()).or_default().user_edited(call);
+                return;
+            }
             TileOutput::StateSaved(bytes) if r.dropping => {
                 self.drop_hidden(id, Some(bytes));
             }
@@ -862,7 +978,9 @@ impl Tiles {
                     self.running.remove(id);
                     self.start(id, views, None, cx);
                 } else {
+                    let words = stop_words(&why);
                     r.state = State::Stopped(why);
+                    self.fail_waiting(id, &words);
                 }
             }
         }
