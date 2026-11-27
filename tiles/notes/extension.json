@@ -7,6 +7,10 @@
   "icon": "page-right",
   "description": "Private plain-text notes beside your agents, saved as you type",
   "license": "Apache-2.0",
+  "permissions": {
+    "agents.read": "To list the agents you can send a note to",
+    "agents.queue": "To put a note in an agent's Next up, waiting for your Send"
+  },
   "contributes": {
     "tiles": [
       { "id": "main", "title": "Notes", "icon": "page-right", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json" }
