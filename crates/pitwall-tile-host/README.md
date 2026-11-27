@@ -15,14 +15,17 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 
 | File | Interface | What |
 |---|---|---|
-| `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
-| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node); views and content; `host-error` |
+| `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`, `agents`, `badges`, `asks`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
+| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node, `agents-changed`, `ask-answered`); views and content; `host-error` |
 | `guest.wit` | `guest` (export) | `init`, `render(view)`, `handle(event) -> bool`, `save-state` |
 | `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view` |
 | `log.wit` | `log` | `debug`, `info`, `warn`, `error` |
 | `tasks.wit` | `tasks` | `timer(ms, repeat)`, `cancel` |
 | `storage.wit` | `storage` | key-value: `get`, `get-many` (≤ 1024 keys, one call), `set`, `delete`, `list`, `usage` (10 MiB) |
 | `settings.wit` | `settings` | `get`, `secret`, `open` |
+| `agents.wit` | `agents` | `list` (`agents.read`), `queue-add` (`agents.queue`, ≤ 4 000 characters): the daemon's `agent.list` and `queue.add` through `HostConfig::methods`, called as the extension |
+| `badges.wit` | `badges` | `set`: the whole set of sidebar badges (`"badges": true`), checked and cut here, handed to the app as `UiRequest::Badges` |
+| `asks.wit` | `asks` | `set` (`"asks": true`) and `reply`: questions for the floating control (`UiRequest::Asks`, `UiRequest::AskResult`); answers come back as the `ask-answered` event |
 
 A guest is written with the SDK, `sdk/pitwall-extension` (its `wit/` is a
 copy of this one; `tests/sdk_wit.rs` keeps them equal), and built with
@@ -41,7 +44,7 @@ use pitwall_tile_host::{HostConfig, StartOptions, TileHost, TileOutput, ViewSpec
 // Once per app. The data folder is the caller's (never guessed here):
 // compiled files go in <data>/cache/tiles/<id>/, each extension's storage
 // and settings in <data>/extension-data/<id>/.
-let host = TileHost::new(HostConfig { data_dir, secrets: Arc::new(MySecureStore) })?;
+let host = TileHost::new(HostConfig { secrets: Arc::new(MySecureStore), methods: Arc::new(MyDaemon), ..HostConfig::new(data_dir) })?;
 
 // Check an extension folder (manifest with contributes.tiles, its
 // component file, its world). Cheap: nothing is compiled.
@@ -98,7 +101,7 @@ calls `set_content` for a repeat.
 | `Started { cached, took }` | instantiated, `init` ok |
 | `Frame(FrameUpdate { view, tile, frame: Arc<ui::Frame>, diff: Diff, took })` | a view's whole tree, already checked against the limits, with its keyed diff (`continues[i]`: the old node index whose state node `i` keeps; `changed`, `added`, `removed`). Unchanged renders aren't sent |
 | `Log(LogLine { level, message, at, from_host })` | the tile's Log: its `log` calls, stdout (info) and stderr (warn), and host notes (slow calls, dropped toasts) |
-| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`: apply with `cx.defer` |
+| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`: apply with `cx.defer` |
 | `StateSaved(Vec<u8>)` | answer to `save_state()` |
 | `Stopped(StopReason)` | the last output: `Stopped` (by `stop()`), `Deadline { call, limit }`, `Crashed(_)` (trap, panic, memory limit), `FrameRefused(_)` (tree limits), `InitFailed(_)`, `LoadFailed(_)`. `Display` gives the user-facing words |
 
@@ -114,7 +117,10 @@ id)`): `settings()`, `set_setting(key, Option<&str>)` (values as
 `SettingDef::check_value` returns them; never secrets), `storage_bytes()`,
 `dir()`. After writing a setting, call `handle.settings_changed()`.
 Secrets come from the `Secrets` trait in `HostConfig` (the app's secure
-store; called on the worker thread).
+store; called on the worker thread). The agents' calls go through the
+`Methods` trait (`call(extension, method, params)`: the daemon's method
+table, called as that extension; `NoMethods` answers "unsupported"); the
+answer to a question goes back as an event, `handle.send(ui::Event::AskAnswered(..))`.
 
 `frame::check` and `frame::diff` are public for the test harness; `limits`
 has every limit as a constant.

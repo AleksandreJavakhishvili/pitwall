@@ -33,6 +33,10 @@ pub mod render;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+pub(crate) mod group_tests;
+#[cfg(test)]
+mod group_shots;
+#[cfg(test)]
 mod notes_shots;
 pub mod view;
 

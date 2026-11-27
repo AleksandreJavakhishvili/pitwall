@@ -58,9 +58,13 @@ done.
 - Every tile entry names the same `wasm` (one component per extension); each
   tile id is a view the component renders.
 - **Permissions**: every permission needs your reason, one line the user
-  reads before granting it. WIT 0.1 needs none for its services; `memory`
-  (more than 64 MiB, at most 512) is the only grant with an effect so far.
-  Ask only for what the tile uses.
+  reads before granting it. WIT 0.1 needs none for its own services;
+  `memory` (more than 64 MiB, at most 512), `agents.read` (list your
+  agents), `agents.queue` (put text in an agent's Next up) and
+  `projects.read` (badges on project rows) have an effect. Ask only for
+  what the tile uses.
+- `"badges": true` and `"asks": true` in `contributes` let the tile put
+  badges on sidebar rows and questions in the floating control.
 - Setting types: `text`, `url`, `number`, `bool`, `choice`, `secret` (kept
   in the system's secure store, read with `settings::secret`).
 
@@ -185,8 +189,27 @@ the schema small and describe each field: agents read it.
 - State across a reload: `fn save_state(&self) -> Option<SavedState>` with
   `SavedState::json(&…)`, read back in `new` with `cx.restore::<T>()`.
 
-There is no network, file or agent access in WIT 0.1; don't try to reach
-them (no `std::fs`, no sockets): they fail.
+## Agents, badges and questions (granted)
+
+- `agents::list()` (`agents.read`): id, name, kind, project, branch,
+  state, `waiting_on_you`, `queued`. `Event::AgentsChanged` says to read
+  again.
+- `agents::queue_add(&id, text)` (`agents.queue`): into the agent's Next
+  up, marked "From <name>", waiting for the user's Send. ≤ 4 000
+  characters; 3 waiting per agent; one per agent every 10 s (`Busy`).
+- `badges::set(&[Badge::count(Row::Agent(id), 2).tone(Tone::Warn)])`
+  (`"badges": true`): the whole set each time, `&[]` clears.
+- `asks::set(&[Ask::new("id", "Question?").suggest("Yes").blocking()])`
+  (`"asks": true`): shown in the floating control. The answer arrives as
+  `Event::AskAnswered(Answer { id, picks, text, declined })`; reply with
+  `asks::reply(&id, None)` (taken) or `Some("why")` (refused), then set
+  the questions without it.
+- Harness: `.grant("agents.read")`, `.agent(agent("a1", "web"))`,
+  `set_agents`, `queued()`, `badges()`, `asks()`, `answer(id, &[0])`,
+  `answer_text`, `decline`, `reply(id)`.
+
+There is no network or file access in WIT 0.1, and never agents'
+terminals; don't try to reach them (no `std::fs`, no sockets): they fail.
 
 ## Tests
 
