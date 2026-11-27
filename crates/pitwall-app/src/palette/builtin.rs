@@ -315,7 +315,7 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
             let (ext, view) = (m.id.clone(), tile.id.clone());
             let icon = tile.icon.as_deref().and_then(crate::kit::icons::known).or_else(|| crate::kit::icons::known(crate::extensions::icon_of(&m))).unwrap_or("extension");
             out.push(
-                Command::new(format!("tile-{}/{}", m.id, tile.id), format!("Open {} ({})", tile.title, m.name), format!("open tile {} {} extension", tile.title.to_lowercase(), m.name.to_lowercase()), on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx)))
+                Command::new(format!("tile-{}/{}", m.id, tile.id), crate::tiles::open_label(&tile.title, &m.name), format!("open tile {} {} extension", tile.title.to_lowercase(), m.name.to_lowercase()), on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx)))
                     .icon(icon)
                     .rank(rank::TERMINALS),
             );
@@ -329,7 +329,7 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
             let (ext, view) = (m.id.clone(), v.id.clone());
             let icon = v.icon.as_deref().and_then(crate::kit::icons::known).or_else(|| crate::kit::icons::known(crate::extensions::icon_of(&m))).unwrap_or("extension");
             out.push(
-                Command::new(format!("view-{}/{}", m.id, v.id), format!("Open {} ({})", v.title, m.name), format!("open view {} {} extension", v.title.to_lowercase(), m.name.to_lowercase()), on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx)))
+                Command::new(format!("view-{}/{}", m.id, v.id), crate::tiles::open_label(&v.title, &m.name), format!("open view {} {} extension", v.title.to_lowercase(), m.name.to_lowercase()), on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx)))
                     .icon(icon)
                     .rank(rank::TERMINALS),
             );
