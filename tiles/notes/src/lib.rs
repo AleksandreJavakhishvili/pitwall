@@ -3,8 +3,10 @@
 //! notes in the tile's own storage, edited in Pitwall's multi-line text
 //! field, saved about a second after typing stops, when the note's field
 //! loses focus and when the tile is hidden. An agent (or the user) can open
-//! the tile with a draft note (input.schema.json); it stays unsaved until
-//! the user keeps it.
+//! the tile with a draft note (input.schema.json, `notes__open` for
+//! agents); it stays unsaved until the user keeps it. Once the user types
+//! in an agent's draft, Pitwall is told (`tools::user_edited`), so the
+//! agent can't replace what the user wrote.
 
 mod note;
 
@@ -45,6 +47,9 @@ struct ViewState {
     filter: String,
     /// A draft it was opened with, not saved until the user keeps it.
     draft: Option<String>,
+    /// The agent's call that brought the draft, until the user edits it.
+    #[serde(default)]
+    draft_call: Option<u64>,
     #[serde(skip)]
     confirm_delete: bool,
     /// A row of the list asks whether to delete its note.
@@ -141,6 +146,7 @@ impl Tile for Notes {
                 self.leave(&view.id, cx);
                 let vs = self.view_mut(&view.id);
                 vs.draft = Some(note::draft_text(d.title.as_deref(), &d.text));
+                vs.draft_call = content.call();
                 vs.open = Some(Open::Draft);
             }
             Err(e) => {
@@ -374,6 +380,10 @@ impl Notes {
                         let vs = this.view_mut(&v3);
                         let retitled = vs.draft.as_deref().map(note::title) != Some(note::title(t));
                         vs.draft = Some(t.to_string());
+                        // The user's words now: the agent can't replace them.
+                        if let Some(call) = vs.draft_call.take() {
+                            pitwall_extension::tools::user_edited(call);
+                        }
                         if retitled {
                             cx.notify();
                         }
@@ -553,6 +563,7 @@ impl Notes {
 
     fn keep_draft(&mut self, view: &str, cx: &mut Cx<Self>) {
         let Some(text) = self.view_mut(view).draft.take() else { return };
+        self.view_mut(view).draft_call = None;
         let id = self.next_id;
         self.next_id += 1;
         self.notes.insert(0, Note { id, text: String::new(), updated: now_ms() });
@@ -565,6 +576,7 @@ impl Notes {
     fn discard_draft(&mut self, view: &str, cx: &mut Cx<Self>) {
         let vs = self.view_mut(view);
         vs.draft = None;
+        vs.draft_call = None;
         vs.open = None;
         cx.notify();
     }

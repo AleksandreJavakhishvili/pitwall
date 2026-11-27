@@ -231,6 +231,30 @@ fn opened_with_a_draft_it_stays_unsaved_until_kept() {
     assert!(shows(&tile, "Saved") && !shows(&tile, "Draft, not saved"), "{}", tile.text_snapshot());
 }
 
+/// `notes__open` from an agent (agent-tools.md §11.2): the draft shown,
+/// replaced in place under the same item, refused once the user typed in
+/// it; an input that doesn't fit the schema never reaches the tile.
+#[test]
+fn an_agent_drafts_a_note_until_the_user_edits_it() {
+    use pitwall_extension_test::Called;
+    let mut tile = notes();
+    let r = tile.call("claude", None, Some("plan"), json!({ "title": "Plan", "text": "- a" }));
+    assert_eq!(r, Called::Shown);
+    assert!(shows(&tile, "Draft, not saved") && tile.field_text("editor/draft/text") == "Plan\n- a", "{}", tile.text_snapshot());
+    // The same item again: the draft replaced in place.
+    assert!(tile.call("claude", None, Some("plan"), json!({ "title": "Plan", "text": "- a\n- b" })).is_ok());
+    assert_eq!(tile.field_text("editor/draft/text"), "Plan\n- a\n- b");
+    // No text: refused before the tile sees it.
+    let r = tile.call("claude", None, Some("plan"), json!({ "title": "Plan" }));
+    assert!(matches!(&r, Called::Refused(m) if m.contains("`text` is required")), "{r:?}");
+    // The user types in it: the agent can't replace it any more.
+    tile.type_into("editor/draft/text", "Plan\n- a\n- b\n- mine");
+    let r = tile.call("claude", None, Some("plan"), json!({ "text": "Plan\n- c" }));
+    assert!(matches!(&r, Called::Refused(m) if m.contains("The user changed “plan”")), "{r:?}");
+    assert_eq!(tile.field_text("editor/draft/text"), "Plan\n- a\n- b\n- mine");
+    assert!(tile.storage().is_empty(), "still a draft, not saved");
+}
+
 #[test]
 fn a_discarded_draft_leaves_nothing() {
     let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).open_with("main", json!({ "text": "scratch" }));
