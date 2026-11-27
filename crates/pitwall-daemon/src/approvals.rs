@@ -93,13 +93,24 @@ impl Approvals {
 
     /// Ask the user and wait for the answer (or the timeout). Blocking.
     pub fn ask(&self, ask: Ask) -> Decision {
-        let rememberable = ask.risk == Risk::Low;
+        self.ask_with(ask, None).0
+    }
+
+    /// [`ask`](Self::ask) with a third answer, labelled `always` ("Always
+    /// for claude"), whose grant the caller keeps: `true` when the user
+    /// chose it. Such a request has no "remember" checkbox.
+    pub fn ask_always(&self, ask: Ask, always: String) -> (Decision, bool) {
+        self.ask_with(ask, Some(always))
+    }
+
+    fn ask_with(&self, ask: Ask, always: Option<String>) -> (Decision, bool) {
+        let rememberable = ask.risk == Risk::Low && always.is_none();
         let key = (ask.caller_key.clone(), ask.action.clone());
         let id = uuid::Uuid::new_v4().to_string();
         {
             let mut st = lock(&self.state);
             if rememberable && st.remembered.contains(&key) {
-                return Decision::Remembered;
+                return (Decision::Remembered, false);
             }
             let now = unix_ms();
             st.pending.push(Pending {
@@ -113,6 +124,7 @@ impl Approvals {
                     rememberable,
                     created_at: now,
                     expires_at: now + self.timeout.as_millis() as u64,
+                    always: always.clone(),
                 },
                 caller_key: ask.caller_key,
                 answer: None,
@@ -129,12 +141,13 @@ impl Approvals {
                     if allow && remember && rememberable {
                         st.remembered.insert((p.caller_key, p.view.action));
                     }
-                    break if allow { Decision::Allowed } else { Decision::Denied };
+                    let always = allow && remember && p.view.always.is_some();
+                    break (if allow { Decision::Allowed } else { Decision::Denied }, always);
                 }
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
                     st.pending.remove(i);
-                    break Decision::TimedOut;
+                    break (Decision::TimedOut, false);
                 }
                 st = self.answered.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
             }
@@ -225,5 +238,22 @@ mod tests {
         assert_eq!(a.ask(ask(Risk::High, "agent:3")), Decision::TimedOut, "high risk is asked every time");
         a.forget_remembered();
         assert_eq!(a.ask(ask(Risk::Low, "agent:1")), Decision::TimedOut);
+    }
+
+    /// A tile tool's "Always for <agent>": no checkbox, the caller keeps
+    /// the grant (nothing remembered here).
+    #[test]
+    fn a_third_answer_says_always() {
+        let a = Approvals::new(Duration::from_millis(500));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let s = seen.clone();
+        a.on_change(move |l| lock(&s).extend(l.into_iter().map(|v| (v.rememberable, v.always))));
+        let t = answer_when_asked(&a, true, true);
+        assert_eq!(a.ask_always(ask(Risk::Low, "agent:1"), "Always for claude".into()), (Decision::Allowed, true));
+        t.join().unwrap();
+        assert_eq!(lock(&seen)[0], (false, Some("Always for claude".into())));
+        let t = answer_when_asked(&a, true, false);
+        assert_eq!(a.ask_always(ask(Risk::Low, "agent:1"), "Always for claude".into()), (Decision::Allowed, false), "asked again: the grant is the caller's");
+        t.join().unwrap();
     }
 }

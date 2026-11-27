@@ -33,6 +33,11 @@ pub struct McpTools {
     pub instructions: String,
     #[serde(default)]
     pub stamp: String,
+    /// Every tile tool, also those offered only to the CLI or the palette
+    /// (`pitwall extension tools` and `commands` list them; the MCP server
+    /// gives agents `tools` only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tiles: Vec<crate::tile_tools::TileTool>,
 }
 
 /// `mcp.call`: a `tools/call` as the agent sent it, and the agent the
@@ -45,6 +50,13 @@ pub struct McpCall {
     pub arguments: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// From `pitwall extension call` or `run` rather than an agent's MCP
+    /// server: a tile tool offered to the CLI (`expose`) may be called.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cli: bool,
+    /// Give up sooner than the tool's own time (ms; never longer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
 }
 
 /// `mcp.call`'s answer: MCP's `tools/call` result, as it goes to the agent,
@@ -245,13 +257,16 @@ pub fn served(files: bool, web: bool, settings: bool, device: bool) -> McpTools 
 /// now ([`crate::tile_tools`]) after its own, and a line per extension in
 /// the instructions.
 pub fn served_with(files: bool, web: bool, settings: bool, device: bool, tiles: &[crate::tile_tools::TileTool]) -> McpTools {
+    // Agents get the tools offered to agents; the CLI reads every one
+    // (`tiles`).
+    let for_agents: Vec<crate::tile_tools::TileTool> = tiles.iter().filter(|t| t.exposed("agents")).cloned().collect();
     let mut tools = tools_for(files, web, settings, device);
     if let Value::Array(list) = &mut tools {
-        list.extend(tiles.iter().map(crate::tile_tools::mcp_tool));
+        list.extend(for_agents.iter().map(crate::tile_tools::mcp_tool));
     }
     let mut instructions = instructions(files, web, settings, device);
-    instructions.push_str(&crate::tile_tools::instructions(tiles));
-    McpTools { stamp: stamp(&tools, &instructions), tools, instructions }
+    instructions.push_str(&crate::tile_tools::instructions(&for_agents));
+    McpTools { stamp: stamp(&tools, &instructions), tools, instructions, tiles: tiles.to_vec() }
 }
 
 /// Changes when the tools or the instructions do (FNV-1a of their JSON:

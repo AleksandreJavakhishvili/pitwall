@@ -26,7 +26,7 @@
 use serde_json::Value;
 
 use pitwall_proto::mcp::{self, McpCall, McpCalled, McpTools};
-use pitwall_proto::tile_tools::{self, TileShow, TileTool};
+use pitwall_proto::tile_tools::{self, TileRun, TileShow, TileTool};
 use pitwall_proto::{code, AgentFocused, DeviceOpen, DeviceOpened, DeviceShow, DeviceShown, ErrorBody, SettingsOpen, SettingsOpened, SettingsShow, SettingsShown, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, WebOpen, WebOpened, WebShow, WebShown, DEVICE_PROTO, SETTINGS_PROTO, VIEWER_PROTO, WEB_PROTO};
 
 use crate::identity::Caller;
@@ -76,6 +76,14 @@ pub trait ViewerBackend: Send + Sync {
     fn show_tile(&self, req: &pitwall_proto::tile_tools::TileShow) -> Result<pitwall_proto::tile_tools::TileShown, ErrorBody> {
         let _ = req;
         Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't show tiles"))
+    }
+    /// Run `req`, a `read` or `act` call (the input checked already): ask
+    /// the user when they haven't allowed it (agent-tools.md §11.5), then
+    /// give it to the tile and wait for its answer, at most the kind's
+    /// time. Blocks: called on a connection thread.
+    fn run_tile(&self, req: &pitwall_proto::tile_tools::TileRun) -> Result<pitwall_proto::tile_tools::TileRan, ErrorBody> {
+        let _ = req;
+        Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't run tile tools"))
     }
     /// Move the focus to agent `id`'s tile in the window that shows it,
     /// only while Pitwall is the app in front: never brings Pitwall
@@ -150,9 +158,96 @@ fn tile_tools(s: &Server) -> Vec<TileTool> {
     s.viewer.as_deref().map(|b| b.tile_tools()).unwrap_or_default()
 }
 
+/// The largest file a `present` call may name (`from_file`).
+pub const TILE_FILE_MAX: u64 = 16 << 20;
+
+/// The text of file `rel` a `present` call names, inside folder `root`
+/// (the calling agent's working folder or project): a relative path that
+/// stays inside it once links are followed, at most [`TILE_FILE_MAX`],
+/// UTF-8 text.
+pub fn from_file(root: &str, rel: &str) -> Result<String, String> {
+    if root.is_empty() {
+        return Err("`from_file`: you have no project folder in Pitwall to read it from".into());
+    }
+    let p = std::path::Path::new(rel);
+    if p.is_absolute() || rel.contains('\0') {
+        return Err(format!("`from_file` is a path inside your project, relative to it, not {rel}"));
+    }
+    let base = std::fs::canonicalize(root).map_err(|e| format!("`from_file`: your project folder can't be read: {e}"))?;
+    let full = std::fs::canonicalize(base.join(p)).map_err(|e| format!("`from_file`: {rel} can't be read: {e}"))?;
+    if !full.starts_with(&base) {
+        return Err(format!("`from_file`: {rel} is outside your project"));
+    }
+    let meta = std::fs::metadata(&full).map_err(|e| format!("`from_file`: {rel} can't be read: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("`from_file`: {rel} isn't a file"));
+    }
+    if meta.len() > TILE_FILE_MAX {
+        return Err(format!("`from_file`: {rel} is {} MiB, over the 16 MiB a call may name", meta.len() >> 20));
+    }
+    let bytes = std::fs::read(&full).map_err(|e| format!("`from_file`: {rel} can't be read: {e}"))?;
+    String::from_utf8(bytes).map_err(|_| format!("`from_file`: {rel} isn't UTF-8 text"))
+}
+
+/// A `read` or `act` call: only an agent Pitwall started (identified from
+/// the calling process, never from what it says), or the user in one of
+/// Pitwall's own plain terminals; the input checked; the app asks the
+/// user and runs it.
+fn tile_run(s: &Server, caller: &Caller, t: &TileTool, c: &McpCall) -> Value {
+    let name = t.name();
+    let nothing = |why: String| mcp::result(&format!("Nothing was done: {why}"), None, true);
+    let Some(backend) = s.viewer.as_deref() else { return nothing("this Pitwall has no windows to ask the user in".into()) };
+    let size = c.arguments.to_string().len();
+    if size > TILE_INPUT_MAX {
+        return nothing(format!("the input is {} KiB of JSON, over the 1 MiB a call may carry; send less", size / 1024));
+    }
+    let Some((id, _)) = &caller.agent else { return nothing("only agents Pitwall started can use this tool".into()) };
+    let agent = match agent_named(s, id, "") {
+        Ok(a) => a,
+        Err(e) => return nothing(e.message),
+    };
+    // A plain terminal Pitwall runs for the user: the user themselves.
+    let by_user = agent.terminal && !agent.agent_in_terminal;
+    let input = match &c.arguments {
+        Value::Null => Value::Object(Default::default()),
+        v => v.clone(),
+    };
+    if let Some(schema) = &t.input {
+        let problems = pitwall_core::extensions::tools::check_input(schema, &input);
+        if !problems.is_empty() {
+            let mut text = format!("Nothing was done: the input doesn't fit {name}.");
+            for p in problems {
+                text.push('\n');
+                text.push_str(&p);
+            }
+            return mcp::result(&text, None, true);
+        }
+    }
+    let req = TileRun {
+        agent_id: if by_user { String::new() } else { agent.id.clone() },
+        agent_name: if by_user { String::new() } else { agent.name.clone() },
+        project: Some(agent.project.clone()).filter(|p| !p.is_empty()),
+        by_user,
+        extension: t.extension.clone(),
+        tile: t.tiles.first().map(|x| x.id.clone()).unwrap_or_default(),
+        tool: t.tool.clone().unwrap_or_default(),
+        kind: t.kind.clone(),
+        input: input.to_string(),
+        timeout_ms: c.timeout_ms,
+    };
+    match backend.run_tile(&req) {
+        Ok(ran) => tile_tools::ran_result(&ran),
+        Err(e) if e.code == code::OFF => mcp::result(&e.message, None, true),
+        Err(e) => nothing(e.message),
+    }
+}
+
 /// A tile tool call: the caller identified, the input checked against the
 /// tool's schema, the tile asked to show it. Its MCP result.
 fn tile_call(s: &Server, caller: &Caller, t: &TileTool, c: &McpCall) -> Value {
+    if !t.show_only() {
+        return tile_run(s, caller, t, c);
+    }
     let name = t.name();
     let nothing = |why: String| mcp::result(&format!("Nothing was shown: {why}"), None, true);
     let Some(backend) = s.viewer.as_deref() else { return nothing("this Pitwall has no windows to show tiles in".into()) };
@@ -203,6 +298,15 @@ fn tile_call(s: &Server, caller: &Caller, t: &TileTool, c: &McpCall) -> Value {
         },
     };
     let project = Some(agent.project.clone()).filter(|p| !p.is_empty());
+    // A file named instead of inline text: read inside the agent's own
+    // folder (no `files.read` grant: the agent chose a file of its own).
+    let large = match call.from_file.as_deref() {
+        None => None,
+        Some(rel) => match from_file(&agent.cwd, rel) {
+            Ok(text) => Some(text),
+            Err(e) => return nothing(e),
+        },
+    };
     let req = TileShow {
         agent_id: agent.id.clone(),
         agent_name: agent.name.clone(),
@@ -214,6 +318,9 @@ fn tile_call(s: &Server, caller: &Caller, t: &TileTool, c: &McpCall) -> Value {
         input: call.content.as_ref().map(Value::to_string),
         place: call.place,
         of,
+        append: call.append,
+        from_file: call.from_file.clone(),
+        large,
     };
     match backend.show_tile(&req) {
         Ok(shown) => {
@@ -239,8 +346,15 @@ pub fn mcp_call(s: &Server, caller: &Caller, c: McpCall) -> Res {
         _ => mcp::result(&format!("Nothing was opened: {}", e.message), None, true),
     };
     let tiles = tile_tools(s);
+    let place = if c.cli { "cli" } else { "agents" };
     if let Some(t) = tiles.iter().find(|t| t.name() == c.name) {
-        let result = tile_call(s, caller, t, &c);
+        let result = if t.exposed(place) {
+            tile_call(s, caller, t, &c)
+        } else if c.cli {
+            mcp::result(&format!("{} isn't offered to the command line (its manifest's \"expose\"). Nothing was done.", c.name), None, true)
+        } else {
+            mcp::result(&format!("Nothing was opened: no tool {}", c.name), None, true)
+        };
         let McpTools { stamp, .. } = served(s);
         return serde_json::to_value(McpCalled { result, stamp }).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()));
     }

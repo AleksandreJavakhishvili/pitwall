@@ -32,7 +32,10 @@ pub const APPEND_EVERY: Duration = Duration::from_millis(250);
 /// delivers the call, the tile reads it in parts (`input-part`) while it
 /// handles it, and the text is let go when the call ends.
 #[derive(Debug, Clone, Default)]
-pub struct LargeInputs(Arc<Mutex<HashMap<(String, u64), Arc<String>>>>);
+pub struct LargeInputs(Arc<Mutex<Texts>>);
+
+/// The texts by (extension, call).
+type Texts = HashMap<(String, u64), Arc<String>>;
 
 impl LargeInputs {
     /// Keep `text` for call `call` of extension `ext`.

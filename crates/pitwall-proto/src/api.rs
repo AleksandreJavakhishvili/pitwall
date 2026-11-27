@@ -552,6 +552,12 @@ pub struct ApprovalView {
     /// Unix ms; unanswered by then = denied.
     #[ts(type = "number")]
     pub expires_at: u64,
+    /// A third answer, "Always for <agent>" (a tile tool's grant,
+    /// kept until the user revokes it): its label. Answered as `allow`
+    /// with `remember`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub always: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
