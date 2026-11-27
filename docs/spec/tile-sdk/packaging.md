@@ -126,3 +126,59 @@ Remove [today]: off, settings and secrets forgotten, folder and
 `.previous` deleted, plus the compile cache. Its data folder asks:
 "Also delete its data (3.2 MiB)?", default keep, as services' data
 [today].
+
+### 6.6 As built (phase 4)
+
+What phase 4 built, and where it differs from the design above.
+
+- **The file.** `pitwall extension pack [folder] [-o file]` writes
+  `<id>-<version>.pwtile`. The same folder always gives the same bytes:
+  entries sorted by name, the date fixed at 1980-01-01, mode 0644, no
+  extra fields. The reader is Pitwall's own (`pitwall_core::extensions::
+  package::zip`), not a general zip library. It accepts stored or deflate
+  entries only. It refuses zip64, encryption, more than one disk, a
+  comment, local headers that disagree with the central directory,
+  entries that overlap, links and special files, and duplicate names
+  (case-insensitively). It also refuses names that aren't plain ASCII
+  `[A-Za-z0-9._-/]` with no hidden parts, no `..`, no absolute paths and
+  no Windows device names. Sizes are checked before anything is
+  inflated. Inflating stops at the declared size, and the CRC-32 must
+  match. Only the files of 6.1 are allowed.
+- **Differences from 6.1.** There is no checksums file inside the
+  package. The signature covers the whole file, and the SHA-256 of the
+  file is recorded in the install marker. Names are limited to ASCII
+  instead of being checked for NFC. `LICENSE` is optional: it is
+  required for the index, in phase 5. A package holds tiles only. An
+  extension with an adapter or a service still installs from Git, npm
+  or a folder.
+- **Signing.** Signatures are minisign (Ed25519, prehashed). Pitwall
+  verifies with `minisign-verify` (MIT, no dependencies). `pitwall
+  extension sign` and the tests sign with `minisign` (MIT). Neither crate
+  has had a formal outside audit; both are small and widely used. Legacy
+  (non-prehashed) signatures are refused. The signature's untrusted
+  comment carries the public key (`pitwall package signature, public key
+  <base64>`), so a first install needs nothing else. A key already
+  trusted for that id is used even when the comment is missing, for
+  example with a signature written by plain `minisign`. The signature is
+  checked over the file's bytes before any entry is read.
+- **Trust.** Trust is on first use, per extension id. The marker records
+  the signer's key id and public key. An update must be signed by the
+  same public key: the whole key is compared, because a key id is only a
+  label that anyone can copy. Pitwall does not read rotation
+  statements. A package signed by another key, or an unsigned one
+  replacing a signed one, needs the user's explicit "Trust the new key"
+  in Settings, or `--new-key` from the CLI. An unsigned package needs
+  "Install unsigned", or `--unsigned`. It is marked as a preview, as a
+  folder is. A folder can't replace a signed package. An older version
+  is refused and points at Go back. The installed version is refused
+  too, whether it is the same file or a different one.
+- **Updates.** An update comes from installing a newer file. There is
+  no update check for files, because there is no index or release
+  source yet (phase 5). The review lists new permissions, wider ones
+  (new `net` hosts, larger `memory` or `sql`), removed ones and the
+  key. A new permission waits for Allow. When new hosts are added, the
+  existing `net` decision is dropped, so the user is asked again.
+- **Go back and Remove.** Both reuse `install::rollback` and
+  `install::remove` (`.<id>.previous`). In Settings, Remove asks
+  "Also delete its data (size)?", default keep, for tiles as well as
+  services. `pitwall extension remove` and agents keep the data.
