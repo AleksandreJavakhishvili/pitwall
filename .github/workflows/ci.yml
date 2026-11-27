@@ -149,6 +149,49 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
 
+  tile-sdk:
+    name: Tile SDK (wasm32-wasip2 + templates)
+    # The guest SDK (sdk/pitwall-extension, outside the workspace) built for
+    # the tile target, its own tests, the hello fixture rebuilt from it, and
+    # each `pitwall extension new --template` project built, checked and
+    # tested with pitwall-extension-test (docs/spec/tile-sdk/authoring.md).
+    # The other jobs don't install the wasm target, so they skip these.
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install
+      - run: rustup target add wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            sdk/pitwall-extension -> target
+
+      - name: SDK for wasm32-wasip2 (build + clippy)
+        working-directory: sdk/pitwall-extension
+        run: |
+          cargo build --target wasm32-wasip2 --release
+          cargo clippy --target wasm32-wasip2 -- -D warnings
+
+      - name: SDK tests (native)
+        working-directory: sdk/pitwall-extension
+        run: cargo test
+
+      - name: hello fixture builds with the SDK
+        working-directory: crates/pitwall-tile-host/tests/fixtures/hello-tile
+        run: cargo build --target wasm32-wasip2 --release
+
+      - name: templates generate, build, pass check and their tests
+        env:
+          PITWALL_TEST_TEMPLATES: "1"
+        run: cargo test -p pitwall-cli -- tile::
+
   rust-windows:
     name: Rust on Windows (build + test + clippy)
     # The Windows port (ConPTY holder, named pipes, pitwall-hook, PowerShell
