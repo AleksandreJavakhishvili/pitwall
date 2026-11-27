@@ -75,7 +75,9 @@ pub mod events;
 pub mod files;
 mod group;
 mod host;
+mod report;
 mod services;
+pub mod take_back;
 pub mod style;
 mod tile;
 pub mod tools;
@@ -92,6 +94,8 @@ pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, A
 pub use blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView};
 pub use canvas::{canvas, Canvas, TextFont, TextWeight, Viewport};
 pub use group::{agents, asks, badges};
+pub use report::status;
+pub use take_back::TakeBack;
 pub use events::{Blur, Dismissed, Event, Focused};
 pub use widgets::{avatar, badge, banner, bar_chart, breadcrumbs, card, checkbox, chip, confirm_sheet, copyable, disclosure, divider, empty_state, form_row, h_split, kbd, key_values, line_chart, link, number_field, popover, progress, radio_group, relative_time, relative_time_ms, search_field, segmented, skeleton, slider, sparkline, spinner, status_timeline, switch, toolbar, v_split, vertical_divider, Orientation, Placement, SkeletonShape};
 pub use host::{log, settings, storage, ui, HostError, Tone};
@@ -113,6 +117,8 @@ pub mod prelude {
     pub use crate::group::agents::{self, Agent};
     pub use crate::group::asks::{self, Answer, Ask};
     pub use crate::group::badges::{self, Badge, Row};
+    pub use crate::report::status;
+    pub use crate::take_back::TakeBack;
     pub use crate::widgets::{avatar, badge, banner, bar_chart, breadcrumbs, card, checkbox, chip, confirm_sheet, copyable, disclosure, divider, empty_state, form_row, h_split, kbd, key_values, line_chart, link, number_field, popover, progress, radio_group, relative_time, relative_time_ms, search_field, segmented, skeleton, slider, sparkline, spinner, status_timeline, switch, toolbar, v_split, vertical_divider, Orientation, Placement, SkeletonShape};
     pub use crate::events::{Dismissed, Blur, Click, CodeSelection, Dropped, Event, Focused, Hover, InputChange, KeyPress, LineClick, Pointer, PointerKind, Side, Submit, Theme, ThemeMode};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};

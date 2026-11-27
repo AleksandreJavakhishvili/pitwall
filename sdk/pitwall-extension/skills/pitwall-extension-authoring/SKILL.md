@@ -138,6 +138,12 @@ pitwall_extension::export!(App);
   in ui.md) are dropped with a Log line, so bind `cmd-s` or plain keys. A
   key without ⌘/Ctrl/Alt doesn't fire while a text field has focus.
   `cx.focus("list/head/search")`: the key path without the root's.
+  Number keys pick an open question's suggestions as in Pitwall's inbox:
+  bind `1`–`9` while it is open (they type into a focused reply field).
+- **A shortcut** to open a tile from anywhere: `"shortcut": "cmd-shift-u"`
+  in its manifest entry plus the `shortcut` permission (off until the user
+  grants it; `cmd-`/`cmd-shift-` and a letter, digit or F-key, never
+  Pitwall's own; the user may change it in the card).
 - **Text fields**: Pitwall owns what the user types. Keep your copy from
   `on_change` and pass it back with `.value(..)`: the SDK sends it only
   when it differs, so setting your copy to `""` clears the field.
@@ -375,6 +381,14 @@ impl MyTile {
 - Harness: `.grant("agents.read")`, `.agent(agent("a1", "web"))`,
   `set_agents`, `queued()`, `badges()`, `asks()`, `answer(id, &[0])`,
   `answer_text`, `decline`, `reply(id)`.
+- `status::set(status::State::Ready, "")` (`"status": true`): the
+  connection to its service on the card's pill, the checklist's Connected
+  step and the update's health check, as an adapter's. `Connecting`,
+  `Ready`, `SignedOut`, `Error`, with a sentence. Harness: `status()`.
+- `TakeBack<T>`: send with take-back. `hold(item, "Your reply", cx, pick,
+  send)` waits 5 s with a countdown banner and Undo (`view(cx, pick,
+  undo)`), then calls `send`; Undo hands the item to `undo`. Harness:
+  `advance(Duration::from_secs(5))`.
 
 ## Network, notifications and opening things (granted)
 

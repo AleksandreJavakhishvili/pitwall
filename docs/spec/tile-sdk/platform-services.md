@@ -140,6 +140,26 @@ export of its own data today. Tile data sits in Pitwall's data folder,
 so the user's own backups cover it, and the per-update backups exist
 [today]. A Pitwall-wide backup is a separate feature.
 
+**What an adapter gave, for any tile [built].** So that a tile can be
+what an adapter-fed extension was (an inbox from a service, say),
+without Pitwall knowing that extension:
+
+- **Status** (`status.set`, `"status": true`): connecting, ready,
+  signed out or error, with a sentence; the card's pill, the
+  checklist's Connected step and the update's health check read it as
+  they read an adapter's. The component starting is "Connecting", its
+  stopping "Stopped"; Restart on the card restarts it.
+- **A shortcut** (`contributes.tiles[].shortcut`, permission
+  `shortcut`, off by default): keys that open the tile from anywhere,
+  `cmd-` or `cmd-shift-` with a letter, digit or F-key, never
+  Pitwall's own; shown beside "Open <tile>" in the palette, changed by
+  the user in the card. Bound once per keystroke to an action that
+  looks the tile up when pressed (gpui can't take one binding back).
+- **Number keys** need nothing new: `bind_key("1")`… fire while the
+  view has focus and no field does, as in Pitwall's inbox.
+- **Send with take-back** is in the SDK, not the host: `TakeBack<T>`
+  holds a send with a countdown banner and Undo on the tile's timers.
+
 ### 14.3 Later, on demand
 Each is designed enough to know it fits (the sections named), and is
 built only when its trigger happens.

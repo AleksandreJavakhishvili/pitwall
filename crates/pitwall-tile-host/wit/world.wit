@@ -62,6 +62,8 @@ world tile {
   import toolbar;
   /// The extension's own server.
   import service;
+  /// Its connection's status on its card (`"status": true`).
+  import status;
   /// Agents' calls of the tile's tools: answers to show-only calls, large inputs.
   import agent-tools;
   /// Files in the project a view is open in (`files.read`, `files.write`),

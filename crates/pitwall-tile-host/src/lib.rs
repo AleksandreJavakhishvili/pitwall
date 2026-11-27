@@ -29,7 +29,9 @@ pub mod frame;
 mod group;
 mod host;
 mod ignore;
-pub mod keys;
+/// Key bindings and the keys Pitwall keeps (shared with the manifest's
+/// shortcuts, in `pitwall-core`).
+pub use pitwall_core::extensions::keys;
 pub mod limits;
 pub mod measure;
 pub mod net;
@@ -464,6 +466,8 @@ pub enum UiRequest {
     Asks(Vec<ui::Ask>),
     /// Its reply to an answer (`asks.reply`): taken, or why not.
     AskResult { id: String, refused: Option<String> },
+    /// Its connection's status (`status.set`), as an adapter reports it.
+    Status { state: pitwall_core::extensions::protocol::ConnState, message: String },
     /// `ui.put-image`: keep these bytes (sniffed: one of the
     /// [`components::ImageFormat`]s, within the limits) for `image` nodes
     /// with source `data(name)`. Sent before the frames rendered after it.

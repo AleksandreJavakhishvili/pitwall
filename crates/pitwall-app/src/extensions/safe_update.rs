@@ -751,10 +751,10 @@ async fn health(cx: &mut AsyncApp, f: &Facts, t: Timeouts) -> Result<(), String>
             hub::Run::Stopped(why) => Some(why.clone()),
             _ => None,
         };
-        if let Some(why) = crashed.filter(|_| f.new.adapter.is_some()) {
+        if let Some(why) = crashed.filter(|_| f.new.reports_status()) {
             return Err(format!("{} stopped: {why}", f.new.name));
         }
-        if !f.adapter_ready || f.new.adapter.is_none() || ready {
+        if !f.adapter_ready || !f.new.reports_status() || ready {
             return Ok(());
         }
         if cx.background_executor().now().duration_since(start) >= t.connect {

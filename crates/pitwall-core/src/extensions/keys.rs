@@ -88,9 +88,79 @@ pub fn reserved(keys: &str) -> bool {
     }
 }
 
+/// Why `keys` can't be a tile's shortcut (`contributes.tiles[].shortcut`,
+/// or the keys the user gave it), in a sentence; `None` when it can. A
+/// shortcut is `cmd-<key>` or `cmd-shift-<key>`, the key a letter, a digit
+/// or F1–F12, and none of Pitwall's own.
+pub fn shortcut_problem(keys: &str) -> Option<String> {
+    let Some((m, key)) = parse(keys) else { return Some(format!("“{keys}” isn't a key, like cmd-shift-u")) };
+    if !m.cmd || m.ctrl || m.alt {
+        return Some(format!("“{keys}” must start with cmd (⌘ on macOS, Ctrl+Shift elsewhere), with shift or not"));
+    }
+    let fkey = key.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()).is_some_and(|n| (1..=12).contains(&n));
+    if !(fkey || (key.len() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric()))) {
+        return Some(format!("“{keys}”: the key must be a letter, a digit or F1–F12"));
+    }
+    if reserved(keys) {
+        return Some(format!("“{keys}” is one of Pitwall's own shortcuts"));
+    }
+    None
+}
+
+/// Shortcut `keys` (valid: [`shortcut_problem`]) written the one way:
+/// `cmd-u`, `cmd-shift-u`.
+pub fn shortcut_normal(keys: &str) -> Option<String> {
+    let (m, key) = parse(keys)?;
+    Some(if m.shift { format!("cmd-shift-{key}") } else { format!("cmd-{key}") })
+}
+
+/// The keystroke Pitwall binds for shortcut `keys` on this OS, as its own
+/// shortcuts are bound (main screen): ⌘ on macOS; Ctrl+Shift elsewhere
+/// (`cmd-shift-` as Ctrl+Shift+Alt), so plain Ctrl stays the terminal's.
+pub fn shortcut_keystroke(keys: &str, mac: bool) -> Option<String> {
+    let (m, key) = parse(keys)?;
+    Some(match (mac, m.shift) {
+        (true, false) => format!("cmd-{key}"),
+        (true, true) => format!("cmd-shift-{key}"),
+        (false, false) => format!("ctrl-shift-{key}"),
+        (false, true) => format!("ctrl-shift-alt-{key}"),
+    })
+}
+
+/// Shortcut `keys` as the user reads it on this OS: `⌘⇧U`, `Ctrl+Shift+Alt+U`.
+pub fn shortcut_label(keys: &str, mac: bool) -> String {
+    let Some((m, key)) = parse(keys) else { return keys.to_string() };
+    let k = key.to_ascii_uppercase();
+    match (mac, m.shift) {
+        (true, false) => format!("⌘{k}"),
+        (true, true) => format!("⌘⇧{k}"),
+        (false, false) => format!("Ctrl+Shift+{k}"),
+        (false, true) => format!("Ctrl+Shift+Alt+{k}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shortcuts_take_cmd_and_a_free_key() {
+        for ok in ["cmd-u", "cmd-shift-u", "shift-cmd-U", "cmd-f5", "cmd-shift-y"] {
+            assert_eq!(shortcut_problem(ok), None, "{ok}");
+        }
+        assert!(shortcut_problem("cmd-k").unwrap().contains("Pitwall's own"));
+        assert!(shortcut_problem("cmd-shift-f").unwrap().contains("Pitwall's own"));
+        assert!(shortcut_problem("u").unwrap().contains("start with cmd"));
+        assert!(shortcut_problem("cmd-alt-u").unwrap().contains("start with cmd"));
+        assert!(shortcut_problem("cmd-/").unwrap().contains("letter"));
+        assert!(shortcut_problem("hyper-u").unwrap().contains("isn't a key"));
+        assert_eq!(shortcut_normal("Shift-Cmd-U").as_deref(), Some("cmd-shift-u"));
+        assert_eq!(shortcut_keystroke("cmd-shift-u", true).as_deref(), Some("cmd-shift-u"));
+        assert_eq!(shortcut_keystroke("cmd-u", false).as_deref(), Some("ctrl-shift-u"));
+        assert_eq!(shortcut_keystroke("cmd-shift-u", false).as_deref(), Some("ctrl-shift-alt-u"));
+        assert_eq!(shortcut_label("cmd-shift-u", true), "⌘⇧U");
+        assert_eq!(shortcut_label("cmd-u", false), "Ctrl+Shift+U");
+    }
 
     #[test]
     fn bindings_parse_in_any_order_and_pitwalls_keys_are_reserved() {

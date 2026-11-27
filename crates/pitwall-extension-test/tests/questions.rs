@@ -2,11 +2,13 @@
 //! committed questions tile ("Release desk"; rebuilt by
 //! crates/pitwall-tile-host/tests/fixtures/build-questions-tile.sh): the
 //! agents it reads, its badge, its question and its answers, and what it
-//! queues.
+//! queues; the status it reports, its number keys and a note sent with
+//! take-back.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use pitwall_extension_test::{agent, waiting_agent, Harness, Level, Row, Tone};
+use pitwall_extension_test::{agent, waiting_agent, ConnState, Harness, Level, Row, Tone};
 
 fn questions() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../pitwall-tile-host/tests/fixtures/questions")
@@ -76,4 +78,44 @@ fn without_grants_it_reads_and_queues_nothing() {
     // It still asks, as the extension (no agent to name).
     assert_eq!(t.asks()[0].from, None);
     assert!(t.badges().is_empty());
+}
+
+#[test]
+fn it_reports_its_status_as_an_adapter_would() {
+    let t = granted().open("main");
+    assert_eq!(t.status(), Some((ConnState::Ready, String::new())));
+    let t = Harness::load(questions()).open("main");
+    let (state, said) = t.status().unwrap();
+    assert_eq!(state, ConnState::Error);
+    assert!(said.starts_with("Can't read the agents"), "{said}");
+}
+
+#[test]
+fn number_keys_pick_a_suggestion_but_type_in_the_note() {
+    let mut t = granted().open("main");
+    t.focus_key("note/text");
+    assert!(t.try_press("1").is_err(), "typing in the note, 1 is a 1");
+    t.blur().press("2");
+    assert!(t.find_text("Answered: Not now").is_some(), "{}", t.text_snapshot());
+    assert!(t.asks().is_empty());
+    assert!(t.try_press("1").is_err(), "no question open: no number keys");
+}
+
+#[test]
+fn a_note_is_sent_after_its_take_back_time_or_comes_back_on_undo() {
+    let mut t = granted().open("main");
+    t.type_into("note/text", "Ship it Friday").click_key("note/send");
+    assert!(t.text_snapshot().contains("banner info \"Your note: sending in 5 s\" action=\"Undo\""), "{}", t.text_snapshot());
+    t.advance(Duration::from_secs(2));
+    assert!(t.text_snapshot().contains("Your note: sending in 3 s"), "{}", t.text_snapshot());
+    // Undo: never sent, and the text is back in the field.
+    t.click_key("take-back/take-back-1");
+    assert!(t.find_key("take-back/take-back-1").is_none());
+    assert_eq!(t.field_text("note/text"), "Ship it Friday");
+    t.advance(Duration::from_secs(10));
+    assert!(t.find_text("Sent: Ship it Friday").is_none());
+    // Sent again, and left alone: sent when the time is up.
+    t.click_key("note/send").advance(Duration::from_secs(5));
+    assert!(t.find_text("Sent: Ship it Friday").is_some(), "{}", t.text_snapshot());
+    assert!(t.find_key("take-back/take-back-2").is_none());
 }

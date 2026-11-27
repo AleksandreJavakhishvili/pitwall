@@ -339,6 +339,7 @@ Pitwall owns what the user types: typing, selection, undo and input methods neve
 - Tab and Shift-Tab move focus among focusable elements in tree order, with Pitwall's focus ring.
 - While rendering, `cx.bind_key("j", handler)` makes a key call a listener (`Handler<KeyPress>`) while the view has focus. Keys are written like `j`, `enter`, `/`, `shift-tab` or `cmd-s`; `cmd` is ⌘ on macOS and Ctrl elsewhere.
 - A binding without ⌘, Ctrl or Alt (`j`, `/`, `shift-n`) doesn't fire while a text field has focus: the key types into the field.
+- Number keys answer a question as Pitwall's inbox does: bind `1` to `9` while the question is open, each picking its suggestion. They type into a reply field that has focus, and pick when it doesn't.
 - Pitwall's own keys are never a tile's: a binding of one is dropped, with a line in the tile's Log. They are Esc, Tab, Shift-Tab, Ctrl-Enter (and Ctrl-Shift-Enter), `cmd-` and `cmd-shift-` with any of `enter`, `0`–`9`, `=`, `+`, `-`, `,`, `a`, `b`, `c`, `e`, `h`, `i`, `j`, `k`, `l`, `m`, `n`, `p`, `q`, `r`, `t`, `v`, `w`, `x`, `z`, and `cmd-shift-f`, `cmd-alt-h`, `cmd-ctrl-f`, `cmd-shift-alt-e`, `-n`, `-r` and `-t`. (Off macOS Pitwall's keys are Ctrl+Shift ones; the list is the same everywhere, so a tile's keys work the same on every system.)
 - While rendering, `cx.focus("list/row-3")` asks for focus on the element at that key path: the keys from the root down, joined by `/`, without the root's (the same path `ui::scroll_to` takes). Pitwall honours it only while the tile already has focus, so a tile can't take the keyboard from an agent's terminal. `cx.focused(view)` is the element that has it.
 
@@ -361,6 +362,20 @@ The tile hears `on_view_opened` and then `on_content`, or only `on_content` when
 Keep the schema small and describe each field: agents read it. In this preview, opening a tile from the palette gives it no content, so content reaches a tile in tests (`open_with`, `set_content`, see the [quick start](quick-start.md#test-it)). Agents opening a tile with content come in phase 2 ([Agent tools](agent-tools.md)).
 
 `ui::open_view("main")` opens one of the extension's own tiles, or focuses it when it is open ([Platform services](platform-services.md#ui)).
+
+## A shortcut to open a tile
+
+A tile may suggest keys that open it from anywhere in Pitwall, as ⌘I opens the inbox: `"shortcut": "cmd-shift-u"` in its manifest entry, with the `shortcut` permission and your reason.
+
+```json
+"permissions": { "shortcut": "To open the desk from anywhere" },
+"contributes": { "tiles": [{ "id": "main", "title": "Desk", "wasm": "tile.wasm", "shortcut": "cmd-shift-u" }] }
+```
+
+- The keys are `cmd-<key>` or `cmd-shift-<key>`, the key a letter, a digit or F1 to F12. As for Pitwall's own shortcuts, `cmd` is ⌘ on macOS and Ctrl+Shift elsewhere (`cmd-shift` is Ctrl+Shift+Alt there), so plain Ctrl stays the terminals'.
+- Pitwall's own keys are refused ([Keyboard and focus](#keyboard-and-focus)): `pitwall extension check` says so. Two tiles of one extension can't share keys.
+- The shortcut is off until the user grants it: the permission screen offers "Use a keyboard shortcut" switched off, with the keys it suggests. Granted, the palette shows the keys beside "Open <tile>".
+- The user can change the keys under the permission, in the extension's card, or leave the field empty for the ones the tile suggests. Pitwall's own keys are refused there too, and keys another extension has: of two extensions that want the same keys, the first by name gets them.
 
 ## Toolbar button
 

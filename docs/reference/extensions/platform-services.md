@@ -352,9 +352,41 @@ An answer arrives as `Event::AskAnswered(Answer { id, picks, text, declined })`,
 
 A title is at most 200 characters, a question 2 000, a suggestion's label 80 and its description 200, and an ask has at most 8 suggestions; longer text is cut. Pitwall keeps the questions while the tile is hidden or let go to save memory, and an answer to a tile that was let go starts it again first.
 
+### Status
+
+With `"status": true` in `contributes`, `status::set(state, message)` reports the extension's connection to its service, shown where an adapter's is: the pill on its card in Settings → Extensions ("Connecting", "Connected", "Signed out", "Error", with the message under it), the Connected step of its checklist, and the update's check that it connects again as it did before. `state` is `State::Connecting`, `Ready`, `SignedOut` (a credential is missing, wrong or expired) or `Error`; the message is at most 500 characters, usually empty when ready.
+
+```rust
+match api.check() {
+    Ok(()) => status::set(status::State::Ready, ""),
+    Err(e) if e.is_auth() => status::set(status::State::SignedOut, "The server refused the API key: paste a new one in Settings."),
+    Err(e) => status::set(status::State::Error, &format!("Can't reach the server: {e}")),
+}
+```
+
+Until its first report, and each time its component starts again, the card says "Connecting"; a component that stops says "Stopped", and Restart on the card starts it again. Report from a component that runs while the extension is on: with a toolbar button with `"badge": true`, Pitwall keeps it running with no view open. Without the contribution a call is ignored, with a line in the Log.
+
+### Send with take-back
+
+`TakeBack<T>` holds what the user sent for a few seconds (5 by default, `TakeBack::with_seconds(n)` for 1 to 30) with a countdown and Undo, before the tile's own send runs: an answer, a message, anything the user may want back.
+
+```rust
+struct Desk { reply: String, sending: TakeBack<String> }
+
+fn sending(d: &mut Desk) -> &mut TakeBack<String> { &mut d.sending }
+
+// On Send:
+let text = std::mem::take(&mut self.reply);
+self.sending.hold(text, "Your reply", cx, sending, |d, text, cx| d.post(text, cx));
+// In render: "Your reply: sending in 4 s", with Undo, which puts the text back.
+.child(self.sending.view(cx, sending, |d, text, _| d.reply = text))
+```
+
+`held()` lists what waits, `undo(id)` and `send_now(id)` act on one by its id. Its countdown runs on the tile's timers: it stands still while the tile is hidden, and a test lets it pass with `advance`.
+
 ### In tests
 
-The harness has a fake Pitwall side: `Harness::agent(agent("a1", "web"))` (or `waiting_agent`) adds an agent, `set_agents(…)` changes them and sends `AgentsChanged`, `queued()` lists what the tile queued, `badges()` and `asks()` give its newest sets, `answer(id, &[0])`, `answer_text(id, "…")` and `decline(id)` answer, and `reply(id)` says what the tile replied.
+The harness has a fake Pitwall side: `Harness::agent(agent("a1", "web"))` (or `waiting_agent`) adds an agent, `set_agents(…)` changes them and sends `AgentsChanged`, `queued()` lists what the tile queued, `badges()` and `asks()` give its newest sets, `answer(id, &[0])`, `answer_text(id, "…")` and `decline(id)` answer, `reply(id)` says what the tile replied, and `status()` gives the status it reports now (`None` before its first).
 
 ```rust
 let mut t = Harness::build(env!("CARGO_MANIFEST_DIR")).grant("agents.read").agent(waiting_agent("a2", "api")).open("main");

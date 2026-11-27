@@ -311,7 +311,9 @@ fn service_view(m: &Manifest, cx: &App) -> Option<ExtService> {
 }
 
 fn adapter_view(m: &Manifest, c: Option<&Account>, cx: &App) -> Option<ExtAdapter> {
-    m.adapter.as_ref()?;
+    if !m.reports_status() {
+        return None;
+    }
     let h = hub::try_hub(cx);
     let st = h.as_ref().and_then(|h| match c {
         Some(c) => h.read(cx).connection(&m.id, &c.id).map(|s| (s.run.clone(), s.conn.clone())),

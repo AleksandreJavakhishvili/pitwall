@@ -522,6 +522,11 @@ pub struct ExtensionPrefs {
     /// user dragged, by `<view>/<key path>` (ui.md §3.10).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub splits: BTreeMap<String, f32>,
+    /// The keys the user gave its tiles' shortcuts instead of the ones
+    /// they suggest, by tile id (`cmd-shift-u`); bound only with the
+    /// `shortcut` permission granted.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub shortcuts: BTreeMap<String, String>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,

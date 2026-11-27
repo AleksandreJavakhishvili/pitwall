@@ -59,6 +59,10 @@ pub const FILES_READ: &str = "files.read";
 /// project each view is open in: never in `.git`, never Pitwall's own
 /// files.
 pub const FILES_WRITE: &str = "files.write";
+/// Open its tiles from anywhere in Pitwall with the keys they suggest
+/// (`contributes.tiles[].shortcut`). Never on by default: its keys are
+/// bound only once the user grants it.
+pub const SHORTCUT: &str = "shortcut";
 
 /// How much a permission lets an extension do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,7 +102,7 @@ pub fn action_needs(m: &str) -> Option<&'static str> {
 }
 
 /// Every permission this Pitwall knows, the ones it serves first.
-pub const ALL: [Permission; 14] = [
+pub const ALL: [Permission; 15] = [
     Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, risk_note: None, available: true },
@@ -113,6 +117,7 @@ pub const ALL: [Permission; 14] = [
     Permission { name: SQL, title: "Keep a larger database", detail: "Its tiles' own database may grow to the size shown instead of the 100 MiB every extension gets. Only its own data: it gives no access to anything else.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: FILES_READ, title: "Read files in your projects", detail: "Its tiles may read the files of the project each one is open in (its space, or the agent it opened next to) and follow their changes. Never .git, never another project. What they read, a .env file too, can reach the servers it may connect to.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: FILES_WRITE, title: "Change files in your projects", detail: "Its tiles may write, make, rename and move to the Trash files of the project each one is open in. Never .git or Pitwall's own files, never another project.", risk: Risk::High, risk_note: Some("You and your agents run what is in your projects: a file it changes (a script, a config, a test) changes what runs next. Removed files go to the Trash."), available: true },
+    Permission { name: SHORTCUT, title: "Use a keyboard shortcut", detail: "The keys listed here open its tile from anywhere in Pitwall. Pitwall's own shortcuts always stay Pitwall's; you can change the keys in its card.", risk: Risk::Low, risk_note: None, available: true },
 ];
 
 /// Whether `name` is shown on the permission screen without a switch:
@@ -139,6 +144,7 @@ pub fn listed(m: &Manifest, name: &str) -> Vec<String> {
     match name {
         NET => m.net_hosts.iter().map(|h| h.written()).chain(m.net_setting_hosts.iter().map(|k| setting_host_words(m, k))).collect(),
         FILES_READ | FILES_WRITE => vec![FILES_SCOPE.to_string()],
+        SHORTCUT => m.contributes.tiles.iter().filter_map(|t| t.shortcut.as_ref().map(|k| format!("{}: {}", t.title, super::keys::shortcut_label(k, crate::platform::MAC)))).collect(),
         _ => vec![],
     }
 }
@@ -183,7 +189,7 @@ pub fn available(name: &str) -> bool {
 /// only read (and notifications), yes; any that acts (showing, focusing,
 /// queueing, starting), never.
 pub fn on_by_default(name: &str) -> bool {
-    find(name).is_some_and(|p| p.available && p.risk != Risk::High) && !ACTION_METHODS.iter().any(|(_, p)| *p == name)
+    find(name).is_some_and(|p| p.available && p.risk != Risk::High) && !ACTION_METHODS.iter().any(|(_, p)| *p == name) && name != SHORTCUT
 }
 
 /// Why `name` can't be granted here, in a few words; `None` when it can.

@@ -54,3 +54,6 @@ pub use windows::{LocalListener, LocalStream};
 mod windows_procs;
 #[cfg(windows)]
 pub(crate) use windows_procs::*;
+
+/// This is macOS: shortcuts are read with ⌘ (`extensions::keys`).
+pub const MAC: bool = cfg!(target_os = "macos");

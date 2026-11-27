@@ -40,7 +40,7 @@ use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
 use crate::main_screen::workspace::ExtensionPrefs;
 use pitwall_core::accounts::Account;
 
-mod grants;
+pub(crate) mod grants;
 pub use grants::{initial_picks, turn_on_with};
 mod browse;
 mod package_ui;
@@ -220,7 +220,7 @@ pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool, svc: Ser
     }
     out.extend(m.settings.iter().filter(|s| !service_ui::service_uses(m, &s.key)).map(setting));
     out.extend(m.actions.iter().filter(|a| a.setup).map(|a| (Step::Action(a.id.clone()), prefs.actions_done.contains(&a.id))));
-    if m.adapter.is_some() {
+    if m.reports_status() {
         out.push((Step::Connected, connected));
     }
     out
@@ -332,7 +332,7 @@ pub fn card_status(m: &Manifest, c: Option<&Account>, cx: &mut gpui::App) -> (&'
     if missing {
         return ("Needs setup", Tone::Warn, why, connected);
     }
-    if m.adapter.is_none() {
+    if !m.reports_status() {
         return ("On", Tone::Ok, String::new(), connected);
     }
     let word = match word {
@@ -1080,7 +1080,8 @@ impl SettingsView {
             })));
         }
         let text = match (&run, connected) {
-            (_, true) if why.is_empty() => "Its inbox is ready: open it with ⌘I.".to_string(),
+            (_, true) if why.is_empty() && m.has_inbox() => "Its inbox is ready: open it with ⌘I.".to_string(),
+            (_, true) if why.is_empty() => format!("{} is connected to its service.", m.name),
             (_, true) => why.to_string(),
             (Run::Setup(_), _) => "Pitwall connects once the steps above are done.".to_string(),
             _ => why.to_string(),
