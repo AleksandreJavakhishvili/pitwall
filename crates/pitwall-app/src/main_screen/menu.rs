@@ -144,8 +144,16 @@ fn menu_rows(m: &Shown, t: &Theme, this: &WeakEntity<MainScreen>) -> gpui::State
 impl MainScreen {
     /// The open menu's labels (tests).
     #[cfg(test)]
-    pub(super) fn menu_labels(&self) -> Vec<String> {
+    pub(crate) fn menu_labels(&self) -> Vec<String> {
         self.menu.as_ref().map(|m| m.items.iter().map(|i| i.label.to_string()).collect()).unwrap_or_default()
+    }
+
+    /// Run the open menu's row labelled `label` (tests).
+    #[cfg(test)]
+    pub(crate) fn run_menu_label(&mut self, label: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(i) = self.menu.as_ref().and_then(|m| m.items.iter().position(|it| it.label.as_ref() == label)) {
+            self.run_menu_item(i, window, cx);
+        }
     }
 
     /// Open a menu at `at` with keyboard focus in it.

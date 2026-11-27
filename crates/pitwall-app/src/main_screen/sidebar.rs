@@ -680,6 +680,18 @@ impl MainScreen {
                 this.set_sidebar_group(SidebarGroup::Account, cx)
             }));
         }
+        // Extensions' tiles, as the palette's "Open …" (placed as one
+        // opened there is).
+        let tiles = crate::tiles::openable(cx);
+        if !tiles.is_empty() {
+            items.push(MenuItem::header("Tiles"));
+            for t in tiles {
+                let (ext, tile) = (t.ext, t.tile);
+                items.push(MenuItem::new(t.icon, &t.label, move |this, window, cx| {
+                    this.open_view(&ext, &tile, None, window, cx)
+                }));
+            }
+        }
         self.open_menu(at, items, window, cx);
     }
 
@@ -1672,7 +1684,7 @@ impl MainScreen {
     }
 
     /// Tests: `project`'s right-click menu.
-    pub(super) fn demo_project_menu(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn demo_project_menu(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.project_menu(project, point(px(0.), px(0.)), window, cx);
     }
 
