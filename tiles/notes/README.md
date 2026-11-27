@@ -17,9 +17,10 @@ Private plain-text notes beside your agents. **Preview** on the Tile SDK
 - **Edit and Preview**: Preview shows the note formatted, and ticks its
   tasks; ⌘/ switches, also while typing.
 - **Send to an agent** (the arrow in the note's bar): your agents, with
-  what they are doing; a click puts the note, or the section under one of
-  its headings, in that agent's Next up, waiting for your Send. At most
-  4 000 characters: a longer note sends a section.
+  what they are doing; a click puts the text selected in the note (first,
+  when there is some), the note, or the section under one of its
+  headings, in that agent's Next up, waiting for your Send. At most 4 000
+  characters: of a longer note send a selection or a section.
 - **Opened with a draft**: an agent or you can open Notes with
   `{ "title"?, "text" }` (`input.schema.json`). The draft stays unsaved,
   marked "Draft, not saved", until you press Keep; Discard drops it.

@@ -228,9 +228,10 @@ With the `show` permission:
 | Call | Does |
 |---|---|
 | `show::file(path, line)` | Opens the file (a whole path) in Pitwall's editor, at the line when given |
+| `show::view(path, line)` | Shows the file in Pitwall's file viewer, scrolled to the line, as an agent's `show_files` does: with its git repository's tree (else its folder's) and git status, in the extension's own viewer window, which opens behind the front window without taking the keyboard. Later calls add tabs to it |
 | `show::web(url)` | Opens the page in a new web tile, in the extension's own browser store. `https` only, `http` only to this computer |
 
-Neither gives the tile anything back. In tests, `ui_requests()` lists them.
+None gives the tile anything back. In tests, `ui_requests()` lists them (`OpenFile`, `OpenWeb`, `ViewFile`).
 
 ## Toolbar button
 

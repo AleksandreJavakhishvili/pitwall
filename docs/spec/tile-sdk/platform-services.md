@@ -30,7 +30,7 @@ tile needs it.
 | HTTP client to granted hosts | `net` ([3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new)) | `net` with its hosts | as declared |
 | Settings and secrets, form drawn by Pitwall | `settings` ([3.8](runtime.md#38-host-apis)) | none (own only) | on [today's settings and secure store] |
 | Notifications and toasts | `pitwall` (notify), `ui.toast` | `notify` for notifications | on when asked for, ≤ 3 a minute [today] |
-| Open a file at a line, the editor, a web tile | `pitwall` (`viewer.open`, `web.open`) | `show` | off [today] |
+| Open a file at a line, the editor, a web tile | `show` (`file`: the editor, `view`: the file viewer, `viewer.open`; `web`) [built, [3.11](ui.md#311-the-seed-tiles-gaps-as-built)] | `show` | off [today] |
 | Timers | `tasks` ([3.8](runtime.md#38-host-apis)) | none | on; paused while hidden |
 | Agents and their status | `agents` (`list`, the `agents-changed` event) [built: a typed interface over the daemon's `agent.list`] | `agents.read` | on when asked for [today] |
 | A toolbar item with a badge ([3.9](ui.md#39-toolbar-items)) | `toolbar` [new] | none; the install screen lists "Adds a button to the toolbar"; per-project badges need `projects.read` | on when the manifest has `toolbar` |
