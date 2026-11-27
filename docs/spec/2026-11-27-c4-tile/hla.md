@@ -589,6 +589,17 @@ tile that can't ship is the signal
 G1, G2 (or its workaround), G3 and G6 (or its workaround) decide whether
 v1 is usable. G1 has no workaround that keeps click to zoom.
 
+**Answered in Tile SDK phase 2 (canvas):** G1 (hit regions with click
+and hover handlers over the drawing, and pointer events with canvas
+positions), G3 (text sizes in pixels), G4 (stroke width and dash lists
+on rects and paths), G5 (wheel and pinch as pointer kinds), G8 in part
+(each region has a label, its accessible name). G2 keeps the Inter
+width table of [§3.7](#37-text-sizes): no measuring call, because canvas
+text is drawn only in Inter and JetBrains Mono at any pixel size, and
+GPUI's text system isn't reachable from the tile's worker; labels take a
+`max-width` so a short measure cuts with an ellipsis instead of
+overflowing.
+
 ## 8. Security and limits
 
 - **Input is untrusted.** Markdown in a repository may come from
