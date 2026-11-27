@@ -7,6 +7,7 @@
 //! per-agent apply records).
 
 mod apply;
+pub mod ext_skills;
 mod library;
 pub mod project;
 mod runner;
@@ -167,7 +168,8 @@ pub struct EffectiveRule {
     pub id: String,
     pub description: Option<String>,
     /// "project" (the project's default set), "agent" (the agent's own
-    /// set) or "folder" (the working folder's own `.rulesync/`).
+    /// set), "folder" (the working folder's own `.rulesync/`) or
+    /// "extension" (an extension's skill given to the project).
     pub from: &'static str,
     /// Picked in a set but no longer in the library (skipped).
     pub missing: bool,
@@ -506,6 +508,13 @@ fn inputs_for(dirs: &Dirs, store: &Store, ctx: &AgentCtx, target: &str) -> apply
     let extra = set_ids(store, state.rule_set_id.as_deref());
     let lib = library::list(dirs, &store.sources);
     let mut inputs = apply::collect(&lib, &shared, &extra, target, Path::new(&ctx.cwd));
+    // Extensions' skills given to its project (never over a skill of the
+    // same name it has already).
+    for (s, dir) in ext_for(dirs, ctx) {
+        if !inputs.skills.iter().any(|k| k.name == s.id) {
+            inputs.skills.push(apply::StagedSkill { name: s.id, dir });
+        }
+    }
     // The built-in rule rides along with the agent's own rules.
     if ctx.show_files_rule {
         if let Ok(content) = std::fs::read(dirs.show_files_rule()) {
@@ -513,6 +522,22 @@ fn inputs_for(dirs: &Dirs, store: &Store, ctx: &AgentCtx, target: &str) -> apply
         }
     }
     inputs
+}
+
+/// The extensions' skills the agent gets: its project's, when rulesync
+/// can give it skills (Pitwall's own file for Gemini CLI or Aider holds
+/// rules only).
+fn ext_for(dirs: &Dirs, ctx: &AgentCtx) -> Vec<(ext_skills::ExtSkill, PathBuf)> {
+    if ctx.target.is_none() {
+        return Vec::new();
+    }
+    ext_skills::for_project(dirs, &ctx.project)
+}
+
+/// Something is assigned to the agent: its project's default set, its
+/// own set, or an extension's skill.
+fn assigned(dirs: &Dirs, store: &Store, ctx: &AgentCtx, own: Option<&str>) -> bool {
+    project_set(store, ctx).is_some() || own.is_some() || !ext_for(dirs, ctx).is_empty()
 }
 
 fn shell_rule(kind: &AgentKind) -> bool {
@@ -537,7 +562,7 @@ pub fn apply_with(
     if !exec::is_dir(exec, cwd) {
         return Err(format!("{} no longer exists", ctx.cwd));
     }
-    let any_set = project_set(&store, ctx).is_some() || state.rule_set_id.is_some();
+    let any_set = assigned(dirs, &store, ctx, state.rule_set_id.as_deref());
     let mut log = Vec::new();
     let (files, exclude_file, fingerprint, launch_args) = if !any_set {
         // Nothing assigned: just clean up what an earlier apply wrote.
@@ -589,12 +614,12 @@ pub fn apply_with(
 fn stale(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> bool {
     let (Some(target), Some(made_for)) = (ctx.rules_target(), ctx.made_for()) else { return false };
     let Some(state) = store.agents.get(&ctx.id) else {
-        return project_set(store, ctx).is_some() && ctx.worktree;
+        return assigned(dirs, store, ctx, None) && ctx.worktree;
     };
     if !ctx.worktree && !state.main_checkout_confirmed {
         return false;
     }
-    let any_set = project_set(store, ctx).is_some() || state.rule_set_id.is_some();
+    let any_set = assigned(dirs, store, ctx, state.rule_set_id.as_deref());
     match (&state.fingerprint, any_set) {
         (None, false) => !state.files.is_empty(),
         (None, true) => true,
@@ -621,7 +646,7 @@ pub fn on_create(
     ctx.show_files_rule = shell_rule(kind);
     let wants = {
         let store = read(dirs);
-        rule_set_id.is_some() || project_set(&store, &ctx).is_some()
+        assigned(dirs, &store, &ctx, rule_set_id.as_deref())
     };
     let _ = update(dirs, |s| {
         let e = s.agents.entry(rec.id.clone()).or_default();
@@ -650,7 +675,7 @@ pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, exec: &dyn Exec, rec:
     let wants = {
         let store = read(dirs);
         let own = store.agents.get(&rec.id).and_then(|s| s.rule_set_id.clone());
-        own.is_some() || project_set(&store, &ctx).is_some()
+        assigned(dirs, &store, &ctx, own.as_deref())
     };
     let _ = update(dirs, |s| {
         s.agents.entry(rec.id.clone()).or_default().cwd = rec.cwd.clone();
@@ -998,6 +1023,11 @@ fn detail_of(dirs: &Dirs, store: &Store, lib: &[RuleFile], rec: &AgentRecord, ki
             // Pitwall's own file for Gemini CLI / Aider holds rules only.
             if ctx.target.is_none() {
                 all.retain(|r| !r.skill);
+            }
+            for (s, _) in ext_for(dirs, &ctx) {
+                if !all.iter().any(|r| r.skill && library::skill_name(&r.id) == Some(s.id.as_str())) {
+                    all.push(EffectiveRule { id: format!("ext:{}:skills/{}", s.id, s.id), description: Some(format!("from {} (a tile)", s.name)), from: "extension", missing: false, skill: true });
+                }
             }
             all
         }
