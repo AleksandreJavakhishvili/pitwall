@@ -1,0 +1,30 @@
+# "Report a problem" in Pitwall opens this form prefilled (marketplace.md
+# §7.5): the field ids below are the query parameters Pitwall sets.
+name: Report an extension
+description: Something wrong with an extension in the index. For a security problem in Pitwall itself, see SECURITY.md instead.
+title: "Report: "
+labels: [report]
+body:
+  - type: input
+    id: extension
+    attributes: { label: Extension id }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Version }
+    validations: { required: true }
+  - type: input
+    id: sha256
+    attributes: { label: Package SHA-256 }
+  - type: dropdown
+    id: category
+    attributes:
+      label: What is wrong
+      options: [malware, misleading, broken, other]
+    validations: { required: true }
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened
+      description: What it did, and what you expected. Leave out tokens, passwords and private code.
+    validations: { required: true }
