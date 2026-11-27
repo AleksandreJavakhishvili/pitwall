@@ -11,7 +11,15 @@ SDK phases are the Tile SDK's ([README §10.2](../tile-sdk/README.md#102-order-o
 [SDK plan](../tile-sdk/plan.md)). Each phase below names the SDK pieces
 it waits for.
 
-**Status:** spec written; nothing built. The Tile SDK is in its phase 0.
+**Status:** phase A built in `tiles/c4/` (the crate `c4-tile`, its own
+Cargo workspace). The later phases wait for the Tile SDK. The owner's
+answers to [frd.md §9](frd.md#9-open-questions-for-the-owner) are
+recorded there.
+
+Low-level designs: [mermaid-lld.md](mermaid-lld.md) (blocks, the Mermaid
+subset, errors, C4 reading) and [layout-lld.md](layout-lld.md) (text
+widths, sizes, the `Layout` trait, dagre, the comparison with
+rust-sugiyama).
 
 ## Phase A: the core, as plain Rust
 
@@ -63,8 +71,8 @@ SDK requests (each is a change to the SDK's design and plan, made there):
 - [ ] Show-only agent tools in SDK phase 2, with `c4__show` as their first user. Done when the SDK's [agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds) and [plan](../tile-sdk/plan.md) say so (this pull request)
 
 The tile:
-- [ ] Manifest: id `c4` (or the owner's choice, [frd.md §9](frd.md#9-open-questions-for-the-owner)), the tile, its `"input"`, the `show` tool (kind `present`), no permissions. Done when `pitwall extension check` passes
-- [ ] Dependency check in CI ([hla §6](hla.md#6-where-it-lives)): `tiles/c4` built for `wasm32-wasip2`, tests, `pitwall extension check`, and a `cargo metadata` check that no Pitwall crate but `pitwall-extension` (and the harness, dev only) is used. Done when the job runs on every pull request and a test branch that adds `pitwall-core` fails it
+- [ ] Manifest: id `c4` (the owner's choice, [frd.md §9](frd.md#9-open-questions-for-the-owner)), the tile, its `"input"`, the `show` tool (kind `present`), no permissions. Done when `pitwall extension check` passes
+- [ ] Dependency check in CI ([hla §6](hla.md#6-where-it-lives)): `tiles/c4` built for `wasm32-wasip2`, tests, `pitwall extension check`, and a `cargo metadata` check that no Pitwall crate but `pitwall-extension` (and the harness, dev only) is used. Done when the job runs on every pull request and a test branch that adds `pitwall-core` fails it. (Phase A added the `tile-c4` job with all of this but `pitwall extension check`, which doesn't exist yet; `tiles/c4/scripts/check-deps.sh` was checked locally against a fake `pitwall-core` path dependency.)
 - [ ] `c4__show`: all-or-nothing parse, items per agent and project, update in place, the reply (FR-34 to FR-38). Done when harness tests cover a new item, an update with the same item, a call with problems that changes nothing, a skipped part listed in the reply, and an unsupported type
 - [ ] Placement through the SDK: `where` and `of` reach Pitwall, not the tile; a later call reuses the view (FR-35). Done when a harness test calls with `where: "below"` and then without `where`, and the second call lands in the same view
 - [ ] "Changes since last show" (FR-40) and the host's "from <agent>" mark with close (FR-39). Done when harness tests update an item and switch to Changes, and close an item

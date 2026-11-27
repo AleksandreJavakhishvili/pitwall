@@ -1,4 +1,5 @@
-Status: design, not built. Started 2026-11-27.
+Status: phase A (the core, plain Rust) built in `tiles/c4/`; the tile
+itself waits for the Tile SDK. Started 2026-11-27.
 
 # C4 diagram tile: functional requirements
 
@@ -90,7 +91,7 @@ to confirm.
   example `Scanner [Component]` and "finds Mermaid blocks in Markdown".
   The purpose sits on a second line of the label. The tile accepts
   `<br/>`, `<br>` and a line break inside a quoted label as the
-  separator (*guess*: the exact separator the skill writes).
+  separator; `<br/>` is the canonical form (decided, [§9](#9-open-questions-for-the-owner)).
 - **Arrows are labelled** with what flows or what is called:
   `A -->|reads files| B` or `A -- reads files --> B`.
 - **`classDef new`, `classDef changed`, `classDef external`** mark boxes
@@ -131,9 +132,9 @@ flowchart LR
 A change may show the system before and after it. The tile pairs two
 diagrams as before and after when they sit under sibling headings whose
 words say so: "Before" / "After", "Current" / "Proposed", "As is" /
-"To be", "Today" / "Target" (*proposal*; the skill variant may use other
-words, to confirm). Without a pair, the `new` and `changed` classes
-alone show the change.
+"To be", "Today" / "Target", without case (decided,
+[§9](#9-open-questions-for-the-owner)). Without a pair, the `new` and
+`changed` classes alone show the change.
 
 ## 4. User stories
 
@@ -418,9 +419,9 @@ files, so they wait for SDK phase 3.
 - Every other diagram type (class, state, entity relationship, Gantt,
   pie, mindmap, timeline, …) gets the fallback (FR-18).
 - Mermaid's own C4 syntax (`C4Context`, `C4Container`, …) gets the
-  fallback too. The owner's convention uses flowcharts, and Mermaid
-  calls that syntax experimental (*guess*: check before deciding).
-  Supporting it later means mapping its elements onto the same model.
+  fallback too, with a note (decided, §9). The owner's convention uses
+  flowcharts, and Mermaid calls that syntax experimental. Supporting it
+  later means mapping its elements onto the same model.
 - Hand placement of boxes. The layout is always automatic.
 
 ## 7. Non-functional requirements
@@ -456,12 +457,25 @@ files, so they wait for SDK phase 3.
 
 ## 9. Open questions for the owner
 
-1. The exact label form for the purpose line (§3.2).
-2. The heading words that mark before and after (§3.4).
+The first four were decided by the owner on 2026-11-27. Each lives in
+one place in the code, so a change of mind is a small change. The fifth
+is still open.
+
+1. The exact label form for the purpose line (§3.2). **Decided (owner,
+   2026-11-27):** the tile accepts every form §3.2 lists (`<br/>`,
+   `<br>`, `<br />`, a line break inside a quoted label); docs show the
+   first, `<br/>`, as the canonical one
+   ([mermaid-lld §5](mermaid-lld.md#5-c4-reading)).
+2. The heading words that mark before and after (§3.4). **Decided
+   (owner, 2026-11-27):** the words §3.4 proposes, without case
+   (`BEFORE_AFTER` in `tiles/c4/src/index.rs`).
 3. Whether the tile should also draw Mermaid's own `C4Context` syntax
-   (§6.2).
+   (§6.2). **Decided (owner, 2026-11-27):** not in v1. Those blocks get
+   the fallback (source view) with a note saying to write C4 diagrams as
+   flowcharts.
 4. The extension id. This spec uses `c4`, so agents see tools such as
    `c4__show` and `c4__get_diagram` ([agent-tools §11.4](../tile-sdk/agent-tools.md#114-how-agents-reach-them)).
+   **Decided (owner, 2026-11-27):** `c4`.
 5. Whether a shown diagram should also go into the docs without a press
    (an agent option `save_to`), once `files.write` exists. This spec
    says no: the agent can write files itself, and a show tool stays
