@@ -186,6 +186,12 @@ pub struct Tiles {
     origins: HashMap<(String, String), (String, String)>,
     /// The last `present` call each view shows (Undo beside the mark).
     last_present: HashMap<(String, String), u64>,
+    /// The project folder a view was opened for when its space has none
+    /// (a project's menu in the sidebar, an agent's call), by (extension,
+    /// view).
+    hints: HashMap<(String, String), String>,
+    /// The project each open view was last told it is in.
+    view_projects: HashMap<(String, String), Option<ui::Project>>,
 }
 
 struct Handle(Entity<Tiles>);
@@ -219,6 +225,8 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
         // they see of them changes.
         if let Some(store) = cx.try_global::<crate::agents::StoreHandle>().map(|s| s.0.clone()) {
             cx.observe(&store, |t: &mut Tiles, store, cx| {
+                // An agent's project decides a view's in a space without one.
+                t.sync_projects(cx);
                 let seen = group::fingerprint(&store.read(cx).agents);
                 if std::mem::replace(&mut t.agents_seen, seen) != seen {
                     for r in t.running.values() {
@@ -230,7 +238,7 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             })
             .detach();
         }
-        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new(), calls: HashMap::new(), waiting: HashMap::new(), pending: HashMap::new(), origins: HashMap::new(), last_present: HashMap::new() }
+        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new(), calls: HashMap::new(), waiting: HashMap::new(), pending: HashMap::new(), origins: HashMap::new(), last_present: HashMap::new(), hints: HashMap::new(), view_projects: HashMap::new() }
     });
     cx.set_global(Handle(e.clone()));
     // Turned off: its component stops at once (runtime.md §2.3).
@@ -238,6 +246,8 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
     let weak = e.downgrade();
     cx.observe(&ui, move |_, cx| {
         let _ = weak.update(cx, |t, cx| {
+            // A view moved to another space: its project, told.
+            t.sync_projects(cx);
             let ui = crate::ui_state::get(cx);
             let off: Vec<String> = t.running.keys().filter(|id| !ui.extension_on(id)).cloned().collect();
             for id in off {
@@ -403,7 +413,7 @@ pub fn service_info(m: &Manifest, cx: &App) -> Option<ui::ServiceInfo> {
 fn spec_of(m: &Manifest, view: &str) -> Option<ViewSpec> {
     if view == POPOVER_VIEW {
         let pitwall_core::extensions::toolbar::Action::Popover { tile, .. } = &m.contributes.toolbar.as_ref()?.action else { return None };
-        return Some(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: None });
+        return Some(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: None, project: None });
     }
     m.contributes.tile(view).map(|_| ViewSpec::tile(view))
 }
@@ -459,8 +469,11 @@ impl Tiles {
             Some(r) if r.handle.is_some() => {
                 if r.views.insert(view.to_string()) {
                     let spec = crate::extensions::manifest_of(id, cx).and_then(|m| spec_of(&m, view));
+                    let project = self.project_of(id, view, cx);
+                    self.view_projects.insert((id.to_string(), view.to_string()), project.clone());
+                    let r = self.running.get(id).expect("running");
                     if let (Some(h), Some(spec)) = (&r.handle, spec) {
-                        h.open_view(ViewSpec { content, ..spec });
+                        h.open_view(ViewSpec { content, project, ..spec });
                     }
                 } else if let (Some(c), Some(h)) = (content, &r.handle) {
                     h.set_content(view, c);
@@ -612,6 +625,74 @@ impl Tiles {
         cx.notify();
     }
 
+    /// View `view` of extension `id` is opened for project `folder` (from
+    /// a project's menu in the sidebar, or for an agent working there):
+    /// its project when the space it is in belongs to none.
+    pub fn hint_project(&mut self, id: &str, view: &str, folder: &str, cx: &mut Context<Self>) {
+        self.hints.insert((id.to_string(), view.to_string()), folder.to_string());
+        self.sync_projects(cx);
+    }
+
+    /// The project view `view` of extension `id` is in (what `files`
+    /// reaches for it): its space's project; else the project it was
+    /// opened for ([`Tiles::hint_project`]); else the one project of the
+    /// agents beside it in its space.
+    pub fn project_of(&self, id: &str, view: &str, cx: &App) -> Option<ui::Project> {
+        if view == POPOVER_VIEW {
+            return None;
+        }
+        let ui = crate::ui_state::get(cx);
+        let what = crate::main_screen::tree::Content::View(format!("{id}/{view}"));
+        let space = ui.spaces.iter().find(|sp| sp.layout.find_content(&what).is_some());
+        let agents: Vec<pitwall_proto::AgentView> = cx.try_global::<crate::agents::StoreHandle>().map(|s| s.0.read(cx).agents.clone()).unwrap_or_default();
+        let beside = || {
+            let sp = space?;
+            let set: BTreeSet<String> = sp.layout.leaves().iter().filter_map(|p| p.agent_id.as_ref()).filter_map(|a| agents.iter().find(|x| x.id == *a)).map(|a| a.project.clone()).filter(|p| !p.is_empty()).collect();
+            if set.len() == 1 {
+                set.into_iter().next()
+            } else {
+                None
+            }
+        };
+        let folder = space.and_then(|sp| sp.project.clone()).or_else(|| self.hints.get(&(id.to_string(), view.to_string())).cloned()).or_else(beside)?;
+        let display = agents.iter().find(|a| a.project == folder).map(|a| a.project_display.clone()).unwrap_or_else(|| folder.clone());
+        Some(ui::Project { name: crate::kit::project_name(&display).to_string(), folder })
+    }
+
+    /// Tell each running component's views the project they are in now,
+    /// when it changed.
+    fn sync_projects(&mut self, cx: &App) {
+        let mut now = Vec::new();
+        for (id, r) in &self.running {
+            if r.handle.is_none() {
+                continue;
+            }
+            for v in &r.views {
+                let key = (id.clone(), v.clone());
+                let p = self.project_of(id, v, cx);
+                if self.view_projects.get(&key) != Some(&p) {
+                    now.push((key, p));
+                }
+            }
+        }
+        for ((id, v), p) in now {
+            if let Some(h) = self.running.get(&id).and_then(|r| r.handle.as_ref()) {
+                h.set_project(&v, p.clone());
+            }
+            self.view_projects.insert((id, v), p);
+        }
+        let mut scoped = scoped().lock().unwrap_or_else(|e| e.into_inner());
+        scoped.clear();
+        for ((id, _), p) in &self.view_projects {
+            if let Some(p) = p {
+                let list = scoped.entry(id.clone()).or_default();
+                if !list.contains(&p.folder) {
+                    list.push(p.folder.clone());
+                }
+            }
+        }
+    }
+
     /// Every call of extension `id` waiting for an answer ends: `why`.
     fn fail_waiting(&mut self, id: &str, why: &str) {
         let keys: Vec<(String, u64)> = self.waiting.keys().filter(|(e, _)| e == id).cloned().collect();
@@ -632,6 +713,8 @@ impl Tiles {
         r.shown.remove(view);
         r.frames.remove(view);
         self.origins.remove(&(id.to_string(), view.to_string()));
+        self.view_projects.remove(&(id.to_string(), view.to_string()));
+        self.hints.remove(&(id.to_string(), view.to_string()));
         if r.views.is_empty() && !self.kept.contains(id) {
             // Its badges and questions go with it.
             self.running.remove(id);
@@ -931,7 +1014,11 @@ impl Tiles {
             let ext = host.load(&dir).map_err(|e| format!("It can't be loaded: {e}."))?;
             let m = ext.manifest().clone();
             self.remember_secrets(&m, cx);
-            let views: Vec<ViewSpec> = views.iter().filter_map(|v| spec_of(&m, v).map(|s| ViewSpec { content: self.pending.remove(&(id.to_string(), v.to_string())), ..s })).collect();
+            let projects: Vec<Option<ui::Project>> = views.iter().map(|v| self.project_of(id, v, cx)).collect();
+            for (v, p) in views.iter().zip(&projects) {
+                self.view_projects.insert((id.to_string(), v.clone()), p.clone());
+            }
+            let views: Vec<ViewSpec> = views.iter().zip(projects).filter_map(|(v, project)| spec_of(&m, v).map(|s| ViewSpec { content: self.pending.remove(&(id.to_string(), v.to_string())), project, ..s })).collect();
             let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state, clock: Default::default() };
             let tx = self.tx.clone();
             let ext_id = id.to_string();
@@ -1106,6 +1193,19 @@ impl Tiles {
     }
 }
 
+fn scoped() -> &'static Mutex<HashMap<String, Vec<String>>> {
+    static S: std::sync::OnceLock<Mutex<HashMap<String, Vec<String>>>> = std::sync::OnceLock::new();
+    S.get_or_init(Default::default)
+}
+
+/// The project folders extension `id`'s open views are in now: what its
+/// `files.*` permissions reach, as the permission screen lists them.
+pub fn scoped_folders(id: &str) -> Vec<String> {
+    let mut v = scoped().lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().unwrap_or_default();
+    v.sort();
+    v
+}
+
 /// A line Pitwall writes in a tile's Log.
 fn note(text: &str) -> LogLine {
     LogLine { level: pitwall_tile_host::LogLevel::Info, message: text.to_string(), at: std::time::SystemTime::now(), from_host: true }
@@ -1136,6 +1236,16 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
             }
         }
         UiRequest::Toolbar(req) => crate::main_screen::toolbar_items::apply(id, req, cx),
+        // A change to a project's files, or a refusal: in its Activity.
+        UiRequest::Activity { method, detail, refused } => {
+            use pitwall_core::extensions::activity::{Entry, Outcome, Via};
+            let outcome = match refused {
+                None => Outcome::Ok,
+                Some(message) => Outcome::Refused { code: "denied".into(), message },
+            };
+            let log = crate::extensions::calls::activity(id, cx);
+            log.lock().unwrap_or_else(|e| e.into_inner()).push(Entry::now(Via::Tile, method, outcome).with_detail((!detail.is_empty()).then_some(detail)));
+        }
         UiRequest::RestartService => {
             let services = crate::extensions::service::services(cx);
             services.update(cx, |s, cx| s.restart(id, cx));
