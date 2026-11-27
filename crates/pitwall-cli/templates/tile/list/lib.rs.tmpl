@@ -5,6 +5,7 @@
 use pitwall_extension::prelude::*;
 use serde::{Deserialize, Serialize};
 
+// docs:start list-content-type
 /// What the tile is opened with (input.schema.json).
 #[derive(Deserialize)]
 struct Shown {
@@ -19,6 +20,7 @@ struct Item {
     #[serde(default)]
     done: bool,
 }
+// docs:end
 
 #[derive(Default, Serialize, Deserialize)]
 struct List {
@@ -36,13 +38,16 @@ impl Tile for List {
             Ok(Some(list)) => list,
             _ => List { title: "Checklist".into(), ..List::default() },
         };
+        // docs:start list-restore
         // After a reload (`pitwall extension dev`): what was being typed.
         if let Some((filter, draft)) = cx.restore::<(String, String)>() {
             (list.filter, list.draft) = (filter, draft);
         }
+        // docs:end
         list
     }
 
+    // docs:start list-on-content
     fn on_content(&mut self, view: &ViewInfo, _cx: &mut Cx<Self>) {
         let Some(content) = &view.content else { return };
         match content.parse::<Shown>() {
@@ -57,6 +62,7 @@ impl Tile for List {
             }
         }
     }
+    // docs:end
 
     fn render(&mut self, _view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
         let done = self.items.iter().filter(|i| i.done).count();
@@ -78,15 +84,18 @@ impl Tile for List {
                     }))),
             )
             .child(
+                // docs:start list-scroll
                 v_flex()
                     .id("items")
                     .flex_1()
                     .overflow_y_scroll()
                     .when(shown.is_empty(), |list| list.child(text("Nothing here yet").p_3().text_color(Token::Text3)))
                     .children(shown.into_iter().map(|item| row(item, cx))),
+                // docs:end
             )
             .child(
                 h_flex().gap_2().p_2().border_t_1().border_color(Token::Line).child(
+                    // docs:start list-submit
                     input("new")
                         .placeholder("Add an item and press Enter")
                         .value(self.draft.clone())
@@ -96,16 +105,20 @@ impl Tile for List {
                             this.add();
                             cx.notify();
                         })),
+                    // docs:end
                 ),
             )
     }
 
+    // docs:start list-save-state
     fn save_state(&self) -> Option<SavedState> {
         // Keep what's being typed across a reload.
         SavedState::json(&(&self.filter, &self.draft))
     }
+    // docs:end
 }
 
+// docs:start list-row
 /// One row: a check, the text, a remove button. Keyed by the item's id so
 /// Pitwall keeps each row's state when the list changes.
 fn row(item: Item, cx: &mut Cx<List>) -> AnyElement {
@@ -136,6 +149,7 @@ fn row(item: Item, cx: &mut Cx<List>) -> AnyElement {
         })))
         .into_any()
 }
+// docs:end
 
 impl List {
     fn add(&mut self) {
@@ -150,11 +164,13 @@ impl List {
         self.save();
     }
 
+    // docs:start list-save
     fn save(&self) {
         if let Err(e) = storage::set_json("list", self) {
             log::warn(format!("the list wasn't saved: {e}"));
         }
     }
+    // docs:end
 }
 
 pitwall_extension::export!(List);

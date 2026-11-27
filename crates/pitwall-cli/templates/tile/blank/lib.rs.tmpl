@@ -3,25 +3,31 @@
 
 use pitwall_extension::prelude::*;
 
+/// The tile's name, as `pitwall extension new` wrote it.
+const NAME: &str = "{{name_str}}";
+
+// docs:start blank-tile
 #[derive(Default)]
 struct App {
     clicks: u32,
 }
 
 impl Tile for App {
+    // docs:start blank-new
     fn new(_cx: &mut Cx<Self>) -> Self {
         // What the user must not lose goes in storage: on disk at once,
         // kept across restarts and updates.
         let clicks = storage::get_json("clicks").ok().flatten().unwrap_or(0);
         App { clicks }
     }
+    // docs:end
 
     fn render(&mut self, _view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
             .gap_2()
             .p_3()
-            .child(text("{{name_str}}").text_lg().font_semibold())
+            .child(text(NAME).text_lg().font_semibold())
             .child(text(format!("Clicked {} times", self.clicks)).text_color(Token::Text2))
             .child(
                 h_flex()
@@ -48,3 +54,4 @@ impl App {
 }
 
 pitwall_extension::export!(App);
+// docs:end
