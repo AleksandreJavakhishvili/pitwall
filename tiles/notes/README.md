@@ -4,12 +4,15 @@ Private plain-text notes beside your agents. **Preview** on the Tile SDK's
 phase 1 (WIT `pitwall:tile@0.1.0`): step 0 of
 [the Notes plan](../../docs/spec/2026-11-27-notes-tile/plan.md).
 
-- **New** with + or ⌘N; the first line is the title.
-- **Saved as you type**: about a second after you stop, when you leave the
-  note, and when the tile is hidden or loses focus. No Save button. Text not
+- **New** with + or N (⌘N is Pitwall's: a new agent); the first line is the
+  title. / goes to the search.
+- **Saved as you type**: about a second after you stop, when the note's
+  field loses focus (to the search, or out of the tile), when you leave the
+  note, and when the tile is hidden. No Save button. Text not
   saved yet survives the tile being dropped or reloaded.
 - **Search** narrows the list by title and text (every word must appear).
-- **Delete** asks once, in the note's bar.
+- **Delete** asks once, in the note's bar, or from a row of the list (its
+  Delete shows under the pointer).
 - **⌘⏎** in a note saves it and goes back to the list (in a narrow tile).
 - **Opened with a draft**: an agent or you can open Notes with
   `{ "title"?, "text" }` (`input.schema.json`). The draft stays unsaved,
