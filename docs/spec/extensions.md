@@ -1,5 +1,16 @@
 # Extensions
 
+> **Superseded in part (owner, 2026-11-28): self-contained extensions.**
+> Everything an extension shows now comes from its WebAssembly component,
+> and Pitwall gives only generic, permission-gated pieces
+> ([tile-sdk/extension-model.md](tile-sdk/extension-model.md); [15.5](tile-sdk/extension-model.md#155-removed) lists what is removed and
+> what replaces it, [15.7](tile-sdk/extension-model.md#157-migration) is the migration). Sections marked
+> **Superseded** below describe the adapter era: they stay true of the
+> code until plan item 8c removes it, and are history after. Still
+> current: where extensions are, installing, updates from git and npm,
+> on and off, format 2's permissions and activity log, the generic parts
+> of updating as one step, and dev mode for components.
+
 Status: built, unreleased. Finding extensions, the manifest (settings,
 adapter, agent variables, agent matching, setup actions, source),
 updates from a git source or an npm package, the adapter
@@ -233,6 +244,8 @@ an npm package's versions. Code: `pitwall_core::extensions::npm`
   Install.
 
 ## The manifest (`extension.json`, format 1)
+*Superseded in part: `adapter`, `agentEnv`, `matchAgents`, `actions`, `contributes.inbox` and the settings' `label`, `hint`, `placeholder` and `required` are removed ([15.5](tile-sdk/extension-model.md#155-removed)); `settings` stays as a schema ([14.6](tile-sdk/platform-services.md#146-settings-secrets-and-the-setup-view)).*
+
 ```json
 {
   "v": 1,
@@ -330,6 +343,8 @@ an npm package's versions. Code: `pitwall_core::extensions::npm`
   used, and Settings says why (`pitwall_core::extensions::parse`).
 
 ## Adapter protocol (version 1)
+*Superseded: adapters and the protocol are removed ([15.5](tile-sdk/extension-model.md#155-removed)).*
+
 JSON lines over the adapter's stdin (from Pitwall) and stdout (from the
 adapter): one JSON object per line, UTF-8, each with a `type`. The
 adapter's stderr is kept (its last few KiB) and shown when it stops, and
@@ -422,6 +437,8 @@ gets one `result`)
   crashed adapter by itself.
 
 ## Format 2 and protocol 2
+*Superseded in part: protocol 2 goes with adapters; format 2's permissions, grants and activity log stay, used by components.*
+
 The first part of the extension API (docs/spec/extension-api.md, phase
 3): an extension may **read** Pitwall's data with the user's grant.
 Author docs: [`manifest-2.md`](../extensions/manifest-2.md),
@@ -530,6 +547,8 @@ with "Granted 14 Nov 2026" / "Refused …" and a switch, and one an update
 added as "new" with Allow / Don't allow.
 
 ## Settings → Extensions
+*Superseded in part: the checklist, the fields drawn from the manifest, More and "What this extension does on your computer" are replaced by the extension's own Setup view and the host's generic page ([3.12](tile-sdk/ui.md#312-the-setup-view-and-host-drawn-fields)).*
+
 A tab of its own (after Accounts). Code: `settings/extensions.rs`.
 - **Installed:** one card per folder found. Its top row: icon, name,
   version (a "demo" mark), description, a status pill of fixed width
@@ -573,6 +592,8 @@ A tab of its own (after Accounts). Code: `settings/extensions.rs`.
   fields).
 
 ## Connections
+*Superseded: connections are removed; one set of settings per extension, the default connection's carried over ([15.7](tile-sdk/extension-model.md#157-migration)).*
+
 Status: built below the screens (docs/spec/profiles.md has the design).
 - An extension with `settings` has **connections**: each one set of its
   settings and secrets (one per server or key: "Work", "Personal"). A
@@ -625,6 +646,8 @@ Status: built below the screens (docs/spec/profiles.md has the design).
   (a "remove" action does, when pressed).
 
 ## The inbox tile
+*Superseded: the built-in inbox is removed; an inbox is an extension's own tile ([15.5](tile-sdk/extension-model.md#155-removed)).*
+
 An extension with an adapter has an inbox: a tile of the space's layout,
 a peer of the files and web tiles, or a window of its own. Code:
 `main_screen/inbox_tile.rs` (the inbox), `main_screen/inbox_window.rs`
@@ -731,6 +754,8 @@ a peer of the files and web tiles, or a window of its own. Code:
   `extensions/`, and on each staged copy.
 
 ## Agents' ask badges and notifications
+*Superseded: these came from inbox threads matched by `matchAgents`; a component sets `badges` and `notify` itself.*
+
 - An agent whose threads (matched through `matchAgents`) have open asks
   gets a pill on its own sidebar row: an inbox icon and the count, amber
   when one blocks it. A click opens the inbox at the thread with the
@@ -741,6 +766,7 @@ a peer of the files and web tiles, or a window of its own. Code:
   first list after a start never notifies).
 
 ## Views, commands, badges and notifications
+*Superseded: views and commands fed by an adapter are removed; tiles, commands, `badges` and `notify` come from the component.*
 
 What an extension's adapter draws beyond its inbox (author's guide:
 `docs/extensions/views.md`; proposal and differences:
@@ -796,6 +822,8 @@ sections and web views".
   and what an update adds and drops.
 
 ## Actions, right-panel sections and web views
+*Superseded: adapter actions, right-panel sections and declared web views are removed; a tile opens a web tile with `show.web`.*
+
 What an extension may do in Pitwall beyond drawing (author's guides:
 `docs/extensions/actions.md`, `docs/extensions/views.md`; proposal and
 differences: `docs/spec/extension-api.md`, phase 5). Nothing here
@@ -880,6 +908,8 @@ changes what an agent itself may do: its permissions, tools and rules
   call as the extension (debug builds).
 
 ## In the floating control
+*Superseded in part: inbox questions go with the inbox; the control shows components' `asks` ([14.2](tile-sdk/platform-services.md#142-the-v0x-minimum-built-in-phases-12)).*
+
 The floating "needs you" control (Settings → General,
 `general.floatingPrompts`; code: `float/`) shows the open questions of
 every extension that is installed, on, has an inbox and whose adapter
@@ -936,6 +966,8 @@ works as before.
   `float demo-sent`.
 
 ## Setup actions
+*Superseded: setup actions are removed; a component runs commands through the program capability, each line confirmed ([13.2](tile-sdk/services.md#132-a-programs-the-component-starts)).*
+
 What "setting up" means for an extension is the manifest's to say, such
 as installing a tool's plugin in the user's agents. Code:
 `pitwall_core::extensions::Action`, `crate::extensions::actions`.
@@ -1021,6 +1053,7 @@ as installing a tool's plugin in the user's agents. Code:
   off removes nothing it installed.
 
 ## A service
+*Superseded: the managed `service` block is removed; a supervised program replaces it ([13.2](tile-sdk/services.md#132-a-programs-the-component-starts)).*
 
 A format 2 manifest may declare one `service`: a program, such as the
 server its agents talk to, that Pitwall keeps running on this computer
@@ -1113,6 +1146,8 @@ Not built: starting it at login without Pitwall, HTTPS or a public
 address, a sandbox, more than one service.
 
 ## Setup by an agent
+*Superseded in part: the checklist and `extension.act` for setup actions, the service and connections go; reading, install, on, off, update, remove and `extension.secret` (now opening the Setup view at its secure field) stay. An extension's own setup steps for agents are its `act` tools.*
+
 Status: built, unreleased. An agent (the Race Engineer, or any agent the
 user asks) sees how an extension stands and moves its setup forward with
 `pitwall extension …`, each change approved by the user in Pitwall. Code:
@@ -1160,6 +1195,7 @@ side), `pitwall-cli/src/extension.rs`.
   never call any `extension.*` method.
 
 ## Updating as one step
+*Superseded in part: the plugin and service steps go; an update stops the extension's programs, backs up its data folder, installs and starts the new component ([13.2](tile-sdk/services.md#132-a-programs-the-component-starts)).*
 
 The author's page is [`docs/extensions/updates.md`](../extensions/updates.md).
 Core: `pitwall_core::extensions::update` (the plan, backup folders, copy
@@ -1244,6 +1280,8 @@ that fails isn't tried again by itself. Each restart is a notice and an
 Activity line.
 
 ## For authors
+*Superseded in part: the adapter's log, Reload, the Node starter and `test`'s adapter parts go with adapters.*
+
 The author's guide is [`docs/extensions/`](../extensions/README.md).
 Code: `crate::extensions::{load_dev, reload_dev, forget_dev}`,
 `settings/extensions_dev.rs`, `pitwall_core::extensions::{check, log,

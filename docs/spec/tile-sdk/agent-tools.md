@@ -450,7 +450,7 @@ programs.
 
 **A package can't ship native executables to run.** No shell scripts,
 binaries or interpreters' files are ever executed from a `.pwtile`. The
-only native-code route is the managed service ([13.2](services.md#132-a-a-tile-plus-a-managed-service)), at its higher
+only native-code route is the program capability ([13.2](services.md#132-a-programs-the-component-starts)), at its higher
 trust level ("Runs a program on your computer").
 
 **Declaring.** A tool becomes a command by saying where it is exposed:

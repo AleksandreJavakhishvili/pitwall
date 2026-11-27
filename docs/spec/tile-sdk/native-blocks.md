@@ -226,7 +226,7 @@ native.
 |---|---|---|
 | Review and source control (`review/`, [review.md](../review.md)) | **Port**: the first-party proof tile | Large and used daily, so it finds gaps fastest. It is UI over git, agents and files, which the SDK offers. Its native parts become building blocks (code view, diff view) |
 | Files tree (`explorer/`, files tiles) | **Port** | A tree, a search box, viewers: all SDK elements or blocks. Needs `files.read/write`, file watching and a native search service (below) |
-| Inbox (`inbox_tile.rs`) | **Port** the tile; the inbox model and the floating control stay Pitwall's | The tile is a list and a thread over the `inbox` interface ([15.4](extension-model.md#154-from-adapter-to-component)). [15.6](extension-model.md#156-what-stays-different) keeps the inbox as a dedicated surface; that holds: the model, the number keys and the floating control stay native, and the ported tile is one view of them |
+| Inbox (`inbox_tile.rs`) | **Removed**, not ported (owner, 2026-11-28, [15.5](extension-model.md#155-removed)) | Only adapters fed it. An inbox is an extension's own tile (Agention's); the floating control keeps the `asks` cards |
 | Terminals | **Stays native** | The platform's core; contents withheld from extensions ([16.2](#162-native-building-blocks)) |
 | Editor (`editor/`) | **Stays native** | It *is* the code view block; one editor, shared |
 | Web tiles | **Stays native** | A native web view with no bridge; the web view block reuses it |

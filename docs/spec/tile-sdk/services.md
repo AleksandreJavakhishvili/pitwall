@@ -9,113 +9,144 @@ A tile is drawn, suspended when hidden and dropped after ten minutes
 ([2.3](runtime.md#23-lifecycle)). That is right for a view, and wrong for a program that must keep
 data, answer other programs, or work while nobody looks at it: a
 team's shared board, a local API the user's agents call, a sync job.
-So a tile can't itself be a server. Its package can bring one, in one
+So a tile can't itself be a server. Its extension can have one, in one
 of two ways:
 
-| | A. Tile + managed service | B. Headless wasm service |
+| | A. A program the component starts | B. Headless wasm service |
 |---|---|---|
-| The server is | Any program, any language | A `service.wasm` component written with `pitwall-extension` |
-| Runs | As the user, unsandboxed [today] | In Wasmtime, with only what is granted |
-| Runs where | A process Pitwall starts, while the extension is on and Pitwall runs [today] | A small host process of Pitwall's, which keeps running when the window closes |
-| Exists | Yes: `service` in format 2 manifests ([service.md](../../extensions/service.md)) | No: new |
-| Trust shown | "Runs a program on your computer" | Same as a tile: its grants |
+| The server is | Any native program, any language | A `service.wasm` component written with `pitwall-extension` |
+| Runs | As the user, unsandboxed | In Wasmtime, with only what is granted |
+| Runs where | A process Pitwall starts and supervises while the extension is on and Pitwall runs | A small host process of Pitwall's, which keeps running when the window closes |
+| Exists | Replaces the managed `service` block (#127), which is removed ([15.5](extension-model.md#155-removed)) | No: new |
+| Trust shown | "Runs programs on your computer", with the commands | Same as a tile: its grants |
 
-**Decided (owner, 2026-11-26): A first, B later.** A works with machinery that is
-built and tested (install action, version check, ready check, data
-folder, backup, one-step update and Go back). It only needs the tile
-side wired up ([13.2](#132-a-a-tile-plus-a-managed-service)), so it can ship with tiles in phase 2. B is worth
-building once tiles are stable (after phase 7), because it brings the
-sandbox to servers and needs no runtime on the user's machine; it is
-designed in [13.3](#133-b-a-headless-wasm-service) so A's manifest and the tile's view of it don't change
-when an author moves from A to B.
+**Decided (owner, 2026-11-26): A first, B later.** A is now the generic
+program capability (owner, 2026-11-28, [13.6](#136-decisions) item 9), not
+a manifest block: the component decides what to run and when; Pitwall
+only starts, confines and supervises it.
 
-### 13.2 A. A tile plus a managed service
+### 13.2 A. Programs the component starts
 
-**Manifest.** The existing `service` block, beside `contributes.tiles`:
+Zed's way (S26): an extension's wasm names a command, and the
+host runs it. Nothing about the program is declared except what the
+user must see before granting.
+
+**Manifest.** One permission, `programs`, with the reason and the
+commands the component may ask for, as patterns:
 ```json
-{
-  "v": 2,
-  "id": "team-board",
-  "name": "Team board",
-  "version": "1.0.0",
-  "pitwall": ">=0.15.0",
-  "settings": [
-    { "key": "listen", "type": "text", "label": "Listens on", "default": "127.0.0.1:8790" }
-  ],
-  "actions": [
-    { "id": "server", "label": "Install the board server",
-      "steps": [{ "run": ["cargo", "install", "team-board-server", "--version", "1.0.0", "--locked"] }] }
-  ],
-  "service": {
-    "label": "The board server",
-    "run": ["team-board-server", "--data", "{data}", "--listen", "{setting:listen}"],
-    "install": "server",
-    "version": { "run": ["team-board-server", "--version"], "match": "(\\d+\\.\\d+\\.\\d+)", "requires": ">=1.0.0" },
-    "ready": { "listen": "{setting:listen}" },
-    "backup": { "run": ["team-board-server", "backup", "--data", "{data}", "--to", "{backup}/board.db"],
-                "replaces": ["board.db"] }
-  },
-  "contributes": {
-    "tiles": [{ "id": "board", "title": "Team board", "icon": "list", "wasm": "tile.wasm" }]
+"settings": [
+  { "key": "listen", "type": "text", "default": "127.0.0.1:8787" }
+],
+"permissions": {
+  "programs": {
+    "reason": "To run Agention's server on this computer and set up its plugin in your agents",
+    "commands": [
+      { "command": "npm", "args": ["install", "--prefix", "{data}/server", "@wayfarerlabs/agention@*"] },
+      { "command": "{data}/server/node_modules/.bin/agention", "args": ["**"] },
+      { "command": "claude", "args": ["plugin", "**"] },
+      { "command": "codex", "args": ["plugin", "**"] }
+    ],
+    "downloads": []
   }
 }
 ```
-Everything about the service is as [service.md](../../extensions/service.md)
-and [updates.md](../../extensions/updates.md) say [today]: the program is
-a name on the user's PATH, installed by one of the extension's actions;
-its exact commands are confirmed once; `{data}` is private and outside
-the installed folder; restarts at 1, 5 and 30 s; `ready.listen` must be
-on this computer.
+- `command` is a name found on the user's login-shell PATH, or a path
+  under `{data}` (the extension's data folder,
+  `<data>/extension-data/<id>/`). Nothing else: no `sh -c`, no paths
+  elsewhere.
+- `args` match one by one: a literal, `*` for any one argument, `**`
+  for any rest (last only). `{data}` and `{setting:KEY}` are filled in
+  before matching.
+- At most 16 patterns. `pitwall extension check` refuses a pattern
+  whose command is a shell or interpreter with `**` (`sh`, `bash`,
+  `zsh`, `cmd`, `powershell`, `node`, `python`…), since that is any
+  program.
 
-**What is new: the tile reaches its own service.**
-- **An automatic loopback grant.** Pitwall gives the tile `net` access
-  to exactly its service's `ready.listen` address (scheme `http`, that
-  host and port, nothing else on loopback). It isn't a switch: the
-  service is part of the same extension and was confirmed with it. The
-  permission screen lists it as "Talks to its own server at
-  127.0.0.1:8790". When the address comes from a setting, the grant
-  follows the setting's current value.
-- **A host interface, `service`**, in the tile's world (no permission;
-  own service only):
-  ```wit
-  interface service {
-    enum state { off, needs-install, starting, up, stopped, failed }
-    record info { state: state, address: option<string>, version: option<string>, why: option<string> }
-    info: func() -> info;
-    restart: func() -> u32;        // a task; same as the card's Restart
-    open-card: func();             // shows the card (install, first run)
+**WIT** (`programs`, sketch):
+```wit
+interface programs {
+  use types.{host-error};
+  variant env-value { text(string), secret(string) }   // secret: a secret setting's key
+  record env-var { name: string, value: env-value }
+  record command {
+    program: string, args: list<string>, env: list<env-var>,
+    cwd: option<string>,            // relative to {data}; default {data}
   }
-  ```
-  plus an event `service-changed(info)`. The SDK wraps it as
-  `service::info()` and `service::url("/api/items")`.
-- **The tile and the service live apart.** Hiding or dropping the tile
-  doesn't stop the service; turning the extension off stops both
-  [today]. A tile shows `needs-install` or `stopped` with a button that
-  opens the card, where the install action and first run already live.
-- **Agents reach it** through the tile's tools ([section 11](agent-tools.md#11-tools-for-agents)): a `read`
-  or `act` tool that calls the service. Agents run as the user and can
-  also reach a loopback port themselves (`curl`); Pitwall can't stop
-  that and doesn't pretend to. A service that wants a key from its
-  clients declares it with `env` and a secret setting [today]; the tile
-  reads that secret through `settings.secret` (its own extension's).
-- **Updates** run today's ordered steps (back up, install, update the
-  server's program, start and check, set up the agents), with the tile's
-  "instantiates and `init` returns ok" check ([6.4](packaging.md#64-updates-and-go-back)) added to step 4.
+  enum state { asking, starting, running, exited, failed, stopped, denied }
+  record status { state: state, pid: option<u32>, exit: option<s32>, why: option<string> }
 
-**Trust.** The package now runs a native program as the user, so:
-- the install and permission screens say **"Runs a program on your
-  computer"**, with the command lines (today's "What this extension does
-  on your computer" disclosure), and the confirm card stays;
-- Browse shows the same words as a mark on the card and lets "Verified
-  only" users filter on it;
-- Verified ([7.3](marketplace.md#73-verified)) covers the server too: its source at the version the
-  install action pins, and the install action itself. A server installed
-  from a binary nobody can read is never Verified.
+  /// Run once to the end. A task; `program-finished(task, exit, stdout, stderr)`
+  /// follows, each output cut to 1 MiB. ≤ 4 at once, ≤ 10 min each.
+  run: func(cmd: command, timeout-ms: u32) -> result<u32, host-error>;
+  /// Keep `name` running: restarted after 1, 5 and 30 s, then `failed`.
+  /// `listen` (loopback only) lets the component reach it over `net`.
+  start: func(name: string, cmd: command, listen: option<string>) -> result<_, host-error>;
+  stop: func(name: string);
+  status: func(name: string) -> status;
+  /// Fetch a file whose SHA-256 the component pins; unpack into {data}.
+  download: func(url: string, sha256: string, to: string, unpack: unpack) -> result<u32, host-error>;
+  enum unpack { none, zip, tar-gz, gzip }
+}
+```
+Events: `program-changed(name, status)`, `program-finished`,
+`download-finished`. SDK: `programs::run`, `programs::start`,
+`Command::new("agention").arg("serve").env_secret("KEY", "apiKey")`.
 
-What a hostile service can do is what an adapter can [today]
-([extension-api.md](../extension-api.md), "What a hostile extension can
-still do"): everything the user can. The tile beside it stays sandboxed,
-but that protects little when its server isn't.
+**Every exact command is confirmed once.** A call whose command
+doesn't match a declared pattern is `denied` without asking. One that
+matches, and whose exact line (program resolved to its path, every
+argument, the names of its variables, its folder) hasn't been allowed,
+puts up a host-drawn sheet naming the extension: "Agention wants to
+run: `/Users/me/.pitwall/extension-data/agention/server/node_modules/.bin/agention serve --data … --listen 127.0.0.1:8787`",
+with **Run** (this time), **Always** (this exact line) and **Deny**. A
+supervised program's sheet says "and keep it running". The call waits
+in `asking`. "Always" lines are listed on the extension's page with
+Remove. A line that changes (a setting, an update, another version in
+the arguments) asks again. The component never sees the user's PATH.
+
+**How it runs.**
+- In its own process group (a job on Windows), as the user, with a
+  clean environment: `PATH`, `HOME`, `USER`, `LANG`, `TMPDIR` and the
+  listed variables. A `secret(KEY)` value is put in by the host from
+  the secure store; the component never holds it, and it is taken out
+  of Log lines.
+- stdout and stderr go to the extension's Log (a 500-line ring per
+  program); a one-shot run also returns them to the component.
+- Supervised programs (≤ 4 per extension) stop when the extension is
+  turned off, updated or removed, or when Pitwall quits; their state is
+  on the page with Stop, Restart and Log. A program already listening
+  on the `listen` address when asked to start is left alone and
+  reported `running` with `pid: none` ("running elsewhere", as the
+  service did).
+- `listen` gives the component `http://` access to exactly that
+  loopback address while the program is running, without a `net`
+  grant: the replacement of the service's automatic loopback grant.
+  The component checks readiness itself, by calling it.
+- **Download helper.** `url` must match one of `downloads` (patterns
+  like `https://github.com/owner/repo/releases/download/*`, https only)
+  and the bytes must hash to the `sha256` the component passes (pinned
+  in its code, so a release can't change under it). Unpacked under
+  `{data}` with Pitwall's own archive reader (no paths out, no links),
+  executables marked. Running the result still needs a matching
+  command pattern and the confirmation.
+
+**Updates.** `safe_update` stops the extension's programs, backs up
+`{data}` (≤ 2 GiB, as today), installs, and starts the new component,
+which starts its programs again. A failure puts the old files and the
+backup back. There is no per-extension backup command; the programs are
+stopped, so a copy of the folder is consistent (SQLite files with their
+WAL).
+
+**Trust.** The permission screen says **"Runs programs on your
+computer"** with the patterns as written; Browse marks such extensions
+and "Verified only" can filter on it. Verified covers what the patterns
+can run (the source of anything downloaded, at its pinned hash).
+`programs` starts off: the user must Allow it.
+
+What a hostile extension can do with `programs` is what the user can,
+within the patterns it was granted and each line the user allowed
+([5.5](permissions.md#55-threat-model-and-outside-review), "Programs"). The component beside it stays
+sandboxed; that protects little once a program it starts isn't.
 
 ### 13.3 B. A headless wasm service
 
@@ -136,7 +167,7 @@ a tile shows it, and whether or not Pitwall's window is open.
 A `service` with `wasm` has no `run`, `install` or `version`: the
 program is in the package. Its address, its data folder and how it is
 backed up and updated keep the meaning they have for a managed service,
-so a tile written against [13.2](#132-a-a-tile-plus-a-managed-service) works unchanged.
+so a component written against [13.2](#132-a-programs-the-component-starts) moves with little change.
 
 **Where it runs.** Today Pitwall's daemon (the engine, the socket
 server, approvals) runs inside the app's process: `pitwall-app` hosts
@@ -268,7 +299,7 @@ service rule].
   on its own: Pitwall's "Start at login" [architecture decision 2]
   starts it with Pitwall.
 - Start, Stop and Restart are on the card and in the tile's `service`
-  interface ([13.2](#132-a-a-tile-plus-a-managed-service)), the same as for a managed service.
+  interface, the same as for a supervised program ([13.2](#132-a-programs-the-component-starts)).
 - **Logs**: `stdout`, `stderr` and `log` go to the card's Log [today's
   view], kept by `pitwall-svc` in a 500-line ring so they survive the
   window being closed; secrets taken out as today.
@@ -292,7 +323,7 @@ taken at that update, default keep [today]. A downgrade can't migrate
 backwards: Go back after a schema change needs the backup, and the
 review says so.
 
-**How the tile and agents reach it.** The tile, exactly as in [13.2](#132-a-a-tile-plus-a-managed-service):
+**How the tile and agents reach it.** The tile, as with a program's `listen` ([13.2](#132-a-programs-the-component-starts)):
 the automatic grant, `service::url(…)`, the key added for it. Agents,
 through the tile's tools ([section 11](agent-tools.md#11-tools-for-agents)), or a service may declare its own
 tools of kinds `read` and `act` (no `show`/`present`: it has no UI),
@@ -319,8 +350,8 @@ extensions' data, or keep running after the extension is turned off
 
 ### 13.4 Author experience
 - `pitwall extension new <id> --service` (B) adds `src/service.rs` with an
-  HTTP route, a migration and a test; `--service native` (A) adds a
-  `service` block and an install action for the author to fill.
+  HTTP route, a migration and a test; `--program` (A) adds a `programs`
+  permission and a `programs::start` call for the author to fill.
 - `pitwall extension dev` builds both components and restarts the service on
   save (its `/data` kept); the Log streams both.
 - `pitwall-extension-test` serves the service in-process and lets tests send
@@ -333,7 +364,7 @@ extensions' data, or keep running after the extension is turned off
 ### 13.5 Order of work
 | Step | Content |
 |---|---|
-| A, during phase 2 | the automatic loopback grant, the tile's `service` interface and event, the "Runs a program" wording in install, Browse and Verified, a starter, docs |
+| A, during phase 2 | built as the managed `service` block (#127); replaced by the program capability ([plan](plan.md) 8a), which the `service` block's removal follows (8c) |
 | B1, after phase 7 | `pitwall-svc` (process, socket, logs, rediscovery), the service world 0.1, incoming-handler over hyper, the HTTP front (Host check, key, caps), `net.listen` on loopback |
 | B2 | backups and `migrate` in `safe_update` (the `sql` host code comes from tiles, [14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)), limits and watchdog, the quit question |
 | B3 | `interfaces` (Tailscale), service tools for agents, `extension new --service`, test harness |
@@ -344,7 +375,8 @@ extensions' data, or keep running after the extension is turned off
    one file, but means per-OS binaries in the package and Pitwall
    running a downloaded executable. Decided (owner, 2026-11-26): not in v1: keep today's
    rule (a program on PATH, installed by a confirmed action); authors
-   who want one file move to B.
+   who want one file move to B. **Superseded** by item 9: the download
+   helper fetches a release binary pinned by hash.
 2. **Run wasm services in `pitwall-svc` or in the app?** Decided (owner, 2026-11-26):
    `pitwall-svc`: the owner asked for servers that keep running when
    the window is closed, the app's process can't give that, and the
@@ -366,3 +398,10 @@ extensions' data, or keep running after the extension is turned off
    Tailscale interface in the first version, named as such, never
    `0.0.0.0`.
 8. **Which way first?** ([13.1](#131-why-and-which-first)) Decided (owner, 2026-11-26): A first, B later.
+9. **Native programs, Zed's way** (owner, 2026-11-28, [15.9](extension-model.md#159-decisions) item 8):
+   the component names a command; Pitwall runs and supervises it behind
+   the `programs` permission, with declared patterns, each exact line
+   confirmed once, and a download helper with hash pinning. The managed
+   `service` block, install actions, version and ready checks, backup
+   commands and first run are removed: the component does each with
+   programs and `net`.

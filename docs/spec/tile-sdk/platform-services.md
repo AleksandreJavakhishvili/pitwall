@@ -13,7 +13,7 @@ tile needs it.
 - **A service is added only when a first-party seed tile ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only)), built
   solely on the public SDK, needs it and can't reasonably do without
   it.** "Would be nice" is not a reason; a seed tile that can't ship is.
-  Authors on the SDK preview ([15.4](extension-model.md#154-from-adapter-to-component)) count the same: their extension that
+  Authors on the SDK preview ([15.1](extension-model.md#151-one-concept-not-two)) count the same: their extension that
   can't ship without a service is the "a real tile needs it" signal.
 - **The WIT stays 0.x until the seed tiles ship.** Breaking changes are
   allowed in 0.x, announced in the changelog one release ahead ([8.2](runtime.md#82-how-old-tiles-keep-working)).
@@ -28,13 +28,13 @@ tile needs it.
 | Key-value store | `storage` ([3.8](runtime.md#38-host-apis)) | none (own data only) | on; 10 MiB |
 | SQLite database, run by Pitwall | `sql` (as designed for services, [13.3](services.md#133-b-a-headless-wasm-service)) | none (own data only) | on; 100 MiB |
 | HTTP client to granted hosts | `net` ([3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new)) | `net` with its hosts | as declared |
-| Settings and secrets, form drawn by Pitwall | `settings` ([3.8](runtime.md#38-host-apis)) | none (own only) | on [today's settings and secure store] |
+| Settings and secrets: get and set, secrets by reference, the UI in the extension's Setup view ([14.6](#146-settings-secrets-and-the-setup-view)) | `settings` ([3.8](runtime.md#38-host-apis)) | none (own only) | on [today's settings and secure store]; the generated form is removed (2026-11-28) |
 | Notifications and toasts | `pitwall` (notify), `ui.toast` | `notify` for notifications | on when asked for, ≤ 3 a minute [today] |
 | Open a file at a line, the editor, a web tile | `show` (`file`: the editor, `view`: the file viewer, `viewer.open`; `web`) [built, [3.11](ui.md#311-the-seed-tiles-gaps-as-built)] | `show` | off [today] |
 | Timers | `tasks` ([3.8](runtime.md#38-host-apis)) | none | on; paused while hidden |
 | Agents and their status | `agents` (`list`, the `agents-changed` event) [built: a typed interface over the daemon's `agent.list`] | `agents.read` | on when asked for [today] |
 | A toolbar item with a badge ([3.9](ui.md#39-toolbar-items)) | `toolbar` [new] | none; the install screen lists "Adds a button to the toolbar"; per-project badges need `projects.read` | on when the manifest has `toolbar` |
-| Badges and row notes on sidebar rows | `badges` (`set`) [built] | `agents.read` for an agent by id, `projects.read` for a project [today's rules]; rows by `matchAgents` name are not offered to tiles | on when the manifest says `"badges": true` |
+| Badges and row notes on sidebar rows | `badges` (`set`) [built] | `agents.read` for an agent by id, `projects.read` for a project [today's rules]; `matchAgents` is removed with adapters | on when the manifest says `"badges": true` |
 | Questions in the floating control | `asks` [built] | none (its own questions) | on when the manifest says `"asks": true` |
 | An answer or instruction into an agent's Next up | `agents` (`queue-add`) [built: the daemon's `queue.add`] | `agents.queue` | off; items marked "From <name>" and waiting for Send [today], shown in the agent's queue: the "N queued" chip on its terminal tile and the popover it opens (Send now, Remove, Auto-send) |
 
@@ -145,9 +145,9 @@ what an adapter-fed extension was (an inbox from a service, say),
 without Pitwall knowing that extension:
 
 - **Status** (`status.set`, `"status": true`): connecting, ready,
-  signed out or error, with a sentence; the card's pill, the
-  checklist's Connected step and the update's health check read it as
-  they read an adapter's. The component starting is "Connecting", its
+  signed out or error, with a sentence; the card's pill and the
+  update's health check read it (the checklist that also read it is
+  removed, [15.5](extension-model.md#155-removed)). The component starting is "Connecting", its
   stopping "Stopped"; Restart on the card restarts it.
 - **A shortcut** (`contributes.tiles[].shortcut`, permission
   `shortcut`, off by default): keys that open the tile from anywhere,
@@ -235,3 +235,67 @@ docs diagrams and Notes' project notes.
   `files` interface is the only route), and a `files.write` that takes
   the expected version (Notes' hla §4.1) isn't there: Notes checks the
   version with `stat` first.
+
+### 14.6 Settings, secrets and the Setup view
+Decided by the owner on 2026-11-28 ([15.9](extension-model.md#159-decisions) item 8). The extension
+draws its own settings and setup screen; Pitwall keeps the values, the
+secrets and anything that grants something.
+
+**The schema stays; the form goes.** `settings` in the manifest is a
+list of `{ key, type, default }` (`text`, `url`, `number`, `bool`,
+`choice` with its values, `secret`); `label`, `hint`, `placeholder`
+and `required` are dropped (the Setup view says those things). The
+schema tells Pitwall which values to keep in `ui.json`, which go to the
+secure store, and which a `{setting:KEY}` in `net` hosts or `programs`
+patterns may name.
+
+**Get and set.** `settings.get(key)` as today. New
+`settings.set(key, value) -> result<_, host-error>` for the component's
+own Setup view: validated against the schema (a `url` must parse),
+written to `ui.json`, `settings-changed(key)` sent to every instance.
+Two kinds of setting refuse `set` with `host-error.denied` and are
+changed only by the user in a **host-drawn field** the Setup view places
+([3.12](ui.md#312-the-setup-view-and-host-drawn-fields)):
+- **secrets** (`type: "secret"`), and
+- **grant-bearing settings**: those a `{setting:KEY}` names in `net`
+  hosts or `programs` patterns. A component that could set them could
+  point its own `net` grant, or a confirmed command, anywhere.
+
+**Secrets by reference.** `settings.secret` (which returned the value)
+is removed ([plan](plan.md) 8c4, once Agention 3.0.0 no longer uses it). The component learns only whether a secret is set:
+```wit
+secret-set: func(key: string) -> bool;     // and the event secret-changed(key, set: bool)
+```
+and uses it where the host puts the value in:
+- `net`: a header value `secret(key)` or `bearer(key)` (`Authorization:
+  Bearer <value>`), substituted only when the request's host is allowed
+  by the extension's `net` grant at the moment it is sent, redirects
+  included; otherwise the request fails with `denied` and nothing is
+  sent;
+- `programs`: an environment value `secret(key)` ([13.2](services.md#132-a-programs-the-component-starts)).
+Secrets are taken out of Log lines and of program output returned to
+the component. A service that answers with the secret in its body
+defeats this; that is the service's bug, and the threat model says so
+([5.5](permissions.md#55-threat-model-and-outside-review)).
+
+**The Setup view.** One of the component's views, named in the manifest:
+```json
+"contributes": { "setup": { "view": "setup" } }
+```
+drawn on the extension's page ([3.12](ui.md#312-the-setup-view-and-host-drawn-fields)) whenever the page is shown,
+with `init`'s view kind `setup`. `settings.open()` opens the page at it.
+It is an ordinary view (any component, events, tasks, `net`, programs),
+held while the page is open and let go as a hidden tile is. An extension
+without a Setup view shows only the host's parts of its page.
+
+**Agent environment** (`agents.env`, replacing `agentEnv`):
+```wit
+set-env: func(vars: list<env-var>) -> result<_, host-error>;  // the whole set, ≤ 16
+```
+on the `agents` interface. Names must be in the permission's `names`;
+values may use `{project}` and `{agent_id}`, filled in for each agent
+Pitwall starts, and `secret(key)`. Applied to agents started after the
+call; agents already running with an older set are "running agents
+that use an old setup" ([updates.md](../../extensions/updates.md)), handled as today. The page shows
+the names and values (secrets as "(secret)").
+

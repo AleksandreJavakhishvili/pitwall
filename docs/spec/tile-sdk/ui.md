@@ -444,7 +444,7 @@ These facts come from the code [today: `main_screen/topbar.rs`,
     component.
   - An item with `"badge": true` is a contribution that keeps the
     instance running, like `badges` and `asks`
-    ([15.5](extension-model.md#155-headless-components)). So the install screen also shows that section's
+    ([15.5](extension-model.md#156-headless-components)). So the install screen also shows that section's
     "Runs while you aren't looking at it".
 
   The badge adds no new grant. It is the existing rule for a component
@@ -688,6 +688,8 @@ record) and its status. Batch 1 is #126; batch 2 is #128.
 | Bar chart | `bar-chart(bar-chart)` | `bar_chart` | Phase 2, batch 2 |
 | Line chart | `line-chart(line-chart)` | `line_chart` | Phase 2, batch 2 |
 | Status timeline | `status-timeline(status-timeline)` | `status_timeline` | Phase 2, batch 2 |
+| Secure field | `secret-field(secret-field)` | `secret_field` | Planned ([3.12](#312-the-setup-view-and-host-drawn-fields), plan 8a) |
+| Setting field | `setting-field(setting-field)` | `setting_field` | Planned ([3.12](#312-the-setup-view-and-host-drawn-fields), plan 8a) |
 
 ### 3.11 The seed tiles' gaps (as built)
 
@@ -730,3 +732,52 @@ added to WIT 0.1 in place, the fixtures and `tiles/c4/tile.wasm` rebuilt:
   group's option (`TileView::choose`) and press a bound key
   (`TileView::press_key`), as the harness does; the C4 tile's Changes
   view has its screenshot.
+
+### 3.12 The Setup view and host-drawn fields
+Decided by the owner on 2026-11-28 ([15.9](extension-model.md#159-decisions) item 8). Values in
+[14.6](platform-services.md#146-settings-secrets-and-the-setup-view).
+
+**The extension's page** (in the Extensions tile, and Settings →
+Extensions' compact page) is Pitwall's, the same for every extension,
+top to bottom:
+1. Header: icon, name, version, source, the on/off switch, the status
+   pill (`status.set`), Remove. Updates under it, as today.
+2. **The Setup view**, when the manifest names one: the component's own
+   view, full width, its height its content's (at most the page's
+   height, scrolling inside), drawn inside a frame that carries the
+   extension's icon and name, like a tile's header. Before it renders
+   (or while the extension is off), a skeleton; after a trap, "Setup
+   stopped" with Restart.
+3. Permissions with their switches, programs (allowed lines, running
+   ones with Stop, Restart, Log), agent environment, data size with
+   Clear, Activity, Log. These stay host-drawn, so a Setup view can't
+   hide or restyle them.
+An extension without a Setup view shows 1 and 3 only.
+
+**The secure field** (`secret-field`):
+```wit
+record secret-field { key: string, placeholder: option<string> }
+```
+The component places it; the host draws and owns it, like the tile's
+header. Unset: a masked field with a lock mark and "Paste"; on Enter or
+blur the value goes to the secure store, never through the component.
+Set: "Saved in your keychain" (Credential Manager, the keyring) with
+Replace and Remove; the value is never shown or sent. The component
+gets `secret-changed(key, set)`. The field refuses a `key` that isn't a
+`secret` in the schema (drawn as an error box in dev mode). Its look
+is reserved: tiles can't draw the lock mark or that line, and the
+harness checks that a tile's own input never carries them.
+
+**The setting field** (`setting-field`): the same idea for
+grant-bearing settings (a `url` named by `{setting:KEY}`): a host-drawn
+text field showing the value, validated on blur, saved by the host,
+then `settings-changed(key)`. A new value that changes a `net` host or a
+program line is the user's own entry, so it is granted as typed, and a
+program line it changes is asked again. Other settings the Setup view
+draws with ordinary components and saves with `settings.set`.
+
+**Agents and the user's attention.** "Setup by an agent"'s
+`extension.secret` opens the page at the Setup view next to the agent's
+terminal with the secure field for that key marked ("An agent asked you
+to set this"); the value never goes to the agent.
+
