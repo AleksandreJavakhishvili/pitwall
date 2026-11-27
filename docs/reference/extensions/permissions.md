@@ -64,11 +64,15 @@ You decide which tiles agents may use:
 
 Each call is in the extension's Activity on its card: which agent, which tool and item, and whether it was shown.
 
+## Signed packages and updates
+
+A tile extension usually comes as a signed `.pwtile` file ([Install](install.md)). Installing it trusts its signing key for that extension, and every update must be signed by the same key. An update grants nothing new by itself: new permissions, more memory, a larger database and new `net` servers each wait on the card until you allow them. When new servers are added, you are asked about `net` again.
+
 ## Unsigned preview tiles
 
-Before signed packages exist, an author can share a tile as a folder, which you install from Settings → Extensions → Install from folder… or with `pitwall extension install <folder>` ([Quick start](quick-start.md#share-a-preview-tile)). Only extensions that add tiles and run no programs install this way.
+An author can also share a tile as an unsigned package or as a folder. A folder is installed from Settings → Extensions → Install from folder…, or with `pitwall extension install <folder>` which you install from Settings → Extensions → Install from folder… or with `pitwall extension install <folder>` ([Quick start](quick-start.md#share-a-preview-tile)). Only extensions that add tiles and run no programs install this way.
 
-Such an extension comes from an "unsigned preview folder", and its install review and permission screen carry the warning "Unsigned, preview: only install tiles from people you trust". Nobody has checked who made it or what it contains. It runs in the same sandbox with the same limits as any tile, and it can do only what you grant it. It is never updated: installing a newer folder replaces it. Installing from the address of a folder served over HTTPS is coming in this preview.
+Such an extension comes from an "unsigned preview folder", and its install review and permission screen carry the warning "Unsigned, preview: only install tiles from people you trust". Nobody has checked who made it or what it contains. It runs in the same sandbox with the same limits as any tile, and it can do only what you grant it. A folder is never updated: installing a newer folder replaces it. An unsigned package shows "Unsigned: nobody vouches for this file" and installs only with Install unsigned. Installing from the address of a folder served over HTTPS is coming in this preview.
 
 A tile loaded with `pitwall extension dev` is a development extension: it is listed as one in Settings → Extensions and runs from the author's folder, where it is.
 

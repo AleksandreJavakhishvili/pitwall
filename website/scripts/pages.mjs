@@ -41,6 +41,8 @@ export const EXTENSION_PAGES = [
   ["extensions-blocks", "blocks.md", "/docs/extensions/blocks/", "Native building blocks"],
   ["extensions-agent-tools", "agent-tools.md", "/docs/extensions/agent-tools/", "Agent tools"],
   ["extensions-permissions", "permissions.md", "/docs/extensions/permissions/", "Permissions"],
+  ["extensions-packaging", "packaging.md", "/docs/extensions/packaging/", "Packaging"],
+  ["extensions-install", "install.md", "/docs/extensions/install/", "Install from a file"],
   ["extensions-platform-services", "platform-services.md", "/docs/extensions/platform-services/", "Platform services"],
   ["extensions-servers", "servers.md", "/docs/extensions/servers/", "Servers in extensions"],
   ["extensions-wit", "wit.md", "/docs/extensions/wit/", "WIT reference 0.1"],
