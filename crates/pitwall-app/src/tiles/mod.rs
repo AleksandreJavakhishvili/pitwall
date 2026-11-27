@@ -23,6 +23,8 @@
 pub mod render;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod notes_shots;
 pub mod view;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -522,7 +524,7 @@ impl Tiles {
             let m = ext.manifest().clone();
             self.remember_secrets(&m, cx);
             let views: Vec<ViewSpec> = views.iter().filter(|v| m.contributes.tile(v).is_some()).map(|v| ViewSpec::tile(v)).collect();
-            let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state };
+            let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state, clock: Default::default() };
             let tx = self.tx.clone();
             let ext_id = id.to_string();
             host.start(&ext, options, move |out| {

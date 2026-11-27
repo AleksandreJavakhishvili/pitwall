@@ -611,7 +611,7 @@ fn screenshots() {
 /// A window's backdrop for screenshots: the page's background, and (a
 /// tile) the pane frame the layout draws around a tile.
 #[cfg(target_os = "macos")]
-struct Shell(gpui::AnyView, bool);
+pub(super) struct Shell(pub(super) gpui::AnyView, pub(super) bool);
 
 #[cfg(target_os = "macos")]
 impl gpui::Render for Shell {
