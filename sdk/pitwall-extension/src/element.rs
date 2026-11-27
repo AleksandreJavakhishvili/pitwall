@@ -68,6 +68,8 @@ pub(crate) enum Listen {
     Link,
     Sort,
     ColumnResized,
+    Value,
+    Dismiss,
 }
 
 /// One of Pitwall's icons, drawn in the node's text colour: the whole set
@@ -283,6 +285,7 @@ pub(crate) enum Kind {
     /// A list, table, tree, tabs, select, menu, Markdown or image
     /// (`crate::components`).
     Component(crate::components::Spec),
+    Widget(Box<crate::widgets::WidgetSpec>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -293,6 +296,8 @@ pub(crate) struct InputSpec {
     pub multiline: bool,
     pub rows: Option<u16>,
     pub disabled: bool,
+    /// A search field (`widgets::search_field`).
+    pub search: bool,
 }
 
 /// An element, ready to be a child or a view's root.
@@ -807,4 +812,9 @@ impl Input {
 /// text by key path).
 pub fn input(key: impl Into<String>) -> Input {
     Input(AnyElement::new(Kind::Input(InputSpec::default()))).id(key)
+}
+
+/// A search field with key `key` (`widgets::search_field`).
+pub(crate) fn search_input(key: String) -> Input {
+    Input(AnyElement::new(Kind::Input(InputSpec { search: true, ..InputSpec::default() }))).id(key)
 }

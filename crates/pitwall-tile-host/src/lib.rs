@@ -34,6 +34,7 @@ mod platform;
 mod services;
 pub mod sql;
 mod stdio;
+pub mod widgets;
 mod worker;
 
 use std::collections::BTreeSet;

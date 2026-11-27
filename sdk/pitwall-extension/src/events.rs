@@ -372,7 +372,42 @@ pub enum Fired {
     Link(LinkClick),
     Sort(SortChange),
     ColumnResized(ColumnWidth),
+    Value(ValueFired),
+    Dismiss,
 }
+
+/// A control's new value as it reached a listener: the WIT value and the
+/// shapes listeners take it in (`bool`, `f64`, `Option<f64>`, `str`).
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub struct ValueFired {
+    pub on: Option<bool>,
+    pub number: Option<f64>,
+    /// A number field's: its number, or `None` when emptied.
+    pub maybe: Option<Option<f64>>,
+    pub choice: Option<String>,
+}
+
+impl ValueFired {
+    pub(crate) fn from_wit(v: wit::ControlValue) -> ValueFired {
+        let mut f = ValueFired { on: None, number: None, maybe: None, choice: None };
+        match v {
+            wit::ControlValue::On(b) => f.on = Some(b),
+            wit::ControlValue::Number(n) => {
+                f.number = Some(n);
+                f.maybe = Some(Some(n));
+            }
+            wit::ControlValue::Choice(k) => f.choice = Some(k),
+            wit::ControlValue::Empty => f.maybe = Some(None),
+        }
+        f
+    }
+}
+
+/// The user closed or removed something: a banner's close button, a
+/// chip's ×, Esc or a click outside a popover, a confirm sheet's Cancel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Dismissed;
 
 macro_rules! listener_event {
     ($t:ty, $p:pat => $v:expr) => {
@@ -397,6 +432,9 @@ impl ListenerEvent for str {
         match e {
             Fired::Change(c) => Some(c.value.as_str()),
             Fired::Pick(p) => Some(p.key.as_str()),
+            // A radio group's, segmented control's, breadcrumbs' or status
+            // timeline's chosen key.
+            Fired::Value(v) => v.choice.as_deref(),
             _ => None,
         }
     }
@@ -412,6 +450,37 @@ listener_event!(Blur, Fired::Blur => &Blur);
 listener_event!(Dropped, Fired::Drop(d) => d);
 listener_event!(LineClick, Fired::LineClick(l) => l);
 listener_event!(CodeSelection, Fired::CodeSelect(s) => s);
+listener_event!(Dismissed, Fired::Dismiss => &Dismissed);
+
+/// A checkbox's or switch's new state; a disclosure is open.
+impl ListenerEvent for bool {
+    fn pick(e: &Fired) -> Option<&Self> {
+        match e {
+            Fired::Value(v) => v.on.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+/// A slider's or number field's new value; a split's first share.
+impl ListenerEvent for f64 {
+    fn pick(e: &Fired) -> Option<&Self> {
+        match e {
+            Fired::Value(v) => v.number.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+/// A number field's new value, `None` when emptied.
+impl ListenerEvent for Option<f64> {
+    fn pick(e: &Fired) -> Option<&Self> {
+        match e {
+            Fired::Value(v) => v.maybe.as_ref(),
+            _ => None,
+        }
+    }
+}
 
 /// Events a text field's `on_change` takes: its new value as `&str`, or
 /// the whole [`InputChange`].
