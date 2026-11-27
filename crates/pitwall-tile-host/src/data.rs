@@ -71,6 +71,13 @@ impl ExtensionData {
     pub fn storage(&self) -> BTreeMap<String, Vec<u8>> {
         std::fs::read(self.dir.join(KV_FILE)).ok().and_then(|b| decode(&b)).unwrap_or_default()
     }
+
+    /// Replace its key-value store with `map`, for tests and tools, while
+    /// no tile of it runs (a running one would write over it).
+    pub fn set_storage(&self, map: &BTreeMap<String, Vec<u8>>) -> std::io::Result<()> {
+        platform::private_dir(&self.dir)?;
+        platform::write_private(&self.dir.join(KV_FILE), &encode(map))
+    }
 }
 
 /// Why a storage call failed.

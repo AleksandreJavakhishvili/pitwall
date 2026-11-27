@@ -137,6 +137,39 @@ pub mod storage {
         storage::get(key).map_err(HostError::from)
     }
 
+    /// The values of `keys`, in the same order (`None` for a key with no
+    /// value), in one host call. At most 1024 keys a call
+    /// ([`HostError::TooLarge`] over that; [`entries`] takes any number).
+    pub fn get_many<K: AsRef<str>>(keys: &[K]) -> Result<Vec<Option<Vec<u8>>>, HostError> {
+        let keys: Vec<String> = keys.iter().map(|k| k.as_ref().to_string()).collect();
+        storage::get_many(&keys).map_err(HostError::from)
+    }
+
+    /// Every key that starts with `prefix` and its value, in key order:
+    /// [`list`] and [`get_many`] (one call per 1024 keys), so a tile
+    /// loads hundreds of items at start in a couple of host calls.
+    pub fn entries(prefix: &str) -> Result<Vec<(String, Vec<u8>)>, HostError> {
+        let keys = list(prefix)?;
+        let mut out = Vec::with_capacity(keys.len());
+        for chunk in keys.chunks(1024) {
+            for (k, v) in chunk.iter().zip(get_many(chunk)?) {
+                if let Some(v) = v {
+                    out.push((k.clone(), v));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// [`entries`] with each value read as JSON (kept by [`set_json`]). A
+    /// value that isn't a `T` is an error.
+    pub fn entries_json<T: DeserializeOwned>(prefix: &str) -> Result<Vec<(String, T)>, HostError> {
+        entries(prefix)?
+            .into_iter()
+            .map(|(k, b)| serde_json::from_slice(&b).map(|v| (k.clone(), v)).map_err(|e| HostError::Decode(format!("{k}: {e}"))))
+            .collect()
+    }
+
     /// Set `key` to `value`. [`HostError::TooLarge`] when the store would
     /// pass 10 MiB.
     pub fn set(key: &str, value: impl AsRef<[u8]>) -> Result<(), HostError> {
@@ -256,7 +289,8 @@ pub mod ui {
     }
 
     /// Scroll the node at `key_path` (keys from the root down, joined by
-    /// `/`, without the root's) into sight after `view`'s next render.
+    /// `/`, without the root's, as [`Cx::focus`](crate::Cx::focus) takes
+    /// it) into sight after `view`'s next render.
     pub fn scroll_to(view: &str, key_path: &str) {
         ui::scroll_to(view, key_path);
     }

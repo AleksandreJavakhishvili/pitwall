@@ -99,6 +99,15 @@ pub struct Selection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Submit;
 
+/// A node got keyboard focus (see [`Interactive::on_focus`](crate::Interactive::on_focus)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Focused;
+
+/// A node lost keyboard focus (see [`Interactive::on_blur`](crate::Interactive::on_blur)):
+/// a text field's blur, where a tile saves what was typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Blur;
+
 /// A key binding fired (see [`Cx::bind_key`](crate::Cx::bind_key)).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyPress {
@@ -210,6 +219,16 @@ pub enum Event {
     Visibility(bool),
     /// The tile got (true) or lost (false) keyboard focus.
     Focus(bool),
+    /// The focus moved to another node of a view, or off its nodes
+    /// (`None`). A node's own [`on_focus`](crate::Interactive::on_focus) and
+    /// [`on_blur`](crate::Interactive::on_blur) listeners are simpler.
+    FocusChanged {
+        /// The view.
+        view: String,
+        /// The focused node's key path (keys from the root down, joined by
+        /// `/`, without the root's), or `None`.
+        key_path: Option<String>,
+    },
     /// A view's size changed (coalesced: the newest size).
     Resize {
         /// The view.
@@ -249,6 +268,8 @@ pub enum Fired {
     Scroll(ScrollPosition),
     Hover(Hover),
     Pointer(Pointer),
+    Focus,
+    Blur,
 }
 
 macro_rules! listener_event {
@@ -273,6 +294,8 @@ listener_event!(KeyPress, Fired::Key(k) => k);
 listener_event!(ScrollPosition, Fired::Scroll(s) => s);
 listener_event!(Hover, Fired::Hover(h) => h);
 listener_event!(Pointer, Fired::Pointer(p) => p);
+listener_event!(Focused, Fired::Focus => &Focused);
+listener_event!(Blur, Fired::Blur => &Blur);
 
 /// Events a text field's `on_change` takes: its new value as `&str`, or
 /// the whole [`InputChange`].

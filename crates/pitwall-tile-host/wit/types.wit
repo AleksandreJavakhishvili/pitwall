@@ -328,20 +328,38 @@ interface types {
     hover-background(token),
     /// The pointer's shape over the node.
     cursor(cursor),
+    /// Names this node a hover group, for `visible-on-group-hover` in the
+    /// nodes under it (a list row and its actions). Names are the tile's
+    /// own; the same name on several rows is fine: each node looks at its
+    /// nearest ancestor of that name.
+    group(string),
+    /// Hidden until the pointer is over the nearest ancestor `group` of
+    /// this name (a Delete on a list row that shows on hover). Pitwall
+    /// draws it on hover with no call into the tile; while hidden it takes
+    /// no clicks. Keyboard users reach it as usual (show it while the row
+    /// has focus if it matters).
+    visible-on-group-hover(string),
   }
 
   /// A button's look, as Pitwall's own buttons.
   enum button-kind {
     /// The main action of a tile or a form; one per area.
     primary,
-    /// An ordinary action: a hairline button.
+    /// An ordinary action: a hairline button (at `small` size: Pitwall's
+    /// small row and toolbar button).
     ghost,
     /// A destructive action.
     danger,
-    /// A small button for rows and toolbars.
-    small,
     /// A button that looks like a link.
     link,
+  }
+
+  /// A button's size, apart from its look: any kind comes in both.
+  enum button-size {
+    /// The usual height (30 px).
+    regular,
+    /// Smaller (26 px), for rows, toolbars and a tile's bars.
+    small,
   }
 
   /// A button. Its click arrives as a `click` event for the node's `click`
@@ -351,6 +369,8 @@ interface types {
     label: string,
     /// Its look.
     kind: button-kind,
+    /// Its size.
+    size: button-size,
     /// An icon before the label.
     icon: option<icon>,
     /// Drawn dimmed, and clicks aren't sent.
@@ -360,10 +380,16 @@ interface types {
   /// An icon. Drawn in the node's text colour (`color` style), at the
   /// node's text size unless it has a width and height.
   variant icon {
-    /// One of Pitwall's icons by name, such as `refresh`, `check`, `x`,
-    /// `plus`, `search`, `gear`, `folder`, `file`, `branch`, `terminal`,
-    /// `trash`, `copy`, `external`. An unknown name draws a placeholder,
-    /// and `pitwall extension check` warns about it.
+    /// One of Pitwall's icons by name: `sidebar`, `search`, `gear`,
+    /// `plus`, `x`, `send`, `stop`, `restart`, `refresh`, `trash`,
+    /// `branch`, `folder`, `chevron`, `grid`, `wall`, `maximize`,
+    /// `restore`, `window`, `more`, `review`, `terminal`, `file`,
+    /// `expand`, `copy`, `chevron-down`, `check`, `headset`, `user`,
+    /// `laptop`, `server`, `eye`, `external`, `image`, `browser`, `back`,
+    /// `phone`, `inspect`, `page-right`, `page-left`, `page-below`, `pin`,
+    /// `grip`, `minus`, `chevron-up`, `lock`, `alert`, `extension`,
+    /// `inbox`, `bell`, `chat`, `list` (the SDK's `Icon` enum). An unknown
+    /// name draws nothing; the test harness notes it.
     named(string),
   }
 
@@ -510,11 +536,21 @@ interface types {
     label: option<string>,
   }
 
-  /// A key binding the tile handles while it has focus. Pitwall's own
-  /// bindings (the command palette, ⌘W, ⌘1–9, Esc to leave a maximised
-  /// tile and the rest of its reserved set) always win.
+  /// A key binding the tile handles while it has focus.
+  ///
+  /// Pitwall's own keys are reserved: a frame that binds one has that
+  /// binding dropped, with a line in the tile's Log. They are `escape`,
+  /// `tab`, `shift-tab`, `ctrl-enter`; `cmd-` with any of `enter`,
+  /// `0`–`9`, `=`, `+`, `-`, `,`, `a`, `b`, `c`, `e`, `h`, `i`, `j`, `k`,
+  /// `l`, `m`, `n`, `p`, `q`, `r`, `t`, `v`, `w`, `x`, `z`, alone or with
+  /// `shift` (Pitwall's shortcuts are Ctrl+Shift off macOS); and
+  /// `cmd-shift-f`, `cmd-alt-h`, `cmd-ctrl-f`, `cmd-shift-alt-` `e`, `n`,
+  /// `r`, `t`. Modifiers may come in any order.
+  ///
+  /// While a text field of the tile has focus, a binding without `cmd`,
+  /// `ctrl` or `alt` doesn't fire: the key types into the field.
   record binding {
-    /// The keys, as Pitwall writes them: `j`, `enter`, `cmd-r`,
+    /// The keys, as Pitwall writes them: `j`, `enter`, `cmd-s`,
     /// `shift-tab`, `/`. `cmd` is ⌘ on macOS and Ctrl elsewhere.
     keys: string,
     /// The handler a `key` event carries when they are pressed.
@@ -678,6 +714,16 @@ interface types {
     size: size,
   }
 
+  /// Which node of a view has keyboard focus now.
+  record node-focus {
+    /// The view.
+    view: view-id,
+    /// The focused node's key path (keys from the root down, joined by
+    /// `/`, without the root's, as `frame.focus`), or `none` when no node
+    /// of the view has focus (the tile itself may still have it).
+    key-path: option<string>,
+  }
+
   /// Light or dark.
   enum theme-mode {
     /// The light theme.
@@ -753,6 +799,12 @@ interface types {
     visibility(bool),
     /// The tile got (true) or lost (false) keyboard focus.
     focus(bool),
+    /// The focus moved from one node of a view to another (a text field,
+    /// a focusable node), or off the view's nodes: sent after the move,
+    /// once per change. Leaving a text field this way is its blur (save
+    /// what was typed). When the tile loses focus, this comes first with
+    /// `none`, then `focus(false)`.
+    focus-changed(node-focus),
     /// The user changed their appearance settings.
     theme(theme-info),
     /// A timer fired.

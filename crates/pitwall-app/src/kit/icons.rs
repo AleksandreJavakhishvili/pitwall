@@ -203,4 +203,17 @@ mod tests {
         );
         assert!(Assets.load("icons/check.svg").unwrap().is_some());
     }
+
+    /// The icons a tile or a manifest may name are exactly the app's: the
+    /// list `pitwall extension check` uses and the SDK's `Icon` enum.
+    #[test]
+    fn the_published_icon_list_is_the_apps() {
+        let app: Vec<&str> = ICONS.iter().chain(EXTRA_ICONS).map(|(n, _)| *n).collect();
+        assert_eq!(app, pitwall_core::extensions::ICON_NAMES);
+        let sdk = include_str!("../../../../sdk/pitwall-extension/src/element.rs");
+        let body = &sdk[sdk.find("pub fn name(&self) -> &str").unwrap()..];
+        let body = &body[..body.find("Icon::Named(n) => n").unwrap()];
+        let named: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"").map(|(_, r)| r.trim_end_matches("\","))).collect();
+        assert_eq!(named, app, "the SDK's Icon enum");
+    }
 }
