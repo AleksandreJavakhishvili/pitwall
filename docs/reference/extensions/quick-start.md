@@ -133,16 +133,20 @@ A test can open a view with content, as an agent would, and give it new content 
 
 The harness, `pitwall-extension-test`, can also type into fields (`type_into`, `submit`), press keys (`press`), let time pass for timers (`wait`, `wait_for_text`), change a setting (`set_setting`), reload the tile (`reload`), and read what it stored (`stored`, `stored_json`), logged (`log_text`) and toasted (`toasts`). `text_snapshot()` prints the tree, which helps when an assertion fails.
 
-## Share a preview tile
+## Share it
 
-Before packages exist, an author can pass a tile around as a folder: the one holding `extension.json`, `tile.wasm` and the files the manifest names (such as `input.schema.json`). The person you send it to installs it:
+To give a tile to others, pack it and sign it: `pitwall extension pack`, then `pitwall extension sign <file>`. Send the `.pwtile` file and its `.minisig` together. [Packaging](packaging.md) covers making a key and shipping updates, and [Install](install.md) covers what the other person sees.
+
+### Share a preview tile
+
+For a quick try without a key, you can also pass a tile around as a folder: the one holding `extension.json`, `tile.wasm` and the files the manifest names (such as `input.schema.json`). The person you send it to installs it:
 
 - **In Pitwall:** Settings → Extensions → Install from folder…
 - **From a terminal:** `pitwall extension install <folder>`. The argument must be a path with a `/` in it (such as `./my-tile`); a bare name is the id of an extension Pitwall ships. The terminal prints what installing changes, and you approve it in Pitwall.
 
 Only extensions that add tiles and run no programs install this way. Pitwall checks the folder (its manifest, its files, and that `tile.wasm` is a component), copies it into its own extensions folder, and lists the tiles it adds and the permissions it asks for with their reasons, with the warning "Unsigned, preview: only install tiles from people you trust" ([Permissions](permissions.md#unsigned-preview-tiles)). It is installed off: turn it on in Settings → Extensions, or with `pitwall extension on <id>`, to use its tiles. It is never updated: installing a newer folder replaces it and keeps its settings and data. Unlike `pitwall extension dev`, the folder is copied, not loaded in place.
 
-**Coming in this preview:** installing from the address of such a folder served over HTTPS. For now `pitwall extension install` refuses an address: download and unpack it, then install the folder. Signed packages, updates and a marketplace come in later releases.
+**Coming in this preview:** installing from the address of such a folder served over HTTPS. For now `pitwall extension install` refuses an address: download and unpack it, then install the folder. A marketplace comes in a later release.
 
 ## Next
 
