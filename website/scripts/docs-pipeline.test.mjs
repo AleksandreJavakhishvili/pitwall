@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { extractRegion, resolveIncludes } from "./includes.mjs";
 import { parseWit, readWit, undocumented, witMarkdown } from "./wit-docs.mjs";
 import { checkSite } from "./check-links.mjs";
-import { EXTENSION_PAGES, SKILL, SOURCES, docsNavHtml, llmsTxt, renderPage, splitChildren } from "./pages.mjs";
+import { DOC_IMAGES, EXTENSION_PAGES, SKILL, SOURCES, docImages, docsNavHtml, llmsTxt, renderPage, splitChildren } from "./pages.mjs";
 
 const SITE = resolve(import.meta.dirname, "..");
 const temp = () => mkdtempSync(join(tmpdir(), "pitwall-docs-"));
@@ -173,6 +173,17 @@ test("every Extensions page has a source, an HTML page and a sidebar entry", () 
     if (path === "/docs/extensions/") assert.match(out, /^<p class="label">Extensions<\/p>/);
     else assert.match(out, /^<nav class="eyebrow crumbs" aria-label="Breadcrumb"><ol><li><a href="\/docs\/">Docs<\/a><\/li><li><a href="\/docs\/extensions\/">Extensions<\/a><\/li><\/ol><\/nav>/);
     assert.match(out, /<nav class="docs-pager"/);
+  }
+});
+
+test("an Extensions page's pictures are served from the site, and each one exists", () => {
+  const out = renderPage("extensions-ui", { repoUrl: "https://github.com/o/r" });
+  const srcs = [...out.matchAll(/<img class="shot" src="([^"]+)" alt="[^"]+" loading="lazy">/g)].map((m) => m[1]);
+  assert.ok(srcs.length >= 16, `${srcs.length} pictures`);
+  const served = new Set(docImages());
+  for (const src of srcs) {
+    assert.ok(src.startsWith(`/${DOC_IMAGES.path}/`), src);
+    assert.ok(served.has(src.slice(DOC_IMAGES.path.length + 2)), `${src} is in ${DOC_IMAGES.source}`);
   }
 });
 
