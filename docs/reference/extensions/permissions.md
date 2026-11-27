@@ -54,7 +54,14 @@ After that, the extension's card in Settings → Extensions lists each permissio
 
 ## Agents opening a tile
 
-Agents need no permission from the extension to open its tiles: every tile can be opened by the agents Pitwall starts, with content in it, and an extension can declare tools that show things in its tile ([Agent tools](agent-tools.md)). These tools only change what the sandboxed tile shows. The agent gets nothing of the tile back, and Pitwall refuses to let it replace anything you edited there, so they are on by default and allowed in agents without asking.
+Agents need no permission from the extension to open its tiles: every tile can be opened by the agents Pitwall starts, with content in it, and an extension can declare tools that show things in its tile ([Agent tools](agent-tools.md)). These `show` and `present` tools only change what the sandboxed tile shows: the agent gets nothing of the tile back, what it put there is marked with its name and you can Undo it, and Pitwall refuses to let it replace anything you edited there. So they are on by default and allowed in agents without asking.
+
+Tools that give agents more ask you, in Pitwall's approval dialog:
+
+- **`read`** returns what the tile has, your edits included. It asks the first time; **Always for <agent>** lets that agent read again without asking.
+- **`act`** does something outside the tile (the network, a service). It asks each call, with the agent, its project, the tool and its arguments; **Always for <agent>** is offered too, except for a tile that can put text in your agents' Next up or start agents, whose `act` tools ask every time.
+- Neither is ever in the allow lists Pitwall passes agents at launch. Your "Always" answers are on the extension's card ("Allowed without asking") and in Settings → Agents, each with **Revoke**.
+- During a `show`, `present` or `read` call the tile runs without its acting permissions (`net`, `show`, `notify`, `agents.queue`, `agents.start`, `agents.focus`), so a tool can't act while it says it only reads.
 
 You decide which tiles agents may use:
 
@@ -62,7 +69,7 @@ You decide which tiles agents may use:
 - **All tiles:** "Agents can use tiles" in Settings → Agents (`agents.tileTools`).
 - **Before turning it on:** the permission screen lists a tile's tools under "Adds to Pitwall", and an author can keep a tile from agents with `"agents": false`.
 
-Each call is in the extension's Activity on its card: which agent, which tool and item, and whether it was shown.
+Each call is in the extension's Activity on its card: which agent, which tool and item, the input (all of it for `act`), and whether it ran or why not.
 
 ## Signed packages and updates
 
@@ -95,7 +102,6 @@ Test both cases with the harness: `Harness::build(…).grant("memory")` starts t
 
 | Phase | Grants |
 |---|---|
-| 3 | Agents reading a tile (asks once), and tools that act outside the tile (asks each time) |
 | On demand | `files.read`, `files.write`, `git.read`, `git.write`, `git.remote`, `clipboard.read`, each when a tile needs it |
 
 A "Run tiles from others" switch in Settings → Extensions will stop every tile not made by Pitwall at once.

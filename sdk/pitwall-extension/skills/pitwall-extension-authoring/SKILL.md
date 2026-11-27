@@ -1,6 +1,6 @@
 ---
 name: pitwall-extension-authoring
-description: "How to build, test and check a Pitwall tile (a Rust WebAssembly component made with the pitwall-extension SDK): the project layout, extension.json, the Tile trait and elements, content and show tools for agents, storage and settings, the test harness, and the pitwall extension commands. Use it whenever you change this extension."
+description: "How to build, test and check a Pitwall tile (a Rust WebAssembly component made with the pitwall-extension SDK): the project layout, extension.json, the Tile trait and elements, content and tools for agents, storage and settings, the test harness, and the pitwall extension commands. Use it whenever you change this extension."
 ---
 
 # Building a Pitwall tile
@@ -292,13 +292,25 @@ impl MyTile {
 - Limits: 1 MiB input, 10 s per call, 10 calls in 10 s; the reply's text
   at most 4 KiB.
 - Test with `tile.call("claude", Some("show_message"), Some("a"), json!({..}))`
-  (`None`: `__open`), which returns `Called::Shown`, `Replied`, `Failed` or
-  `Refused`. The harness refuses more than 10 calls in 10 s as Pitwall
+  (`None`: `__open`), which returns `Called::Shown`, `Replied`, `Failed`,
+  `Refused` or `Waiting`. The harness refuses more than 10 calls in 10 s as Pitwall
   does: advance its clock between calls, or start from stored data
   (`Harness::stored_json`).
 - A worked `present` tool: the C4 tile's `c4__show` in Pitwall's
   repository (`tiles/c4/src/tile.rs`, `extension.json`): input read all
   or nothing, items per agent, an update in place, problems with lines.
+- Keep presented items in `tools::Presented<T>` (`present(&call, v)`,
+  `append`, `edit_by_user`, `undo(call)`): the user's Undo beside the
+  "from <agent>" mark arrives as `Event::UndoPresent(call)`.
+- `read` (returns data: `Reply::json(text, &value)`) and `act` (changes
+  something outside the tile; `"destructive"`, `"idempotent"` hints) ask
+  the user in Pitwall. A slow one returns `Reply::later()` and answers with
+  `tools::reply(call_id, result)`; out of time, `Event::ToolCancelled`.
+  Show, present and read calls run without the tile's acting permissions.
+- `present` input may say `"mode": "append"` (`call.is_append()`) or name
+  a file (`call.large_input()`). `"expose": ["agents", "cli", "palette"]`
+  and a `"title"` make a tool a `pitwall extension run` and palette
+  command. Harness: `approve(Approval::Always)`, `run_command`, `undo`.
 
 ## Services (no permission needed)
 

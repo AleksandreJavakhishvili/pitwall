@@ -74,6 +74,15 @@ tile and show content in it, and the pages below match.
 ## Later phases (to be broken down)
 
 - [ ] **3. Agent tools, the rest:** `read` and `act` through the `tool` export, approvals, the ask-once grant, Undo and `undo-present`, `from_file` and `append`, `pitwall extension tools`/`call`/`run`/`commands`, the agent skill, palette entries ([11](agent-tools.md))
+  - [x] WIT and host: the guest's `tool` export with `tool-call` (kind, caller, input), `input-part`, `undo-present` and `tool-cancelled` events, `append` and `large` on `content`; show, present and read calls run without the tile's acting permissions; replies later for read and act; appends drawn at most 4 times a second (PR-3)
+  - [x] SDK: `#[tool(kind = "read" | "act")]`, `Reply::later` and `tools::reply`, `Presented<T>` with Undo, `Call::is_append`, `large_input`; manifest `destructive`, `idempotent`, `expose`, `title` (PR-3)
+  - [x] Harness: read and act calls with the user's approval (`approve`, `approvals_asked`, `revoke_always`), the user's own commands, Undo, appends, a named file, cancel (PR-3)
+  - [x] MCP: read-only hint for read, an act's own destructive and idempotent hints, read and act schemas without placement, present's `mode` and `from_file`; never in the launch allow lists; only agents Pitwall started, the user in a plain terminal as the user (PR-3)
+  - [x] Approvals: the dialog's "Always for <agent>" kept per extension, agent and tool, none for act tools of tiles that hold `agents.queue` or `agents.start`; Revoke on the card and in Settings → Agents; read and act lines on the card; Undo beside the "from <agent>" mark (PR-3). Done when a headless end-to-end test through the MCP server covers read, act with approve, deny and always, and Undo (PR-3)
+  - [x] CLI: `pitwall extension tools`, `commands`, `call`, `run` (exit statuses 3 refused, 4 not available, 5 timed out; `--timeout` only shortens); palette entries for palette tools that need no input (PR-3)
+  - [x] The agent skill's minimum: `agents/SKILL.md` checked (16 KiB, its name the extension's, only its own tools) and its description in the MCP server's instructions (PR-3)
+  - [ ] The skill through rulesync (`ext:<id>` source, per-project assignment on install and on the card); palette forms for tools with input; approval cards in the floating control
+  - [x] Docs: Agent tools, Permissions, the CLI reference, the authoring skill (PR-3)
 - [x] **4. Packages:** `.pwtile`, minisign, signed install, updates, Go back, remove ([6](packaging.md); as built and differences: [6.6](packaging.md#66-as-built-phase-4); #130)
   - [x] The `.pwtile` format and `pitwall extension pack`: allowlisted files, reproducible bytes, Pitwall's own strict zip reader (no traversal, links, special files, duplicates, zip64, oversize entries; sizes checked before inflating) (#130)
   - [x] minisign signatures: `pitwall extension sign` (key generation in the docs, keys never committed, tests make throwaway keys), verified over the file's bytes before anything is read, with `minisign-verify` (MIT) recorded in the licence notes (#130)
