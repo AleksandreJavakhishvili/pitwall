@@ -265,6 +265,8 @@ pub enum CodeViewEvent {
     Edited,
     /// ⌘S: save the text ([`CodeView::text`]).
     Save,
+    /// A line number was clicked ([`CodeView::set_line_clicks`]).
+    LineClicked { side: Side, line: usize },
 }
 
 impl EventEmitter<CodeViewEvent> for CodeView {}
@@ -394,6 +396,8 @@ pub struct CodeView {
     hover_comment: Option<(usize, Point<Pixels>)>,
     comments: BTreeMap<usize, String>,
     commentable: bool,
+    /// Line number clicks are told ([`CodeViewEvent::LineClicked`]).
+    line_clicks: bool,
     readonly_text: SharedString,
     readonly_at: Option<Point<Pixels>>,
     find: Option<FindState>,
@@ -449,6 +453,7 @@ impl CodeView {
             hover_comment: None,
             comments: BTreeMap::new(),
             commentable: false,
+            line_clicks: false,
             readonly_text: "Read-only".into(),
             readonly_at: None,
             find: None,
@@ -1214,6 +1219,33 @@ impl CodeView {
     /// Esc with nothing to close goes on to the view's owner (a dialog).
     pub fn set_escape_passes(&mut self, on: bool) {
         self.escape_passes = on;
+    }
+
+    /// A click on a line number tells the owner
+    /// ([`CodeViewEvent::LineClicked`]), on either side (a tile's view).
+    pub fn set_line_clicks(&mut self, on: bool) {
+        self.line_clicks = on;
+    }
+
+    /// The selection in source columns (UTF-8 bytes of each line as the
+    /// file has it), with its text cut at `max` bytes: `None` when nothing
+    /// is shown or selected.
+    pub fn selection_source(&self, max: usize) -> Option<(Side, Pos, Pos, String)> {
+        let s = self.sel?;
+        self.content.as_ref()?;
+        let doc = self.doc(s.side);
+        let (a, b) = s.range();
+        let (a, b) = (doc.clamp(a), doc.clamp(b));
+        let src = |p: Pos| Pos::new(p.line, doc.lines[p.line].to_source(p.col));
+        let mut text = if s.is_empty() { String::new() } else { doc.text_between(a, b) };
+        if text.len() > max {
+            let mut end = max;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+        Some((s.side, src(a), src(b), text))
     }
 
     fn sel_or_start(&self) -> Selection {

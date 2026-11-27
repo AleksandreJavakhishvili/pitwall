@@ -20,6 +20,10 @@
 //!
 //! [`TileView`] draws a view's frames with the kit ([`render`]).
 
+pub mod blocks;
+#[cfg(test)]
+mod blocks_tests;
+pub mod canvas;
 pub mod render;
 #[cfg(test)]
 mod tests;

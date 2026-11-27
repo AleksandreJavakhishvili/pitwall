@@ -283,6 +283,8 @@ pub fn apply(mut d: Div, styles: &[ui::Style], t: &Theme) -> (Div, Flags) {
                 f.group_hover = Some(g.clone());
                 d
             }
+            // Dragging and dropping are the view's (`view::interact`).
+            ui::Style::Drag(_) | ui::Style::DropTarget(_) => d,
         };
     }
     (d, f)
