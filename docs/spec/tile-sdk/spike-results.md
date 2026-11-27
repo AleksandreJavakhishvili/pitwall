@@ -13,7 +13,7 @@ its gate, and ends with a recommendation.
 
 | Gate | Pass line | Measured | Result |
 |---|---|---|---|
-| Release-binary growth | ≤ 10 MB per platform, each macOS architecture | As first built (Cranelift, component model, WASI p2, Wasmtime's cache): macOS arm64 **+8.2**, macOS x86-64 **+11.8**, Linux **+13.1**, Windows **+11.7** MB. After the gate's own fallback ("turn off more features and measure again"), without Wasmtime's cache and with opt-level "s" on Wasmtime's crates: arm64 **+5.8**, x86-64 **+7.3**; Linux, Windows: [table](#binary-size) | **miss as first built; pass after the fallback** (Linux and Windows lean numbers from CI below) |
+| Release-binary growth | ≤ 10 MB per platform, each macOS architecture | As first built (Cranelift, component model, WASI p2, Wasmtime's cache): macOS arm64 **+8.2**, macOS x86-64 **+11.8**, Linux **+13.1**, Windows **+11.7** MB. After the gate's own fallback ("turn off more features and measure again"), without Wasmtime's cache and with opt-level "s" on Wasmtime's crates: macOS arm64 **+5.8**, macOS x86-64 **+7.3**, Linux **+8.4**, Windows **+7.3** MB | **miss as first built; pass after the fallback on every platform** |
 | 2 000-node frame | ABI + decode + diff + apply ≤ 4 ms (M-series) | Canonical ABI + validate + keyed diff: **0.28 ms** median, 0.30 ms p95. Mapping to GPUI elements adds 0.2–0.3 ms. GPUI layout and paint of all 2 000 nodes: 3.5–5.1 ms | **pass** (14× margin on the protocol). See the note on "apply" |
 | Cold start | ≤ 300 ms | Hello tile (57 KB): **7.5 ms**. A 1.0 MB tile: 56–108 ms. CI: 17–40 ms for hello | **pass** |
 | Warm start | ≤ 50 ms | Hello: **0.16 ms**. 1.0 MB: **1.3–1.9 ms** | **pass** |
@@ -79,9 +79,10 @@ the tile runtime and with it.
 |---|---|---|---|---|
 | macOS arm64 (local) | 71.03 MB | +8.23 MB | +7.60 MB | **+5.75 MB** |
 | macOS x86-64 slice (local, cross-built) | 73.85 MB | +11.76 MB | +11.00 MB | **+7.28 MB** |
-| macOS arm64 (CI) | 71.03 MB | +8.23 MB | *run 2* | *run 2* |
-| Linux x86-64 (CI) | 91.52 MB | +13.08 MB | *run 2* | *run 2* |
-| Windows x86-64 (CI) | 76.38 MB | +11.71 MB | *run 2* | *run 2* |
+| macOS arm64 (CI) | 71.03 MB | +8.23 MB | +7.60 MB | **+5.75 MB** |
+| macOS x86-64 slice (CI) | — | — | +11.02 MB | **+7.29 MB** |
+| Linux x86-64 (CI) | 91.52 MB | +13.08 MB | +12.22 MB | **+8.41 MB** |
+| Windows x86-64 (CI) | 76.38 MB | +11.71 MB | +11.10 MB | **+7.30 MB** |
 
 The x86-64 builds grow 40–70 % more than arm64. Cranelift's x86
 backend is the larger one (*likely, not broken down*). The macOS
@@ -288,7 +289,7 @@ made, and two of them are the gates' own fallbacks:
    and use only Pitwall's `.cwasm` files. Set opt-level "s" for
    Wasmtime's and Cranelift's crates in the workspace's release profile.
    That puts every platform under 10 MB: +5.8 MB arm64 and +7.3 MB
-   x86-64 on macOS; Linux and Windows are in the table above. As built
+   x86-64 on macOS, +8.4 MB on Linux, +7.3 MB on Windows. As built
    at first, x86-64 misses on all three OSes. The universal macOS
    download grows about 13 MB in total. Ask the owner whether "per
    platform" means per architecture, as plan.md says, or per download.

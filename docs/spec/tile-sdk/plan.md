@@ -21,7 +21,7 @@ pull request until then.
 - [x] `crates/pitwall-tile-host` runs a component in Wasmtime (LTS line, default features off), with a minimal tile world in WIT (#107: Wasmtime 48.0.10)
 - [x] A hello tile in Rust (`wasm32-wasip2`) renders a box tree that Pitwall draws with GPUI, outside the real app's layout (#107)
 - [x] Results recorded in `spike-results.md`, with pass or miss for each gate (#107):
-  - [x] Release-binary growth ≤ 10 MB on macOS (each architecture), Linux and Windows (#107; miss as first built: +13.1 MB Linux, +11.7 MB Windows, +11.8 MB macOS x86-64, +8.2 MB arm64; after the gate's fallback, no Wasmtime cache and opt-level "s" on its crates: +5.8 MB arm64, +7.3 MB x86-64 on macOS, Linux and Windows lean numbers from the PR's CI run)
+  - [x] Release-binary growth ≤ 10 MB on macOS (each architecture), Linux and Windows (#107; miss as first built: +13.1 MB Linux, +11.7 MB Windows, +11.8 MB macOS x86-64, +8.2 MB arm64; after the gate's fallback, no Wasmtime cache and opt-level "s" on its crates: pass on all four: +5.8 MB macOS arm64, +7.3 MB macOS x86-64, +8.4 MB Linux, +7.3 MB Windows)
   - [x] 2 000-node frame (canonical ABI plus host diff) ≤ 4 ms on an M-series Mac (#107; pass: 0.28 ms median, 0.30 ms p95)
   - [x] Cold start ≤ 300 ms, warm start ≤ 50 ms (#107; pass: hello 7.5 ms / 0.16 ms, a 1.0 MB tile 56–108 ms / 1.3–1.9 ms)
   - [x] Runaway tile stopped by epoch interruption ≤ 100 ms (#107; pass with a wall-clock check on each tick: ≈ 7 ms, ≤ 13 ms; miss as runtime.md specifies, by tick count: 200–430 ms late at 1 s)
