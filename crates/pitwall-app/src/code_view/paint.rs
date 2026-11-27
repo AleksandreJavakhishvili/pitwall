@@ -379,7 +379,7 @@ impl CodeView {
                 ..Layer::default()
             };
             zones.push((tb, CursorStyle::IBeam));
-            if self.commentable && pane.side == Side::New {
+            if (self.commentable && pane.side == Side::New) || self.line_clicks {
                 zones.push((gb, CursorStyle::PointingHand));
             }
             for r in first..=last.min(self.rows.len().saturating_sub(1)) {
@@ -1039,6 +1039,9 @@ impl CodeView {
                     }
                     if self.commentable && side == Side::New {
                         cx.emit(CodeViewEvent::Comment { line });
+                    }
+                    if self.line_clicks && on_number {
+                        cx.emit(CodeViewEvent::LineClicked { side, line });
                     }
                     cx.notify();
                     return;
