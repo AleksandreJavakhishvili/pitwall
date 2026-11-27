@@ -1685,6 +1685,8 @@ mod package_shots;
 mod page_tests;
 #[cfg(test)]
 mod page_shots;
+#[cfg(test)]
+mod media_shots;
 
 #[cfg(test)]
 mod tests {
