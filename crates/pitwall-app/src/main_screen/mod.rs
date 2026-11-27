@@ -42,6 +42,7 @@ mod sidebar;
 mod space;
 pub mod strip;
 mod tile_font;
+pub(crate) mod tool_form;
 pub(crate) mod topbar;
 pub mod web_tile;
 pub mod worktrees;
@@ -391,6 +392,7 @@ enum Modal {
     NewAgent(Entity<NewAgentDialog>),
     ProjectAccounts(Entity<dialogs::ProjectAccountsDialog>),
     Terminal(Entity<TerminalDialog>),
+    ToolForm(Entity<tool_form::ToolForm>),
     Remove(RemoveState),
     RemoveWorktree(worktrees::RemoveWt),
 }
@@ -1384,6 +1386,27 @@ impl MainScreen {
         cx.notify();
     }
 
+    /// The palette's form for a tile's command that needs input: filled
+    /// in, it runs as the user's own (`tile_command`).
+    pub fn open_tool_form(&mut self, req: pitwall_proto::tile_tools::TileRun, title: String, fields: Vec<crate::tiles::form::Field>, window: &mut Window, cx: &mut Context<Self>) {
+        let dialog = cx.new(|cx| tool_form::ToolForm::new(req, title, fields, window, cx));
+        self._subs.push(cx.subscribe_in(&dialog, window, |this, _, e: &dialogs::DialogEvent, window, cx| this.dialog_event(e.clone(), window, cx)));
+        self.modal = Some(Modal::ToolForm(dialog));
+        self.modal_focus = window.focused(cx);
+        self.menu = None;
+        cx.emit(ScreenEvent::ModalOpened);
+        cx.notify();
+    }
+
+    /// The tool form open (tests).
+    #[cfg(test)]
+    pub(crate) fn tool_form(&self) -> Option<Entity<tool_form::ToolForm>> {
+        match &self.modal {
+            Some(Modal::ToolForm(d)) => Some(d.clone()),
+            _ => None,
+        }
+    }
+
     /// Bench and debug builds: `project`'s Accounts… open.
     pub fn debug_project_accounts(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
         self.open_project_accounts(project, window, cx);
@@ -1435,6 +1458,10 @@ impl MainScreen {
             dialogs::DialogEvent::OpenTerminal(path) => {
                 self.close_modal(window, cx);
                 self.open_terminal(path, window, cx);
+            }
+            dialogs::DialogEvent::RunTool { req, title } => {
+                self.close_modal(window, cx);
+                self.tile_command(*req, title, cx);
             }
         }
     }

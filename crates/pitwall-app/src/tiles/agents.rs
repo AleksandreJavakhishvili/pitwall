@@ -121,6 +121,53 @@ pub fn tool_names(cx: &App) -> Vec<String> {
     tools(cx).iter().filter(|t| t.show_only() && t.exposed("agents")).map(TileTool::name).collect()
 }
 
+/// The skills for agents of the extensions (agent-tools.md §11.11) as
+/// agents get them: each extension that is on, whose `agents/SKILL.md`
+/// reads and whose tools agents may use now (Tile tools on, a tile's
+/// switch on), for the projects the user gave it to.
+pub fn skills(cx: &App) -> Vec<pitwall_core::rules::ext_skills::ExtSkill> {
+    if !enabled(cx) {
+        return Vec::new();
+    }
+    let ui = crate::ui_state::get(cx);
+    let mut out = Vec::new();
+    for m in crate::extensions::enabled(&crate::extensions::found(cx), &ui) {
+        let projects = ui.extension(&m.id).skill_projects;
+        if projects.is_empty() || !m.contributes.tiles.iter().any(|t| t.agents && tile_on(&m.id, &t.id, cx)) {
+            continue;
+        }
+        let Some(Ok(skill)) = crate::extensions::folder_of(&m.id, cx).and_then(|d| pitwall_core::extensions::agent_skill::read(&d, &m.id)) else { continue };
+        out.push(pitwall_core::rules::ext_skills::ExtSkill { id: m.id.clone(), name: m.name.clone(), description: skill.description.clone(), text: skill.for_agents(&m.name), projects });
+    }
+    out
+}
+
+/// Keep the skills agents get in step with [`skills`] (on every change of
+/// the settings and the extensions found): a change makes the agents'
+/// rules stale, and their next apply adds or removes it.
+pub fn sync_skills(cx: &App) {
+    let Some(e) = crate::extensions::engine(cx) else { return };
+    pitwall_core::rules::ext_skills::sync(&pitwall_core::rules::Dirs::of(e.paths()), &skills(cx));
+}
+
+/// Whether agents of `project` get extension `ext`'s skill.
+pub fn skill_in(ext: &str, project: &str, cx: &App) -> bool {
+    crate::ui_state::get(cx).extension(ext).skill_projects.iter().any(|p| p == project)
+}
+
+/// Give agents of `project` extension `ext`'s skill, or take it away.
+pub fn set_skill_in(ext: &str, project: &str, on: bool, cx: &mut App) {
+    let (e, p) = (ext.to_string(), project.to_string());
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(&e, |x| {
+            x.skill_projects.retain(|q| *q != p);
+            if on {
+                x.skill_projects.push(p.clone());
+            }
+        })
+    });
+}
+
 /// A call placed and delivered, its answer still to come.
 pub struct Placed {
     pub shown: TileShown,

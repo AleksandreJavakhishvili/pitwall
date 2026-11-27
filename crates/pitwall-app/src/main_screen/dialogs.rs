@@ -46,6 +46,9 @@ pub enum DialogEvent {
     /// `project` runs as git identity `name` now (`None`: the user's own
     /// setup): its running agents restart to take it.
     GitIdentity { project: String, name: Option<String> },
+    /// Run a tile's command as the user, with the input its form made
+    /// (`tool_form`), under its title.
+    RunTool { req: Box<pitwall_proto::tile_tools::TileRun>, title: String },
 }
 
 /// The modal frame: backdrop, box, title with ✕ (`Modal.tsx`).
@@ -2741,6 +2744,7 @@ impl MainScreen {
                 Some(super::Modal::NewAgent(d)) => Some(d.clone().into()),
                 Some(super::Modal::Terminal(d)) => Some(d.clone().into()),
                 Some(super::Modal::ProjectAccounts(d)) => Some(d.clone().into()),
+                Some(super::Modal::ToolForm(d)) => Some(d.clone().into()),
                 _ => None,
             };
             if let Some(view) = view {
@@ -2770,6 +2774,7 @@ impl MainScreen {
                     .into_any_element(),
             ),
             Some(super::Modal::ProjectAccounts(d)) => Some(div().absolute().inset_0().child(d.clone()).into_any_element()),
+            Some(super::Modal::ToolForm(d)) => Some(div().absolute().inset_0().child(d.clone()).into_any_element()),
             Some(super::Modal::Remove(_)) => self.render_remove(t, window, cx),
             Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, window, cx),
         }
