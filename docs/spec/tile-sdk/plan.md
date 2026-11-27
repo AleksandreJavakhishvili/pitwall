@@ -55,7 +55,7 @@ Done when the seed tiles Notes and CI, and the C4 tile's shown
 diagrams, can be built on the public SDK alone, agents can open any
 tile and show content in it, and the pages below match.
 
-- [ ] Components: virtual list, table, tree, tabs, select, Markdown, canvas, images, menus, drag inside a tile ([3](ui.md))
+- [x] Components: virtual list, table, tree, tabs, select, Markdown, canvas, images, menus, drag inside a tile ([3](ui.md); 3.3 "Phase 2 adds the components"; #126)
   - [x] Canvas (paths, rects, text in pixels, strokes and dashes, transform, hit regions, wheel and pinch) and drag inside a tile ([3.6, 3.7](ui.md#37-canvas) "As built")
 - [ ] Agents open tiles: the host-provided `<extension-id>__open` for every extension with tiles, taking the tile's declared `"input"` as content, placed next to the calling agent with `where` and `of` as `show_web` does, a later call reusing the same view ([11.3](agent-tools.md#113-declaring-tools), [11.8](agent-tools.md#118-where-the-tile-opens)). Done when an agent in Claude Code opens the hello tile on the right with a payload, and a second call with the same item updates it in place
 - [ ] Show-only tools: `show` and `present` declared in the manifest and with `#[tools]`, delivered as `view-opened` and `view-content` with the new `content` fields, `reply`, item ids per agent, the host's origin mark, the refusal on an item the user edited, the limits for inline input ([11.2](agent-tools.md#112-four-kinds), [11.6](agent-tools.md#116-presented-content-ids-marks-undo), [11.7](agent-tools.md#117-size-time-streaming-errors)). Done when harness tests cover a good call, a call with problems that changes nothing, an update in place and the refusal

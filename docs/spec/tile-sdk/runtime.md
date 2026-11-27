@@ -294,7 +294,7 @@ late.
   rows in pages (`rows(list, start, count)`) as they scroll into view,
   cached until the guest invalidates them.
 
-**Measured: a 100 000-row list** (phase 2, PR #TBD; the hello fixture's
+**Measured: a 100 000-row list** (phase 2, #126; the hello fixture's
 `gallery` tile, Apple M-series, debug builds of the host and the app, the
 guest a release component). `cargo test -p pitwall-tile-host --test
 components -- --nocapture` and `PITWALL_TILE_SHOTS=<dir> cargo test -p
