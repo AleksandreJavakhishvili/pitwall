@@ -146,7 +146,7 @@ built only when its trigger happens.
 
 | Service | Where designed | Trigger that justifies it |
 |---|---|---|
-| Files in projects (`files.read`, `files.write`) | [3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new) | Notes keeps notes as Markdown in a project, or Diagrams' `export_svg` writes into one; in the plan from the start of the review port ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)), whichever comes first |
+| Files in projects (`files.read`, `files.write`) | [3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new), as built in [14.5](#145-files-in-projects-as-built) | Built (#PRNUM): Notes keeps notes as Markdown in a project, and the C4 tile draws the diagrams in a project's docs and follows their changes |
 | Git (`git.read/write/remote`) | [3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new) | The review port ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) brings `git.read/write` into the plan when it starts; `git.remote` waits for the git client seed tile |
 | File and folder pickers (grant one item per pick) | — | A tile must open a file the user chooses without a project-wide `files` grant (database browser opening a SQLite file) |
 | Reads of Pitwall data beyond agents: projects, worktrees, the focused agent | [3.8](runtime.md#38-host-apis) (method table) | A seed tile must place data by project or follow the focused agent |
@@ -172,3 +172,46 @@ built only when its trigger happens.
 - **Credentials**: account logins, tool logins, Pitwall's own settings.
 - **Background work while hidden** for a tile ([2.3](runtime.md#23-lifecycle)): that is a
   service's job ([13](services.md#13-tile-apps-with-a-server)).
+
+### 14.5 Files in projects, as built
+Built in #PRNUM (`files.wit`, the SDK's `files` module), for the C4 tile's
+docs diagrams and Notes' project notes.
+
+- **The project is the view's, not picked.** [5.1](permissions.md#51-new-permissions-new)
+  had "projects the user picks for this tile". As built, a view is
+  open in one project: its space's, else the project it was opened for
+  (a project's sidebar menu, the calling agent's project), else the one
+  project of the agents beside it in its space. `files::project(view)`
+  says which (name and folder), and `project-changed` tells the tile
+  when it changes (closing that view's watches). A tile never names a
+  folder, so there is no pick dialog; the permission screen lists the
+  folders its open views are in now. This also closes Notes' G5: a
+  tile learns its project.
+- **Its own files folder.** `root.data` is
+  `<data>/extension-data/<id>/files/`, needing no permission, at most
+  100 MiB; deleting there is for good.
+- **Paths.** Relative with `/`; absolute paths, `\`, drive letters,
+  `..` and NUL are refused; each part is resolved with links followed
+  and refused when it leaves the root or reaches `.git` or Pitwall's
+  data folder. `.git` is never listed, read or changed (stricter than
+  "never writable"); `.pitwall.json` and `.pitwall/` at the project's
+  top are never changed.
+- **Ignore files.** `list` and `watch` leave out what the project's
+  `.gitignore` files and `.git/info/exclude` ignore (the user's global
+  excludes aren't read); `read` and `stat` reach ignored files by name.
+- **Limits.** 8 MiB a file, 10 000 list entries, 8 watches a tile;
+  watch events are coalesced (250 ms quiet, at most 1 s late).
+- **Writes.** Whole files, written to a temporary file and renamed
+  over (its permissions kept); `create` refuses an existing file;
+  `delete` moves to the system Trash (macOS's, Windows' Recycle Bin,
+  the freedesktop Trash).
+- **Agents' calls.** `files.write` is an acting permission: during a
+  `show`, `present` or `read` call writes are `denied`.
+- **Activity.** Every change to a project (`files.write`,
+  `files.rename`…, with the project and path) and every refusal is a
+  line in the extension's Activity; the same refusal within a minute
+  is one line.
+- **Not done.** WASI preopens under `/projects/<n>` aren't given (the
+  `files` interface is the only route), and a `files.write` that takes
+  the expected version (Notes' hla §4.1) isn't there: Notes checks the
+  version with `stat` first.

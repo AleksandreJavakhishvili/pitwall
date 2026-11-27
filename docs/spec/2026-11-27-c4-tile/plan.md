@@ -13,7 +13,7 @@ it waits for.
 
 **Status:** phases A and B built in `tiles/c4/` (the crate `c4-tile`, its
 own Cargo workspace; the tile is its `tile` feature, `tile.wasm` is
-committed). Phase C waits for a `files.read` service. The owner's
+committed). Phase C's docs diagrams are built on `files` (#PRNUM); its fallbacks in files, index cache and website page are left. The owner's
 answers to [frd.md §9](frd.md#9-open-questions-for-the-owner) are
 recorded there.
 
@@ -104,18 +104,18 @@ from "C4 tile" to its container diagram, and redraws within a second of
 an edit.
 
 SDK requests:
-- [ ] G6 recursive file listing raised. Done as for G1, in `runtime.md` §3.8
-- [ ] G7 `files.watch` design raised, with this tile as its first user. Done as for G1
-- [ ] The SDK's [platform services §14.3](../tile-sdk/platform-services.md#143-later-on-demand) names the C4 tile as a trigger for `files.read` and `watch`. Done when merged in the SDK's docs
+- [x] G6 recursive file listing raised. Done as for G1, in `runtime.md` §3.8 (#PRNUM: built as `files::list(root, folder, deep)`, [platform services 14.5](../tile-sdk/platform-services.md#145-files-in-projects-as-built))
+- [x] G7 `files.watch` design raised, with this tile as its first user. Done as for G1 (#PRNUM: `files::watch`, coalesced `files-changed`, 14.5)
+- [x] The SDK's [platform services §14.3](../tile-sdk/platform-services.md#143-later-on-demand) names the C4 tile as a trigger for `files.read` and `watch`. Done when merged in the SDK's docs (#PRNUM)
 
 The tile:
-- [ ] Manifest adds `files.read` and `show` with reasons, the path-list setting, and `diagram` in the tile's `"input"` (FR-42). Done when `pitwall extension check` passes and the update review lists the new permission
-- [ ] Scanner with project pick, file listing, limits (FR-1, FR-2). Done when harness tests with a fake project pass, including the limits
-- [ ] Following changes with `files.watch`, coalescing, and the re-check when shown again (FR-4). Done when a harness test edits, renames and deletes files and the index follows
-- [ ] Zoom links between shown and docs diagrams of the same project (FR-12, FR-13). Done when a harness test zooms from a shown context diagram into a container diagram found in a doc
-- [ ] Before / After / Changes for pairs in the docs (FR-17). Done when harness tests switch views on the pair fixture
-- [ ] Fallbacks and problems in files (FR-18, FR-19, FR-22). Done when harness tests cover an unsupported type, a parse error with lines counted in the Markdown file, and a break after a good drawing
-- [ ] Open source and the docs outline (FR-23, FR-24). Done when a harness test opens a block's source at its line
+- [x] Manifest adds `files.read` and `show` with reasons, the path-list setting, and `diagram` in the tile's `"input"` (FR-42). Done when `pitwall extension check` passes and the update review lists the new permission (#PRNUM: `paths` setting, `diagram` takes a docs id as `docs/hla.md#2-containers`; the update review lists new permissions for any extension)
+- [x] Scanner with project pick, file listing, limits (FR-1, FR-2). Done when harness tests with a fake project pass, including the limits (#PRNUM: no pick, the view's project is the one Pitwall says it is open in; `src/docs.rs` globs, hidden, `node_modules` and `target` skipped; the 1 MiB limit tested, the 2 000-file cut not)
+- [x] Following changes with `files.watch`, coalescing, and the re-check when shown again (FR-4). Done when a harness test edits, renames and deletes files and the index follows (#PRNUM: only files whose size or time changed are read again)
+- [x] Zoom links between shown and docs diagrams of the same project (FR-12, FR-13). Done when a harness test zooms from a shown context diagram into a container diagram found in a doc (#PRNUM)
+- [x] Before / After / Changes for pairs in the docs (FR-17). Done when harness tests switch views on the pair fixture (#PRNUM: the after's Changes against its before)
+- [ ] Fallbacks and problems in files (FR-18, FR-19, FR-22). Done when harness tests cover an unsupported type, a parse error with lines counted in the Markdown file, and a break after a good drawing (#PRNUM: the outline marks a block that can't be drawn; the problems view for docs blocks and keeping the last good drawing are left)
+- [x] Open source and the docs outline (FR-23, FR-24). Done when a harness test opens a block's source at its line (#PRNUM: "Open in the editor" in More, the source view names its file and line; the outline lists the view's project's docs by file)
 - [ ] Index cache ([hla §3.6](hla.md#36-state-and-the-index-cache)). Done when a harness test drops and restores the tile and the index comes back without re-reading unchanged files
 - [ ] Website docs: pick a project, diagrams in the docs, change views. Done when published
 

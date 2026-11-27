@@ -31,6 +31,8 @@ What every tile has, with no permission, reaches only its own things:
 | `agents.read` | Your agents' names, kinds, projects, branches and states, whether one waits on you, and how many items wait in its Next up; badges on agents' rows; naming the agent a question is from | on | Medium: a state can say what an agent waits on. Never what is on their screens |
 | `agents.queue` | Putting text in an agent's Next up, marked with the extension's name. Nothing it puts there is sent until you press Send, unless you let it send without asking | off | High: text an agent gets becomes what it does, with its own permissions in your repositories |
 | `projects.read` | Your projects' folders; badges on projects' rows | on | Low |
+| `files.read` | Reading the files of the project each of its tiles is open in, and following their changes. Never `.git`, never another project | on | Medium: what it reads, a `.env` file too, can reach the servers it may connect to |
+| `files.write` | Writing, making, renaming and moving to the Trash files of the project each of its tiles is open in. Never `.git` or Pitwall's own files | off | High: you and your agents run what is in your projects; a file it changes changes what runs next |
 
 Badges on sidebar rows and questions in the floating control need no permission: the extension declares them (`"badges": true`, `"asks": true`), and the permission screen lists them under "Adds to Pitwall" ("badges and short notes on agents' and projects' rows in the sidebar", "questions in the floating control, answered there or in its tile").
 
@@ -44,7 +46,11 @@ The permission screen lists each server the extension may reach, as its manifest
 
 A notification is the system's when you aren't looking at Pitwall, and a toast in Pitwall's window. At most 3 a minute, and the same words only once in 10 minutes.
 
-More grants come with the services that need them, each with its own risk note on the permission screen: files and git in your projects and the clipboard, each when a tile needs it ([what comes later](#what-comes-later)).
+### files.read and files.write
+
+A tile reaches only the project it is open in: its space's project, the project of the agent it was opened next to, or the project whose sidebar menu opened it. It never picks a folder of its own, and a tile open in no project reaches none. The permission screen names the project folders its open tiles are in now ("the project its tile is open in" before any is open). Every change it makes to a project's files, and every refusal, is in its Activity. `.git` is never read or changed, Pitwall's own `.pitwall.json` and `.pitwall/` never changed, and deleted files go to the Trash.
+
+More grants come with the services that need them, each with its own risk note on the permission screen: git in your projects and the clipboard, each when a tile needs it ([what comes later](#what-comes-later)).
 
 ## The permission screen
 
@@ -61,7 +67,7 @@ Tools that give agents more ask you, in Pitwall's approval dialog:
 - **`read`** returns what the tile has, your edits included. It asks the first time; **Always for <agent>** lets that agent read again without asking.
 - **`act`** does something outside the tile (the network, a service). It asks each call, with the agent, its project, the tool and its arguments; **Always for <agent>** is offered too, except for a tile that can put text in your agents' Next up or start agents, whose `act` tools ask every time.
 - Neither is ever in the allow lists Pitwall passes agents at launch. Your "Always" answers are on the extension's card ("Allowed without asking") and in Settings → Agents, each with **Revoke**.
-- During a `show`, `present` or `read` call the tile runs without its acting permissions (`net`, `show`, `notify`, `agents.queue`, `agents.start`, `agents.focus`), so a tool can't act while it says it only reads.
+- During a `show`, `present` or `read` call the tile runs without its acting permissions (`net`, `show`, `notify`, `files.write`, `agents.queue`, `agents.start`, `agents.focus`), so a tool can't act while it says it only reads.
 
 You decide which tiles agents may use:
 
@@ -92,7 +98,7 @@ In `extension.json`, a permission's value is its reason, or an object with the r
 - `memory`: its size in MiB, more than 64 and at most 512: `"memory": { "reason": "To hold large diagrams", "mib": 128 }`.
 - `sql`: its size in MiB, more than 100 and at most 2048: `"sql": { "reason": "To keep a year of builds", "mib": 500 }`.
 - `net`: the hosts, at most 32: `"net": { "reason": "To read your builds", "hosts": ["ci.example.com"] }`.
-- `notify` and `show`: the reason alone.
+- `notify`, `show`, `files.read` and `files.write`: the reason alone.
 
 In the tile, `cx.is_granted("memory")` and `cx.granted()` say what the user granted. When it changes, the tile hears `Event::GrantsChanged`, and by default it renders again. A call that needs a permission the tile wasn't granted fails with `HostError::Denied`; the tile should carry on without it and say what is missing.
 
@@ -102,6 +108,6 @@ Test both cases with the harness: `Harness::build(…).grant("memory")` starts t
 
 | Phase | Grants |
 |---|---|
-| On demand | `files.read`, `files.write`, `git.read`, `git.write`, `git.remote`, `clipboard.read`, each when a tile needs it |
+| On demand | `git.read`, `git.write`, `git.remote`, `clipboard.read`, each when a tile needs it |
 
 A "Run tiles from others" switch in Settings → Extensions will stop every tile not made by Pitwall at once.

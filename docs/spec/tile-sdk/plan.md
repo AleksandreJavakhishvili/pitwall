@@ -96,13 +96,18 @@ tile and show content in it, and the pages below match.
 - [ ] **5. Marketplace:** index repo, Browse, Verified, report flow, `pitwall extension pack`/`sign`/`publish`; exit gate: threat model written and outside security review done ([7](marketplace.md), [5.5](permissions.md#55-threat-model-and-outside-review))
 - [ ] **6. Seed tiles:** C4 diagrams (flagship, [spec](../2026-11-27-c4-tile/plan.md)) and Notes ([spec](../2026-11-27-notes-tile/)) first, then CI, API client, git client, database browser ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only))
   - [x] C4, shown diagrams ([C4 plan](../2026-11-27-c4-tile/plan.md) phase B): `c4__show` (an agent's Mermaid drawn next to its terminal, all or nothing, updated in place by item, the problems with their lines), the list by agent, click to zoom with a menu for a box several diagrams detail, Now / Changes, kept across restarts with 50 a project, dark and light, the built `tile.wasm` committed; harness tests, a headless test of an agent calling `c4__show` through Pitwall's MCP server, headless screenshots (#131)
-  - [ ] C4, diagrams in the project's docs (phase C): waits for `files.read` with `list` and `watch` (gap below)
+  - [x] C4, diagrams in the project's docs (phase C): the docs' Mermaid blocks found by a path list, drawn, followed with a watch and redrawn on a change, zoom between shown and docs diagrams, before/after pairs, the source at its line (#PRNUM)
   - [x] Notes: Send to an agent (a picker from `agents::list`, the whole note or a section, the 4 000-character check, `agents::queue_add`, Pitwall's refusals shown), ⌘/ for Edit and Preview, the `agents.read` and `agents.queue` permissions with reasons, README with screenshots (#131)
-  - [ ] Notes: project notes, open in the editor, per-project private notes: wait for `files.*`, `viewer.open` and a tile's project (gaps below)
+  - [x] Notes: project notes as files in the project's `notes/` (version check, Changed or Deleted on disk), open in the editor, the note's project's agents first in Send (#PRNUM)
+  - [ ] Notes: per-project private notes, with a migration of `p/_/` (left open in the Notes plan)
   - [ ] CI, API client, git client, database browser
   - SDK gaps the seed tiles found (each to be raised in the SDK's design, not reached around):
-    - [ ] `files.read` (`list`, `watch`) and `files.write`: C4 phase C and D, Notes' project notes. Tiles have no file access at all (WASI has no preopens)
-    - [ ] A tile's project (Notes G5): which project a view is in, for per-project notes and lists; agents name theirs in a call's `caller`, the user's own views don't
+    - [x] `files.read` (`list`, `watch`) and `files.write`: C4 phase C and D, Notes' project notes. Tiles have no file access at all (WASI has no preopens) (#PRNUM: `files.wit`, [platform services 14.5](platform-services.md#145-files-in-projects-as-built))
+      - [x] Read, stat, list (deep, `.gitignore` honoured), watch with coalesced `files-changed` (#PRNUM)
+      - [x] Write, create, make folder, rename, delete to the Trash; `.git` never reached, Pitwall's own files never changed, links out refused, size limits (#PRNUM)
+      - [x] The extension's own files folder, without a permission (#PRNUM)
+      - [x] Permission rows in plain words with the folders reached, Activity lines, the SDK module, the harness's project, watcher and Trash, host, harness and headless app tests, docs (#PRNUM)
+    - [x] A tile's project (Notes G5): which project a view is in, for per-project notes and lists; agents name theirs in a call's `caller`, the user's own views don't (#PRNUM: `files::project(view)` and `project-changed`)
     - [x] `viewer.open` from a tile (Notes FR-10): `show.view(path, line)` shows a file in Pitwall's file viewer (the extension's own viewer window, rooted at its git repository), needs `show`; `show.file` stays the editor. Notes' "open in the editor" itself waits for project notes (`files.*`) (#135)
     - [x] A popover at a point of a canvas: `popover.at`, `Canvas::popover`; the C4 tile's "which diagram?" menu opens under the box clicked (#135)
     - [x] Problem lines in the code view: `Mark::Error` and `Mark::Warning` with a message (`mark_with`), drawn as a bar, a tint and the message after the line; the C4 tile's problems view uses them (#135)

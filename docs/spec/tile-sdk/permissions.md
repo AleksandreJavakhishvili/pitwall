@@ -16,8 +16,8 @@ adapter, a tile's code *can't* do more than it is given.
 |---|---|---|---|
 | `net` (`hosts` list) | HTTPS to exactly those hosts (exact name or `*.example.com`; no IP literals unless loopback); `http://` only to `localhost`, `127.0.0.1`, `[::1]` | on | Medium: data the tile has can leave to those hosts. The list is shown as written. |
 | `net.ask` | HTTPS to hosts the user approves at run time, one at a time ("API client wants to connect to api.example.com — Allow once / Always / Deny") | on (each host asks) | Medium; for tools whose hosts are the user's choice (an API client) |
-| `files.read` | Read files in projects the user picks for this tile (not all projects) | on (asks which projects) | Medium: source, `.env` files |
-| `files.write` | Write in those projects | off | High: can change code agents and the user run |
+| `files.read` | Read files in the project each of its views is open in (not all projects; as built, [14.5](platform-services.md#145-files-in-projects-as-built)) | on | Medium: source, `.env` files |
+| `files.write` | Write in those projects; deletes go to the Trash | off | High: can change code agents and the user run |
 | `git.read` | Status, diffs, history of granted projects | on | Medium |
 | `git.write` | Stage, commit, checkout | off | High |
 | `git.remote` | Fetch, pull, push with the user's git credentials | off, asks each push | High: publishes work |
