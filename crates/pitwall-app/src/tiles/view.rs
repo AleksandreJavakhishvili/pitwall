@@ -648,7 +648,7 @@ impl TileView {
                 )
             }
             Some(State::Starting { preparing: true }) => calm("refresh", "Starting…", format!("Preparing {name} for this computer. This happens once for each version."), t),
-            None | Some(State::Starting { .. }) => calm("refresh", "Starting…", format!("{name} is starting."), t),
+            None | Some(State::Starting { .. } | State::Dropped) => calm("refresh", "Starting…", format!("{name} is starting."), t),
             Some(State::Running) if self.frame.is_none() => calm("refresh", "Starting…", format!("{name} is starting."), t),
             Some(State::Running) => return None,
         };
