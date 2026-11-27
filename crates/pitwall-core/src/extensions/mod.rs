@@ -60,6 +60,7 @@ pub mod service;
 pub mod source;
 pub mod starter;
 pub mod toolbar;
+pub mod tools;
 pub mod update;
 pub mod view;
 
@@ -241,6 +242,11 @@ pub struct TileDef {
     /// schema file in the extension's folder (same path rules as `wasm`,
     /// ending in `.json`). `None`: it opens without content.
     pub input: Option<String>,
+    /// The show tools it declares for agents (agent-tools.md §11.3).
+    pub tools: Vec<tools::ToolDef>,
+    /// Whether agents may open it and use its tools (`"agents": false`
+    /// says no; Pitwall then offers no `<extension-id>__open` for it).
+    pub agents: bool,
 }
 
 /// A web view a manifest declares: a page in a web tile. Its address is
@@ -305,7 +311,16 @@ impl Contributes {
         if self.notifications {
             out.push("notifications (a few a minute at most)".to_string());
         }
-        out.extend(self.tiles.iter().map(|t| format!("a tile “{}” ({}), drawn from its own code, run in a sandbox", t.title, t.id)));
+        out.extend(self.tiles.iter().map(|t| {
+            let agents = if t.agents { "; agents can open it and show you things in it" } else { "" };
+            format!("a tile “{}” ({}), drawn from its own code, run in a sandbox{agents}", t.title, t.id)
+        }));
+        for t in self.tiles.iter().filter(|t| t.agents) {
+            out.extend(t.tools.iter().map(|d| match d.kind {
+                tools::ToolKind::Show => format!("a tool for agents, {}: they show you things in “{}”", d.name, t.title),
+                tools::ToolKind::Present => format!("a tool for agents, {}: they present their results in “{}”", d.name, t.title),
+            }));
+        }
         if let Some(t) = &self.toolbar {
             out.push(format!("a button in the toolbar (“{}”){}", t.tooltip, if t.visible_by_default { "" } else { ", hidden until you show it" }));
             if t.badge {
@@ -894,6 +909,13 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     let memory_mib = if format >= 2 { parse_memory(obj.get("permissions"))? } else { None };
     let net_hosts = if format >= 2 { parse_net(obj.get("permissions"))? } else { vec![] };
     let sql_mib = if format >= 2 { parse_sql(obj.get("permissions"))? } else { None };
+    // Each tile tool's name, as agents get it, within what they take.
+    for t in contributes.tiles.iter().filter(|t| t.agents) {
+        tools::check_mcp_name(id, None)?;
+        for d in &t.tools {
+            tools::check_mcp_name(id, Some(&d.name))?;
+        }
+    }
     let service = match obj.get("service") {
         Some(v) if format >= 2 && !v.is_null() => Some(service::parse(v, &settings, &actions)?),
         _ => None,
@@ -1113,7 +1135,25 @@ fn parse_tiles(v: &Value) -> Result<Vec<TileDef>, String> {
                 Some(path.to_string())
             }
         };
-        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world, input });
+        let tools = match o.get("tools") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(v) => tools::parse_tools(id, v)?,
+        };
+        let agents = match o.get("agents") {
+            None | Some(Value::Null) => true,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err(format!("tile “{id}”: \"agents\" must be true or false")),
+        };
+        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world, input, tools, agents });
+    }
+    let n: usize = out.iter().map(|t| t.tools.len()).sum();
+    if n > tools::MAX_TOOLS {
+        return Err(format!("its tiles declare {n} tools; at most {}", tools::MAX_TOOLS));
+    }
+    for (i, t) in out.iter().enumerate() {
+        if let Some(d) = t.tools.iter().find(|d| out[..i].iter().any(|o| o.tools.iter().any(|x| x.name == d.name))) {
+            return Err(format!("tool “{}” is declared by two tiles", d.name));
+        }
     }
     Ok(out)
 }
@@ -1883,7 +1923,7 @@ mod tests {
     fn tiles_are_read_and_checked() {
         let m = |extra: &str| format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{{extra}}}}}"#);
         let ok = parse(&m(r#""tiles": [{"id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "schemas/open.json"}, {"id": "other", "title": "Other", "wasm": "build/other.wasm"}]"#)).unwrap();
-        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()), input: Some("schemas/open.json".into()) });
+        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()), input: Some("schemas/open.json".into()), tools: vec![], agents: true });
         assert_eq!(ok.contributes.tile("other").map(|t| t.world.clone()), Some(None));
         assert!(ok.contributes.lines().iter().any(|l| l.contains("a tile “Hello” (main)")));
         let err = |extra: &str| parse(&m(extra)).unwrap_err();

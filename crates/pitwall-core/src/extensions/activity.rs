@@ -35,6 +35,8 @@ pub enum Via {
     /// Its tiles' component (docs/spec/tile-sdk/, the `agents`
     /// interface).
     Tile,
+    /// An agent's call of one of its tiles' tools (agent-tools.md §11.10).
+    Agent,
 }
 
 /// How a call went.
