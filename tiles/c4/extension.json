@@ -5,8 +5,15 @@
   "version": "0.1.0",
   "pitwall": ">=0.8.0",
   "icon": "grid",
-  "description": "C4 diagrams your agents draw, shown next to their terminal, with click to zoom",
+  "description": "C4 diagrams your agents draw and your docs hold, shown next to their terminal, with click to zoom",
   "license": "Apache-2.0",
+  "settings": [
+    { "key": "paths", "type": "text", "label": "Where diagrams are", "hint": "Markdown files to look in, from the project's folder, separated by commas. ** is any folders, * any name.", "default": "docs/**/*.md, **/hla.md, **/*-lld.md" }
+  ],
+  "permissions": {
+    "files.read": "To draw the Mermaid diagrams in your project's docs and redraw them when a doc changes",
+    "show": "To open a diagram's doc at its line in Pitwall's editor"
+  },
   "contributes": {
     "tiles": [
       {

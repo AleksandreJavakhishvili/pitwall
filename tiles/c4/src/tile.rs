@@ -8,11 +8,18 @@
 //! (`d/<id>`), per the calling agent's project (FR-41); each project has
 //! its own [`Index`], where a shown diagram's "file" is its agent
 //! (`shown/<agent>`), so zoom prefers the same agent's diagrams (FR-13).
+//!
+//! Diagrams in the docs (plan.md phase C) come from the view's project
+//! with `files.read`: the Markdown files the path list names, read once,
+//! then followed with `files.watch` (FR-1 to FR-4). They join the same
+//! project's [`Index`] under `<folder>/<path>`, so shown and docs diagrams
+//! zoom into each other, and are items too, never stored (`doc` set).
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pitwall_extension::blocks::Mark;
+use pitwall_extension::files::{self, Root};
 use pitwall_extension::widgets::{Banner, Popover};
 use pitwall_extension::prelude::*;
 use pitwall_extension::style::Align;
@@ -21,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::c4::{name_key, Level, Structure};
 use crate::changes::{self, Drawn, Merged};
+use crate::docs;
 use crate::index::{Entry, Index, ZoomTarget};
 use crate::layout::sequence::{self as seq_layout, SeqPlaced};
 use crate::layout::{build, Dagre, Layout, Placed, SizedBox};
@@ -81,6 +89,30 @@ struct Item {
     previous: Option<String>,
     shown_at: u64,
     opened_at: u64,
+    /// A diagram in the docs: where it is (never stored).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    doc: Option<Doc>,
+}
+
+/// Where a docs diagram is in its project.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Doc {
+    /// The file, relative to the project's folder.
+    path: String,
+    /// Its opening fence's line.
+    line: u32,
+}
+
+/// A view's project, as its docs were read.
+#[derive(Debug, Default)]
+struct ViewDocs {
+    folder: String,
+    name: String,
+    watch: Option<files::WatchId>,
+    /// Files read, with their size and time, to skip unchanged ones.
+    read: BTreeMap<String, (u64, u64)>,
+    /// A limit reached or a refusal, said in the outline.
+    note: Option<String>,
 }
 
 /// A diagram's id: a hash of its project, agent and item.
@@ -172,6 +204,8 @@ pub struct C4 {
     views: BTreeMap<String, ViewState>,
     restored: BTreeMap<String, ViewState>,
     notices: Vec<Notice>,
+    /// By view: its project's docs.
+    docs: BTreeMap<String, ViewDocs>,
 }
 
 impl Tile for C4 {
@@ -188,10 +222,11 @@ impl Tile for C4 {
             indexes.entry(it.project.clone()).or_default().set_diagram(&path_of(&it.agent_id), id, Some(&it.title), &it.mermaid);
         }
         let restored = cx.restore::<Saved>().map(|s| s.views).unwrap_or_default();
-        C4 { items, indexes, drawings: HashMap::new(), views: BTreeMap::new(), restored, notices: Vec::new() }
+        C4 { items, indexes, drawings: HashMap::new(), views: BTreeMap::new(), restored, notices: Vec::new(), docs: BTreeMap::new() }
     }
 
     fn on_view_opened(&mut self, view: &ViewInfo, _cx: &mut Cx<Self>) {
+        self.scan(&view.id);
         let mut vs = self.restored.remove(&view.id).unwrap_or_default();
         if vs.open.as_ref().is_some_and(|id| !self.items.contains_key(id)) {
             vs.open = None;
@@ -199,7 +234,7 @@ impl Tile for C4 {
         }
         vs.path.retain(|id| self.items.contains_key(id));
         if vs.open.is_none() {
-            vs.open = self.items.iter().max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone());
+            vs.open = self.items.iter().filter(|(_, it)| it.doc.is_none()).max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone()).or_else(|| self.first_doc(&view.id));
         }
         if let Some(id) = vs.open.clone() {
             if let Some((s, x, y)) = vs.places.get(&id).copied() {
@@ -217,7 +252,9 @@ impl Tile for C4 {
         let input: OpenInput = content.parse().unwrap_or_default();
         let Some(wanted) = input.diagram.filter(|d| !d.trim().is_empty()) else { return };
         let agent = content.caller().map(|c| c.agent_id.clone());
-        let found = self.items.iter().filter(|(_, it)| it.item == wanted && agent.as_ref().is_none_or(|a| *a == it.agent_id)).max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone());
+        let folder = self.docs.get(&view.id).map(|d| d.folder.clone());
+        let in_docs = self.items.iter().find(|(_, it)| it.doc.is_some() && it.item == wanted && Some(&it.project) == folder.as_ref()).map(|(id, _)| id.clone());
+        let found = in_docs.or_else(|| self.items.iter().filter(|(_, it)| it.doc.is_none() && it.item == wanted && agent.as_ref().is_none_or(|a| *a == it.agent_id)).max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone()));
         match found {
             Some(id) => {
                 self.open(&view.id, &id, false);
@@ -228,7 +265,7 @@ impl Tile for C4 {
             }
             None => {
                 if let Some(call) = content.call() {
-                    pitwall_extension::tools::reply(call, Err(ToolError::plain(format!("No diagram “{wanted}” of yours is shown in the C4 tile (it was closed, or never shown). Show it with c4__show."))));
+                    pitwall_extension::tools::reply(call, Err(ToolError::plain(format!("No diagram “{wanted}” of yours is shown in the C4 tile (it was closed, or never shown), nor is one in the project's docs (as docs/hla.md#containers). Show it with c4__show."))));
                 }
             }
         }
@@ -236,6 +273,9 @@ impl Tile for C4 {
 
     fn on_view_closed(&mut self, view: &str, _cx: &mut Cx<Self>) {
         self.views.remove(view);
+        if let Some(d) = self.docs.remove(view) {
+            self.drop_docs(&d.folder);
+        }
     }
 
     fn on_event(&mut self, event: &Event, cx: &mut Cx<Self>) {
@@ -254,6 +294,32 @@ impl Tile for C4 {
                 cx.notify();
             }
             Event::Theme(_) => cx.notify(),
+            // Its project, its grants or its path list changed, or it is
+            // shown again after a suspension: the docs read again (only
+            // the files that changed are parsed).
+            Event::ProjectChanged(view) => {
+                if let Some(d) = self.docs.get_mut(view) {
+                    d.watch = None;
+                }
+                self.scan(view);
+                self.settle_views();
+                cx.notify();
+            }
+            Event::GrantsChanged(_) | Event::SettingsChanged | Event::Visibility(true) => {
+                let views: Vec<String> = self.views.keys().cloned().collect();
+                for v in views {
+                    self.scan(&v);
+                }
+                self.settle_views();
+                cx.notify();
+            }
+            Event::FilesChanged { watch, paths } => {
+                if let Some(view) = self.docs.iter().find(|(_, d)| d.watch == Some(*watch)).map(|(v, _)| v.clone()) {
+                    self.follow(&view, paths);
+                    self.settle_views();
+                    cx.notify();
+                }
+            }
             _ => {}
         }
     }
@@ -349,6 +415,7 @@ impl C4 {
             previous,
             shown_at: now,
             opened_at: now,
+            doc: None,
         };
         let mut evicted = Vec::new();
         if before.is_none() {
@@ -408,7 +475,7 @@ impl C4 {
         }
         let zooms = self.zoom_links(&id);
         if zooms > 0 {
-            text.push_str(&format!(" {zooms} of its boxes open another diagram you showed."));
+            text.push_str(&format!(" {zooms} of its boxes open another diagram you showed or one in the project's docs."));
         }
         if !evicted.is_empty() {
             text.push_str(&format!(" The oldest {} diagrams of this project were closed to make room.", evicted.len()));
@@ -421,6 +488,231 @@ fn structure_of(mermaid: &str) -> Option<Structure> {
     match crate::mermaid::parse(mermaid) {
         Diagram::Flowchart(f) => Some(crate::c4::read(&f)),
         _ => None,
+    }
+}
+
+// ---- Diagrams in the docs ----------------------------------------------------
+
+/// The index's path of docs file `rel` in `folder` (unique across
+/// projects, so are its diagrams' ids).
+fn doc_path(folder: &str, rel: &str) -> String {
+    format!("{}/{rel}", folder.trim_end_matches(['/', '\\']))
+}
+
+impl C4 {
+    /// Read view `view`'s project's docs (FR-1, FR-2): the Markdown files
+    /// the path list names that changed since last read, then watch it
+    /// (FR-4). Without `files.read` or a project there are none.
+    fn scan(&mut self, view: &str) {
+        let project = files::project(view);
+        let old = self.docs.get(view).map(|d| d.folder.clone());
+        if old.is_some() && old.as_deref() != project.as_ref().map(|p| p.folder.as_str()) {
+            if let Some(d) = self.docs.remove(view) {
+                if let Some(w) = d.watch {
+                    files::unwatch(w);
+                }
+                self.drop_docs(&d.folder);
+            }
+        }
+        let Some(p) = project else {
+            self.docs.remove(view);
+            return;
+        };
+        let root = Root::project(view);
+        let globs = docs::globs(settings::text("paths").as_deref());
+        let mut d = self.docs.remove(view).unwrap_or_default();
+        (d.folder, d.name) = (p.folder.clone(), p.name.clone());
+        let listed = match files::list(&root, "", true) {
+            Ok(l) => l,
+            Err(e) => {
+                d.note = Some(format!("The docs couldn't be listed: {e}"));
+                self.docs.insert(view.to_string(), d);
+                return;
+            }
+        };
+        let mut wanted: Vec<files::Entry> = listed.into_iter().filter(|e| !e.is_folder() && docs::wanted(&globs, &e.path)).collect();
+        let mut note = None;
+        if wanted.len() > docs::MAX_FILES {
+            note = Some(format!("Only the first {} Markdown files are read.", docs::MAX_FILES));
+            wanted.truncate(docs::MAX_FILES);
+        }
+        let gone: Vec<String> = d.read.keys().filter(|k| !wanted.iter().any(|e| &e.path == *k)).cloned().collect();
+        for g in gone {
+            d.read.remove(&g);
+            self.remove_doc_file(&p.folder, &g);
+        }
+        let mut big = 0;
+        for e in &wanted {
+            if e.size > docs::MAX_FILE_BYTES {
+                big += 1;
+                continue;
+            }
+            if d.read.get(&e.path) == Some(&(e.size, e.modified)) {
+                continue;
+            }
+            match files::read_text(&root, &e.path) {
+                Ok(text) => {
+                    d.read.insert(e.path.clone(), (e.size, e.modified));
+                    self.set_doc_file(&p.folder, &e.path, &text);
+                }
+                Err(err) => log::warn(format!("{} wasn't read: {err}", e.path)),
+            }
+        }
+        if big > 0 {
+            note = Some(format!("{big} Markdown files over 1 MiB are left out."));
+        }
+        d.note = note;
+        if d.watch.is_none() {
+            match files::watch(&root, "") {
+                Ok(w) => d.watch = Some(w),
+                Err(e) => log::warn(format!("the docs aren't followed: {e}")),
+            }
+        }
+        self.docs.insert(view.to_string(), d);
+    }
+
+    /// The watch on view `view`'s project told `paths` changed (FR-4).
+    fn follow(&mut self, view: &str, paths: &[String]) {
+        let Some(folder) = self.docs.get(view).map(|d| d.folder.clone()) else { return };
+        let root = Root::project(view);
+        let globs = docs::globs(settings::text("paths").as_deref());
+        for path in paths {
+            match files::stat(&root, path) {
+                // A folder came or moved: read all again.
+                Ok(e) if e.is_folder() => return self.scan(view),
+                Ok(e) if docs::wanted(&globs, path) && e.size <= docs::MAX_FILE_BYTES => {
+                    if let Ok(text) = files::read_text(&root, path) {
+                        if let Some(d) = self.docs.get_mut(view) {
+                            d.read.insert(path.clone(), (e.size, e.modified));
+                        }
+                        self.set_doc_file(&folder, path, &text);
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    // Gone: the file, or a folder of them.
+                    let under = format!("{path}/");
+                    let gone: Vec<String> = self.docs.get(view).map(|d| d.read.keys().filter(|k| *k == path || k.starts_with(&under)).cloned().collect()).unwrap_or_default();
+                    for g in gone {
+                        if let Some(d) = self.docs.get_mut(view) {
+                            d.read.remove(&g);
+                        }
+                        self.remove_doc_file(&folder, &g);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Docs file `rel` of project `folder` reads `text`: its diagrams
+    /// replace the ones it had.
+    fn set_doc_file(&mut self, folder: &str, rel: &str, text: &str) {
+        let path = doc_path(folder, rel);
+        let index = self.indexes.entry(folder.to_string()).or_default();
+        index.set_file(&path, text);
+        let found: Vec<Entry> = index.entries().iter().filter(|e| e.path == path).cloned().collect();
+        self.items.retain(|id, it| !(it.project == folder && it.doc.as_ref().is_some_and(|d| d.path == rel)) || found.iter().any(|e| e.id() == id));
+        let prefix = format!("{}/", folder.trim_end_matches(['/', '\\']));
+        for e in found {
+            let id = e.id().to_string();
+            let title = e.title().map(String::from).unwrap_or_else(|| rel.rsplit('/').next().unwrap_or(rel).to_string());
+            let item = Item {
+                project: folder.to_string(),
+                agent_id: String::new(),
+                agent_name: String::new(),
+                item: id.strip_prefix(&prefix).unwrap_or(&id).to_string(),
+                title,
+                mermaid: e.block.text.clone(),
+                previous: None,
+                shown_at: 0,
+                opened_at: 0,
+                doc: Some(Doc { path: rel.to_string(), line: e.block.fence_line }),
+            };
+            self.items.insert(id, item);
+        }
+        self.relink_docs(folder);
+    }
+
+    fn remove_doc_file(&mut self, folder: &str, rel: &str) {
+        if let Some(index) = self.indexes.get_mut(folder) {
+            index.remove_file(&doc_path(folder, rel));
+        }
+        self.items.retain(|_, it| !(it.project == folder && it.doc.as_ref().is_some_and(|d| d.path == rel)));
+        self.relink_docs(folder);
+    }
+
+    /// No view shows project `folder` any more: its docs go.
+    fn drop_docs(&mut self, folder: &str) {
+        if self.docs.values().any(|d| d.folder == folder) {
+            return;
+        }
+        let files: Vec<String> = self.items.values().filter(|it| it.project == folder).filter_map(|it| it.doc.as_ref().map(|d| d.path.clone())).collect();
+        for f in files {
+            if let Some(index) = self.indexes.get_mut(folder) {
+                index.remove_file(&doc_path(folder, &f));
+            }
+        }
+        self.items.retain(|_, it| !(it.project == folder && it.doc.is_some()));
+        let items = &self.items;
+        self.drawings.retain(|(id, _), _| items.contains_key(id));
+    }
+
+    /// Before/after pairs in the docs (FR-17): the after's Changes are
+    /// against its before; the project's drawings laid out again.
+    fn relink_docs(&mut self, folder: &str) {
+        let pairs: Vec<(String, String)> = self.indexes.get(folder).map(|x| x.pairs().iter().map(|p| (p.before.clone(), p.after.clone())).collect()).unwrap_or_default();
+        let ids: Vec<String> = self.items.iter().filter(|(_, it)| it.project == folder && it.doc.is_some()).map(|(id, _)| id.clone()).collect();
+        for id in &ids {
+            let before = pairs.iter().find(|(_, a)| a == id).and_then(|(b, _)| self.items.get(b)).map(|b| b.mermaid.clone());
+            if let Some(it) = self.items.get_mut(id) {
+                it.previous = before;
+            }
+        }
+        let items = &self.items;
+        self.drawings.retain(|(id, _), _| items.get(id).is_some_and(|it| it.project != folder));
+    }
+
+    /// The first docs diagram of view `view`'s project, in file order.
+    fn first_doc(&self, view: &str) -> Option<String> {
+        let folder = &self.docs.get(view)?.folder;
+        self.indexes.get(folder)?.entries().iter().find(|e| self.items.get(e.id()).is_some_and(|it| it.doc.is_some())).map(|e| e.id().to_string())
+    }
+
+    /// After the docs changed: a view whose diagram went opens another;
+    /// the rest are laid out again and keep their place.
+    fn settle_views(&mut self) {
+        let views: Vec<String> = self.views.keys().cloned().collect();
+        for v in views {
+            let Some(vs) = self.views.get(&v) else { continue };
+            let (open, changes) = (vs.open.clone(), vs.changes);
+            match open {
+                Some(id) if self.items.contains_key(&id) => {
+                    let had = self.views.get(&v).is_some_and(|s| s.places.contains_key(&id));
+                    self.ensure(&id, changes);
+                    if !had {
+                        self.fit(&v);
+                    }
+                }
+                _ => {
+                    let next = self.first_doc(&v).or_else(|| self.items.iter().filter(|(_, it)| it.doc.is_none()).max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone()));
+                    {
+                        let vs = self.view_mut(&v);
+                        vs.path.clear();
+                        vs.open = None;
+                        vs.selected = None;
+                        vs.menu = None;
+                        vs.changes = false;
+                    }
+                    if let Some(id) = next {
+                        self.open(&v, &id, false);
+                    }
+                }
+            }
+            let items = &self.items;
+            if let Some(vs) = self.views.get_mut(&v) {
+                vs.path.retain(|p| items.contains_key(p));
+            }
+        }
     }
 }
 
@@ -447,7 +739,7 @@ impl C4 {
     fn evict_for(&mut self, project: &str, now: u64) -> Vec<String> {
         let mut out = Vec::new();
         loop {
-            let mine: Vec<(&String, &Item)> = self.items.iter().filter(|(_, it)| it.project == project).collect();
+            let mine: Vec<(&String, &Item)> = self.items.iter().filter(|(_, it)| it.project == project && it.doc.is_none()).collect();
             if mine.len() < MAX_PER_PROJECT {
                 break;
             }
@@ -462,7 +754,7 @@ impl C4 {
     /// The storage is full: close the oldest diagram of `project` (not
     /// `keep`), by the same rule.
     fn evict_for_space(&mut self, project: &str, keep: &str, now: u64) -> Vec<String> {
-        let mine: Vec<(&String, &Item)> = self.items.iter().filter(|(id, it)| it.project == project && id.as_str() != keep).collect();
+        let mine: Vec<(&String, &Item)> = self.items.iter().filter(|(id, it)| it.project == project && it.doc.is_none() && id.as_str() != keep).collect();
         let stale = mine.iter().filter(|(_, it)| now.saturating_sub(it.opened_at) >= WEEK_MS).min_by_key(|(_, it)| it.opened_at);
         let Some(id) = stale.or_else(|| mine.iter().min_by_key(|(_, it)| it.opened_at)).map(|(id, _)| (*id).clone()) else { return Vec::new() };
         self.close(&id);
@@ -471,6 +763,9 @@ impl C4 {
 
     /// Close diagram `id`: gone from storage, the index and every view.
     fn close(&mut self, id: &str) {
+        if self.items.get(id).is_some_and(|it| it.doc.is_some()) {
+            return;
+        }
         if let Err(e) = storage::delete(&format!("{PREFIX}{id}")) {
             log::warn(format!("diagram {id} wasn't removed: {e}"));
         }
@@ -480,7 +775,7 @@ impl C4 {
             }
         }
         self.drawings.retain(|(d, _), _| d != id);
-        let next = self.items.iter().max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone());
+        let next = self.items.iter().filter(|(_, it)| it.doc.is_none()).max_by_key(|(_, it)| it.shown_at).map(|(id, _)| id.clone());
         for vs in self.views.values_mut() {
             vs.path.retain(|p| p != id);
             vs.places.remove(id);
@@ -576,7 +871,7 @@ impl C4 {
     fn open(&mut self, view: &str, id: &str, down: bool) {
         self.remember(view);
         let now = now_ms();
-        if let Some(it) = self.items.get_mut(id) {
+        if let Some(it) = self.items.get_mut(id).filter(|it| it.doc.is_none()) {
             // Kept again only when it matters for the limit (an hour).
             if now.saturating_sub(it.opened_at) > 3_600_000 {
                 it.opened_at = now;
@@ -804,7 +1099,7 @@ impl C4 {
                     .option("now", "Now")
                     .option("changes", "Changes")
                     .selected(if vs.changes { "changes" } else { "now" })
-                    .tooltip("Changes since the last show (B)")
+                    .tooltip(if self.items.get(&id).is_some_and(|i| i.doc.is_some()) { "Before and after, from the doc (B)" } else { "Changes since the last show (B)" })
                     .on_change(cx.listener(move |this: &mut C4, key: &str, cx| {
                         this.set_changes(&v, key == "changes");
                         cx.notify();
@@ -831,8 +1126,14 @@ impl C4 {
         }
         let (v1, v2) = (view.to_string(), view.to_string());
         let source_label = if vs.source { "Show the drawing" } else { "Show the source" };
+        let doc = self.items.get(&id).and_then(|i| i.doc.clone().map(|d| (i.project.clone(), d)));
+        let more = match &doc {
+            // A docs diagram is closed by taking it out of the doc.
+            Some(_) => vec![menu_item("source", source_label).icon(Icon::File), menu_item("open-file", "Open in the editor").icon(Icon::External)],
+            None => vec![menu_item("source", source_label).icon(Icon::File), separator(), menu_item("close", "Close this diagram").icon(Icon::X).danger()],
+        };
         bar.child(
-            menu_icon_button(Icon::More, "More", vec![menu_item("source", source_label).icon(Icon::File), separator(), menu_item("close", "Close this diagram").icon(Icon::X).danger()])
+            menu_icon_button(Icon::More, "More", more)
                 .id("more")
                 .on_select(cx.listener(move |this: &mut C4, p: &Picked, cx| {
                     match p.key.as_str() {
@@ -844,6 +1145,14 @@ impl C4 {
                         "close" => {
                             if let Some(id) = this.views.get(&v2).and_then(|s| s.open.clone()) {
                                 this.close(&id);
+                            }
+                        }
+                        // The block's line in Pitwall's editor (FR-24).
+                        "open-file" => {
+                            if let Some((folder, d)) = &doc {
+                                if let Err(e) = pitwall_extension::show::file(&doc_path(folder, &d.path), Some(d.line)) {
+                                    log::warn(format!("{} wasn't opened: {e}", d.path));
+                                }
                             }
                         }
                         _ => {}
@@ -872,7 +1181,7 @@ impl C4 {
                     .focusable()
                     .hover_bg(Token::Surface2)
                     .child(text(it.title.clone()).text_sm().truncate().flex_1())
-                    .child(text(format!("{} · {}", level_word(e), it.agent_name)).text_xs().text_color(Token::Text3).flex_none())
+                    .child(text(format!("{} · {}", level_word(e), it.doc.as_ref().map_or(it.agent_name.as_str(), |d| d.path.as_str()))).text_xs().text_color(Token::Text3).flex_none())
                     .on_click(cx.listener(move |this: &mut C4, _, cx| {
                         this.open(&v, &t, true);
                         cx.notify();
@@ -923,12 +1232,14 @@ impl C4 {
     /// The list of shown diagrams, by agent (FR-23).
     fn outline(&self, view: &str, vs: &ViewState, cx: &mut Cx<Self>) -> Div {
         let mut by_agent: BTreeMap<(String, String), Vec<(&String, &Item)>> = BTreeMap::new();
-        for (id, it) in &self.items {
+        for (id, it) in self.items.iter().filter(|(_, it)| it.doc.is_none()) {
             by_agent.entry((it.agent_name.clone(), it.agent_id.clone())).or_default().push((id, it));
         }
-        let projects = self.items.values().map(|i| i.project.as_str()).collect::<std::collections::BTreeSet<_>>().len();
+        let projects = self.items.values().filter(|i| i.doc.is_none()).map(|i| i.project.as_str()).collect::<std::collections::BTreeSet<_>>().len();
         let mut list = v_flex().id("outline").w(px(OUTLINE_W)).flex_none().min_h(px(0.)).overflow_y_scroll().border_r_1().border_color(Token::Line).py_1();
-        list = list.child(text("Shown").text_xs().font_semibold().text_color(Token::Text3).px_3().py_1());
+        if !by_agent.is_empty() {
+            list = list.child(text("Shown").text_xs().font_semibold().text_color(Token::Text3).px_3().py_1());
+        }
         for ((agent, agent_id), mut items) in by_agent {
             items.sort_by_key(|a| std::cmp::Reverse(a.1.shown_at));
             list = list.child(h_flex().id(format!("a-{agent_id}")).px_3().pt_2().pb_1().gap_1().child(icon(Icon::Terminal).text_color(Token::Text3)).child(text(format!("from {agent}")).text_xs().text_color(Token::Text2).truncate()));
@@ -960,6 +1271,53 @@ impl C4 {
                         })),
                 );
             }
+        }
+        self.docs_outline(list, view, vs, cx)
+    }
+
+    /// The outline's docs part: the view's project's files and the
+    /// diagrams in each, in file order (FR-23).
+    fn docs_outline(&self, mut list: Div, view: &str, vs: &ViewState, cx: &mut Cx<Self>) -> Div {
+        let Some(d) = self.docs.get(view) else { return list };
+        list = list.child(h_flex().id("docs").px_3().pt_2().pb_1().gap_1().child(text(format!("In {}'s docs", d.name)).text_xs().font_semibold().text_color(Token::Text3).truncate()));
+        let mut last_file = None;
+        let mut any = false;
+        let entries = self.indexes.get(&d.folder).map(|x| x.entries()).unwrap_or(&[]);
+        for (n, e) in entries.iter().enumerate() {
+            let Some(it) = self.items.get(e.id()) else { continue };
+            let Some(doc) = &it.doc else { continue };
+            any = true;
+            if last_file != Some(doc.path.as_str()) {
+                last_file = Some(doc.path.as_str());
+                list = list.child(h_flex().id(format!("f{n}")).px_3().pt_2().pb_1().gap_1().child(icon(Icon::File).text_color(Token::Text3)).child(text(doc.path.clone()).text_xs().text_color(Token::Text2).truncate()));
+            }
+            let on = vs.open.as_deref() == Some(e.id());
+            let problems = !e.problems().is_empty();
+            let place = if problems { format!("{} · line {} · can't be drawn", level_word(e), doc.line) } else { format!("{} · line {}", level_word(e), doc.line) };
+            let (v, id) = (view.to_string(), e.id().to_string());
+            list = list.child(
+                h_flex()
+                    .id(format!("doc{n}"))
+                    .pl_3()
+                    .pr_1()
+                    .py_1()
+                    .gap_1()
+                    .cursor_pointer()
+                    .focusable()
+                    .hover_bg(Token::Surface2)
+                    .when(on, |r| r.bg(Token::Surface2))
+                    .child(v_flex().flex_1().min_w(px(0.)).child(text(it.title.clone()).text_sm().when(on, |t| t.font_medium()).truncate()).child(text(place).text_xs().text_color(if problems { Token::Warn } else { Token::Text3 }).truncate()))
+                    .on_click(cx.listener(move |this: &mut C4, _, cx| {
+                        this.open(&v, &id, false);
+                        cx.notify();
+                    })),
+            );
+        }
+        if !any {
+            list = list.child(text("No Mermaid diagrams in the docs yet.").id("no-docs").text_xs().text_color(Token::Text3).px_3().py_1());
+        }
+        if let Some(note) = &d.note {
+            list = list.child(text(note.clone()).id("docs-note").text_xs().text_color(Token::Warn).px_3().py_1());
         }
         list
     }
@@ -996,11 +1354,19 @@ impl C4 {
             return pane.items_center().justify_center().child(
                 empty_state("No diagrams yet")
                     .icon(Icon::Grid)
-                    .text("Ask an agent to draw one, for example: “draw the containers of this repo as a C4 diagram and show it on the right”."),
+                    .text(if self.docs.contains_key(view) {
+                        "Ask an agent to draw one, for example: “draw the containers of this repo as a C4 diagram and show it on the right”, or write a mermaid block in the project's docs."
+                    } else {
+                        "Ask an agent to draw one, for example: “draw the containers of this repo as a C4 diagram and show it on the right”. Open the tile in a project, with “Read files in your projects” granted, to see the diagrams in its docs."
+                    }),
             );
         };
         if vs.source {
             let src = self.items.get(&id).map(|i| i.mermaid.clone()).unwrap_or_default();
+            let mut pane = pane;
+            if let Some(d) = self.items.get(&id).and_then(|i| i.doc.as_ref()) {
+                pane = pane.child(text(format!("{}, line {}", d.path, d.line)).id("source-at").text_xs().font_mono().text_color(Token::Text3).px_3().py_1().border_b_1().border_color(Token::Line));
+            }
             return pane.child(code_view(src).id("source").flex_1());
         }
         self.ensure(&id, vs.changes);

@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "C4 diagrams: open the tile",
-  "description": "Open the C4 tile as it was, or at a diagram you showed before (its item id). To draw a new diagram, use c4__show.",
+  "description": "Open the C4 tile as it was, at a diagram you showed before (its item id), or at one in the project's docs (its file and heading, as docs/hla.md#containers). To draw a new diagram, use c4__show.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "diagram": { "type": "string", "maxLength": 200, "description": "The item id of a diagram you showed with c4__show, to open at it" }
+    "diagram": { "type": "string", "maxLength": 200, "description": "The item id of a diagram you showed with c4__show, or a docs diagram's id (its file, #, its heading as a slug: docs/hla.md#containers), to open at it" }
   }
 }
