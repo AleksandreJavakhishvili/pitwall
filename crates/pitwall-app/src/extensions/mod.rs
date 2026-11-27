@@ -173,6 +173,8 @@ pub fn follow(cx: &mut App) {
             e.set_extension_env(env_sources(cx));
             calls::sync_queue(&e, cx);
         }
+        // Extensions' skills for agents, for the projects given them.
+        crate::tiles::agents::sync_skills(cx);
         // Which setup agents start under now: the ones before are stale.
         stale::sync(cx);
         // A tool's account added, an extension turned on, or start: the
