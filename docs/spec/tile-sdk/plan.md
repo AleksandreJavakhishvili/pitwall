@@ -65,7 +65,7 @@ alone, and the pages below match.
 - [ ] **3. Agent tools:** `agent-tools` WIT, `#[tools]`, `pitwall extension tools`/`call`/`run`/`commands`, approvals, the agent skill, palette entries ([11](agent-tools.md))
 - [ ] **4. Packages:** `.pwtile`, minisign, signed install, updates, Go back, remove ([6](packaging.md))
 - [ ] **5. Marketplace:** index repo, Browse, Verified, report flow, `pitwall extension pack`/`sign`/`publish`; exit gate: threat model written and outside security review done ([7](marketplace.md), [5.5](permissions.md#55-threat-model-and-outside-review))
-- [ ] **6. Seed tiles:** Notes, CI, Diagrams, then API client, git client, database browser ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only))
+- [ ] **6. Seed tiles:** C4 diagrams (flagship, [spec](../2026-11-27-c4-tile/plan.md)) and Notes ([spec](../2026-11-27-notes-tile/)) first, then CI, API client, git client, database browser ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only))
 - [ ] **6a. Native blocks and ports:** the review port as proof tile, then the files tree and inbox ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk))
 - [ ] **On demand:** services from [14.3](platform-services.md#143-later-on-demand), each when a seed tile needs it
 - [ ] **7. Stabilise:** WIT 1.0, Preview label removed, deprecation policy
