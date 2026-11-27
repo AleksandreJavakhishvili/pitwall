@@ -3,7 +3,7 @@
 //! greeting from `settings`, a text field, a timer, content from views, and
 //! test-only buttons (under the key `test`) that the host's tests click to
 //! hang, crash or overflow it (see `tests/host.rs`). Its `gallery` tile
-//! shows every component ([`gallery`]). Agents open it with
+//! shows every component ([`gallery`], [`widgets`]). Agents open it with
 //! content (`hello__open`) and show messages in it with its declared
 //! `show_message` tool, one per agent's item.
 
@@ -14,6 +14,7 @@ use pitwall_extension::tools;
 use pitwall_extension::tools::{Call, Problem, Reply, ToolError};
 
 mod gallery;
+mod widgets;
 
 #[derive(Default)]
 struct Hello {
@@ -27,6 +28,10 @@ struct Hello {
     /// Agents' messages by `<agent-id>/<item>`: (from whom, the text, the
     /// call that showed it).
     messages: BTreeMap<String, (String, String, u64)>,
+    widgets: widgets::Widgets,
+    /// The component a gallery view shows alone (its content
+    /// `{"component": "<name>"}`), by view id.
+    alone: std::collections::HashMap<String, String>,
 }
 
 /// `show_message`'s input (its schema is in extension.json).
@@ -69,8 +74,12 @@ impl Tile for Hello {
             return huge();
         }
         if view == "gallery" {
+            if let Some(name) = self.alone.get(view).cloned() {
+                let demo = self.widgets.demo(&name, cx);
+                return div().id("alone").p(px(16.0)).bg(Token::Surface).child(div().id(name).child(demo)).into_any();
+            }
             let mut g = std::mem::take(&mut self.gallery);
-            let el = g.render(cx);
+            let el = g.render(&self.widgets, cx);
             self.gallery = g;
             return el;
         }
@@ -109,6 +118,23 @@ impl Tile for Hello {
 
     fn on_content(&mut self, view: &ViewInfo, _cx: &mut Cx<Self>) {
         self.content = view.content.as_ref().and_then(|c| c.json_text()).unwrap_or_default().to_string();
+        if view.tile == "gallery" {
+            match json_string(&self.content, "component") {
+                Some(name) => {
+                    // Shown alone, a popover or a sheet is open, for its screenshot.
+                    self.widgets.popover_open |= name == "popover";
+                    self.widgets.asking |= name == "confirm-sheet";
+                    self.alone.insert(view.id.clone(), name);
+                }
+                None => {
+                    self.alone.remove(&view.id);
+                }
+            }
+        }
+    }
+
+    fn on_view_closed(&mut self, view: &str, _cx: &mut Cx<Self>) {
+        self.alone.remove(view);
     }
 
     fn save_state(&self) -> Option<SavedState> {
@@ -167,6 +193,13 @@ fn tests(cx: &mut Cx<Hello>) -> AnyElement {
     #[cfg(feature = "heavy")]
     let row = row.child(button("Heavy").id("heavy").small().on_click(cx.listener(|_, _, _| log::info(heavy::work()))));
     row.into_any()
+}
+
+/// The string `key` of a flat JSON object (the fixture has no JSON parser).
+fn json_string(json: &str, key: &str) -> Option<String> {
+    let rest = &json[json.find(&format!("\"{key}\""))? + key.len() + 2..];
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    Some(rest[..rest.find('"')?].to_string())
 }
 
 /// One node more than a frame may have.

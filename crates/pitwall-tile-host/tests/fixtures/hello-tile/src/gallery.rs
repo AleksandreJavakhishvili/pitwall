@@ -1,6 +1,7 @@
 //! The gallery tile: every component of `pitwall:tile@0.1.0` at once, for
 //! the host's, the harness's and the app's tests and the docs' examples
 //! (docs/reference/extensions/ui.md includes its parts by their `docs:start gallery-…` marks).
+//! Its tabs at the top switch to the other pages ([`crate::widgets`]).
 
 use pitwall_extension::prelude::*;
 
@@ -20,6 +21,8 @@ pub struct Gallery {
     /// The tree's open folders.
     open: Vec<String>,
     tasks: [bool; 2],
+    /// The page shown: `lists` (this one) or one of [`crate::widgets::PAGES`].
+    page: String,
 }
 
 impl Default for Gallery {
@@ -34,6 +37,7 @@ impl Default for Gallery {
             files: files.iter().map(|(n, s, d)| (n.to_string(), *s, d.to_string())).collect(),
             open: vec!["src".into()],
             tasks: [true, false],
+            page: "lists".into(),
         };
         g.sorted();
         g
@@ -66,12 +70,17 @@ impl Gallery {
         }
     }
 
-    pub fn render(&mut self, cx: &mut Cx<crate::Hello>) -> AnyElement {
-        v_flex()
-            .size_full()
-            .gap(px(10.0))
-            .p(px(12.0))
-            .bg(Token::Surface)
+    pub fn render(&mut self, widgets: &crate::widgets::Widgets, cx: &mut Cx<crate::Hello>) -> AnyElement {
+        let pages = std::iter::once(tab("lists", "Lists and menus")).chain(crate::widgets::PAGES.iter().map(|(key, title, _)| tab(*key, *title)));
+        let pages = tabs("pages", pages).selected(self.page.clone()).on_select(cx.listener(|t: &mut crate::Hello, key: &str, cx| {
+            t.gallery.page = key.to_string();
+            cx.notify();
+        }));
+        let root = v_flex().size_full().gap(px(10.0)).p(px(12.0)).bg(Token::Surface).child(pages);
+        if self.page != "lists" {
+            return root.child(div().id("other").flex_1().child(widgets.page(&self.page, cx))).into_any();
+        }
+        root
             .child(self.toolbar(cx))
             .child(text(self.said.clone()).id("said").text_sm().text_color(Token::Text3))
             .child(
