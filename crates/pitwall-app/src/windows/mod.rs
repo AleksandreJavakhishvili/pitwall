@@ -622,6 +622,35 @@ pub fn show_inbox(ext: &str, thread: &str, cx: &mut App) {
     });
 }
 
+/// Extension `ext`'s tile or view `view` opened in the main window (a
+/// tile's `ui.open-view`): focused where it is, else placed as "Open
+/// <view>" places it. Nothing comes forward.
+pub fn open_extension_view(ext: &str, view: &str, cx: &mut App) {
+    let (ext, view) = (ext.to_string(), view.to_string());
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(MAIN, cx) else { return };
+        let _ = handle.update(cx, |main, window, cx| {
+            if let Some(screen) = main.screen.clone() {
+                screen.update(cx, |s, cx| s.open_view(&ext, &view, None, window, cx));
+            }
+        });
+    });
+}
+
+/// Extension `ext`'s card in Settings → Extensions (a tile's
+/// `settings.open`), in the main window's Settings tile.
+pub fn open_extension_settings(ext: &str, cx: &mut App) {
+    let ext = ext.to_string();
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(MAIN, cx) else { return };
+        let _ = handle.update(cx, |main, window, cx| {
+            if let Some(screen) = main.screen.clone() {
+                screen.update(cx, |s, cx| s.show_extension_settings(&ext, window, cx));
+            }
+        });
+    });
+}
+
 /// A toast from extension `ext` in the main window (a notification it
 /// sent, a command's answer); with `open`, an "Open" button that opens
 /// the view or the inbox thread it names there. Nothing comes forward.

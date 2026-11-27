@@ -386,6 +386,27 @@ impl TextInput {
         self.focus.is_focused(window)
     }
 
+    /// The selected range (a bare cursor when empty), in UTF-8 bytes.
+    pub fn selection(&self) -> Range<usize> {
+        self.selected.clone()
+    }
+
+    /// Select `range` (UTF-8 bytes, clamped to the text and moved to
+    /// character boundaries).
+    pub fn set_selection(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+        let fit = |mut i: usize| {
+            i = i.min(self.content.len());
+            while !self.content.is_char_boundary(i) {
+                i -= 1;
+            }
+            i
+        };
+        let (a, b) = (fit(range.start), fit(range.end));
+        self.selected = a.min(b)..a.max(b);
+        self.reversed = false;
+        cx.notify();
+    }
+
     /// Where its text was last drawn (tests and bench commands: a click
     /// on it).
     pub(crate) fn drawn_bounds(&self) -> Option<Bounds<Pixels>> {

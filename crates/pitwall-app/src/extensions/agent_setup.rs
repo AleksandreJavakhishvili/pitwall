@@ -69,6 +69,8 @@ enum Task {
     On(Manifest, BTreeMap<String, bool>),
     Off(String),
     Update(Box<catalog::Prepared>),
+    /// Install from a preview folder (copied aside, checked).
+    InstallFolder(Box<catalog::Prepared>),
     Remove(Manifest),
     Setup(Box<Setup>),
     Service { m: Manifest, what: ServiceOp, digest: String },
@@ -207,6 +209,7 @@ fn source_of(id: &str, cx: &App) -> String {
         Some(Origin::Bundled) => "comes with Pitwall".into(),
         Some(Origin::Git { url, tag, .. }) => format!("git {url} {tag}"),
         Some(Origin::Npm { package, version, .. }) => format!("npm {package}@{version}"),
+        Some(Origin::Folder { path }) => format!("unsigned preview folder {}", pitwall_core::paths::tildify(&path)),
         None => "put there by hand".into(),
     }
 }
@@ -639,6 +642,7 @@ fn prepare_on_main(act: &ExtAct, cx: &mut App) -> Result<(Task, String, Vec<Stri
     let svc_state = service::try_services(cx).and_then(|s| s.read(cx).get(&m.id).map(|v| v.state.clone())).unwrap_or_default();
     Ok(match &act.op {
         ExtOp::Install => unreachable!("handled above"),
+        ExtOp::InstallFolder { .. } => unreachable!("prepared off the UI thread (prepare_folder)"),
         ExtOp::On => {
             if on {
                 return Err(err(code::CONFLICT, format!("{} is on already.", m.name)));
@@ -882,6 +886,14 @@ fn start(task: Task, cx: &mut App) -> Result<(String, String, Watch), ErrorBody>
             });
             (id, "update".into(), w)
         }
+        Task::InstallFolder(p) => {
+            let id = p.offer.manifest.id.clone();
+            let (tx, w) = told(FETCH_WITHIN);
+            catalog::apply(&p, false, cx, move |o, _| {
+                let _ = tx.send(outcome(o, "Installed, as a preview: unsigned, and never updated. It is off: turn it on to use its tiles."));
+            });
+            (id, "install".into(), w)
+        }
         Task::Remove(m) => {
             let (tx, w) = told(FETCH_WITHIN);
             let kept = m.service.as_ref().and_then(|_| service::data_dir(&m.id, cx)).map(|d| format!(" Its service's data in {} was kept.", service::shown(&d))).unwrap_or_default();
@@ -1043,6 +1055,9 @@ impl ExtensionsBackend for AppExtensions {
         if let ExtOp::Update = act.op {
             return self.prepare_update(act.id.trim(), token);
         }
+        if let ExtOp::InstallFolder { path } = &act.op {
+            return self.prepare_folder(act.id.trim(), path, token);
+        }
         let act = act.clone();
         self.on_main(move |cx| {
             let (task, summary, details, risk) = prepare_on_main(&act, cx)?;
@@ -1079,15 +1094,117 @@ impl ExtensionsBackend for AppExtensions {
 
     fn discard(&self, token: u64) {
         let _ = self.on_main(move |cx| {
-            if let Some(Task::Update(p)) = cx.default_global::<Tasks>().0.remove(&token) {
+            if let Some(Task::Update(p) | Task::InstallFolder(p)) = cx.default_global::<Tasks>().0.remove(&token) {
                 catalog::discard(&p, cx);
             }
             Ok(())
         });
     }
+
+    fn dev_check(&self, path: &str) -> Result<Option<Prepared>, ErrorBody> {
+        let folder = dev_folder_of(path)?;
+        let m = dev_manifest(&folder)?;
+        self.on_main(move |cx| {
+            let loaded = super::dev_folder(&m.id, cx).is_some_and(|p| p == folder);
+            if loaded && crate::ui_state::get(cx).extension_on(&m.id) {
+                return Ok(None);
+            }
+            if let Some(other) = super::dev_folder(&m.id, cx).filter(|p| *p != folder) {
+                return Err(err(code::CONFLICT, format!("“{}” is already loaded from {}: remove that one from the list in Settings → Extensions first.", m.id, pitwall_core::paths::tildify(&other.to_string_lossy()))));
+            }
+            let mut details = vec![format!("{} is listed in Settings → Extensions as a development extension, loaded from {} where it is (never copied or updated), and turned on.", m.name, pitwall_core::paths::tildify(&folder.to_string_lossy()))];
+            details.extend(pitwall_core::extensions::preview::review_lines(&m).into_iter().filter(|l| l != pitwall_core::extensions::preview::WARNING));
+            details.push("After this, each reload replaces its running tiles without asking.".into());
+            Ok(Some(Prepared { token: 0, summary: format!("load the extension {} for development", m.name), details, risk: Risk::Low }))
+        })
+    }
+
+    fn dev_reload(&self, path: &str) -> Result<ExtDevReloaded, ErrorBody> {
+        let folder = dev_folder_of(path)?;
+        dev_manifest(&folder)?;
+        self.on_main(move |cx| {
+            let id = super::load_dev_or_reload(&folder, cx).map_err(|e| err(code::BAD_PARAMS, e))?;
+            let m = manifest(&id.0, cx)?;
+            let tiles: Vec<String> = m.contributes.tiles.iter().map(|t| t.id.clone()).collect();
+            let reloaded = crate::tiles::try_tiles(cx).map(|t| t.read(cx).views(&m.id)).unwrap_or_default();
+            let text = match (id.1, reloaded.is_empty()) {
+                (true, _) => format!("Loaded {} from {} and turned it on. Open its tiles from the command palette (“Open … ({})”).", m.name, pitwall_core::paths::tildify(&folder.to_string_lossy()), m.name),
+                (false, true) => format!("Reloaded {}. None of its tiles is open: open one from the command palette.", m.name),
+                (false, false) => format!("Reloaded {}: {} replaced, with the state {} saved.", m.name, reloaded.join(", "), if reloaded.len() == 1 { "it" } else { "they" }),
+            };
+            Ok(ExtDevReloaded { proto: EXT_PROTO, id: m.id.clone(), name: m.name.clone(), loaded: id.1, tiles, reloaded, message: text.clone(), text })
+        })
+    }
+}
+
+/// The folder `extension.devReload` names, as it is on disk.
+fn dev_folder_of(path: &str) -> Result<std::path::PathBuf, ErrorBody> {
+    let p = std::path::Path::new(path);
+    if !p.is_absolute() {
+        return Err(err(code::BAD_PARAMS, format!("{path} isn't an absolute path")));
+    }
+    let f = p.canonicalize().map_err(|_| err(code::NOT_FOUND, format!("{path} isn't there")))?;
+    if !f.is_dir() {
+        return Err(err(code::BAD_PARAMS, format!("{path} isn't a folder")));
+    }
+    Ok(f)
+}
+
+/// The manifest of an extension of tiles in `folder` (development
+/// reloads are for tiles only: what runs programs is loaded in Settings).
+fn dev_manifest(folder: &std::path::Path) -> Result<Manifest, ErrorBody> {
+    let m = pitwall_core::extensions::read_in_place(folder).map_err(|why| err(code::BAD_PARAMS, format!("It can't be used: {why}.")))?;
+    if m.contributes.tiles.is_empty() {
+        return Err(err(code::BAD_PARAMS, format!("{} has no tiles: `pitwall extension dev` is for extensions of tiles.", m.name)));
+    }
+    if m.adapter.is_some() || m.service.is_some() || !m.actions.is_empty() {
+        return Err(err(code::BAD_PARAMS, format!("{} runs programs on this computer (an adapter, a service or setup actions): load it with Settings → Extensions → Load from folder… instead.", m.name)));
+    }
+    Ok(m)
 }
 
 impl AppExtensions {
+    /// Install from preview folder `path` (`id`: what the caller read in
+    /// its manifest): checked and copied aside off the UI thread, then
+    /// what it changes is what the approval lists.
+    fn prepare_folder(&self, id: &str, path: &str, token: u64) -> Result<Prepared, ErrorBody> {
+        let folder = std::path::Path::new(path);
+        if !folder.is_absolute() {
+            return Err(err(code::BAD_PARAMS, format!("{path} isn't an absolute path")));
+        }
+        let (tx, rx) = mpsc::channel::<Result<catalog::Prepared, String>>();
+        let folder = folder.to_path_buf();
+        self.on_main(move |cx| {
+            catalog::prepare_from_folder(&folder, cx, move |r, _| {
+                let _ = tx.send(r);
+            });
+            Ok(())
+        })?;
+        let p = rx.recv_timeout(FETCH_WITHIN).map_err(|_| err(code::OTHER, "Checking the folder took too long."))?.map_err(|why| err("failed", format!("It can't be installed: {why}")))?;
+        let m = p.offer.manifest.clone();
+        if !id.is_empty() && m.id != id {
+            let _ = self.on_main(move |cx| {
+                catalog::discard(&p, cx);
+                Ok(())
+            });
+            return Err(err(code::CONFLICT, format!("The folder's extension is “{}”, not “{id}”: it changed meanwhile. Nothing was installed.", m.id)));
+        }
+        self.on_main(move |cx| {
+            let mut d = vec![match &p.replaces {
+                Some(v) => format!("{} {} replaces the installed {}. Its settings and data stay.", m.name, m.version.clone().unwrap_or_default(), v.clone().unwrap_or_default()),
+                None => format!("{} {} is copied into Pitwall's extensions folder. It stays off: nothing of it runs until it is turned on.", m.name, m.version.clone().unwrap_or_default()),
+            }];
+            d.extend(pitwall_core::extensions::preview::review_lines(&m));
+            for c in &p.changes {
+                d.push(c.title.clone());
+                d.extend(c.lines.iter().map(|l| format!("  {l}")));
+            }
+            let summary = format!("install the extension {} from a folder (unsigned preview)", m.name);
+            cx.default_global::<Tasks>().0.insert(token, Task::InstallFolder(Box::new(p)));
+            Ok(Prepared { token, summary, details: d, risk: Risk::High })
+        })
+    }
+
     /// An update: fetched (as Review… does, off the UI thread), then what
     /// it changes is what the approval lists.
     fn prepare_update(&self, id: &str, token: u64) -> Result<Prepared, ErrorBody> {

@@ -126,7 +126,7 @@ impl SettingsView {
 
     /// One permission's words: its title (or its name, unknown here), its
     /// name, the extension's reason, and what it gives.
-    fn permission_words(ui: &Ui, name: &str, reason: &str) -> Div {
+    pub(super) fn permission_words(ui: &Ui, name: &str, reason: &str) -> Div {
         let known = permissions::find(name);
         let title = known.map_or(name.to_string(), |p| p.title.to_string());
         let mut col = div()
@@ -162,6 +162,23 @@ impl SettingsView {
             }
         }
         col
+    }
+
+    /// What a permission granted with the extension shows in place of a
+    /// switch: how much (`memory`: "256 MiB").
+    fn amount_chip(ui: &Ui, m: &Manifest, name: &str, amount: String) -> Div {
+        let sel = format!("extension-permission-amount-{}-{name}", m.id);
+        div()
+            .flex_none()
+            .mt(px(1.))
+            .debug_selector(move || sel)
+            .child(div().id(SharedString::from(format!("extension-permission-amount-{}-{name}", m.id))).tooltip(crate::kit::tooltip("Granted with the extension: not a switch")).child(crate::kit::mono_text(amount, &ui.t).text_color(ui.t.text_2)))
+    }
+
+    /// Whether installed extension `id` came from a preview folder
+    /// (unsigned).
+    pub(super) fn is_preview(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
+        self.origins_now(cx).get(id).is_some_and(|(o, _)| o.as_ref().is_some_and(|o| o.is_preview()))
     }
 
     /// The "send without asking" switch of an extension granted
@@ -213,12 +230,24 @@ impl SettingsView {
             .border_color(ui.t.line_strong)
             .bg(ui.t.surface_2)
             .child(div().text_size(px(14.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child(format!("{} asks for these permissions", m.name)))
-            .child(crate::kit::hint("Grant or refuse each. A permission bounds what Pitwall gives it; its program runs as you either way. You can change these later here, and every call it makes is in its Activity.", &ui.t));
+            .child(crate::kit::hint(
+                if m.adapter.is_none() && m.service.is_none() && crate::tiles::has_tiles(m) {
+                    "Grant or refuse each. Its tiles run sealed off from your computer: they get only what you grant here. You can change these later here."
+                } else {
+                    "Grant or refuse each. A permission bounds what Pitwall gives it; its program runs as you either way. You can change these later here, and every call it makes is in its Activity."
+                },
+                &ui.t,
+            ));
+        if self.is_preview(&m.id, cx) {
+            col = col.child(preview_warning(&m.id, ui));
+        }
         for p in &m.permissions {
             let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words(ui, &p.name, &p.reason));
-            match permissions::unavailable_why(&p.name) {
-                Some(why) => row = row.child(div().flex_none().mt(px(1.)).child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t))),
-                None => {
+            match (permissions::unavailable_why(&p.name), permissions::amount(m, &p.name).filter(|_| permissions::shown_only(&p.name))) {
+                (Some(why), _) => row = row.child(div().flex_none().mt(px(1.)).child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t))),
+                // Granted with it, shown with its size.
+                (None, Some(amount)) => row = row.child(Self::amount_chip(ui, m, &p.name, amount)),
+                (None, None) => {
                     let on = picks.get(&p.name).copied().unwrap_or(false);
                     let name = p.name.clone();
                     row = row.child(div().flex_none().mt(px(2.)).child(switch(format!("extension-permission-pick-{}-{}", m.id, p.name), on, ui).tooltip(crate::kit::tooltip(if on { "Granted: press to refuse" } else { "Refused: press to grant" })).on_click(cx.listener(move |v, _, _, cx| {
@@ -295,6 +324,10 @@ impl SettingsView {
             let (ext, name) = (m.id.clone(), p.name.clone());
             let right = match (permissions::unavailable_why(&p.name), decisions.get(&p.name)) {
                 (Some(why), _) => div().child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t)),
+                (None, _) if permissions::shown_only(&p.name) => match permissions::amount(m, &p.name) {
+                    Some(amount) => Self::amount_chip(ui, m, &p.name, amount),
+                    None => div(),
+                },
                 (None, None) => {
                     let (e2, n2) = (ext.clone(), name.clone());
                     div()
@@ -550,3 +583,22 @@ impl SettingsView {
 
 #[cfg(test)]
 mod tests;
+
+/// "Unsigned, preview: only install tiles from people you trust." in an
+/// amber note (packaging.md §6.3).
+pub(super) fn preview_warning(id: &str, ui: &Ui) -> Div {
+    let sel = format!("extension-preview-warning-{id}");
+    div()
+        .debug_selector(move || sel)
+        .flex()
+        .gap(px(6.))
+        .items_start()
+        .px(px(8.))
+        .py(px(6.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(ui.t.amber.opacity(0.35))
+        .bg(ui.t.amber.opacity(0.08))
+        .child(div().flex_none().mt(px(1.)).child(crate::kit::icon("alert", 12., ui.t.amber)))
+        .child(div().flex_1().min_w_0().text_size(px(12.)).line_height(gpui::relative(1.4)).text_color(ui.t.text_2).child(pitwall_core::extensions::preview::WARNING))
+}

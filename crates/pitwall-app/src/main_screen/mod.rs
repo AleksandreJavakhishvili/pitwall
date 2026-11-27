@@ -74,6 +74,7 @@ use self::tree::Preset;
 pub use self::topbar::{AgentDrag, SpaceDrag, SpaceRelease};
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
+pub(crate) use self::inbox_tile::calm;
 pub use self::part::cached as parts_cached;
 
 actions!(
@@ -1832,6 +1833,7 @@ impl Render for MainScreen {
         if store.read(cx).state != self.ui {
             self.ui = store.read(cx).state.clone();
         }
+        crate::tiles::drawing(&self.label, cx);
         let t = theme::theme(cx).clone();
         // A dialog, menu or overlay that had the keyboard closed: the screen
         // takes it back (and passes it on to the focused pane's terminal).

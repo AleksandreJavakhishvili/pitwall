@@ -648,7 +648,7 @@ fn bar(w: f32, t: &Theme) -> gpui::Div {
 }
 
 /// A calm message filling the tile, with what to do.
-pub(super) fn calm(icon: &str, title: &str, body: String, t: &Theme) -> gpui::Div {
+pub(crate) fn calm(icon: &str, title: &str, body: String, t: &Theme) -> gpui::Div {
     div()
         .flex_1()
         .min_h_0()
