@@ -660,6 +660,12 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .docs-nav { position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow-y: auto; padding-top: 6px; font-size: 0.92rem; }
 .docs-nav-title { margin: 22px 0 6px; font: 600 0.74rem var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
 .docs-nav-title:first-child { margin-top: 0; }
+.docs-nav-title .pill { margin-left: 6px; padding: 1px 7px; font-size: 0.62rem; letter-spacing: 0.12em; vertical-align: 1px; }
+/* A docs page title with a pill beside it (Preview on the Extensions pages), laid out like a release head. */
+.docs-title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 22px; }
+.page .docs-title h1 { margin-top: 0; }
+.docs-title .pill { flex: none; }
+.prose .label + .docs-title + p { font-size: 1.12rem; }
 .docs-nav ul { margin: 0; padding: 0; list-style: none; }
 .docs-nav a { display: block; margin: 1px 0; padding: 5px 10px; border-radius: 8px; color: var(--text-2); text-decoration: none; }
 .docs-nav a:hover { color: var(--text); background: var(--chip); }
@@ -684,6 +690,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .doc-cards a:hover { background: var(--chip-on); }
 .doc-cards strong { color: var(--text); font-size: 1.05rem; }
 .doc-cards span { color: var(--text-2); font-size: 0.93rem; line-height: 1.5; }
+.doc-cards strong .pill { margin-left: 6px; padding: 1px 8px; font-size: 0.66rem; line-height: 1.5; vertical-align: 2px; }
 .release { margin: 20px 0; padding: 24px clamp(18px, 3vw, 30px) 18px; border-radius: var(--radius); }
 .release:first-of-type { margin-top: 36px; }
 .release-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 8px; }
