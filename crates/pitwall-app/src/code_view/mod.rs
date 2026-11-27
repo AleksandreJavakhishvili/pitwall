@@ -302,12 +302,16 @@ impl Selection {
 }
 
 /// A margin mark: lines added or changed since git's HEAD, or where
-/// lines were deleted (drawn between this line and the one before).
+/// lines were deleted (drawn between this line and the one before); or a
+/// problem on the lines (a tile's code view: a bar, the lines tinted, its
+/// message from [`CodeView::set_line_notes`] after the first line).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineMark {
     Added,
     Changed,
     Deleted,
+    Error,
+    Warning,
 }
 
 /// What the view shows.
@@ -419,6 +423,8 @@ pub struct CodeView {
     editor: bool,
     /// Lines changed since git's HEAD, marked in the margin (the editor).
     line_marks: Vec<(Range<usize>, LineMark)>,
+    /// What an error or warning mark says, by its first line (0-based).
+    line_notes: Vec<(usize, LineMark, SharedString)>,
     /// Scroll sideways to the caret at the next paint (after an edit).
     caret_x: bool,
     /// Drawn again when the keyboard comes or goes (the caret, and the
@@ -469,6 +475,7 @@ impl CodeView {
             edit: None,
             editor: false,
             line_marks: Vec::new(),
+            line_notes: Vec::new(),
             caret_x: false,
             _focus_subs: Vec::new(),
             _load: None,

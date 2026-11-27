@@ -125,10 +125,13 @@ pub(crate) fn bytes(e: &Element) -> usize {
     }
 }
 
-/// Whether a row may hold node `n`: boxes, text, icons, buttons, images
-/// and context menus.
+/// Whether a row may hold node `n`: boxes, text, icons, buttons, images,
+/// context menus, badges, avatars and relative times.
 fn allowed_in_row(e: &Element) -> bool {
-    matches!(e, Element::Box | Element::Text(_) | Element::Icon(_) | Element::Button(_) | Element::Image(_) | Element::ContextMenu(_))
+    matches!(
+        e,
+        Element::Box | Element::Text(_) | Element::Icon(_) | Element::Button(_) | Element::Image(_) | Element::ContextMenu(_) | Element::Badge(_) | Element::Avatar(_) | Element::RelativeTime(_)
+    )
 }
 
 /// Check the rows `guest.rows` returned: each a well-formed small tree of
@@ -149,7 +152,7 @@ pub fn check_rows(rows: &[Row]) -> Result<(), Invalid> {
         let f = Frame { nodes: row.nodes.clone(), focus: None, keymap: vec![] };
         crate::frame::check(&f).map_err(|e| bad(e.to_string()))?;
         if let Some(n) = row.nodes.iter().find(|n| !allowed_in_row(&n.element)) {
-            return Err(bad(format!("a row holds boxes, text, icons, buttons, images and context menus only, not “{}”", kind(&n.element))));
+            return Err(bad(format!("a row holds boxes, text, icons, buttons, images, context menus, badges, avatars and relative times only, not “{}”", kind(&n.element))));
         }
     }
     Ok(())
@@ -289,6 +292,19 @@ mod tests {
         assert!(check_rows(&[field]).unwrap_err().to_string().contains("not “scroll”"));
         let empty = Row { key: "c".into(), nodes: vec![], depth: 0, expanded: None };
         assert!(check_rows(&[empty]).is_err());
+        // Badges, avatars and relative times too.
+        let rich = Row {
+            key: "d".into(),
+            nodes: vec![
+                node(None, "r", Element::Box),
+                node(Some(0), "b", Element::Badge(crate::bindings::pitwall::tile::types::Badge { text: "3".into(), tone: None })),
+                node(Some(0), "a", Element::Avatar(crate::ui::Avatar { name: "Ada Lovelace".into(), size: crate::ui::AvatarSize::Small })),
+                node(Some(0), "t", Element::RelativeTime(crate::ui::RelativeTime { at: 0 })),
+            ],
+            depth: 0,
+            expanded: None,
+        };
+        assert!(check_rows(&[rich]).is_ok());
     }
 
     #[test]

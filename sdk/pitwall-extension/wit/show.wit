@@ -17,4 +17,14 @@ interface show {
   /// Open `url` (`https://`, or `http://` to this computer) in a new web
   /// tile next to the tile's own. `invalid` for another kind of address.
   web: func(url: string) -> result<_, host-error>;
+
+  /// Show the file at `path` (absolute, on this computer) in Pitwall's
+  /// file viewer, scrolled to `line` (1 is the first) when given, as an
+  /// agent's `show_files` shows files: with its folder's tree (its git
+  /// repository's, when it is in one) and git status, in a window of the
+  /// viewer's own that opens
+  /// behind the front window and doesn't take the keyboard. One viewer
+  /// per tile: a later call adds a tab to it. `invalid` for a path that
+  /// isn't absolute. As `file`, it only shows.
+  view: func(path: string, line: option<u32>) -> result<_, host-error>;
 }

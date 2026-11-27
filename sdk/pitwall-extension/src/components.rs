@@ -214,8 +214,9 @@ list_methods!(VirtualList);
 /// [`Cx::rows`](crate::Cx::rows)) renders row `i` when it comes into
 /// sight. 100 000 rows scroll as smoothly as 100: Pitwall lays out only
 /// the rows in sight and asks for them a page at a time. A row holds
-/// boxes, text, icons, buttons, images and a context menu; give it the
-/// item's id with `.id(..)` so the selection follows the item.
+/// boxes, text, icons, buttons, images, a context menu, badges, avatars
+/// and relative times; give it the item's id with `.id(..)` so the
+/// selection follows the item.
 ///
 /// It fills its parent: give the parent a height (or `flex_1`).
 pub fn virtual_list(key: impl Into<String>, count: usize, rows: Rows) -> VirtualList {

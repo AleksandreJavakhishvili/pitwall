@@ -839,6 +839,17 @@ impl Popover {
         self
     }
 
+    /// Anchor it to the point (x, y) of its parent, in logical pixels from
+    /// the parent's top-left corner (as a [`Click`](crate::events::Click)'s
+    /// `at`), instead of the parent's edge: on a canvas
+    /// ([`Canvas::popover`](crate::Canvas::popover)), under the box that
+    /// was clicked. [`Popover::placement`] says which side of the point it
+    /// opens on.
+    pub fn at(mut self, x: f32, y: f32) -> Popover {
+        spec!(self, Popover).at = Some(wit::Point { x, y });
+        self
+    }
+
     /// Call `handler` when the user presses Esc or clicks outside it:
     /// leave it out of the next render.
     pub fn on_dismiss(mut self, handler: Handler<Dismissed>) -> Popover {
@@ -848,9 +859,10 @@ impl Popover {
 }
 
 /// A popover: its children in a floating panel, anchored to the element
-/// it is a child of (a box around the button that opens it) and drawn by
-/// Pitwall inside the tile. Open while it is rendered; at most one at a
-/// time.
+/// it is a child of (a box around the button that opens it), or to a
+/// point of it ([`Popover::at`]; on a canvas,
+/// [`Canvas::popover`](crate::Canvas::popover)), and drawn by Pitwall inside the tile. Open
+/// while it is rendered; at most one at a time.
 ///
 /// ```ignore
 /// div().child(button("Filters").on_click(cx.listener(|this, _, cx| { this.filters = true; cx.notify(); })))
@@ -858,7 +870,7 @@ impl Popover {
 ///         .child(checkbox("Only failures"))))
 /// ```
 pub fn popover() -> Popover {
-    Popover(widget(wit::Element::Popover(wit::Popover { placement: wit::Placement::Below, width: None })))
+    Popover(widget(wit::Element::Popover(wit::Popover { placement: wit::Placement::Below, width: None, at: None })))
 }
 
 /// A confirm sheet. Made by [`confirm_sheet`].

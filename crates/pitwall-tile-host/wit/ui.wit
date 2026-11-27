@@ -38,4 +38,15 @@ interface ui {
 
   /// Forget the image put under `name`.
   drop-image: func(name: string);
+
+  use types.{font, weight};
+
+  /// How wide each of `texts` is on one line in Pitwall's `font` (Inter
+  /// for `ui`, JetBrains Mono for `mono`) at `size` logical pixels (4–200)
+  /// and `weight`, in logical pixels: to size boxes on a canvas around
+  /// their labels. Kerned as Pitwall draws it; a character Pitwall's font
+  /// lacks counts as an average letter. One width per text, in order; at
+  /// most 1 000 texts and 64 KiB in all a call (more: an empty list,
+  /// noted in the Log). The same numbers in the test harness.
+  measure-text: func(texts: list<string>, font: font, size: f32, weight: weight) -> list<f32>;
 }

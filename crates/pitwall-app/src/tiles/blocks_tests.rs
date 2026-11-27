@@ -110,6 +110,13 @@ fn a_code_view_shows_the_tiles_text(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("tile-node-code").is_some());
     view.update(cx, |_, cx| cx.emit(crate::code_view::CodeViewEvent::LineClicked { side: crate::code_view::Side::New, line: 4 }));
     until(cx, "the line click", |cx| has_text(&tile, "Line 5 clicked", cx));
+    // Check: an error and a warning, each with what is wrong.
+    tile.read_with(cx, |t, cx| assert!(t.click("bar/check", ui::MouseButton::Left, ui::Modifiers::empty(), 1, ui::Point { x: 1., y: 1. }, cx)));
+    until(cx, "the problems", |cx| view.read_with(cx, |v, _| v.line_notes().len() == 2));
+    let notes = view.read_with(cx, |v, _| v.line_notes().to_vec());
+    assert_eq!((notes[0].0, notes[0].1, notes[0].2.as_ref()), (6, crate::code_view::LineMark::Error, "mismatched types: expected `&[Item]`, found `&[_; 0]`"));
+    assert_eq!((notes[1].0, notes[1].1), (1, crate::code_view::LineMark::Warning));
+    assert_eq!(view.read_with(cx, |v, _| v.line_marks().len()), 5);
 }
 
 /// The diff view diffs the tile's two texts, and a unified diff.

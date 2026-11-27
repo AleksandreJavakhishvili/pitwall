@@ -99,6 +99,17 @@ fn files_and_pages_open_through_pitwall() {
 }
 
 #[test]
+fn a_file_is_shown_in_the_viewer_with_the_show_grant() {
+    let mut t = Harness::load(services()).open("main");
+    t.click_key("do/view-file");
+    assert_eq!(status(&t), "view: not allowed: the permission isn't granted");
+    t.grant("show").click_key("do/view-file");
+    assert_eq!(status(&t), "view: ok");
+    let asked: Vec<_> = t.ui_requests().iter().filter(|r| matches!(r, UiRequest::ViewFile { .. })).cloned().collect();
+    assert_eq!(asked, vec![UiRequest::ViewFile { path: "/tmp/project/src/lib.rs".into(), line: Some(3) }]);
+}
+
+#[test]
 fn the_toolbar_button_badge_tooltip_and_popover() {
     let mut t = Harness::load(services()).open("main");
     t.click_key("do/badge").click_key("do/badge");

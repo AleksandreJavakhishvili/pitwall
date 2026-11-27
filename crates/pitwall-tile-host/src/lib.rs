@@ -29,6 +29,7 @@ mod group;
 mod host;
 pub mod keys;
 pub mod limits;
+pub mod measure;
 pub mod net;
 mod platform;
 mod services;
@@ -455,6 +456,9 @@ pub enum UiRequest {
     Toolbar(ToolbarRequest),
     /// Start its own server again (`service.restart`).
     RestartService,
+    /// Show `path` in the tile's file viewer at `line` (`show.view`,
+    /// granted `show`).
+    ViewFile { path: String, line: Option<u32> },
 }
 
 /// Rows of a virtual list, table or tree, as the tile returned them for
