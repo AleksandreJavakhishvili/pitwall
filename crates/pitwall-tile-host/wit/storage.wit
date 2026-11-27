@@ -1,0 +1,30 @@
+package pitwall:tile@0.1.0;
+
+/// The tile's own key-value store (platform-services.md §14.2). No
+/// permission: it holds only this extension's data, and no other
+/// extension can read it.
+///
+/// Kept on disk outside the extension's folder, so it survives updates
+/// and going back to an earlier version; written after each call into the
+/// tile that changed it. At most 10 MiB in all (keys and values); keys
+/// are 1 to 256 bytes of UTF-8, without control characters.
+interface storage {
+  use types.{host-error};
+
+  /// The value of `key`, or `none` when it has none.
+  get: func(key: string) -> result<option<list<u8>>, host-error>;
+
+  /// Set `key` to `value`. `host-error.too-large` when it would take the
+  /// store over 10 MiB; `host-error.invalid` for a key that isn't valid.
+  set: func(key: string, value: list<u8>) -> result<_, host-error>;
+
+  /// Remove `key`. A key with no value is no error.
+  delete: func(key: string) -> result<_, host-error>;
+
+  /// The keys that start with `prefix` (all keys for `""`), in byte
+  /// order.
+  %list: func(prefix: string) -> result<list<string>, host-error>;
+
+  /// The bytes the store takes now (keys and values), out of its 10 MiB.
+  usage: func() -> u64;
+}

@@ -1,0 +1,791 @@
+package pitwall:tile@0.1.0;
+
+/// The UI description a tile sends, the events it gets back, and the types
+/// the other interfaces share (docs/spec/tile-sdk/ui.md §3.3–3.5).
+///
+/// A view is drawn from a `frame`: a flat list of nodes, each naming its
+/// parent by index, so a tree is one list with no recursion. Pitwall
+/// compares each frame with the one before by key path and keeps what the
+/// user sees (scroll position, focus, hover, text being typed) for nodes
+/// whose key path stays the same.
+///
+/// Colours, sizes of text, fonts and corner radii are Pitwall's own
+/// tokens, named by meaning, so a tile looks native in light and dark
+/// themes and follows the user's appearance settings. There are no raw
+/// colours in 0.1.
+interface types {
+  /// One open view of the tile: a place in Pitwall's layout showing one
+  /// of the manifest's tiles (`contributes.tiles`). Chosen by Pitwall and
+  /// stable while the view is open; a tile opened once has the tile's id
+  /// as its view id (for example `"main"`), and a tile opened several
+  /// times (by the user, or by agents with different content) gets one
+  /// view id per place. Pitwall renders each open view separately; the
+  /// guest learns of each from `view-opened`.
+  type view-id = string;
+
+  /// Content given to a view when it opens or later, by the user or an
+  /// agent (as Pitwall's own viewers take a file or a page). The tile's
+  /// manifest declares what it accepts (`"input"`: a JSON schema in its
+  /// folder); Pitwall checks the payload against it before delivering.
+  record content {
+    /// The caller's id for this content. A later call with the same id
+    /// updates the view showing it in place instead of opening another.
+    id: option<string>,
+    /// The payload, as JSON text matching the tile's input schema.
+    json: option<string>,
+    /// Binary payload (an image, a file's bytes), when the schema says
+    /// so. At most 8 MiB.
+    bytes: option<list<u8>>,
+  }
+
+  /// A view was opened.
+  record view-opened {
+    /// The new view's id.
+    view: view-id,
+    /// Which of the manifest's tiles it shows.
+    tile: string,
+    /// What it was opened with, if anything.
+    content: option<content>,
+  }
+
+  /// An open view was given new content.
+  record view-content {
+    /// The view.
+    view: view-id,
+    /// Its content now.
+    content: content,
+  }
+
+  /// A function of the tile, by number. The tile chooses the numbers when
+  /// it renders, keeps the function they stand for, and gets the number
+  /// back in the event when the user acts. A number from an older frame
+  /// may still arrive once after a render; a tile ignores numbers it no
+  /// longer knows.
+  type handler = u32;
+
+  /// A timer, by the number `tasks.timer` gave.
+  type timer-id = u32;
+
+  /// Why a host call didn't do what was asked.
+  variant host-error {
+    /// The tile isn't granted the permission this needs.
+    denied,
+    /// Too many calls or things at once (over 200 host calls a second, or
+    /// 32 timers); try again later.
+    busy,
+    /// Over a size limit or a quota; the limits are in each function's
+    /// documentation.
+    too-large,
+    /// An argument isn't valid; the text says which and why.
+    invalid(string),
+    /// The host couldn't do it (for example a disk error); the text says
+    /// what happened.
+    failed(string),
+  }
+
+  /// A colour of Pitwall's theme, by meaning. Each has a light and a dark
+  /// value; the user's theme decides which is drawn.
+  enum token {
+    /// The window's background, behind tiles.
+    bg,
+    /// A tile's own background.
+    surface,
+    /// A raised area inside a tile: a header, a selected row.
+    surface-2,
+    /// A further raised area: a hovered selected row, a field.
+    surface-3,
+    /// Floating surfaces: menus, popovers.
+    raised,
+    /// Hairlines and borders.
+    line,
+    /// Stronger borders: a focused field, a divider that must be seen.
+    line-strong,
+    /// Main text.
+    text,
+    /// Secondary text: details, labels.
+    text-2,
+    /// Muted text: hints, timestamps.
+    text-3,
+    /// Faint text: placeholders, disabled.
+    text-4,
+    /// The focus ring.
+    focus,
+    /// Success: passed, running well.
+    good,
+    /// A soft background for good things.
+    good-soft,
+    /// Needs attention.
+    warn,
+    /// A soft background for warnings.
+    warn-soft,
+    /// Failed, destructive.
+    bad,
+    /// A soft background for failures.
+    bad-soft,
+    /// Finished.
+    done,
+    /// A soft background for finished things.
+    done-soft,
+    /// The background of an added line in a diff.
+    diff-add-bg,
+    /// The background of a removed line in a diff.
+    diff-del-bg,
+  }
+
+  /// A length.
+  variant length {
+    /// Logical pixels (they scale with the display).
+    px(f32),
+    /// Multiples of Pitwall's base text size, so the length follows the
+    /// user's font size.
+    rem(f32),
+    /// A fraction of the parent's size, from 0.0 to 1.0.
+    fraction(f32),
+    /// Whatever the content needs.
+    auto,
+  }
+
+  /// A length for each side, for padding, margin and borders.
+  record edges {
+    /// The top side.
+    top: length,
+    /// The right side.
+    right: length,
+    /// The bottom side.
+    bottom: length,
+    /// The left side.
+    left: length,
+  }
+
+  /// Pitwall's text sizes.
+  enum text-size {
+    /// The smallest: badges, counts.
+    xs,
+    /// Small: details, labels.
+    sm,
+    /// The body size.
+    md,
+    /// Headings inside a tile.
+    lg,
+    /// Large headings.
+    xl,
+  }
+
+  /// Pitwall's fonts.
+  enum font {
+    /// The interface font.
+    ui,
+    /// The monospace font, for code and numbers that line up.
+    mono,
+  }
+
+  /// Text weight.
+  enum weight {
+    /// Regular text.
+    normal,
+    /// Slightly heavier: labels.
+    medium,
+    /// Headings.
+    semibold,
+    /// Strong emphasis.
+    bold,
+  }
+
+  /// Pitwall's corner radii.
+  enum radius {
+    /// Square corners.
+    square,
+    /// Small (4 px).
+    sm,
+    /// The usual radius (6 px).
+    md,
+    /// Large (10 px).
+    lg,
+    /// Fully round: pills and circles.
+    full,
+  }
+
+  /// How children line up across a flex box's main direction.
+  enum align {
+    /// At the start.
+    start,
+    /// Centred.
+    center,
+    /// At the end.
+    end,
+    /// Stretched to fill.
+    stretch,
+    /// Along their text's baseline.
+    baseline,
+  }
+
+  /// How children are spread along a flex box's main direction.
+  enum justify {
+    /// Packed at the start.
+    start,
+    /// Packed in the centre.
+    center,
+    /// Packed at the end.
+    end,
+    /// The first at the start, the last at the end, equal space between.
+    space-between,
+    /// Equal space around each.
+    space-around,
+  }
+
+  /// What happens to content larger than its box.
+  enum overflow {
+    /// It shows outside the box.
+    visible,
+    /// It is cut off at the box's edge.
+    hidden,
+    /// The box scrolls (prefer the `scroll` element, which keeps its
+    /// position across frames).
+    scroll,
+  }
+
+  /// The pointer's shape over a node.
+  enum cursor {
+    /// The usual arrow.
+    default,
+    /// A hand: something clickable.
+    pointer,
+    /// A text cursor: selectable text.
+    text,
+  }
+
+  /// One style of a node. A node has a list of these; a later entry wins
+  /// over an earlier one of the same kind. Layout is flexbox, as in CSS.
+  variant style {
+    /// Lay children out in a row.
+    flex-row,
+    /// Lay children out in a column (the default for a box).
+    flex-col,
+    /// Wrap children onto more lines when they don't fit.
+    wrap,
+    /// Take this share of the free space along the parent's direction.
+    grow(f32),
+    /// Give up this share of the space when there isn't enough.
+    shrink(f32),
+    /// Space between children.
+    gap(length),
+    /// Space inside the node's border.
+    padding(edges),
+    /// Space outside the node's border.
+    margin(edges),
+    /// Width.
+    width(length),
+    /// Height.
+    height(length),
+    /// Smallest width.
+    min-width(length),
+    /// Largest width.
+    max-width(length),
+    /// Smallest height.
+    min-height(length),
+    /// Largest height.
+    max-height(length),
+    /// How children line up across the main direction.
+    align-items(align),
+    /// How children are spread along the main direction.
+    justify(justify),
+    /// How this node lines up in its parent, over the parent's
+    /// `align-items`.
+    self-align(align),
+    /// Horizontal overflow.
+    overflow-x(overflow),
+    /// Vertical overflow.
+    overflow-y(overflow),
+    /// Border widths (in px or rem; fractions and auto count as none).
+    border(edges),
+    /// Border colour.
+    border-color(token),
+    /// Corner radius.
+    radius(radius),
+    /// Background colour.
+    background(token),
+    /// Text and icon colour, inherited by children.
+    color(token),
+    /// Opacity, from 0.0 (invisible) to 1.0.
+    opacity(f32),
+    /// Text size, inherited by children.
+    text-size(text-size),
+    /// Font, inherited by children.
+    font(font),
+    /// Text weight, inherited by children.
+    weight(weight),
+    /// Italic text.
+    italic,
+    /// Underlined text.
+    underline,
+    /// One line, cut with an ellipsis when too long.
+    truncate,
+    /// At most this many lines, the last one cut with an ellipsis.
+    line-clamp(u8),
+    /// The user can select and copy this text.
+    selectable,
+    /// Background while the pointer is over the node.
+    hover-background(token),
+    /// The pointer's shape over the node.
+    cursor(cursor),
+  }
+
+  /// A button's look, as Pitwall's own buttons.
+  enum button-kind {
+    /// The main action of a tile or a form; one per area.
+    primary,
+    /// An ordinary action: a hairline button.
+    ghost,
+    /// A destructive action.
+    danger,
+    /// A small button for rows and toolbars.
+    small,
+    /// A button that looks like a link.
+    link,
+  }
+
+  /// A button. Its click arrives as a `click` event for the node's `click`
+  /// listener.
+  record button {
+    /// The text on it.
+    label: string,
+    /// Its look.
+    kind: button-kind,
+    /// An icon before the label.
+    icon: option<icon>,
+    /// Drawn dimmed, and clicks aren't sent.
+    disabled: bool,
+  }
+
+  /// An icon. Drawn in the node's text colour (`color` style), at the
+  /// node's text size unless it has a width and height.
+  variant icon {
+    /// One of Pitwall's icons by name, such as `refresh`, `check`, `x`,
+    /// `plus`, `search`, `gear`, `folder`, `file`, `branch`, `terminal`,
+    /// `trash`, `copy`, `external`. An unknown name draws a placeholder,
+    /// and `pitwall extension check` warns about it.
+    named(string),
+  }
+
+  /// The directions a `scroll` element scrolls in.
+  enum axis {
+    /// Up and down.
+    vertical,
+    /// Left and right.
+    horizontal,
+    /// Both.
+    both,
+  }
+
+  /// A scrolling container: its children scroll inside it. Pitwall keeps
+  /// its position by key path across frames and draws its scrollbars.
+  record scroll {
+    /// Which ways it scrolls.
+    axis: axis,
+  }
+
+  /// A range of a text field's value, in UTF-8 byte offsets (`start` ≤
+  /// `end`; equal for a bare cursor).
+  record text-range {
+    /// Where it starts.
+    start: u32,
+    /// Where it ends (exclusive).
+    end: u32,
+  }
+
+  /// A text field: one line, or several (`multiline`). Its font is the
+  /// node's `font` style (`mono` for code), its text size the node's
+  /// `text-size`.
+  ///
+  /// **Pitwall owns the value.** Typing, selection, undo and IME are
+  /// handled by Pitwall, so they never wait for the tile, and the text is
+  /// kept by key path across frames. The tile hears about edits
+  /// afterwards (`input-changed`, `input-selected`) and doesn't send the
+  /// text back in each frame: `value` is `none` in a frame unless the tile
+  /// wants to replace the text. So a large text (up to 1 MiB) crosses the
+  /// boundary only when it changes, not in every frame.
+  ///
+  /// Enter submits a one-line field. In a multi-line field Enter adds a
+  /// line and ⌘Enter (Ctrl+Enter off macOS) submits, as in Pitwall's own
+  /// text fields; while such a field has focus, ⌘Enter is the field's and
+  /// doesn't maximise the tile (ui.md §3.5).
+  record input {
+    /// Text to put in the field, replacing what it holds; `none` keeps
+    /// what it holds (the usual case). Applied only when `revision` is
+    /// newer than the revision of the user's latest edit, so a frame
+    /// built before an edit arrived never undoes it. The first frame
+    /// that has the field gives its starting text here.
+    value: option<string>,
+    /// The revision of `value`: the revision of the last `input-changed`
+    /// the tile has seen (0 at first), plus one. Ignored when `value` is
+    /// `none`.
+    revision: u64,
+    /// Where to put the cursor or selection when `value` is applied
+    /// (`none`: at the end).
+    selection: option<text-range>,
+    /// Shown in faint text while it is empty.
+    placeholder: option<string>,
+    /// Several lines.
+    multiline: bool,
+    /// For a multi-line field, its height in lines when its node has no
+    /// height style (`none`: 3). It scrolls past that.
+    rows: option<u16>,
+    /// Drawn dimmed and can't be edited.
+    disabled: bool,
+  }
+
+  /// What a node is.
+  variant element {
+    /// A box: a flex container with no look of its own beyond its
+    /// styles. The usual root.
+    box,
+    /// Text. A text node whose children are text nodes draws them as
+    /// inline runs of one paragraph (each run with its own styles), so
+    /// `"Built in "` + bold `"3 s"` wrap as one line of text.
+    text(string),
+    /// A button.
+    button(button),
+    /// An icon.
+    icon(icon),
+    /// A scrolling container.
+    scroll(scroll),
+    /// A text field.
+    input(input),
+  }
+
+  /// The events a node can ask for, each with the handler it should
+  /// carry.
+  enum listen {
+    /// A click (or Space or Enter while the node has focus). Buttons and
+    /// any other node.
+    click,
+    /// A text field's value changed.
+    change,
+    /// A text field's cursor or selection moved without its value
+    /// changing.
+    select,
+    /// Enter (⌘Enter when multi-line) in a text field.
+    submit,
+    /// A scroll container was scrolled (for loading more at the end).
+    scroll,
+    /// The pointer entered or left the node.
+    hover,
+    /// Pointer presses, releases and moves over the node, with their
+    /// position (for drawing and dragging inside a node).
+    pointer,
+  }
+
+  /// An event a node asks for, and the handler it should carry.
+  record listener {
+    /// Which event.
+    on: listen,
+    /// The handler it carries.
+    handler: handler,
+  }
+
+  /// One node of a frame.
+  record node {
+    /// The parent's index in `frame.nodes`: always lower than this
+    /// node's own. `none` only for the first node, the root.
+    parent: option<u32>,
+    /// Stable among its siblings: Pitwall matches nodes across frames by
+    /// key path (the keys from the root down), so a node keeps its scroll
+    /// position, focus and typed text while its key path stays the same.
+    /// Unique among siblings; at most 128 bytes.
+    key: string,
+    /// What it is.
+    element: element,
+    /// How it looks and lays out.
+    style: list<style>,
+    /// The events it wants.
+    on: list<listener>,
+    /// It can take keyboard focus (Tab moves among focusable nodes in
+    /// tree order). Buttons and text fields are focusable whatever this
+    /// says.
+    focusable: bool,
+    /// Text shown when the pointer rests on it.
+    tooltip: option<string>,
+    /// Its accessible name, read by screen readers. Required for a button
+    /// with only an icon.
+    label: option<string>,
+  }
+
+  /// A key binding the tile handles while it has focus. Pitwall's own
+  /// bindings (the command palette, ⌘W, ⌘1–9, Esc to leave a maximised
+  /// tile and the rest of its reserved set) always win.
+  record binding {
+    /// The keys, as Pitwall writes them: `j`, `enter`, `cmd-r`,
+    /// `shift-tab`, `/`. `cmd` is ⌘ on macOS and Ctrl elsewhere.
+    keys: string,
+    /// The handler a `key` event carries when they are pressed.
+    handler: handler,
+  }
+
+  /// What a view shows: its whole tree, sent after every change. At most
+  /// 20 000 nodes and about 2 MiB of data; a larger frame stops the tile.
+  record frame {
+    /// The nodes, root first, each after its parent.
+    nodes: list<node>,
+    /// The key path (keys from the root down, joined by `/`, without the
+    /// root's) of the node the tile wants focused. Honoured only while
+    /// the tile already has focus, so a tile can't take the keyboard from
+    /// a terminal.
+    focus: option<string>,
+    /// The keys the tile handles while it has focus.
+    keymap: list<binding>,
+  }
+
+  /// Keys held during a click.
+  flags modifiers {
+    /// Shift.
+    shift,
+    /// Control.
+    ctrl,
+    /// Option on macOS, Alt elsewhere.
+    alt,
+    /// ⌘ on macOS, the Windows key or Super elsewhere.
+    platform,
+  }
+
+  /// Which mouse button.
+  enum mouse-button {
+    /// The main button.
+    left,
+    /// The secondary button.
+    right,
+    /// The middle button or wheel.
+    middle,
+  }
+
+  /// A point in a node, in logical pixels from the node's top-left corner.
+  record point {
+    /// From the left edge.
+    x: f32,
+    /// From the top edge.
+    y: f32,
+  }
+
+  /// A click.
+  record click {
+    /// The handler of the node's `click` listener.
+    handler: handler,
+    /// Which button.
+    button: mouse-button,
+    /// Keys held.
+    modifiers: modifiers,
+    /// 1 for a single click, 2 for a double click, and so on.
+    count: u32,
+    /// Where in the node (for a click from the keyboard: its centre).
+    at: point,
+  }
+
+  /// What the pointer did. Later versions add cases at the end (a wheel,
+  /// a pinch) without breaking tiles built for this one; a tile ignores
+  /// cases it doesn't know.
+  variant pointer-kind {
+    /// A button went down.
+    down(mouse-button),
+    /// A button came up.
+    up(mouse-button),
+    /// The pointer moved (coalesced: the newest position).
+    move,
+  }
+
+  /// A pointer event over a node with a `pointer` listener. While a button
+  /// is held after a `down` on the node, its moves and the `up` go to the
+  /// same node even outside it (positions may then be negative or past
+  /// its size).
+  record pointer-event {
+    /// The handler of the node's `pointer` listener.
+    handler: handler,
+    /// What happened.
+    kind: pointer-kind,
+    /// Where, from the node's top-left corner.
+    at: point,
+    /// Keys held.
+    modifiers: modifiers,
+  }
+
+  /// A text field's new value.
+  record input-change {
+    /// The handler of the field's `change` listener.
+    handler: handler,
+    /// What the field holds now.
+    value: string,
+    /// The edit's revision. To replace the text later, send
+    /// `input.revision` above it (runtime.md §2.4).
+    revision: u64,
+    /// The cursor or selection after the edit.
+    selection: text-range,
+  }
+
+  /// A text field's cursor or selection moved, its value unchanged.
+  record input-selection {
+    /// The handler of the field's `select` listener.
+    handler: handler,
+    /// The cursor or selection now, in the value of the field's latest
+    /// `input-changed` (or the value the tile last set).
+    selection: text-range,
+    /// The revision of the value it applies to.
+    revision: u64,
+  }
+
+  /// A key binding fired.
+  record key-event {
+    /// The binding's handler.
+    handler: handler,
+    /// The binding's keys, as written in the keymap.
+    keys: string,
+  }
+
+  /// Where a scroll container is scrolled to.
+  record scroll-position {
+    /// The handler of its `scroll` listener.
+    handler: handler,
+    /// Pixels scrolled from the left.
+    x: f32,
+    /// Pixels scrolled from the top.
+    y: f32,
+    /// The content's width, in pixels.
+    content-width: f32,
+    /// The content's height, in pixels.
+    content-height: f32,
+  }
+
+  /// The pointer entered or left a node.
+  record hover {
+    /// The handler of the node's `hover` listener.
+    handler: handler,
+    /// True when it entered, false when it left.
+    inside: bool,
+    /// Where, from the node's top-left corner.
+    at: point,
+  }
+
+  /// A size in logical pixels.
+  record size {
+    /// Width.
+    width: f32,
+    /// Height.
+    height: f32,
+  }
+
+  /// A view's new size.
+  record view-size {
+    /// The view.
+    view: view-id,
+    /// Its size now.
+    size: size,
+  }
+
+  /// Light or dark.
+  enum theme-mode {
+    /// The light theme.
+    light,
+    /// The dark theme.
+    dark,
+  }
+
+  /// How much space Pitwall puts around things (Settings → Appearance).
+  enum density {
+    /// The most space.
+    comfortable,
+    /// The default.
+    compact,
+    /// The least space.
+    dense,
+  }
+
+  /// The user's appearance settings that matter to a tile.
+  record theme-info {
+    /// Light or dark.
+    mode: theme-mode,
+    /// How much space to leave.
+    density: density,
+    /// The user asked for less motion: don't animate.
+    reduce-motion: bool,
+  }
+
+  /// A toast's tone.
+  enum tone {
+    /// Neutral news.
+    info,
+    /// Something worked.
+    good,
+    /// Something needs attention.
+    warn,
+    /// Something failed.
+    bad,
+  }
+
+  /// Something that happened, sent to `guest.handle`.
+  variant event {
+    /// A node with a `click` listener was clicked.
+    click(click),
+    /// A text field's value changed. Changes are coalesced: several
+    /// between two calls arrive as one with the newest value, and Pitwall
+    /// sends at most one per field every 50 ms while the user types, plus
+    /// one when the field loses focus or submits, so a large text isn't
+    /// sent on every keystroke.
+    input-changed(input-change),
+    /// A text field with a `select` listener moved its cursor or
+    /// selection without changing its value (coalesced: the newest).
+    input-selected(input-selection),
+    /// Enter in a text field with a `submit` listener; carries its
+    /// handler.
+    submit(handler),
+    /// A key binding of the frame's keymap fired.
+    key(key-event),
+    /// A scroll container with a `scroll` listener moved (coalesced: the
+    /// newest position).
+    scroll(scroll-position),
+    /// The pointer entered or left a node with a `hover` listener.
+    hover(hover),
+    /// A press, release or move over a node with a `pointer` listener.
+    pointer(pointer-event),
+    /// A view's size changed (coalesced: the newest size).
+    resize(view-size),
+    /// The tile was shown (true) or hidden (false). While hidden, timers
+    /// pause and nothing is rendered. `visibility(false)` is handled like
+    /// any event: host calls made while handling it complete (storage
+    /// writes reach the disk), and suspension starts when `handle`
+    /// returns; a timer started then waits until the tile is shown.
+    visibility(bool),
+    /// The tile got (true) or lost (false) keyboard focus.
+    focus(bool),
+    /// The user changed their appearance settings.
+    theme(theme-info),
+    /// A timer fired.
+    timer(timer-id),
+    /// The user changed the tile's settings; read them again with
+    /// `settings.get`.
+    settings-changed,
+    /// The user granted or took back permissions; the list is what is
+    /// granted now.
+    grants-changed(list<string>),
+    /// A view was opened; its first render follows. Every view gets this,
+    /// the ones open at start too (right after `init`).
+    view-opened(view-opened),
+    /// An open view was given new content (a later call with the same
+    /// content id); return true to render it again.
+    view-content(view-content),
+    /// A view was closed; it is no longer rendered.
+    view-closed(view-id),
+  }
+
+  /// What the tile gets when it starts.
+  record init-context {
+    /// The extension's id.
+    extension: string,
+    /// The extension's version, from its manifest.
+    version: string,
+    /// The user's appearance settings.
+    theme: theme-info,
+    /// The permissions the user granted, by name.
+    granted: list<string>,
+    /// What `guest.save-state` returned before the tile was last dropped
+    /// (to save memory while hidden, or for a reload during development);
+    /// `none` on a fresh start.
+    state: option<list<u8>>,
+  }
+}

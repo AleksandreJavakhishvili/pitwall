@@ -1,0 +1,36 @@
+[package]
+name = "pitwall-tile-host"
+version = "0.8.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Runs extensions' tile components (docs/spec/tile-sdk/runtime.md): Wasmtime, the WIT world pitwall:tile, one worker thread per tile, limits, the compile cache and the host APIs. No GPUI."
+
+[dependencies]
+# Wasmtime, Apache-2.0 WITH LLVM-exception (docs/spec/tile-sdk/runtime.md
+# §2.2). The LTS line (README.md §10.3 item 5: every 12th major is
+# supported for 24 months; 48 now, 60 next). Default features off (§10.3
+# item 4); only what a tile needs:
+# - runtime + cranelift: compile to native code and run it;
+# - component-model: tiles are components;
+# - parallel-compilation: compile functions on all cores (rayon, already in
+#   the tree via gpui).
+# No `cache` feature: Pitwall keeps its own compiled files (runtime.md §2.6,
+# README §10.3 item 19, the lean build). The workspace's release profile
+# builds these crates at opt-level "s" (Cargo.toml at the root).
+wasmtime = { version = "=48.0.10", default-features = false, features = ["runtime", "cranelift", "component-model", "parallel-compilation", "std"] }
+# WASI 0.2: Rust's std on wasm32-wasip2 imports it (runtime.md §3.1). p2
+# only (no preview1 adapter, no p3). Same licence and version as wasmtime.
+wasmtime-wasi = { version = "=48.0.10", default-features = false, features = ["p2"] }
+# stdout and stderr to the Log (src/stdio.rs): the stream types wasmtime-wasi
+# uses; already in the tree through it.
+bytes = "1"
+tokio = { version = "1", default-features = false }
+# The manifest (`extensions::{read_in_place, Manifest, TileDef}`), settings
+# definitions, and SHA-256 for cache names (sha2, already in core).
+pitwall-core = { path = "../pitwall-core" }
+sha2 = "0.10"
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

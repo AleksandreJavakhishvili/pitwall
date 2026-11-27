@@ -11,3 +11,4 @@
 *.icns binary
 *.mp4 binary
 *.woff2 binary
+*.wasm binary
