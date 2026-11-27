@@ -96,7 +96,7 @@ calls `set_content` for a repeat.
 `TileHandle` (every method only posts; false once the worker is gone):
 `send(ui::Event)`, `open_view(ViewSpec)`, `set_content(view, ui::Content)`,
 `close_view(view)`, `set_visible(bool)`, `set_theme(ui::ThemeInfo)`,
-`set_grants(Grants)`, `set_project(view, Option<ui::Project>)`, `settings_changed()`, `save_state()`, `rows(view, list,
+`set_grants(Grants)` (send it on every change while it runs: the next call is checked against it; requests on their way when `net`'s reach shrank arrive `denied` with their answers dropped, project watches end without `files.read`, badges on rows it may no longer see go; memory and the database's size apply after a restart), `set_project(view, Option<ui::Project>)`, `settings_changed()`, `save_state()`, `rows(view, list,
 start, count)` (rows of the list, table or tree at key path `list` in the
 view's newest frame; answered after the batch's renders, so they match its
 revision; ignored for no such list), `advance(Duration)`

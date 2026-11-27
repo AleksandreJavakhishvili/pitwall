@@ -164,3 +164,22 @@ fn a_fake_server_answers_now_or_later() {
     assert!(status(&t).contains("not allowed to reach other.example.org"), "{}", status(&t));
     assert!(held.lock().unwrap().is_empty());
 }
+
+/// `net` taken back while a request is on its way: it arrives refused,
+/// and the fake's late answer is dropped.
+#[test]
+fn a_revoke_drops_the_fetch_on_its_way() {
+    use pitwall_extension_test::{NetReply, NetResponse};
+    use std::sync::{Arc, Mutex};
+    let held: Arc<Mutex<Vec<NetReply>>> = Arc::default();
+    let h = held.clone();
+    let mut t = Harness::load(services()).grant("net").serve(move |_, reply| h.lock().unwrap().push(reply)).open("main");
+    t.click_key("do/fetch");
+    assert_eq!(status(&t), "fetching");
+    t.revoke("net");
+    assert_eq!(status(&t), "fetch failed: not allowed to reach api.example.com");
+    let reply = held.lock().unwrap().pop().expect("the fake got it");
+    reply(Ok(NetResponse { status: 200, headers: vec![], body: b"late".to_vec(), url: "https://api.example.com/items?x=1".into() }));
+    t.settle();
+    assert_eq!(status(&t), "fetch failed: not allowed to reach api.example.com", "the late answer isn't delivered");
+}

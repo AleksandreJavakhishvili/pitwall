@@ -111,8 +111,12 @@ impl TileHandle {
     }
 
     /// The user granted or took back permissions; applies to the next
-    /// call, and the guest gets `grants-changed`. (The memory limit is
-    /// set at start: a new `memory` grant applies after a restart.)
+    /// call, and the guest gets `grants-changed`. What was started under
+    /// a grant that is gone ends: a `net`
+    /// request on its way when the reach shrank arrives `denied` and its
+    /// answer is dropped; project watches end without `files.read`;
+    /// badges on rows it may no longer see go. (The memory limit and the
+    /// database's size are set at start: they apply after a restart.)
     pub fn set_grants(&self, grants: Grants) -> bool {
         self.post(Msg::Grants(grants))
     }
@@ -456,8 +460,15 @@ impl<'a> Worker<'a> {
             Msg::Theme(t) => self.handle(Event::Theme(t)),
             Msg::Grants(g) => {
                 let names = g.names();
-                self.store.data_mut().grants = g;
-                self.handle(Event::GrantsChanged(names))
+                let dropped = self.store.data_mut().set_grants(g);
+                self.handle(Event::GrantsChanged(names))?;
+                // Requests on their way when their reach was taken back:
+                // refused, and their answers dropped when they come.
+                for (id, host) in dropped {
+                    let outcome = Err(crate::net::FetchError::Denied(host));
+                    self.handle(Event::Fetched(crate::net::Fetched { id, outcome }))?;
+                }
+                Ok(())
             }
             Msg::SettingsChanged => {
                 self.store.data_mut().settings = self.data.settings();
@@ -487,7 +498,7 @@ impl<'a> Worker<'a> {
             }
             // Cancelled (or from before a restart): dropped.
             Msg::Fetched(f) => {
-                if self.store.data_mut().fetches.remove(&f.id) {
+                if self.store.data_mut().fetches.remove(&f.id).is_some() {
                     self.handle(Event::Fetched(f))
                 } else {
                     Ok(())

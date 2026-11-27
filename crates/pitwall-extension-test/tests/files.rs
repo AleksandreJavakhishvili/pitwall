@@ -169,3 +169,16 @@ fn taking_files_write_back_refuses_the_next_write() {
     t.revoke("files.write").click_key("do/write");
     assert_eq!(status(&t), "write: not allowed: the permission isn't granted");
 }
+
+#[test]
+fn a_revoke_ends_the_project_watches() {
+    let mut t = shop().grant("files.read").open("main");
+    t.click_key("do/watch");
+    assert_eq!(t.watches(), 1);
+    t.revoke("files.read");
+    assert_eq!(t.watches(), 0, "the watch ended at once");
+    t.write_project_file("docs/a.md", "# A, again\n");
+    assert_eq!(key(&t, "changed"), "", "no change heard");
+    t.click_key("do/read");
+    assert_eq!(status(&t), "read: not allowed: the permission isn't granted");
+}
