@@ -61,6 +61,8 @@ world tile {
   import toolbar;
   /// The extension's own server.
   import service;
+  /// Answers to agents' calls of the tile's show tools.
+  import agent-tools;
 
   /// What Pitwall calls in the tile.
   export guest;

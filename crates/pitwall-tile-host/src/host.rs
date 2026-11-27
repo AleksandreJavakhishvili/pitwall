@@ -16,7 +16,7 @@ use wasmtime::component::ResourceTable;
 use wasmtime::StoreLimits;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
-use crate::bindings::pitwall::tile::{log, settings, storage, tasks, types, ui};
+use crate::bindings::pitwall::tile::{agent_tools, log, settings, storage, tasks, types, ui};
 use crate::clock::Clock;
 use crate::data::{KvError, KvStore};
 use crate::limits::{HOST_CALLS_PER_SECOND, MAX_GET_MANY, MAX_LOG_LINE, MAX_TIMERS, MAX_TOAST, MIN_TIMER, TOASTS_PER_MINUTE};
@@ -39,6 +39,10 @@ pub(crate) struct Timer {
 pub(crate) enum Pending {
     Log(LogLine),
     Ui(UiRequest),
+    /// `agent-tools.user-edited`.
+    Edited(u64),
+    /// How an agent's call ended.
+    Answer(u64, crate::agent::Answer),
 }
 
 /// A tile's store data.
@@ -96,6 +100,10 @@ pub(crate) struct HostState {
     /// Pitwall has said the state once (the first, sent after start,
     /// isn't a change).
     pub service_known: bool,
+    /// The agent's call being delivered now (`content.call` of the event
+    /// `handle` runs for), and the tile's reply to it, if any.
+    pub awaiting: Option<u64>,
+    pub reply: Option<agent_tools::ToolOutput>,
 }
 
 impl WasiView for HostState {
@@ -166,6 +174,8 @@ impl HostState {
             has_service: p.has_service,
             service: no_service(p.has_service),
             service_known: false,
+            awaiting: None,
+            reply: None,
         }
     }
 
@@ -438,6 +448,28 @@ impl settings::Host for HostState {
     fn open(&mut self) {
         if self.count_call() {
             self.pending.push(Pending::Ui(UiRequest::OpenSettings));
+        }
+    }
+}
+
+impl agent_tools::Host for HostState {
+    fn reply(&mut self, call: u64, out: agent_tools::ToolOutput) {
+        if !self.count_call() {
+            return;
+        }
+        if self.awaiting != Some(call) {
+            self.host_log(LogLevel::Warn, format!("reply to call {call} was dropped: Pitwall answers a call only while the event that delivered it is handled"));
+            return;
+        }
+        if self.reply.is_some() {
+            return;
+        }
+        self.reply = Some(crate::agent::capped(out));
+    }
+
+    fn user_edited(&mut self, call: u64) {
+        if self.count_call() {
+            self.pending.push(Pending::Edited(call));
         }
     }
 }

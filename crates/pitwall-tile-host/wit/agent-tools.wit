@@ -1,0 +1,62 @@
+package pitwall:tile@0.1.0;
+
+/// Answers to agents' calls of the tile's show tools (agent-tools.md
+/// §11.2–11.7). No permission: an answer describes only the agent's own
+/// input, and show tools change nothing outside the tile.
+///
+/// Every tile can be opened by an agent with Pitwall's own
+/// `<extension-id>__open`, and a manifest may declare show tools of kind
+/// `show` or `present` (`tools` on its tile entry). A call reaches the
+/// tile as `view-opened` (it opened a view) or `view-content` (it went to
+/// the view that is open), with the call's id, the tool and the agent in
+/// the `content` record. Pitwall has already checked the input against
+/// the tool's schema.
+///
+/// A `present` call is all or nothing: input with problems changes
+/// nothing, and the reply says why. Pitwall refuses, before the tile sees
+/// it, a call that would replace an item the user changed since
+/// (`user-edited`).
+interface agent-tools {
+  /// A problem in the agent's input, at a place in it when there is one
+  /// (lines and columns from 1).
+  record problem {
+    line: option<u32>,
+    column: option<u32>,
+    message: string,
+  }
+
+  /// What a call did: a short text for the agent (at most 4 KiB, cut
+  /// beyond; say what is shown, never the tile's data), optional JSON of
+  /// the same, and the item id it was shown under (when the tile chose
+  /// it).
+  record tool-ok {
+    text: string,
+    json: option<string>,
+    item: option<string>,
+  }
+
+  /// Why a call changed nothing: a message first, then each problem.
+  record tool-error {
+    message: string,
+    problems: list<problem>,
+  }
+
+  /// A call's answer.
+  variant tool-output {
+    ok(tool-ok),
+    error(tool-error),
+  }
+
+  /// Answer call `call` (from `content.call`). Only the first answer
+  /// counts, and only while Pitwall still waits for it: during the
+  /// `handle` that delivered the call. Without one, Pitwall answers with
+  /// what opened and where.
+  reply: func(call: u64, out: tool-output);
+
+  /// The user changed what call `call` put in the tile (they typed in an
+  /// agent's draft, moved its boxes). From now on that agent's calls with
+  /// the same item are refused, before the tile sees them, with "The user
+  /// changed this; show it under a new item id", so an agent never
+  /// overwrites the user's edits.
+  user-edited: func(call: u64);
+}

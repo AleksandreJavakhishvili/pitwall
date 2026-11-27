@@ -40,6 +40,32 @@ interface types {
     /// Binary payload (an image, a file's bytes), when the schema says
     /// so. At most 8 MiB.
     bytes: option<list<u8>>,
+    /// The agent's call that brought this content (agent-tools.md §11.3):
+    /// its id, also the origin id of what it put in the tile. Answer it
+    /// with `agent-tools.reply` to return problems in the input; without
+    /// a reply, Pitwall tells the agent what opened and where once
+    /// `handle` returns. `none`: the user opened the view.
+    call: option<u64>,
+    /// The tool called: a show tool the manifest declares (`tools`), or
+    /// `none` for the open Pitwall gives every tile
+    /// (`<extension-id>__open`), whose content is the tile's `"input"`.
+    tool: option<string>,
+    /// The agent that called, as Pitwall identified it (never what the
+    /// agent says about itself). `none`: the user opened the view.
+    /// Items are per agent: key what an agent shows by its agent id and
+    /// `id`, so two agents never replace each other's.
+    caller: option<caller>,
+  }
+
+  /// An agent calling a tile's tool, as Pitwall identified it from the
+  /// calling process.
+  record caller {
+    /// The agent's id in Pitwall (stable while the agent exists).
+    agent-id: string,
+    /// The agent's name, as the user sees it (`api`, `web`).
+    agent-name: string,
+    /// The agent's project folder, when it has one.
+    project: option<string>,
   }
 
   /// A view was opened.
