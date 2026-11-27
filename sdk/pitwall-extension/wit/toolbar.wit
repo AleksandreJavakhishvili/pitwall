@@ -1,0 +1,53 @@
+package pitwall:tile@0.1.0;
+
+/// The extension's button in Pitwall's top bar (ui.md §3.9), when its
+/// manifest declares one (`contributes.toolbar`). Pitwall draws it: an
+/// icon, a tooltip and maybe a badge. No permission; an extension without
+/// a toolbar item gets nothing from these (they are ignored).
+///
+/// A click with the `popover` action opens a small view of the tile under
+/// the button: it arrives as `view-opened` with the view id
+/// `toolbar:popover` and closes with `view-closed`. With `tile` or
+/// `popover`, the tile also gets `toolbar-clicked`.
+interface toolbar {
+  /// A badge on the button.
+  variant badge {
+    /// No badge.
+    none,
+    /// A dot.
+    dot,
+    /// A number (shown up to 99, then "99+").
+    count(u32),
+  }
+
+  /// A badge's colour.
+  enum badge-tone {
+    /// The accent colour.
+    normal,
+    /// Amber, like "needs you".
+    attention,
+  }
+
+  /// The button's badge, in every window (for a per-project item: in
+  /// spaces that aren't a project's). At most 4 changes a second: more
+  /// are merged into the newest. The badge shows while the component
+  /// runs; a manifest with `"badge": true` keeps it running while no tile
+  /// shows.
+  set-badge: func(badge: badge, tone: badge-tone);
+
+  /// A project's badge, for an item with `"scope": "project"` (shown
+  /// while that project's space is the window's). `project` is the id
+  /// `toolbar-clicked` gives.
+  set-project-badge: func(project: string, badge: badge, tone: badge-tone);
+
+  /// Change the tooltip (for example "3 unread"). At most 80 characters.
+  set-tooltip: func(text: string);
+
+  /// Show or hide the button. The user's choice is stronger: a button
+  /// the user hid stays hidden. At most one change in 5 seconds; each
+  /// start begins from the manifest's `visibleByDefault`.
+  set-shown: func(shown: bool);
+
+  /// Close the popover, if it is open (after a pick or a send).
+  close-popover: func();
+}

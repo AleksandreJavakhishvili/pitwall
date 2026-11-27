@@ -14,6 +14,10 @@ package pitwall:tile@0.1.0;
 /// themes and follows the user's appearance settings. There are no raw
 /// colours in 0.1.
 interface types {
+  // The payloads of `fetched` and `service-changed` (net.wit, service.wit).
+  use net.{fetched};
+  use service.{service-info};
+
   /// One open view of the tile: a place in Pitwall's layout showing one
   /// of the manifest's tiles (`contributes.tiles`). Chosen by Pitwall and
   /// stable while the view is open; a tile opened once has the tile's id
@@ -1157,6 +1161,14 @@ interface types {
     sort(sort-change),
     /// A table's column was resized.
     column-resized(column-width),
+    /// The answer to a `net.fetch` request (or why there is none).
+    fetched(fetched),
+    /// The extension's toolbar button was clicked (its action is `tile` or
+    /// `popover`): the id of the project whose space the window shows, if
+    /// any (for a per-project item).
+    toolbar-clicked(option<string>),
+    /// The extension's own server changed state (`service.info`).
+    service-changed(service-info),
   }
 
   /// What the tile gets when it starts.

@@ -22,7 +22,12 @@ use crate::data::{KvError, KvStore};
 use crate::limits::{HOST_CALLS_PER_SECOND, MAX_GET_MANY, MAX_LOG_LINE, MAX_TIMERS, MAX_TOAST, MIN_TIMER, TOASTS_PER_MINUTE};
 use crate::stdio::LogPipe;
 use crate::ui::{HostError, Tone};
+use crate::net::Fetcher;
+use crate::services::no_service;
+use crate::sql::Db;
+use crate::worker::Msg;
 use crate::{Grants, LogLevel, LogLine, Secrets, UiRequest};
+use pitwall_core::extensions::toolbar::ToolbarDef;
 
 /// A running timer.
 pub(crate) struct Timer {
@@ -71,6 +76,23 @@ pub(crate) struct HostState {
     pub group: crate::group::Group,
     /// Images put with `ui.put-image`: their sizes by name.
     pub images: BTreeMap<String, usize>,
+    /// `net`: who makes the requests, the ones waiting, and where their
+    /// answers go (the worker's own channel).
+    pub fetcher: Arc<dyn Fetcher>,
+    pub fetches: BTreeSet<u32>,
+    pub next_fetch: u32,
+    pub done: std::sync::mpsc::Sender<Msg>,
+    /// `sql`: its database, opened on first use.
+    pub db: Db,
+    /// `notify`: when each of the last ones was sent, and what.
+    pub notified: VecDeque<(Instant, String)>,
+    /// `toolbar`: the manifest's item, and when the tile last showed or
+    /// hid it.
+    pub toolbar: Option<ToolbarDef>,
+    pub shown_at: Option<Instant>,
+    /// `service`: whether the manifest declares one, and its state.
+    pub has_service: bool,
+    pub service: crate::ui::ServiceInfo,
 }
 
 impl WasiView for HostState {
@@ -95,6 +117,11 @@ pub(crate) struct StateParts {
     pub stderr: LogPipe,
     pub clock: Clock,
     pub group: crate::group::Group,
+    pub fetcher: Arc<dyn Fetcher>,
+    pub done: std::sync::mpsc::Sender<Msg>,
+    pub db: Db,
+    pub toolbar: Option<ToolbarDef>,
+    pub has_service: bool,
 }
 
 impl HostState {
@@ -125,6 +152,24 @@ impl HostState {
             clock: p.clock,
             group: p.group,
             images: BTreeMap::new(),
+            fetcher: p.fetcher,
+            fetches: BTreeSet::new(),
+            next_fetch: 1,
+            done: p.done,
+            db: p.db,
+            notified: VecDeque::new(),
+            toolbar: p.toolbar,
+            shown_at: None,
+            has_service: p.has_service,
+            service: no_service(p.has_service),
+        }
+    }
+
+    /// After each call into the tile: a database transaction it left open
+    /// is rolled back, with a line in the Log.
+    pub fn end_call(&mut self) {
+        if self.db.end_call() {
+            self.host_log(LogLevel::Warn, "a database transaction was still open when the call returned: it was rolled back (commit it in the same call)".into());
         }
     }
 

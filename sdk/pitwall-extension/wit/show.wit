@@ -1,0 +1,20 @@
+package pitwall:tile@0.1.0;
+
+/// Show the user a file or a web page in Pitwall (platform-services.md
+/// §14.2). Needs the `show` permission, off until the user turns it on;
+/// without it, `denied`. These only show: the tile gets nothing back, and
+/// Pitwall never comes forward or takes the keyboard from a terminal.
+interface show {
+  use types.{host-error};
+
+  /// Open the file at `path` (absolute, on this computer) in Pitwall's
+  /// editor, at `line` (1 is the first) when given; the editor opens in
+  /// the front window when it isn't open. `invalid` for a path that isn't
+  /// absolute. Opening the editor is all it does: the tile can't read the
+  /// file through it.
+  file: func(path: string, line: option<u32>) -> result<_, host-error>;
+
+  /// Open `url` (`https://`, or `http://` to this computer) in a new web
+  /// tile next to the tile's own. `invalid` for another kind of address.
+  web: func(url: string) -> result<_, host-error>;
+}

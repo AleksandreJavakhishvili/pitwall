@@ -15,11 +15,15 @@ package pitwall:tile@0.1.0;
 /// What a tile's component imports from Pitwall and exports to it.
 ///
 /// Most imports here work without a permission: each one reaches only the
-/// tile's own things (its tree, its log, its timers, its stored data, its
-/// settings). Those that reach Pitwall's agents need a permission the user
-/// grants (`agents.read`, `agents.queue`), and badges and questions need
-/// the manifest to contribute them; a tile that isn't granted one gets
-/// `host-error.denied` from it instead of failing to load.
+/// tile's own things (its tree, its log, its timers, its stored data and
+/// database, its settings, its toolbar button, its own server). Those
+/// that reach Pitwall's agents need a permission the user grants
+/// (`agents.read`, `agents.queue`), and badges and questions need the
+/// manifest to contribute them; `net`, `notify` and `show` need the
+/// permission of that name. A tile that isn't granted one gets
+/// `host-error.denied` from it instead of failing to load, and can ask
+/// again later (a `grants-changed` event says when the user changed
+/// them).
 ///
 /// Besides these, the host provides WASI 0.2 for what Rust's standard
 /// library needs: the wall and monotonic clocks (`std::time::SystemTime`
@@ -45,6 +49,18 @@ world tile {
   import badges;
   /// Questions in the floating control (`"asks": true`).
   import asks;
+  /// HTTP requests to the hosts the user granted (`net`).
+  import net;
+  /// The extension's own SQLite database.
+  import sql;
+  /// System notifications (`notify`).
+  import notify;
+  /// Open a file in the editor or a page in a web tile (`show`).
+  import show;
+  /// The extension's toolbar button.
+  import toolbar;
+  /// The extension's own server.
+  import service;
 
   /// What Pitwall calls in the tile.
   export guest;
