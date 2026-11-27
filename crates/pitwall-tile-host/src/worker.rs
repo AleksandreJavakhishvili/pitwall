@@ -313,7 +313,7 @@ impl<'a> Worker<'a> {
             stdout,
             stderr,
             clock: options.clock.clone(),
-            group: crate::group::Group::new(manifest.contributes.badges, manifest.contributes.asks, inner.config.methods.clone()),
+            group: crate::group::Group::new(manifest.contributes.badges, manifest.contributes.asks, inner.config.methods.clone()).with_status(manifest),
             fetcher: host.fetcher(),
             done: done.clone(),
             db: crate::sql::Db::new(&extension_data_dir(data_dir, ext.id()), options.grants.sql_quota()),

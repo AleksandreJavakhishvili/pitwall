@@ -1,0 +1,25 @@
+package pitwall:tile@0.1.0;
+
+/// The extension's connection to its service, as the user sees it
+/// (platform-services.md, "Status"): the pill on its card in Settings,
+/// the Connected step of its checklist, and the update's check that it
+/// connects again, the same as an adapter's status. Only when the
+/// manifest says `"status": true` in `contributes`.
+interface status {
+  /// How the connection is.
+  enum state {
+    /// Starting to connect, or connecting again.
+    connecting,
+    /// Connected and working.
+    ready,
+    /// A credential is missing, wrong, expired or lacks access.
+    signed-out,
+    /// It can't connect, or the service failed.
+    error,
+  }
+
+  /// The connection now, with a sentence for the user (at most 500
+  /// characters; for `ready`, usually empty). Until the first call it is
+  /// `connecting`. Ignored without the contribution (noted in the Log).
+  set: func(state: state, message: string);
+}

@@ -93,6 +93,8 @@ pub use pitwall_tile_host::net::{Done as NetReply, Header as NetHeader, Outgoing
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 /// What a component asked of Pitwall's UI ([`Session::ui_requests`]).
 pub use pitwall_tile_host::UiRequest;
+/// A connection's state, as a tile reports it ([`Session::status`]).
+pub use pitwall_core::extensions::protocol::ConnState;
 /// A component's new value, as `value-changed` carries it.
 pub use pitwall_tile_host::ui::ControlValue;
 /// How wide a text is in Pitwall's fonts, as `ui.measure-text` answers a
@@ -1601,6 +1603,16 @@ impl Session {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The connection status it reports now (`status.set`), with its
+    /// sentence; `None` before its first report (Pitwall shows
+    /// "Connecting").
+    pub fn status(&self) -> Option<(ConnState, String)> {
+        self.ui.iter().rev().find_map(|r| match r {
+            UiRequest::Status { state, message } => Some((*state, message.clone())),
+            _ => None,
+        })
     }
 
     /// Everything it asked of Pitwall's UI (toasts, views to open, scrolls,

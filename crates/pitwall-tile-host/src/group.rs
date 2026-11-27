@@ -16,7 +16,7 @@ use std::sync::Arc;
 use pitwall_core::extensions::permissions::{AGENTS_QUEUE, AGENTS_READ, PROJECTS_READ};
 use serde_json::{json, Value};
 
-use crate::bindings::pitwall::tile::{agents, asks, badges};
+use crate::bindings::pitwall::tile::{agents, asks, badges, status};
 use crate::host::{cut, HostState};
 use crate::ui::HostError;
 use crate::{LogLevel, UiRequest};
@@ -83,13 +83,20 @@ pub(crate) struct Group {
     pub badges: bool,
     /// The manifest contributes `asks`.
     pub asks: bool,
+    /// The manifest contributes `status`.
+    pub status: bool,
     pub methods: Arc<dyn Methods>,
     noted: BTreeSet<String>,
 }
 
 impl Group {
     pub fn new(badges: bool, asks: bool, methods: Arc<dyn Methods>) -> Group {
-        Group { badges, asks, methods, noted: BTreeSet::new() }
+        Group { badges, asks, status: false, methods, noted: BTreeSet::new() }
+    }
+
+    /// With the status, when `m` contributes it.
+    pub fn with_status(self, m: &pitwall_core::extensions::Manifest) -> Group {
+        Group { status: m.tile_status(), ..self }
     }
 }
 
@@ -273,6 +280,27 @@ impl asks::Host for HostState {
             let refused = refused.map(|r| chars(&r, 200)).filter(|r| !r.is_empty());
             self.pending.push(crate::host::Pending::Ui(UiRequest::AskResult { id, refused }));
         }
+    }
+}
+
+impl status::Host for HostState {
+    fn set(&mut self, state: status::State, message: String) {
+        use pitwall_core::extensions::protocol::{clean, ConnState};
+        if !self.count_call() {
+            return;
+        }
+        if !self.group.status {
+            self.note_once("status", "status.set: the manifest doesn't contribute \"status\"".into());
+            return;
+        }
+        let state = match state {
+            status::State::Connecting => ConnState::Connecting,
+            status::State::Ready => ConnState::Ready,
+            status::State::SignedOut => ConnState::SignedOut,
+            status::State::Error => ConnState::Error,
+        };
+        let message = clean(&message, 500, false);
+        self.pending.push(crate::host::Pending::Ui(UiRequest::Status { state, message }));
     }
 }
 

@@ -422,6 +422,7 @@ impl Hub {
     /// Start, stop or start again each adapter to match its extension's
     /// switch, its connections and their settings.
     pub fn reconcile(&mut self, cx: &mut Context<Self>) {
+        cx.defer(crate::tiles::shortcuts::sync);
         let found = super::found(cx);
         let ui = crate::ui_state::get(cx);
         let list = crate::accounts::model(cx).read(cx).list.clone();
@@ -429,6 +430,26 @@ impl Hub {
         self.targets.clear();
         self.idle.clear();
         for m in found.iter().filter_map(|f| f.manifest.as_ref().ok()) {
+            // A tile reports its status (`status.set`): kept as an
+            // adapter's, for the connection its settings are read from; its
+            // component kept running while the extension is on.
+            if m.tile_status() && ui.extension_on(&m.id) {
+                let (c, name) = super::connections::settings_target(&m.id, cx).map(|a| (a.id.clone(), a.name.clone())).unwrap_or_else(|| (String::new(), m.name.clone()));
+                let key: Key = (m.id.clone(), c.clone());
+                wanted.insert(key.clone());
+                let st = self.runs.entry(key).or_default();
+                if matches!(st.run, Run::Off | Run::Setup(_)) {
+                    st.run = Run::Starting;
+                }
+                self.targets.insert(m.id.clone(), vec![(c, name)]);
+                let id = m.id.clone();
+                cx.defer(move |cx| {
+                    if let Some(t) = crate::tiles::try_tiles(cx) {
+                        t.update(cx, |t, cx| t.keep(&id, cx));
+                    }
+                });
+                continue;
+            }
             if m.adapter.is_none() || !ui.extension_on(&m.id) {
                 self.idle.insert(m.id.clone(), Run::Off);
                 // Off: its log is forgotten.
@@ -588,8 +609,52 @@ impl Hub {
         self.merged.insert(ext.to_string(), out);
     }
 
-    /// Start extension `id`'s adapters again (after they stopped).
+    /// The state kept for extension `ext`'s tile's status, when it reports
+    /// one and is on.
+    fn tile_state(&mut self, ext: &str) -> Option<&mut ExtState> {
+        let (c, _) = self.targets.get(ext)?.first()?.clone();
+        self.runs.get_mut(&(ext.to_string(), c))
+    }
+
+    /// Extension `ext`'s tile reported its connection (`status.set`).
+    pub fn tile_reported(&mut self, ext: &str, state: ConnState, message: String, cx: &mut Context<Self>) {
+        let Some(st) = self.tile_state(ext) else { return };
+        st.run = Run::Running;
+        st.conn = Some((state, message));
+        self.merge(ext);
+        cx.notify();
+    }
+
+    /// Extension `ext`'s component started (again): connecting until it
+    /// reports.
+    pub fn tile_started(&mut self, ext: &str, cx: &mut Context<Self>) {
+        let Some(st) = self.tile_state(ext) else { return };
+        st.run = Run::Running;
+        st.conn = None;
+        self.merge(ext);
+        cx.notify();
+    }
+
+    /// Extension `ext`'s component stopped, and why.
+    pub fn tile_stopped(&mut self, ext: &str, why: String, cx: &mut Context<Self>) {
+        let Some(st) = self.tile_state(ext) else { return };
+        st.run = Run::Stopped(why);
+        st.conn = None;
+        self.merge(ext);
+        cx.notify();
+    }
+
+    /// Start extension `id`'s adapters again (after they stopped); for one
+    /// whose tile reports its status, its component.
     pub fn restart(&mut self, id: &str, cx: &mut Context<Self>) {
+        if crate::extensions::manifest_of(id, cx).is_some_and(|m| m.tile_status()) {
+            let id = id.to_string();
+            cx.defer(move |cx| {
+                if let Some(t) = crate::tiles::try_tiles(cx) {
+                    t.update(cx, |t, cx| t.restart(&id, cx));
+                }
+            });
+        }
         for (k, st) in self.runs.iter_mut() {
             if k.0 == id {
                 Self::stop(st);

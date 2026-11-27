@@ -4,17 +4,19 @@
   "name": "Release desk",
   "version": "0.1.0",
   "icon": "inbox",
-  "description": "A test fixture of the agents' questions group: agents, badges, questions and Next up",
+  "description": "A test fixture of the agents' questions group: agents, badges, questions and Next up; a status, a shortcut and take-back",
   "license": "Apache-2.0",
   "permissions": {
     "agents.read": "To list your agents and show which one it asks about",
-    "agents.queue": "To put a prompt in an agent's Next up, waiting for your Send"
+    "agents.queue": "To put a prompt in an agent's Next up, waiting for your Send",
+    "shortcut": "To open the release desk from anywhere"
   },
   "contributes": {
     "tiles": [
-      { "id": "main", "title": "Release desk", "icon": "inbox", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0" }
+      { "id": "main", "title": "Release desk", "icon": "inbox", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "shortcut": "cmd-shift-y" }
     ],
     "badges": true,
-    "asks": true
+    "asks": true,
+    "status": true
   }
 }

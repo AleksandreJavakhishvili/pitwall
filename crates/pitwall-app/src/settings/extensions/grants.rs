@@ -420,8 +420,61 @@ impl SettingsView {
             if p.name == permissions::AGENTS_QUEUE && decisions.get(&p.name).is_some_and(|d| d.granted) {
                 col = col.child(self.send_without_asking(ui, m, cx));
             }
+            if p.name == permissions::SHORTCUT && decisions.get(&p.name).is_some_and(|d| d.granted) {
+                for t in m.contributes.tiles.iter().filter(|t| t.shortcut.is_some()) {
+                    col = col.child(self.shortcut_row(ui, m, &t.id, cx));
+                }
+            }
         }
         Some(col)
+    }
+
+    /// A tile's shortcut, under the granted `shortcut` permission: its keys
+    /// in a field (as tiles write them, `cmd-shift-u`; empty puts back the
+    /// ones it suggests), what they read as here, and why they aren't
+    /// bound when they aren't (Pitwall's own, another extension's).
+    fn shortcut_row(&mut self, ui: &Ui, m: &Manifest, tile: &str, cx: &mut Context<Self>) -> Div {
+        let Some(s) = crate::tiles::shortcuts::of_tile(&m.id, tile, cx) else { return div() };
+        let k = (m.id.clone(), format!("shortcut:{tile}"));
+        let input = match self.exts.inputs.get(&k) {
+            Some(i) => i.clone(),
+            None => {
+                let input = cx.new(|cx| TextInput::new(cx, &s.keys, &s.suggested));
+                let (ext, tile, key) = (m.id.clone(), tile.to_string(), k.clone());
+                let sub = cx.subscribe(&input, move |v, input, e: &InputEvent, cx| {
+                    if !matches!(e, InputEvent::Blur | InputEvent::Submit) {
+                        return;
+                    }
+                    let text = input.read(cx).text().to_string();
+                    match crate::tiles::shortcuts::set_keys(&ext, &tile, &text, cx) {
+                        Ok(()) => {
+                            v.exts.notes.remove(&key);
+                        }
+                        Err(why) => {
+                            v.exts.notes.insert(key.clone(), why);
+                        }
+                    }
+                    cx.notify();
+                });
+                self.exts._subs.push(sub);
+                self.exts.inputs.insert(k.clone(), input.clone());
+                input
+            }
+        };
+        let status = match (self.exts.notes.get(&k), &s.off) {
+            (Some(n), _) => div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()),
+            (None, Some(why)) => div().text_size(px(12.)).text_color(ui.t.amber).child(why.clone()),
+            (None, None) => crate::kit::hint(format!("{} opens {} from anywhere in Pitwall. Write other keys, like cmd-shift-u, or leave it empty for {}.", s.label(), s.title, pitwall_core::extensions::keys::shortcut_label(&s.suggested, cfg!(target_os = "macos"))), &ui.t),
+        };
+        div()
+            .debug_selector(move || format!("extension-shortcut-{}-{}", s.ext, s.tile))
+            .flex()
+            .flex_col()
+            .gap(px(5.))
+            .pl(px(12.))
+            .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.t.text).child(format!("Shortcut for {}", s.title)))
+            .child(div().max_w(px(220.)).child(input))
+            .child(status)
     }
 
     /// "Agents can use <tile>", in a card that is on: a switch per tile

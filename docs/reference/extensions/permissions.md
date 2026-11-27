@@ -33,8 +33,9 @@ What every tile has, with no permission, reaches only its own things:
 | `projects.read` | Your projects' folders; badges on projects' rows | on | Low |
 | `files.read` | Reading the files of the project each of its tiles is open in, and following their changes. Never `.git`, never another project | on | Medium: what it reads, a `.env` file too, can reach the servers it may connect to |
 | `files.write` | Writing, making, renaming and moving to the Trash files of the project each of its tiles is open in. Never `.git` or Pitwall's own files | off | High: you and your agents run what is in your projects; a file it changes changes what runs next |
+| `shortcut` | Keys that open one of its tiles from anywhere in Pitwall ([A shortcut to open a tile](ui.md#a-shortcut-to-open-a-tile)). Never Pitwall's own keys; you can change them in its card | off | Low: its keys open its tile instead of doing what they did before |
 
-Badges on sidebar rows and questions in the floating control need no permission: the extension declares them (`"badges": true`, `"asks": true`), and the permission screen lists them under "Adds to Pitwall" ("badges and short notes on agents' and projects' rows in the sidebar", "questions in the floating control, answered there or in its tile").
+Badges on sidebar rows and questions in the floating control need no permission: the extension declares them (`"badges": true`, `"asks": true`), and the permission screen lists them under "Adds to Pitwall" ("badges and short notes on agents' and projects' rows in the sidebar", "questions in the floating control, answered there or in its tile"). A connection status on its card (`"status": true`) needs none either.
 
 `memory` and `sql` are granted with the extension when you turn it on: the permission screen and the extension's card show them with their size ("256 MiB"), not as a switch. `pitwall extension check` shows the sizes an extension asks for.
 
@@ -98,7 +99,7 @@ In `extension.json`, a permission's value is its reason, or an object with the r
 - `memory`: its size in MiB, more than 64 and at most 512: `"memory": { "reason": "To hold large diagrams", "mib": 128 }`.
 - `sql`: its size in MiB, more than 100 and at most 2048: `"sql": { "reason": "To keep a year of builds", "mib": 500 }`.
 - `net`: the hosts, at most 32: `"net": { "reason": "To read your builds", "hosts": ["ci.example.com"] }`. A host the user sets is named by its `url` setting, `"{setting:server}"` ([Platform services](platform-services.md)).
-- `notify`, `show`, `files.read` and `files.write`: the reason alone.
+- `notify`, `show`, `files.read`, `files.write` and `shortcut`: the reason alone (`shortcut` with a tile that has a `"shortcut"`).
 
 In the tile, `cx.is_granted("memory")` and `cx.granted()` say what the user granted. When it changes, the tile hears `Event::GrantsChanged`, and by default it renders again. A call that needs a permission the tile wasn't granted fails with `HostError::Denied`; the tile should carry on without it and say what is missing.
 

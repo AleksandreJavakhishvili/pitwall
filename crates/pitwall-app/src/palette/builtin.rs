@@ -325,7 +325,12 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         let id = format!("tile-{}/{}", t.ext, t.tile);
         let words = format!("open tile {} {} extension", t.title.to_lowercase(), t.name.to_lowercase());
         let (ext, view) = (t.ext, t.tile);
-        out.push(Command::new(id, t.label, words, on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx))).icon(t.icon).rank(rank::TERMINALS));
+        let keys = crate::tiles::shortcuts::of_tile(&ext, &view, cx).filter(|s| s.off.is_none()).map(|s| crate::tiles::shortcuts::forever(&pitwall_core::extensions::keys::shortcut_label(&s.keys, true)));
+        let cmd = Command::new(id, t.label, words, on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx))).icon(t.icon).rank(rank::TERMINALS);
+        out.push(match keys {
+            Some(k) => cmd.keys(k),
+            None => cmd,
+        });
     }
     // Tiles' tools offered to the palette (`"expose": ["palette"]`):
     // "<Extension>: <title>", run as the user's own; one that needs input

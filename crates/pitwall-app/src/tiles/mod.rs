@@ -55,10 +55,15 @@ pub mod canvas;
 pub mod form;
 pub mod group;
 pub mod render;
+pub mod shortcuts;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 pub(crate) mod group_tests;
+#[cfg(test)]
+mod report_tests;
+#[cfg(test)]
+mod report_shots;
 #[cfg(test)]
 mod group_shots;
 #[cfg(test)]
@@ -1071,6 +1076,8 @@ impl Tiles {
             TileOutput::Preparing => r.state = State::Starting { preparing: true },
             TileOutput::Started { .. } => {
                 r.state = State::Running;
+                let ext = id.to_string();
+                cx.defer(move |cx| crate::extensions::hub::hub(cx).update(cx, |h, cx| h.tile_started(&ext, cx)));
                 // Shown views are drawn at once; none shown, the steps of
                 // hiding are timed from now. One kept for its badge runs
                 // as if shown.
@@ -1113,6 +1120,10 @@ impl Tiles {
             TileOutput::Ui(UiRequest::AskResult { id: ask, refused }) => {
                 r.group.replied(&ask, refused);
                 cx.defer(crate::float::sync);
+            }
+            TileOutput::Ui(UiRequest::Status { state, message }) => {
+                let ext = id.to_string();
+                cx.defer(move |cx| crate::extensions::hub::hub(cx).update(cx, |h, cx| h.tile_reported(&ext, state, message, cx)));
             }
             // Rows and images for its views ([`view::Comps`]).
             TileOutput::Rows(u) => r.comps.rows_arrived(u),
@@ -1166,6 +1177,8 @@ impl Tiles {
                 } else {
                     let words = stop_words(&why);
                     r.state = State::Stopped(why);
+                    let (ext, said) = (id.to_string(), words.clone());
+                    cx.defer(move |cx| crate::extensions::hub::hub(cx).update(cx, |h, cx| h.tile_stopped(&ext, said, cx)));
                     self.fail_waiting(id, &words);
                 }
             }
@@ -1222,7 +1235,7 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
         UiRequest::OpenSettings => crate::windows::open_extension_settings(id, cx),
         // Kept for its view, the sidebar and the floating control in
         // `Tiles::apply`.
-        UiRequest::ScrollTo { .. } | UiRequest::Badges(_) | UiRequest::Asks(_) | UiRequest::AskResult { .. } | UiRequest::PutImage { .. } | UiRequest::DropImage(_) => {}
+        UiRequest::ScrollTo { .. } | UiRequest::Badges(_) | UiRequest::Asks(_) | UiRequest::AskResult { .. } | UiRequest::Status { .. } | UiRequest::PutImage { .. } | UiRequest::DropImage(_) => {}
         // As for an agent that needs the user (not while Pitwall is in
         // front), and a toast with Open in the main window.
         UiRequest::Notify { title, body } => {

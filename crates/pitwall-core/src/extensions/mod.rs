@@ -49,6 +49,7 @@ pub mod activity;
 pub mod check;
 pub mod index;
 pub mod install;
+pub mod keys;
 pub mod log;
 pub mod net;
 pub mod npm;
@@ -82,7 +83,7 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 9] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks", "toolbar"];
+pub const CONTRIBUTES: [&str; 10] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks", "toolbar", "status"];
 
 /// A contribution an older Pitwall drew and this one no longer does: read
 /// and never drawn, so a manifest that has it still installs (its check
@@ -231,6 +232,10 @@ pub struct Contributes {
     pub asks: bool,
     /// A button in Pitwall's top bar ([`toolbar`]; at most one).
     pub toolbar: Option<toolbar::ToolbarDef>,
+    /// A connection status its tile reports (`status.set`), shown as an
+    /// adapter's is: the card's pill, its checklist's Connected step and
+    /// the update's check that it connects again.
+    pub status: bool,
 }
 
 /// A tile a manifest declares: its id (the view its component renders),
@@ -255,6 +260,11 @@ pub struct TileDef {
     /// Whether agents may open it and use its tools (`"agents": false`
     /// says no; Pitwall then offers no `<extension-id>__open` for it).
     pub agents: bool,
+    /// The keys it suggests for opening it from anywhere in Pitwall
+    /// (`cmd-shift-u`; [`keys::shortcut_problem`]), written the one way.
+    /// Bound only once the user grants the `shortcut` permission; they may
+    /// change the keys.
+    pub shortcut: Option<String>,
 }
 
 /// A web view a manifest declares: a page in a web tile. Its address is
@@ -304,6 +314,9 @@ impl Contributes {
         let mut out = Vec::new();
         if self.inbox {
             out.push("an inbox, from its adapter's threads".to_string());
+        }
+        if self.status {
+            out.push("a connection status on its card, from its tile".to_string());
         }
         out.extend(self.views.iter().map(|v| format!("a view tile “{}” ({})", v.title, v.id)));
         out.extend(self.commands.iter().map(|c| match c.context {
@@ -429,6 +442,17 @@ impl Manifest {
     /// in format 2 one that contributes it.
     pub fn has_inbox(&self) -> bool {
         self.adapter.is_some() && (self.format < 2 || self.contributes.inbox)
+    }
+
+    /// Its tile reports a connection status as an adapter does
+    /// (`contributes.status`).
+    pub fn tile_status(&self) -> bool {
+        self.adapter.is_none() && !self.contributes.tiles.is_empty() && self.contributes.status
+    }
+
+    /// It has a connection status: its adapter's, or its tile's.
+    pub fn reports_status(&self) -> bool {
+        self.adapter.is_some() || self.tile_status()
     }
 }
 
@@ -935,6 +959,9 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     if contributes.inbox && adapter.is_none() {
         return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
     }
+    if contributes.status && contributes.tiles.is_empty() {
+        return Err("\"contributes.status\" needs \"tiles\": a tile reports it (an adapter always does)".into());
+    }
     if contributes.asks && contributes.tiles.is_empty() {
         return Err("\"contributes.asks\" needs \"tiles\": a tile asks the questions and hears the answers".into());
     }
@@ -945,6 +972,13 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         if let Some((what, _)) = what {
             return Err(format!("\"contributes.{what}\" needs an \"adapter\": Pitwall draws what it sends"));
         }
+    }
+    if let Some(t) = contributes.tiles.iter().find(|t| t.shortcut.is_some()) {
+        if !permissions.iter().any(|p| p.name == permissions::SHORTCUT) {
+            return Err(format!("tile “{}” has a \"shortcut\": it needs the \"shortcut\" permission, with your reason for it", t.id));
+        }
+    } else if permissions.iter().any(|p| p.name == permissions::SHORTCUT) {
+        return Err("the \"shortcut\" permission needs a tile with a \"shortcut\"".into());
     }
     if contributes.notifications && !permissions.iter().any(|p| p.name == permissions::NOTIFY) {
         return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
@@ -1098,6 +1132,7 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             "webViews" => c.web_views = parse_web_views(val)?,
             "tiles" => c.tiles = parse_tiles(val)?,
             "asks" => c.asks = switch(k, val)?,
+            "status" => c.status = switch(k, val)?,
             // Checked once the tiles and commands it names are read.
             "toolbar" => toolbar = Some(val),
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
@@ -1180,7 +1215,19 @@ fn parse_tiles(v: &Value) -> Result<Vec<TileDef>, String> {
             Some(Value::Bool(b)) => *b,
             Some(_) => return Err(format!("tile “{id}”: \"agents\" must be true or false")),
         };
-        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world, input, tools, agents });
+        let shortcut = match opt_str(o, "shortcut")? {
+            None => None,
+            Some(k) => match keys::shortcut_problem(k) {
+                Some(why) => return Err(format!("tile “{id}”: \"shortcut\" {why}")),
+                None => keys::shortcut_normal(k),
+            },
+        };
+        if let Some(k) = &shortcut {
+            if out.iter().any(|t| t.shortcut.as_ref() == Some(k)) {
+                return Err(format!("tile “{id}”: two tiles have the shortcut “{k}”"));
+            }
+        }
+        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world, input, tools, agents, shortcut });
     }
     let n: usize = out.iter().map(|t| t.tools.len()).sum();
     if n > tools::MAX_TOOLS {
@@ -1959,7 +2006,7 @@ mod tests {
     fn tiles_are_read_and_checked() {
         let m = |extra: &str| format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{{extra}}}}}"#);
         let ok = parse(&m(r#""tiles": [{"id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "schemas/open.json"}, {"id": "other", "title": "Other", "wasm": "build/other.wasm"}]"#)).unwrap();
-        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()), input: Some("schemas/open.json".into()), tools: vec![], agents: true });
+        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()), input: Some("schemas/open.json".into()), tools: vec![], agents: true, shortcut: None });
         assert_eq!(ok.contributes.tile("other").map(|t| t.world.clone()), Some(None));
         assert!(ok.contributes.lines().iter().any(|l| l.contains("a tile “Hello” (main)")));
         let err = |extra: &str| parse(&m(extra)).unwrap_err();
@@ -1991,6 +2038,19 @@ mod tests {
         assert!(with(r#""net": {"reason": "x", "hosts": ["10.1.2.3"]}"#).unwrap_err().contains("IP address"));
         assert!(with(r#""sql": {"reason": "x", "mib": 50}"#).unwrap_err().contains("above 100"));
         assert!(with(r#""sql": {"reason": "x", "mib": 4096}"#).unwrap_err().contains("at most 2048"));
+        // A tile's `shortcut`: a free cmd key, granted with `shortcut`
+        // (never on by default); `status` from a tile.
+        let sc = |tile: &str, p: &str, c: &str| parse(&format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "permissions": {{{p}}}, "contributes": {{"tiles": [{{"id": "t", "title": "Desk", "wasm": "t.wasm"{tile}}}]{c}}}}}"#));
+        let ok = sc(r#", "shortcut": "Shift-Cmd-U""#, r#""shortcut": "To open the desk from anywhere""#, r#", "status": true"#).unwrap();
+        assert_eq!(ok.contributes.tiles[0].shortcut.as_deref(), Some("cmd-shift-u"));
+        assert!(!permissions::on_by_default(permissions::SHORTCUT));
+        assert_eq!(permissions::listed(&ok, permissions::SHORTCUT).len(), 1);
+        assert!(ok.tile_status() && ok.reports_status() && !ok.has_inbox());
+        assert!(ok.contributes.lines().iter().any(|l| l.contains("connection status")));
+        assert!(sc(r#", "shortcut": "cmd-shift-u""#, "", "").unwrap_err().contains("needs the \"shortcut\" permission"));
+        assert!(sc("", r#""shortcut": "x""#, "").unwrap_err().contains("needs a tile with a \"shortcut\""));
+        assert!(sc(r#", "shortcut": "cmd-k""#, r#""shortcut": "x""#, "").unwrap_err().contains("Pitwall's own"));
+        assert!(!sc("", "", "").unwrap().reports_status());
         // `toolbar`: one item, checked against its tiles.
         let tb = |t: &str| parse(&format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{"toolbar": {t}, "tiles": [{{"id": "t", "title": "T", "wasm": "t.wasm"}}]}}}}"#));
         let m = tb(r#"{"icon": "inbox", "tooltip": "Inbox", "badge": true, "action": {"kind": "popover", "tile": "t"}}"#).unwrap();
@@ -2017,7 +2077,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks, toolbar)"));
+        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks, toolbar, status)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));

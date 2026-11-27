@@ -2049,6 +2049,11 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &FontReset, _, cx| this.step_font(None, cx)))
             .on_action(cx.listener(|this, _: &OpenWebPage, window, cx| this.open_web_page(window, cx)))
             .on_action(cx.listener(|this, _: &OpenInbox, window, cx| this.open_inbox(None, None, window, cx)))
+            // A tile's shortcut: its tile; keys no longer any tile's go on.
+            .on_action(cx.listener(|this, a: &crate::tiles::shortcuts::TileShortcut, window, cx| match crate::tiles::shortcuts::target(&a.keystroke, cx) {
+                Some((ext, tile)) => this.open_view(&ext, &tile, None, window, cx),
+                None => cx.propagate(),
+            }))
             .on_action(cx.listener(|this, _: &MoveSpaceToWindow, _, cx| {
                 if let Some(id) = this.active_space().map(|s| s.id.clone()) {
                     this.move_space(id, cx);

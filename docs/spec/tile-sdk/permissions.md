@@ -23,6 +23,7 @@ adapter, a tile's code *can't* do more than it is given.
 | `git.remote` | Fetch, pull, push with the user's git credentials | off, asks each push | High: publishes work |
 | `clipboard.read` | Read the clipboard | off | Medium |
 | `memory` (a number, MiB) | Linear memory above the 64 MiB default | shown, not a switch | Low |
+| `shortcut` | Keys that open one of its tiles from anywhere in Pitwall (`contributes.tiles[].shortcut`; `cmd-` or `cmd-shift-` and a letter, digit or F-key, never Pitwall's own; the user may change them in its card) [built] | off | Low: its keys open its tile |
 
 The existing ones (`agents.read`, `projects.read`, `worktrees.read`,
 `profiles.read`, `show`, `agents.focus`, `agents.queue`,

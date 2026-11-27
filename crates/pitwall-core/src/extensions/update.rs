@@ -289,8 +289,8 @@ pub fn plan(old: &Manifest, new: &Manifest, i: &PlanInput) -> Vec<Planned> {
         }
         service_steps.push(Planned { step: Step::ServiceStart, title: format!("Starts {} and waits until it is up (at most {READY_TIMEOUT_SECS} s).", s.label), lines: vec![] });
     }
-    let health = if service || (i.on && new.adapter.is_some()) {
-        let what = match (service, new.adapter.is_some()) {
+    let health = if service || (i.on && new.reports_status()) {
+        let what = match (service, new.reports_status()) {
             (true, true) => format!("{} is up and {} connects as before", label(new), new.name),
             (true, false) => format!("{} is up", label(new)),
             _ => format!("{} connects as before", new.name),
