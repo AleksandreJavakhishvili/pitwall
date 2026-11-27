@@ -805,7 +805,7 @@ impl TileView {
             ui::Style::DropTarget(d) => Some(d.clone()),
             _ => None,
         });
-        if click.is_none() && hover.is_none() && pointer.is_none() && wheel.is_none() && drag.is_none() && drop.is_none() {
+        if !self.ui.probed(path) && click.is_none() && hover.is_none() && pointer.is_none() && wheel.is_none() && drag.is_none() && drop.is_none() {
             return d;
         }
         d = d.relative().child(bounds_probe(st));

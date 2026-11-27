@@ -159,6 +159,22 @@ pub(super) struct ViewUi {
     open: Option<OpenMenu>,
     /// Rows' image assets, checked once each (rows are drawn often).
     assets: std::cell::RefCell<HashMap<String, Option<PathBuf>>>,
+    /// Nodes whose bounds are kept for screenshots (tests).
+    #[cfg(test)]
+    probe: std::collections::HashSet<String>,
+}
+
+impl ViewUi {
+    /// Whether the node at `path` keeps its bounds even with no listener.
+    #[cfg(test)]
+    pub(super) fn probed(&self, path: &str) -> bool {
+        self.probe.contains(path)
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn probed(&self, _path: &str) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
@@ -1027,6 +1043,19 @@ impl TileView {
     /// The keys of the rows Pitwall has of the list at `path`, by index.
     pub fn row_keys(&self, path: &str, cx: &App) -> Vec<(u32, String)> {
         self.tiles.read(cx).get(&self.ext).map(|r| r.comps.row_keys(&self.tile, path)).unwrap_or_default()
+    }
+
+    /// Keep the bounds of the nodes at `paths` as they're drawn, for
+    /// screenshots of one component (tests).
+    #[cfg(test)]
+    pub fn probe(&mut self, paths: &[&str]) {
+        self.ui.probe.extend(paths.iter().map(|p| p.to_string()));
+    }
+
+    /// Where the node at `path` was last drawn (probed or listening).
+    #[cfg(test)]
+    pub fn node_bounds(&self, path: &str) -> Option<gpui::Bounds<Pixels>> {
+        self.nodes.get(path).and_then(|s| s.bounds.get())
     }
 
     /// Scroll the list at `path` to row `ix`.
