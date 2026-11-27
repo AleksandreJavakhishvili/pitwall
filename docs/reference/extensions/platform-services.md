@@ -69,7 +69,7 @@ In tests, `stored(key)` and `stored_json(key)` read what the tile stored.
 
 ## Settings
 
-An extension declares its settings in its manifest's `settings` list. Pitwall draws the form on the extension's card in Settings → Extensions, keeps the values, and tells the tile when they change. For tiles, the card comes with installing them, later in this preview; the runtime and the test harness already read and change settings.
+An extension declares its settings in its manifest's `settings` list. Pitwall draws the form on the extension's card in Settings → Extensions, keeps the values, and tells the tile when they change.
 
 Each setting has a `key`, a `type`, a `label`, and optionally a `default`, a `placeholder` and a `hint` (one line under it). The types:
 
@@ -102,7 +102,7 @@ In tests, `Harness::setting(key, value)` and `secret(key, value)` start the tile
 
 ## Log
 
-Each tile has a Log. Once tiles run in Pitwall's layout (coming in this preview), Pitwall shows it on the extension's card, and `pitwall extension dev` prints it in your terminal. Until then, tests read it.
+Each tile has a Log: open it from the extension's card in Settings → Extensions, or print it with `pitwall extension log <id>`. It also notes when the tile started, stopped or was reloaded. Pitwall keeps the newest 500 lines.
 
 | Call | For |
 |---|---|

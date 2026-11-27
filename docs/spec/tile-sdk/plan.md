@@ -46,7 +46,7 @@ on macOS, Linux and Windows, and the Preview docs describe exactly that.
 - [ ] A 2–3 MB tile compiles in under 1 s on a 4-core CI runner ([10.3](README.md#103-decisions) item 19)
 - [x] Authoring skill and generated `llms.txt` ([9.5](authoring.md#95-docs-for-authors-agents)) (skill #116: `sdk/pitwall-extension/skills/`, written by `new` with AGENTS.md; `llms.txt` #109; the skill downloadable beside it, #118)
 - [x] Docs pipeline: pages from Markdown, examples from source, a link check ([9.6](authoring.md#96-website-docs)) (#109)
-- [x] Website docs, marked Preview: Extensions sidebar group, overview, Quick start (`new`, `dev`, share a preview tile), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and skill download (#118: every page plus For coding agents, examples from the templates; `TileView`, `dev` loading into the app and folder install are marked "coming in this preview" until their items land, which update those lines)
+- [x] Website docs, marked Preview: Extensions sidebar group, overview, Quick start (`new`, `dev`, share a preview tile), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and skill download (#118: every page plus For coding agents, examples from the templates; tiles in the layout, `dev` reloads and folder install as #117 shipped them; install from a URL marked "coming in this preview")
 - [ ] First outside author has built a tile with the preview
 
 ## Phase 2: Components and minimum services

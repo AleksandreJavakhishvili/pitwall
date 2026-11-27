@@ -4,6 +4,12 @@
 
 The names follow GPUI, the UI framework Pitwall is built with, so `div().flex().gap_2().child(…)` reads as it does there. Everything below comes from `use pitwall_extension::prelude::*;`.
 
+## A tile in Pitwall
+
+Each tile an extension that is on contributes is in the command palette as "Open <tile title> (<extension name>)". It opens as a tile in the layout, beside your terminals, files and web pages. The extension's component starts when one of its tiles is shown, and stops when its last tile closes or the extension is turned off. While none of its tiles is shown (another space, another tile maximised over it), it is suspended: no renders, no timers.
+
+While it starts, the tile says so (the first time, Pitwall prepares each version for this computer, which takes a moment). When it stops, over a deadline, after a crash, or with a frame over the limits, it says why in its place, with Restart.
+
 ## The `Tile` trait
 
 A tile is a type that implements `Tile`. One value of it runs per extension; each place in the layout that shows one of the extension's tiles is a view of it, rendered with its own id.
@@ -149,7 +155,7 @@ The tile hears `on_view_opened` and then `on_content`, or only `on_content` when
 
 `Content` also has `id()` (the caller's id for it), `json_text()` and `bytes()` (a binary payload, at most 8 MiB).
 
-Keep the schema small and describe each field: agents read it. In this preview, content reaches a tile in tests (`open_with`, `set_content`, see the [quick start](quick-start.md#test-it)). Agents opening a tile with content come in phase 2 ([Agent tools](agent-tools.md)).
+Keep the schema small and describe each field: agents read it. In this preview, opening a tile from the palette gives it no content, so content reaches a tile in tests (`open_with`, `set_content`, see the [quick start](quick-start.md#test-it)). Agents opening a tile with content come in phase 2 ([Agent tools](agent-tools.md)).
 
 `ui::open_view("main")` opens one of the extension's own tiles, or focuses it when it is open ([Platform services](platform-services.md#ui)).
 

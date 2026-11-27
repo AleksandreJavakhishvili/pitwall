@@ -32,23 +32,19 @@ There is one kind of extension: one package, one manifest, one install, one perm
 
 ## The SDK preview
 
-The first preview is for authors who want to build tiles early. It has today:
+The first preview is for authors who want to build tiles early:
 
-- The `pitwall-extension` crate to write a tile with, and Pitwall's tile runtime with its sandbox and limits.
-- `pitwall extension new` scaffolds a tile project from a template, `pitwall extension dev` builds and checks it on every save, `pitwall extension check` checks it, and `pitwall extension test` runs its tests in Pitwall's own tile runtime.
+- The `pitwall-extension` crate to write a tile with, and Pitwall's tile runtime with its sandbox and limits, on macOS, Linux and Windows.
+- Tiles in Pitwall's layout, opened from the command palette, with their Log in Settings → Extensions.
+- `pitwall extension new` scaffolds a tile project from a template, `pitwall extension dev` builds and checks it on every save and reloads it in the running Pitwall keeping its state, `pitwall extension check` checks it, and `pitwall extension test` runs its tests in Pitwall's own tile runtime.
+- A tile can be shared before packages exist: Pitwall installs an unsigned folder from Settings → Extensions → Install from folder… or with `pitwall extension install <folder>`, shows what it adds and asks for with an "Unsigned, preview" warning, and installs it off. Preview installs don't update. Installing a folder served over HTTPS is coming in this preview.
 - An authoring skill for coding agents, and the docs as one `llms.txt` file ([For coding agents](for-agents.md)).
-- The runtime runs on macOS, Linux and Windows.
-
-Coming in this preview:
-
-- Tiles in Pitwall's layout, and `pitwall extension dev` loading the tile into the running Pitwall and reloading it after each build.
-- Sharing a tile before packages exist: Pitwall installs an unsigned folder (or one served over HTTPS) from Settings → Extensions or with `pitwall extension install`, shows the permission screen, and marks it "Unsigned, preview". Preview installs don't update.
 
 Agent tools that open a tile with content come in phase 2 of the SDK, and the other kinds of tools (reading back what a tile shows, acting outside it) in phase 3. Signed packages, updates and a marketplace to browse come in later releases.
 
 ## In this section
 
-- [Quick start](quick-start.md): from `pitwall extension new` to a tile that builds, passes its checks and runs its tests.
+- [Quick start](quick-start.md): from `pitwall extension new` to a tile running in Pitwall, and sharing it.
 - [Tiles and UI components](ui.md): the elements a tile is built from, styles, events and keys.
 - [Agent tools](agent-tools.md): tools a tile gives your agents (phases 2 and 3).
 - [Permissions](permissions.md): what each grant means.
