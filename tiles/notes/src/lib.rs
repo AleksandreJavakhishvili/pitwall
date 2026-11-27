@@ -67,13 +67,19 @@ struct ViewState {
     /// The Send picker is open (FR-13).
     #[serde(skip)]
     send: Option<Sending>,
+    /// The open note's selection in its field, by note (FR-14, gap G2):
+    /// what Send offers first. Byte offsets in the note's text.
+    #[serde(skip)]
+    selection: Option<(u64, std::ops::Range<usize>)>,
 }
 
-/// The Send picker: what goes (the whole note, or section `n`), and why
-/// the last try didn't.
+/// The Send picker: what goes (the selection, the whole note, or
+/// section `n`), and why the last try didn't.
 #[derive(Debug, Clone, Default)]
 struct Sending {
     section: Option<usize>,
+    /// The selected text goes (when there is one).
+    selected: bool,
     error: Option<String>,
 }
 
@@ -460,13 +466,25 @@ impl Notes {
                     }));
                     return pane.child(head).child(v_flex().id(format!("p{id}")).flex_1().min_h(px(0.)).p_3().overflow_y_scroll().child(md));
                 }
-                let v = view.to_string();
+                let (v, v1, v2) = (view.to_string(), view.to_string(), view.to_string());
                 let field = input("text")
                     .multiline()
                     .value(text_now)
                     .placeholder("Title on the first line, then anything")
                     .size_full()
-                    .on_change(cx.listener(move |this: &mut Notes, t: &str, cx| this.typed(id, t, cx)))
+                    .on_change(cx.listener(move |this: &mut Notes, e: &InputChange, cx| {
+                        this.view_mut(&v1).selection = Some((id, e.selection.clone()));
+                        this.typed(id, &e.value, cx);
+                    }))
+                    // Kept for Send (FR-14).
+                    .on_select(cx.listener(move |this: &mut Notes, s: &pitwall_extension::events::Selection, cx| {
+                        // Send's label says whether a selection goes.
+                        let was = this.views.get(&v2).and_then(|vs| vs.selection.as_ref()).is_some_and(|(_, r)| !r.is_empty());
+                        this.view_mut(&v2).selection = Some((id, s.range.clone()));
+                        if was != !s.range.is_empty() {
+                            cx.notify();
+                        }
+                    }))
                     .on_submit(cx.listener(move |this: &mut Notes, _, cx| this.done(&v, cx)))
                     // Leaving the note's field saves it (FR-6).
                     .on_blur(cx.listener(|this: &mut Notes, _: &Blur, cx| {
@@ -482,6 +500,20 @@ impl Notes {
 }
 
 // ---- Send to an agent ---------------------------------------------------------
+
+/// The text selected in the open note's field (trimmed; none when the
+/// selection is empty or blank), in Edit only.
+fn selected_text(vs: &ViewState, text: &str) -> Option<String> {
+    if vs.preview {
+        return None;
+    }
+    let (id, range) = vs.selection.as_ref()?;
+    if vs.open != Some(Open::Note(*id)) {
+        return None;
+    }
+    let s = text.get(range.clone())?.trim();
+    (!s.is_empty()).then(|| s.to_string())
+}
 
 /// "5 210" for 5210, as the frd's messages write counts.
 fn count(n: usize) -> String {
@@ -513,13 +545,16 @@ impl Notes {
     /// that can take it; a click puts it in that agent's Next up.
     fn send_button(&self, view: &str, vs: &ViewState, text_now: &str, cx: &mut Cx<Self>) -> Div {
         let v = view.to_string();
-        let send = icon_button(Icon::Send, "Send to an agent").id("send").disabled(text_now.trim().is_empty()).on_click(cx.listener(move |this: &mut Notes, _, cx| {
+        // The selected text of this note, in Edit (FR-14, gap G2).
+        let selected = selected_text(vs, text_now);
+        let has_selection = selected.is_some();
+        let send = icon_button(Icon::Send, if has_selection { "Send the selection to an agent" } else { "Send to an agent" }).id("send").disabled(text_now.trim().is_empty()).on_click(cx.listener(move |this: &mut Notes, _, cx| {
             let open = this.views.get(&v).is_some_and(|s| s.send.is_some());
             if open {
                 this.view_mut(&v).send = None;
             } else {
                 this.agents = agents::list();
-                this.view_mut(&v).send = Some(Sending::default());
+                this.view_mut(&v).send = Some(Sending { selected: has_selection, ..Sending::default() });
             }
             cx.notify();
         }));
@@ -527,19 +562,34 @@ impl Notes {
         let Some(sending) = &vs.send else { return wrap };
         let sections = note::sections(text_now);
         let section = sending.section.filter(|n| *n < sections.len());
-        let what = section.map_or(text_now.trim().to_string(), |n| sections[n].1.clone());
+        let selected = selected.filter(|_| sending.selected);
+        let what = match (&selected, section) {
+            (Some(s), _) => s.clone(),
+            (None, Some(n)) => sections[n].1.clone(),
+            (None, None) => text_now.trim().to_string(),
+        };
         let chars = what.chars().count();
         let mut body = v_flex().id("picker").gap_1().p_1().child(text("Send to an agent").text_sm().font_semibold().px_2().pt_1());
-        if !sections.is_empty() {
+        if !sections.is_empty() || has_selection {
             let v = view.to_string();
-            let mut choices = vec![choice("all", "The whole note")];
+            let mut choices = Vec::new();
+            if has_selection {
+                choices.push(choice("sel", "The selection"));
+            }
+            choices.push(choice("all", "The whole note"));
             choices.extend(sections.iter().enumerate().map(|(n, (name, _))| choice(format!("s{n}"), format!("§ {name}"))));
+            let chosen = match (selected.is_some(), section) {
+                (true, _) => "sel".to_string(),
+                (false, Some(n)) => format!("s{n}"),
+                (false, None) => "all".to_string(),
+            };
             body = body.child(
                 div().px_2().child(
                     select("what", choices)
-                        .selected(section.map_or("all".to_string(), |n| format!("s{n}")))
+                        .selected(chosen)
                         .on_select(cx.listener(move |this: &mut Notes, key: &str, cx| {
                             if let Some(s) = this.view_mut(&v).send.as_mut() {
+                                s.selected = key == "sel";
                                 s.section = key.strip_prefix('s').and_then(|n| n.parse().ok());
                                 s.error = None;
                             }
@@ -547,6 +597,12 @@ impl Notes {
                         })),
                 ),
             );
+        }
+        if let Some(s) = &selected {
+            // What goes, so the user sees it is the selection.
+            let shown: String = s.chars().take(120).collect();
+            let more = if s.chars().count() > 120 { "…" } else { "" };
+            body = body.child(text(format!("“{}{more}”", shown.replace('\n', " "))).id("selected").text_xs().text_color(Token::Text2).px_2().truncate());
         }
         let too_long = chars > agents::MAX_TEXT;
         if too_long {
