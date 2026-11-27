@@ -1,9 +1,10 @@
 //! Notes: private plain-text notes beside the agents. This is the preview
 //! on SDK phase 1 (step 0 of docs/spec/2026-11-27-notes-tile/plan.md):
 //! notes in the tile's own storage, edited in Pitwall's multi-line text
-//! field, saved about a second after typing stops and when the tile is
-//! hidden or loses focus. An agent (or the user) can open the tile with a
-//! draft note (input.schema.json); it stays unsaved until the user keeps it.
+//! field, saved about a second after typing stops, when the note's field
+//! loses focus and when the tile is hidden. An agent (or the user) can open
+//! the tile with a draft note (input.schema.json); it stays unsaved until
+//! the user keeps it.
 
 mod note;
 
@@ -12,15 +13,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use note::{Note, Stored};
 use pitwall_extension::prelude::*;
-// Not in the prelude, though helpers that build part of a tree return it.
-use pitwall_extension::Div;
 use serde::{Deserialize, Serialize};
 
 /// Saved this long after typing stops (frd.md FR-6).
 const SAVE_AFTER: Duration = Duration::from_secs(1);
-/// Notes read from storage per second: under the 200 host calls a second a
-/// tile may make, with room for saving.
-const LOAD_BATCH: usize = 150;
 /// From this width (logical pixels) a view shows the list and the open note
 /// side by side.
 const SPLIT_AT: f32 = 560.0;
@@ -51,10 +47,15 @@ struct ViewState {
     draft: Option<String>,
     #[serde(skip)]
     confirm_delete: bool,
+    /// A row of the list asks whether to delete its note.
+    #[serde(skip)]
+    confirm_row: Option<u64>,
     #[serde(skip)]
     width: f32,
     #[serde(skip)]
     focus_editor: bool,
+    #[serde(skip)]
+    focus_search: bool,
 }
 
 /// What `save_state` keeps across a drop or a reload: unsaved text and
@@ -76,8 +77,6 @@ struct Notes {
     next_id: u64,
     saver: Option<Timer>,
     last_edit: Instant,
-    /// Notes in storage not read yet (more than one batch).
-    to_load: Vec<u64>,
     /// A save failed and the user was told; not told again until one works.
     save_failed: bool,
 }
@@ -88,26 +87,16 @@ fn now_ms() -> u64 {
 
 impl Tile for Notes {
     fn new(cx: &mut Cx<Self>) -> Self {
-        let mut ids: Vec<u64> = match storage::list(note::PREFIX) {
-            Ok(keys) => keys.iter().filter_map(|k| note::id_of(k)).collect(),
+        // Every note in two host calls (the keys, then their values).
+        let notes: Vec<Note> = match storage::entries_json::<Stored>(note::PREFIX) {
+            Ok(all) => all.into_iter().filter_map(|(k, s)| Some(Note { id: note::id_of(&k)?, text: s.text, updated: s.updated })).collect(),
             Err(e) => {
-                log::error(format!("the notes couldn't be listed: {e}"));
+                log::error(format!("the notes couldn't be read: {e}"));
                 Vec::new()
             }
         };
-        ids.sort_unstable_by(|a, b| b.cmp(a));
-        let next_id = ids.first().map_or(1, |m| m + 1);
-        let mut this = Notes {
-            notes: Vec::new(),
-            pending: BTreeMap::new(),
-            views: BTreeMap::new(),
-            restored: BTreeMap::new(),
-            next_id,
-            saver: None,
-            last_edit: Instant::now(),
-            to_load: ids,
-            save_failed: false,
-        };
+        let next_id = notes.iter().map(|n| n.id + 1).max().unwrap_or(1);
+        let mut this = Notes { notes, pending: BTreeMap::new(), views: BTreeMap::new(), restored: BTreeMap::new(), next_id, saver: None, last_edit: Instant::now(), save_failed: false };
         // Unsaved text from before a drop or a reload (FR-7): kept as
         // edits, saved a second from now.
         if let Some(saved) = cx.restore::<Saved>() {
@@ -120,7 +109,12 @@ impl Tile for Notes {
                 this.edited(cx);
             }
         }
-        this.load_some(cx);
+        // Edits restored for notes never saved.
+        let missing: Vec<u64> = this.pending.keys().copied().filter(|id| !this.has(*id)).collect();
+        for id in missing {
+            this.notes.push(Note { id, text: String::new(), updated: now_ms() });
+        }
+        this.sort();
         this
     }
 
@@ -160,9 +154,9 @@ impl Tile for Notes {
 
     fn on_event(&mut self, event: &Event, cx: &mut Cx<Self>) {
         match event {
-            // Hidden or left: save now (FR-6). There is no blur event per
-            // text field, so the tile losing focus stands in for it.
-            Event::Visibility(false) | Event::Focus(false) => {
+            // Hidden: save now (FR-6). Leaving the note's field (to the
+            // search, or out of the tile) is its blur, in `editor_pane`.
+            Event::Visibility(false) => {
                 if !self.pending.is_empty() {
                     self.flush(cx);
                     cx.notify();
@@ -191,7 +185,21 @@ impl Tile for Notes {
         let split = vs.width >= SPLIT_AT;
         let v = view.to_string();
         let new = cx.listener(move |this: &mut Notes, _: &KeyPress, cx| this.new_note(&v, cx));
-        cx.bind_key("cmd-n", new);
+        // ⌘N is Pitwall's (a new agent): N, while no field has focus.
+        cx.bind_key("n", new);
+        // / goes to the search, where the list shows.
+        if split || vs.open.is_none() {
+            let v = view.to_string();
+            let search = cx.listener(move |this: &mut Notes, _: &KeyPress, cx| {
+                this.view_mut(&v).focus_search = true;
+                cx.notify();
+            });
+            cx.bind_key("/", search);
+            if vs.focus_search {
+                cx.focus("list/head/search");
+            }
+        }
+        self.view_mut(view).focus_search = false;
         if vs.focus_editor {
             self.view_mut(view).focus_editor = false;
             match vs.open {
@@ -237,7 +245,7 @@ impl Notes {
                         cx.notify();
                     })),
             )
-            .child(icon_button(Icon::Plus, "New note").id("new").tooltip("New note (⌘N)").on_click(cx.listener(move |this: &mut Notes, _, cx| this.new_note(&v2, cx))));
+            .child(icon_button(Icon::Plus, "New note").id("new").tooltip("New note (N)").on_click(cx.listener(move |this: &mut Notes, _, cx| this.new_note(&v2, cx))));
 
         let query = vs.filter.trim().to_lowercase();
         let shown: Vec<&Note> = self.notes.iter().filter(|n| note::matches(self.text_of(n), &query)).collect();
@@ -266,7 +274,7 @@ impl Notes {
                     .py_3()
                     .gap_1()
                     .child(text("No notes yet").text_sm().text_color(Token::Text2))
-                    .child(text("Press ⌘N or + to write one. Notes stay in this Pitwall and are saved as you type.").text_xs().text_color(Token::Text3)),
+                    .child(text("Press N or + to write one. Notes stay in this Pitwall and are saved as you type.").text_xs().text_color(Token::Text3)),
             );
         } else if shown.is_empty() && !query.is_empty() {
             rows = rows.child(text(format!("No notes match “{}”", vs.filter.trim())).id("none").px_3().py_3().text_sm().text_color(Token::Text3));
@@ -277,29 +285,60 @@ impl Notes {
         v_flex().id("list").min_w(px(0.)).child(head).child(rows)
     }
 
-    /// One note in the list: its title, when it changed, and its next line.
+    /// One note in the list: its title, when it changed, its next line,
+    /// and a Delete that shows while the pointer is over the row (it asks
+    /// in the row first).
     fn row(&self, view: &str, vs: &ViewState, n: &Note, now: u64, cx: &mut Cx<Self>) -> AnyElement {
         let text_now = self.text_of(n);
         let title = note::title(text_now);
-        let selected = vs.open == Some(Open::Note(n.id));
-        let (v, id) = (view.to_string(), n.id);
-        let when = if self.pending.contains_key(&n.id) { "editing".to_string() } else { note::ago(now, n.updated) };
-        v_flex()
-            .id(format!("n{}", n.id))
-            .px_3()
+        let id = n.id;
+        if vs.confirm_row == Some(id) {
+            let (v1, v2) = (view.to_string(), view.to_string());
+            return h_flex()
+                .id(format!("n{id}"))
+                .px_3()
+                .py_2()
+                .gap_1p5()
+                .bg(Token::BadSoft)
+                .child(text(format!("Delete “{}”?", title.unwrap_or_else(|| "New note".into()))).text_sm().truncate().flex_1())
+                .child(button("Cancel").small().id("cancel").on_click(cx.listener(move |this: &mut Notes, _, cx| {
+                    this.view_mut(&v1).confirm_row = None;
+                    cx.notify();
+                })))
+                .child(button("Delete").small().danger().id("delete").on_click(cx.listener(move |this: &mut Notes, _, cx| this.delete(&v2, id, cx))))
+                .into_any();
+        }
+        let selected = vs.open == Some(Open::Note(id));
+        let (v, v2) = (view.to_string(), view.to_string());
+        let when = if self.pending.contains_key(&id) { "editing".to_string() } else { note::ago(now, n.updated) };
+        h_flex()
+            .id(format!("n{id}"))
+            .group("row")
+            .pl_3()
+            .pr_1()
             .py_2()
-            .gap_0p5()
+            .gap_1()
             .cursor_pointer()
             .focusable()
             .hover_bg(Token::Surface2)
             .when(selected, |r| r.bg(Token::Surface2))
             .child(
-                h_flex()
-                    .gap_2()
-                    .child(text(title.clone().unwrap_or_else(|| "New note".into())).text_sm().font_medium().truncate().flex_1().when(title.is_none(), |t| t.text_color(Token::Text3)))
-                    .child(text(when).text_xs().text_color(Token::Text3).flex_none()),
+                v_flex()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(text(title.clone().unwrap_or_else(|| "New note".into())).text_sm().font_medium().truncate().flex_1().when(title.is_none(), |t| t.text_color(Token::Text3)))
+                            .child(text(when).text_xs().text_color(Token::Text3).flex_none()),
+                    )
+                    .when_some(note::preview(text_now), |r, p| r.child(text(p).text_xs().text_color(Token::Text3).truncate())),
             )
-            .when_some(note::preview(text_now), |r, p| r.child(text(p).text_xs().text_color(Token::Text3).truncate()))
+            .child(icon_button(Icon::Trash, "Delete note").id("delete").visible_on_group_hover("row").on_click(cx.listener(move |this: &mut Notes, _, cx| {
+                this.view_mut(&v2).confirm_row = Some(id);
+                cx.notify();
+            })))
             .on_click(cx.listener(move |this: &mut Notes, _, cx| this.open(&v, Open::Note(id), cx)))
             .into_any()
     }
@@ -321,8 +360,8 @@ impl Notes {
                     .when(!split, |h| h.child(back(cx)))
                     .child(text(note::title_or_new(&draft)).text_sm().font_medium().truncate().flex_1())
                     .child(text("Draft, not saved").text_xs().text_color(Token::Warn).flex_none())
-                    .child(button("Discard").id("discard").on_click(cx.listener(move |this: &mut Notes, _, cx| this.discard_draft(&v1, cx))))
-                    .child(button("Keep").primary().id("keep").tooltip("Save it as a note (⌘⏎)").on_click(cx.listener(move |this: &mut Notes, _, cx| this.keep_draft(&v2, cx))));
+                    .child(button("Discard").small().id("discard").on_click(cx.listener(move |this: &mut Notes, _, cx| this.discard_draft(&v1, cx))))
+                    .child(button("Keep").small().primary().id("keep").tooltip("Save it as a note (⌘⏎)").on_click(cx.listener(move |this: &mut Notes, _, cx| this.keep_draft(&v2, cx))));
                 let field = input("text")
                     .multiline()
                     .value(draft)
@@ -346,11 +385,11 @@ impl Notes {
                     let (v1, v2) = (view.to_string(), view.to_string());
                     bar()
                         .child(text(format!("Delete “{title}”?")).text_sm().truncate().flex_1())
-                        .child(button("Cancel").id("cancel").on_click(cx.listener(move |this: &mut Notes, _, cx| {
+                        .child(button("Cancel").small().id("cancel").on_click(cx.listener(move |this: &mut Notes, _, cx| {
                             this.view_mut(&v1).confirm_delete = false;
                             cx.notify();
                         })))
-                        .child(button("Delete").danger().id("delete").on_click(cx.listener(move |this: &mut Notes, _, cx| this.delete(&v2, cx))))
+                        .child(button("Delete").small().danger().id("delete").on_click(cx.listener(move |this: &mut Notes, _, cx| this.delete(&v2, id, cx))))
                 } else {
                     let v = view.to_string();
                     let saved = if self.pending.contains_key(&id) { "Editing…" } else { "Saved" };
@@ -370,7 +409,14 @@ impl Notes {
                     .placeholder("Title on the first line, then anything")
                     .size_full()
                     .on_change(cx.listener(move |this: &mut Notes, t: &str, cx| this.typed(id, t, cx)))
-                    .on_submit(cx.listener(move |this: &mut Notes, _, cx| this.done(&v, cx)));
+                    .on_submit(cx.listener(move |this: &mut Notes, _, cx| this.done(&v, cx)))
+                    // Leaving the note's field saves it (FR-6).
+                    .on_blur(cx.listener(|this: &mut Notes, _: &Blur, cx| {
+                        if !this.pending.is_empty() {
+                            this.flush(cx);
+                            cx.notify();
+                        }
+                    }));
                 pane.child(head).child(v_flex().id(format!("n{id}")).flex_1().min_h(px(0.)).p_2().child(field))
             }
         }
@@ -462,8 +508,8 @@ impl Notes {
         }
     }
 
-    fn delete(&mut self, view: &str, cx: &mut Cx<Self>) {
-        let Some(Open::Note(id)) = self.views.get(view).and_then(|v| v.open) else { return };
+    fn delete(&mut self, view: &str, id: u64, cx: &mut Cx<Self>) {
+        self.view_mut(view).confirm_row = None;
         if let Err(e) = storage::delete(&note::key(id)) {
             log::warn(format!("note {id} couldn't be deleted: {e}"));
             ui::toast(format!("The note couldn't be deleted: {e}"), Tone::Bad);
@@ -499,43 +545,9 @@ impl Notes {
     }
 }
 
-// ---- Loading and saving ---------------------------------------------------
+// ---- Saving -----------------------------------------------------------------
 
 impl Notes {
-    /// Read the next batch of notes from storage; the rest a second later.
-    fn load_some(&mut self, cx: &mut Cx<Self>) {
-        let mut left = Vec::new();
-        let batch: Vec<u64> = self.to_load.drain(..self.to_load.len().min(LOAD_BATCH)).collect();
-        for (i, id) in batch.iter().copied().enumerate() {
-            if self.has(id) {
-                continue;
-            }
-            match storage::get_json::<Stored>(&note::key(id)) {
-                Ok(Some(s)) => self.notes.push(Note { id, text: s.text, updated: s.updated }),
-                Ok(None) => {}
-                Err(HostError::Busy) => {
-                    left.extend_from_slice(&batch[i..]);
-                    break;
-                }
-                Err(e) => log::warn(format!("note {id} couldn't be read: {e}")),
-            }
-        }
-        left.append(&mut self.to_load);
-        self.to_load = left;
-        // Edits restored for notes not read yet, or never saved.
-        let missing: Vec<u64> = self.pending.keys().copied().filter(|id| !self.has(*id) && !self.to_load.contains(id)).collect();
-        for id in missing {
-            self.notes.push(Note { id, text: String::new(), updated: now_ms() });
-        }
-        self.sort();
-        if !self.to_load.is_empty() {
-            cx.after(Duration::from_secs(1), |this: &mut Notes, cx| {
-                this.load_some(cx);
-                cx.notify();
-            });
-        }
-    }
-
     fn sort(&mut self) {
         self.notes.sort_by(|a, b| b.updated.cmp(&a.updated).then(b.id.cmp(&a.id)));
     }
