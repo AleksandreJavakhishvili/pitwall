@@ -187,6 +187,11 @@ pub struct Manifest {
     /// Format 2: the hosts its tiles may reach with the `net` permission
     /// ([`net`]), as the manifest lists them; used only once granted.
     pub net_hosts: Vec<net::HostPattern>,
+    /// Format 2: the `url` settings whose host its tiles may reach with
+    /// the `net` permission, by key (`"{setting:server}"` in `hosts`): the
+    /// host of the address the user set, once granted
+    /// ([`net::setting_host`]).
+    pub net_setting_hosts: Vec<String>,
     /// Format 2: the size its tiles' database may grow to with the `sql`
     /// permission (MiB, above [`TILE_SQL_MIB`], at most
     /// [`MAX_TILE_SQL_MIB`]).
@@ -415,6 +420,7 @@ impl Manifest {
             update: update::Policy::default(),
             memory_mib: None,
             net_hosts: vec![],
+            net_setting_hosts: vec![],
             sql_mib: None,
         }
     }
@@ -912,7 +918,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     // only format 1 never saw them); `check` says so.
     let (permissions, contributes) = if format >= 2 { (parse_permissions(obj.get("permissions"))?, parse_contributes(obj.get("contributes"))?) } else { (vec![], Contributes::default()) };
     let memory_mib = if format >= 2 { parse_memory(obj.get("permissions"))? } else { None };
-    let net_hosts = if format >= 2 { parse_net(obj.get("permissions"))? } else { vec![] };
+    let (net_hosts, net_setting_hosts) = if format >= 2 { parse_net(obj.get("permissions"), &settings)? } else { (vec![], vec![]) };
     let sql_mib = if format >= 2 { parse_sql(obj.get("permissions"))? } else { None };
     // Each tile tool's name, as agents get it, within what they take.
     for t in contributes.tiles.iter().filter(|t| t.agents) {
@@ -944,7 +950,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
     }
     check_web_views(&contributes, &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib, net_hosts, sql_mib })
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib, net_hosts, net_setting_hosts, sql_mib })
 }
 
 /// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
@@ -1014,14 +1020,39 @@ fn parse_memory(v: Option<&Value>) -> Result<Option<u32>, String> {
 }
 
 /// The `net` permission's hosts: it must be an object with `hosts`
-/// ([`net::parse_hosts`]).
-fn parse_net(v: Option<&Value>) -> Result<Vec<net::HostPattern>, String> {
+/// ([`net::parse_hosts`]), each a host name or `{setting:KEY}`: the host
+/// of `url` setting KEY as the user sets it (the second list, by key).
+fn parse_net(v: Option<&Value>, settings: &[SettingDef]) -> Result<(Vec<net::HostPattern>, Vec<String>), String> {
     match v.and_then(|p| p.get(permissions::NET)) {
-        None => Ok(vec![]),
+        None => Ok((vec![], vec![])),
         Some(Value::Object(o)) => match o.get("hosts") {
             Some(Value::Array(list)) => {
                 let names = list.iter().map(|h| h.as_str().ok_or("permission “net”: \"hosts\" must be host names (strings)".to_string())).collect::<Result<Vec<_>, _>>()?;
-                net::parse_hosts(&names)
+                let mut keys: Vec<String> = Vec::new();
+                let mut plain: Vec<&str> = Vec::new();
+                for n in names {
+                    let Some(key) = n.strip_prefix(SETTING_PLACEHOLDER).and_then(|k| k.strip_suffix('}')) else {
+                        plain.push(n);
+                        continue;
+                    };
+                    match settings.iter().find(|d| d.key == key) {
+                        Some(d) if d.kind == SettingKind::Url => {}
+                        Some(_) => return Err(format!("permission “net”: “{n}” must name a url setting (its host is what the tiles reach)")),
+                        None => return Err(format!("permission “net”: “{n}” names no setting of this extension")),
+                    }
+                    if keys.iter().any(|k| k == key) {
+                        return Err(format!("permission “net” lists “{n}” twice"));
+                    }
+                    keys.push(key.to_string());
+                }
+                if plain.is_empty() && keys.is_empty() {
+                    return Err("permission “net” needs at least one host in \"hosts\"".into());
+                }
+                if plain.len() + keys.len() > net::MAX_HOSTS {
+                    return Err(format!("permission “net” lists more than {} hosts", net::MAX_HOSTS));
+                }
+                let hosts = if plain.is_empty() { vec![] } else { net::parse_hosts(&plain)? };
+                Ok((hosts, keys))
             }
             _ => Err("permission “net” needs \"hosts\": the host names its tiles connect to, like [\"api.github.com\"]".into()),
         },

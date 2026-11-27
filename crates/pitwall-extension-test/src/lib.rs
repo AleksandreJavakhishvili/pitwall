@@ -87,6 +87,9 @@ pub use pitwall_tile_host::ui::{Agent, AgentState, Ask, Badge, Row, Suggestion};
 pub use pitwall_tile_host::ui::{BadgeTone, ServiceInfo, ServiceState, ToolbarBadge};
 /// Why a faked `net` request failed ([`Harness::respond_error`]).
 pub use pitwall_tile_host::net::FetchError as NetError;
+/// A `net` request as a fake server gets it ([`Harness::serve`]), its
+/// answer, a header, and how the fake answers (call it once).
+pub use pitwall_tile_host::net::{Done as NetReply, Header as NetHeader, Outgoing as NetRequest, Response as NetResponse};
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 /// What a component asked of Pitwall's UI ([`Session::ui_requests`]).
 pub use pitwall_tile_host::UiRequest;
@@ -275,6 +278,24 @@ impl Harness {
         self
     }
 
+    /// Answer the `net` requests no [`Harness::respond`] answer matches
+    /// with `server`, a fake of the service the tile talks to: it gets
+    /// each request (method, address, headers, body) and answers with the
+    /// [`NetReply`], at once or later from any thread (a long poll held
+    /// until the fake has news; [`Session::settle`] after the news lets
+    /// the tile hear it). The checks still apply first: the `net` grant
+    /// and the manifest's hosts.
+    ///
+    /// ```ignore
+    /// let fake = Arc::new(MyFake::default());
+    /// let f = fake.clone();
+    /// let tile = Harness::build(dir).grant("net").serve(move |req, reply| f.handle(req, reply)).open("main");
+    /// ```
+    pub fn serve(self, server: impl Fn(NetRequest, NetReply) + Send + Sync + 'static) -> Harness {
+        self.net.serve(Arc::new(server));
+        self
+    }
+
     /// Its own server (the manifest's `service`) is up at `addr`
     /// (`127.0.0.1:8790`): `service.info` says so and requests to it are
     /// allowed without `net`, as in Pitwall. Answer them with
@@ -353,7 +374,7 @@ impl Harness {
         }
         let clock = if self.wall { Clock::Wall } else { Clock::manual() };
         let theme = ui::default_theme();
-        let grants = Grants::for_extension(ext.manifest(), self.grants.clone()).with_own_server(self.own_server);
+        let grants = Grants::for_extension(ext.manifest(), self.grants.clone()).with_settings(ext.manifest(), &store.settings()).with_own_server(self.own_server);
         let options = StartOptions { views: vec![view.clone()], grants, theme, visible: self.visible, state: self.state.clone(), clock: clock.clone() };
         let (handle, rx) = launch(&host, &ext, options);
         if let Some(info) = service_info(&ext, self.own_server) {
@@ -1468,6 +1489,8 @@ impl Session {
         check_setting(&self.ext, key);
         self.store.set_setting(key, value).expect("the setting is written");
         self.check_running();
+        // A `{setting:KEY}` host of `net` follows the address, as in Pitwall.
+        self.handle.set_grants(self.grants_now(&self.ext));
         self.handle.settings_changed();
         self.settle()
     }
@@ -1590,7 +1613,7 @@ impl Session {
     // ---- Services -----------------------------------------------------------
 
     fn grants_now(&self, ext: &Extension) -> Grants {
-        Grants::for_extension(ext.manifest(), self.grants.clone()).with_own_server(self.own_server)
+        Grants::for_extension(ext.manifest(), self.grants.clone()).with_settings(ext.manifest(), &self.store.settings()).with_own_server(self.own_server)
     }
 
     /// The user grants permission `name` now; the tile hears

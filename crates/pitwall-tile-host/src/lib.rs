@@ -172,6 +172,14 @@ impl Grants {
         Grants { hosts: m.net_hosts.clone(), sql_mib: m.sql_mib, ..Grants::new(granted) }
     }
 
+    /// With the user's plain settings `values` (by key) of `m`: `net`
+    /// also reaches the host of each `{setting:KEY}` address set
+    /// ([`pitwall_core::extensions::permissions::net_hosts_with`]). Give
+    /// the grants again when those settings change.
+    pub fn with_settings(self, m: &Manifest, values: &std::collections::BTreeMap<String, String>) -> Grants {
+        Grants { hosts: pitwall_core::extensions::permissions::net_hosts_with(m, values), ..self }
+    }
+
     /// Its own server listens on `addr` (its `ready.listen`, with the
     /// user's settings): its tiles may reach it over http without `net`.
     pub fn with_own_server(self, addr: Option<std::net::SocketAddr>) -> Grants {
@@ -789,5 +797,27 @@ impl Drop for EpochTicker {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod grants_tests {
+    use super::*;
+
+    /// `{setting:KEY}` in `net`'s hosts: the host of the address the user
+    /// set, reached once `net` is granted; nothing until it is set.
+    #[test]
+    fn a_host_from_a_setting_is_reached_once_set() {
+        let m = extensions::parse(r#"{"v": 2, "id": "x", "name": "X", "settings": [{"key": "server", "type": "url", "label": "Server"}], "permissions": {"net": {"reason": "Its API", "hosts": ["{setting:server}"]}}, "contributes": {"tiles": [{"id": "m", "title": "M", "wasm": "t.wasm"}]}}"#).unwrap();
+        let url = |u: &str| url::Url::parse(u).unwrap();
+        let mut values = std::collections::BTreeMap::new();
+        let g = Grants::for_extension(&m, ["net"]).with_settings(&m, &values);
+        assert!(g.reach().check(&url("https://inbox.example.com/api")).is_err(), "not set yet");
+        values.insert("server".to_string(), "https://inbox.example.com".to_string());
+        let g = Grants::for_extension(&m, ["net"]).with_settings(&m, &values);
+        assert!(g.reach().check(&url("https://inbox.example.com/api")).is_ok());
+        assert!(g.reach().check(&url("https://other.example.com/")).is_err());
+        let refused = Grants::for_extension(&m, Vec::<String>::new()).with_settings(&m, &values);
+        assert!(refused.reach().check(&url("https://inbox.example.com/api")).is_err(), "net not granted");
     }
 }

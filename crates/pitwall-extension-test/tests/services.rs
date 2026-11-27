@@ -139,3 +139,28 @@ fn it_hears_its_server_change_and_asks_for_a_restart() {
     t.click_key("do/restart");
     assert!(t.ui_requests().iter().any(|r| matches!(r, UiRequest::RestartService)));
 }
+
+/// A fake server (`serve`) answers what no fixed answer covers, at once
+/// or later: a request held until the test lets it answer.
+#[test]
+fn a_fake_server_answers_now_or_later() {
+    use pitwall_extension_test::{NetReply, NetResponse};
+    use std::sync::{Arc, Mutex};
+    let held: Arc<Mutex<Vec<(String, NetReply)>>> = Arc::default();
+    let h = held.clone();
+    let mut t = Harness::load(services())
+        .grant("net")
+        .serve(move |req, reply| h.lock().unwrap().push((format!("{} {}", req.method, req.url), reply)))
+        .open("main");
+    t.click_key("do/fetch");
+    assert_eq!(status(&t), "fetching", "held by the fake");
+    let (what, reply) = held.lock().unwrap().pop().expect("the fake got it");
+    assert_eq!(what, "GET https://api.example.com/items?x=1");
+    reply(Ok(NetResponse { status: 200, headers: vec![], body: b"later".to_vec(), url: "https://api.example.com/items?x=1".into() }));
+    t.settle();
+    assert_eq!(status(&t), "fetched 200: later");
+    // The manifest's hosts still come first: nothing reaches the fake.
+    t.click_key("do/fetch-other");
+    assert!(status(&t).contains("not allowed to reach other.example.org"), "{}", status(&t));
+    assert!(held.lock().unwrap().is_empty());
+}

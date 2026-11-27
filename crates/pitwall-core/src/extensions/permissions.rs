@@ -137,10 +137,32 @@ pub fn amount(m: &Manifest, name: &str) -> Option<String> {
 /// in instead, once there are some).
 pub fn listed(m: &Manifest, name: &str) -> Vec<String> {
     match name {
-        NET => m.net_hosts.iter().map(|h| h.written()).collect(),
+        NET => m.net_hosts.iter().map(|h| h.written()).chain(m.net_setting_hosts.iter().map(|k| setting_host_words(m, k))).collect(),
         FILES_READ | FILES_WRITE => vec![FILES_SCOPE.to_string()],
         _ => vec![],
     }
+}
+
+/// How the permission screen names a `{setting:KEY}` host before the
+/// user sets it: "the server in Server address".
+pub fn setting_host_words(m: &Manifest, key: &str) -> String {
+    let label = m.settings.iter().find(|d| d.key == key).map_or(key, |d| d.label.as_str());
+    format!("the server in {label}")
+}
+
+/// The hosts `net` reaches for `m` with its plain settings `values` (by
+/// key): the ones it lists, and the host of each `{setting:KEY}` address
+/// set (one not set, or not an address it may reach, adds none).
+pub fn net_hosts_with(m: &Manifest, values: &BTreeMap<String, String>) -> Vec<super::net::HostPattern> {
+    let mut out = m.net_hosts.clone();
+    for k in &m.net_setting_hosts {
+        if let Some(h) = values.get(k).and_then(|v| super::net::setting_host(v).ok()) {
+            if !out.contains(&h) {
+                out.push(h);
+            }
+        }
+    }
+    out
 }
 
 /// The folder `files.*` reach, as the permission screen says it before
@@ -228,7 +250,7 @@ pub fn kept(m: &Manifest, decisions: &Decisions) -> Decisions {
 pub fn after_update(old: &Manifest, new: &Manifest, decisions: &Decisions) -> Decisions {
     let mut out = kept(new, decisions);
     let was: Vec<String> = old.net_hosts.iter().map(|h| h.written()).collect();
-    if new.net_hosts.iter().any(|h| !was.contains(&h.written())) {
+    if new.net_hosts.iter().any(|h| !was.contains(&h.written())) || new.net_setting_hosts.iter().any(|k| !old.net_setting_hosts.contains(k)) {
         out.remove(NET);
     }
     out
@@ -249,6 +271,33 @@ mod tests {
         assert!(after_update(&a, &a, &d).contains_key(NET));
         assert!(after_update(&ab, &a, &d).contains_key(NET), "fewer hosts: kept");
         assert!(!after_update(&a, &ab, &d).contains_key(NET), "a new host: asked again");
+    }
+
+    /// `{setting:KEY}` in `hosts`: the host of the address the user set
+    /// in that url setting; named in words until then; a new one asks
+    /// again.
+    #[test]
+    fn a_host_from_a_setting() {
+        let with = |hosts: &str, kind: &str| crate::extensions::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "settings": [{{"key": "server", "type": "{kind}", "label": "Server address"}}], "permissions": {{"net": {{"reason": "Its API", "hosts": [{hosts}]}}}}, "contributes": {{"tiles": [{{"id": "m", "title": "M", "wasm": "t.wasm"}}]}}}}"#));
+        let m = with(r#""{setting:server}""#, "url").unwrap();
+        assert_eq!((m.net_hosts.len(), m.net_setting_hosts.clone()), (0, vec!["server".to_string()]));
+        assert_eq!(listed(&m, NET), ["the server in Server address"]);
+        let mut values = BTreeMap::new();
+        assert!(net_hosts_with(&m, &values).is_empty(), "not set: nothing");
+        values.insert("server".to_string(), "http://inbox.example.com".to_string());
+        assert!(net_hosts_with(&m, &values).is_empty(), "plain http to another computer: nothing");
+        values.insert("server".to_string(), "https://inbox.example.com/".to_string());
+        assert_eq!(net_hosts_with(&m, &values).iter().map(|h| h.written()).collect::<Vec<_>>(), ["inbox.example.com"]);
+        let both = with(r#""api.example.com", "{setting:server}""#, "url").unwrap();
+        assert_eq!(listed(&both, NET), ["api.example.com", "the server in Server address"]);
+        assert!(with(r#""{setting:server}""#, "text").unwrap_err().contains("must name a url setting"));
+        assert!(with(r#""{setting:other}""#, "url").unwrap_err().contains("names no setting"));
+        assert!(with(r#""{setting:server}", "{setting:server}""#, "url").unwrap_err().contains("twice"));
+        let plain = with(r#""api.example.com""#, "url").unwrap();
+        let mut d = Decisions::new();
+        d.insert(NET.into(), Decision { granted: true, at: 1 });
+        assert!(!after_update(&plain, &both, &d).contains_key(NET), "a new setting host: asked again");
+        assert!(after_update(&both, &both, &d).contains_key(NET));
     }
     use crate::extensions::{PermissionAsk, Manifest};
 

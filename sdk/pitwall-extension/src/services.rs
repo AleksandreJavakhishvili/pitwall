@@ -16,6 +16,11 @@ use crate::bindings::pitwall::tile as wit;
 /// "permissions": { "net": { "reason": "To read your CI runs", "hosts": ["api.github.com"] } }
 /// ```
 ///
+/// A host the user sets (their own server) is named by its `url` setting:
+/// `"hosts": ["{setting:server}"]` allows the host and port of setting
+/// `server`'s value, while it is one (https, or http to this computer),
+/// and follows it when the user changes it.
+///
 /// Requests are made by Pitwall with [`Cx::fetch`](crate::Cx::fetch): it
 /// returns at once and calls back with the answer.
 ///

@@ -169,6 +169,19 @@ impl SettingsView {
     pub(super) fn permission_words_of(ui: &Ui, m: &Manifest, name: &str, reason: &str, cx: &App) -> Div {
         let col = Self::permission_words(ui, name, reason);
         let mut listed = permissions::listed(m, name);
+        // `net`'s `{setting:KEY}` hosts: the host of the address set now.
+        if name == permissions::NET && !m.net_setting_hosts.is_empty() {
+            let values = crate::extensions::connections::settings_values(&m.id, cx);
+            for key in &m.net_setting_hosts {
+                let words = permissions::setting_host_words(m, key);
+                if let Some(h) = values.get(key).and_then(|v| pitwall_core::extensions::net::setting_host(v).ok()) {
+                    let label = m.settings.iter().find(|d| d.key == *key).map_or(key.as_str(), |d| d.label.as_str());
+                    for l in listed.iter_mut().filter(|l| **l == words) {
+                        *l = format!("{} ({label})", h.written());
+                    }
+                }
+            }
+        }
         // `files.*`: the project folders its tiles are open in now.
         if name.starts_with("files.") {
             let now = crate::tiles::scoped_folders(&m.id, cx);

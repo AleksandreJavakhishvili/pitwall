@@ -154,6 +154,17 @@ In tests, `toasts()` lists the toasts and `ui_requests()` the other requests.
 
 A host is a name (`api.example.com`), a name with a port (`api.example.com:8443`), or `*.example.org` for its subdomains (not `example.org` itself). At most 32. Only `https` reaches them; `http` only to this computer (`localhost`, `127.0.0.1`, `[::1]`), and only when the list names it with its port.
 
+When the server is the user's own, name it by a `url` setting instead: `"{setting:KEY}"`, where `KEY` is one of the extension's settings of type `url`.
+
+```json
+"settings": [{ "key": "server", "type": "url", "label": "Server address", "required": true }],
+"permissions": {
+  "net": { "reason": "To read your builds from your CI server", "hosts": ["{setting:server}"] }
+}
+```
+
+The tile may then reach the host and port of that setting's value: `https://ci.example.com:8443/` allows `ci.example.com:8443`; `http://127.0.0.1:8080` allows this computer on that port. Nothing is allowed while the setting is empty or isn't such an address. The permission screen shows it as "the server in Server address" and, once set, its host. When the user changes the setting, the grant follows the new host and the tile hears `Event::GrantsChanged` and `Event::SettingsChanged`. In the harness, `Harness::build(…).setting("server", "https://ci.example.com")` sets it, and `.serve(|request, reply| …)` answers the tile's requests from a fake server, at once or later (a long poll).
+
 A request is made on the context, since its answer calls back into the tile:
 
 ```rust

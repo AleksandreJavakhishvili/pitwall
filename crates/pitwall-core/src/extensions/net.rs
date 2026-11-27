@@ -130,6 +130,39 @@ pub fn parse_hosts(list: &[&str]) -> Result<Vec<HostPattern>, String> {
     Ok(out)
 }
 
+/// The host a `{setting:KEY}` entry of `hosts` stands for, from the
+/// address `value` the user set in that `url` setting
+/// (`https://inbox.example.com/` gives `inbox.example.com`): its host and
+/// port, checked as a listed host is ([`parse_host`]), never a wildcard;
+/// `http://` only to this computer. `Err` says why, for the tile's Log.
+pub fn setting_host(value: &str) -> Result<HostPattern, String> {
+    let v = value.trim();
+    let (https, rest) = if let Some(r) = v.strip_prefix("https://") {
+        (true, r)
+    } else if let Some(r) = v.strip_prefix("http://") {
+        (false, r)
+    } else {
+        return Err(format!("“{}” isn't an https:// address", cut(v)));
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return Err("an address with a user name or password can't be reached".into());
+    }
+    if authority.starts_with("*.") {
+        return Err(format!("“{}” isn't one host", cut(v)));
+    }
+    let lower = authority.to_ascii_lowercase();
+    let host = parse_host(&lower)?;
+    if !https && !is_loopback(&host.host) {
+        return Err(format!("“{}” uses plain http://, which reaches only this computer: use https://", cut(v)));
+    }
+    Ok(host)
+}
+
+fn cut(s: &str) -> String {
+    s.chars().take(100).collect()
+}
+
 /// Whether a request to `scheme://host:port` may go out under `hosts`
 /// (the URL already parsed: `host` lower case, IDNA applied, an IPv6
 /// address without brackets). `https` to a listed host; `http` only to
@@ -166,6 +199,21 @@ mod tests {
         }
         assert!(parse_host("xn--bcher-kva.de").is_ok(), "punycode is how it is written");
         assert!(parse_hosts(&[]).is_err() && parse_hosts(&["a.com", "a.com"]).is_err());
+    }
+
+    #[test]
+    fn a_hosts_entry_from_a_setting() {
+        let h = setting_host("https://Inbox.Example.ts.net/").unwrap();
+        assert_eq!(h.written(), "inbox.example.ts.net");
+        assert!(allows(&[h], "https", "inbox.example.ts.net", 443));
+        let p = setting_host(" https://inbox.example.com:8443/api?x=1 ").unwrap();
+        assert_eq!((p.host.as_str(), p.port), ("inbox.example.com", Some(8443)));
+        assert!(allows(std::slice::from_ref(&p), "https", "inbox.example.com", 8443) && !allows(&[p], "https", "inbox.example.com", 443));
+        let local = setting_host("http://127.0.0.1:8787").unwrap();
+        assert!(allows(&[local], "http", "127.0.0.1", 8787));
+        for bad in ["http://inbox.example.com", "ftp://a.example.com", "inbox.example.com", "https://user:pw@a.example.com", "https://*.example.com", "https://10.0.0.1", "https://", ""] {
+            assert!(setting_host(bad).is_err(), "{bad} should be refused");
+        }
     }
 
     #[test]

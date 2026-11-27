@@ -622,7 +622,8 @@ pub fn permission_changes(old: &Manifest, new: &Manifest) -> Vec<PermissionChang
         let lines = match p.name.as_str() {
             NET => {
                 let was: Vec<String> = old.net_hosts.iter().map(|h| h.written()).collect();
-                new.net_hosts.iter().map(|h| h.written()).filter(|h| !was.contains(h)).map(|h| format!("+ {h}")).collect()
+                let from_settings = new.net_setting_hosts.iter().filter(|k| !old.net_setting_hosts.contains(k)).map(|k| super::permissions::setting_host_words(new, k));
+                new.net_hosts.iter().map(|h| h.written()).filter(|h| !was.contains(h)).chain(from_settings).map(|h| format!("+ {h}")).collect()
             }
             MEMORY | SQL if mib(new, &p.name) > mib(old, &p.name) => vec![format!("{} → {}", amount(old, &p.name).unwrap_or_default(), amount(new, &p.name).unwrap_or_default())],
             _ => vec![],
