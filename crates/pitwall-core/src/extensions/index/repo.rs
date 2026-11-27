@@ -719,10 +719,16 @@ pub fn new_entry(m: &Manifest, author: &str, repository: &str, categories: Vec<S
     Entry { id: m.id.clone(), author: author.into(), repository: repository.into(), categories, license: license.into(), delisted: None, versions: vec![v] }
 }
 
+/// An `extensions/<id>.toml`, read (not yet checked against the rest of
+/// the repository).
+pub fn parse_entry(text: &str) -> Result<Entry, String> {
+    toml::from_str(text).map_err(|e| format!("The entry can't be read: {}", e.to_string().trim()))
+}
+
 /// `text` (an `extensions/<id>.toml`) with version `v` added: refused when
 /// it is listed already or isn't newer than the listed ones.
 pub fn add_version(text: &str, v: EntryVersion) -> Result<Entry, String> {
-    let mut e: Entry = toml::from_str(text).map_err(|e| format!("The entry can't be read: {}", e.to_string().trim()))?;
+    let mut e = parse_entry(text)?;
     if e.versions.iter().any(|o| o.version == v.version) {
         return Err(format!("{} {} is in the index already: a listed version is never changed, so publish a new version.", e.id, v.version));
     }

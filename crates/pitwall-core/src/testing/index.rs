@@ -156,7 +156,13 @@ impl IndexFixture {
     /// `permissions`, and list it in `extensions/<id>.toml` (made the
     /// first time). The entry version written.
     pub fn release_signed(&self, id: &str, version: &str, permissions: &str, signer: &Signing) -> EntryVersion {
-        let bytes = tile_package(id, version, permissions, &COMPONENT);
+        self.release_with(id, version, permissions, &COMPONENT, signer)
+    }
+
+    /// [`Self::release_signed`] with `wasm` as its component (a real one,
+    /// for a headless run).
+    pub fn release_with(&self, id: &str, version: &str, permissions: &str, wasm: &[u8], signer: &Signing) -> EntryVersion {
+        let bytes = tile_package(id, version, permissions, wasm);
         let url = format!("{}/releases/download/v{version}/{id}-{version}.pwtile", Self::repository(id));
         self.http.put(&url, bytes.clone());
         self.http.put(&format!("{url}.minisig"), signer.sign(&bytes));

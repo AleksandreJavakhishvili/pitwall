@@ -1,0 +1,31 @@
+[package]
+name = "pitwall-index"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+# Run by the extensions index repository's workflows, built from this
+# repository at a pinned commit; not shipped with Pitwall.
+publish = false
+description = "The extensions index's tool (docs/spec/tile-sdk/marketplace.md §7): checks the index repository and its pull requests, downloads and checks each release, runs each tile headless, and builds and signs dist/v1/index.json and blocked.json."
+
+[[bin]]
+name = "pitwall-index"
+path = "src/main.rs"
+
+[dependencies]
+# The index's format, checks and build.
+pitwall-core = { path = "../pitwall-core" }
+# Each new version loaded headless in Pitwall's own tile runtime, with no
+# grants: init and a first frame, under the limits.
+pitwall-extension-test = { path = "../pitwall-extension-test" }
+clap = { version = "4", features = ["derive"] }
+# Downloads of release assets (https only); already in the tree.
+ureq = "2.12"
+# Signing index.json and blocked.json with the index key, and reviews
+# with a maintainer's (MIT; already in the tree through the CLI).
+minisign = "0.10"
+serde_json = "1"
+tempfile = "3"
+
+[dev-dependencies]
+pitwall-core = { path = "../pitwall-core", features = ["testing"] }
