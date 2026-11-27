@@ -1,0 +1,37 @@
+# The C4 diagram seed tile (docs/spec/2026-11-27-c4-tile/). Its own
+# workspace, not a member of the root one: the app's `cargo test
+# --workspace` never builds it, and it may depend on no Pitwall crate but
+# the public `pitwall-extension` (and `pitwall-extension-test`, dev only).
+# CI checks that with scripts/check-deps.sh (hla.md §6).
+[workspace]
+resolver = "2"
+
+[package]
+name = "c4-tile"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pitwall's C4 diagram tile: finds Mermaid C4 diagrams in Markdown, parses, links and lays them out."
+publish = false
+
+[features]
+# The rust-sugiyama layout, kept to compare with dagre (layout-lld.md §7).
+sugiyama = ["dep:rust-sugiyama", "dep:petgraph"]
+
+[dependencies]
+# Markdown fences and headings; default features (html, getopts) aren't needed.
+pulldown-cmark = { version = "0.13", default-features = false }
+# Layered layout with compound graphs. Default features on: 0.1.2 doesn't
+# compile without its `json` feature (hla.md §3.5).
+dagre = "0.1.2"
+rust-sugiyama = { version = "0.4", optional = true }
+petgraph = { version = "0.8", optional = true }
+
+[build-dependencies]
+# Reads Inter's advances and kerning into a table at build time
+# (layout-lld.md §1). Never in tile.wasm.
+rustybuzz = "0.20"
+
+[dev-dependencies]
+# Shapes sample labels to check the width table (layout-lld.md §1).
+rustybuzz = "0.20"
