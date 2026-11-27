@@ -1,8 +1,10 @@
 package pitwall:tile@0.1.0;
 
-/// Answers to agents' calls of the tile's show tools (agent-tools.md
-/// §11.2–11.7). No permission: an answer describes only the agent's own
-/// input, and show tools change nothing outside the tile.
+/// Agents' calls of the tile's tools (agent-tools.md §11.2–11.7): the
+/// answers to show-only calls, and the `read` and `act` calls themselves.
+/// No permission: what a tile may do while it answers is decided by the
+/// tool's kind (below), and whether an agent may call `read` and `act`
+/// tools at all is the user's decision in Pitwall.
 ///
 /// Every tile can be opened by an agent with Pitwall's own
 /// `<extension-id>__open`, and a manifest may declare show tools of kind
@@ -16,7 +18,18 @@ package pitwall:tile@0.1.0;
 /// nothing, and the reply says why. Pitwall refuses, before the tile sees
 /// it, a call that would replace an item the user changed since
 /// (`user-edited`).
+///
+/// `read` and `act` calls arrive through the guest's `tool` export
+/// instead, as a `tool-call`: a `read` returns what the tile has (with the
+/// user's edits), an `act` changes something outside the tile. Pitwall
+/// asks the user before it delivers either: a `read` until the user
+/// allows that agent always, an `act` each time unless they did. While a
+/// `show`, `present` or `read` call runs, the tile's acting calls (`net`,
+/// `show`, `notify`, `agents.queue-add`) return `denied`; only an `act`
+/// call has the tile's full grants.
 interface agent-tools {
+  use types.{caller, view-id};
+
   /// A problem in the agent's input, at a place in it when there is one
   /// (lines and columns from 1).
   record problem {
@@ -47,10 +60,13 @@ interface agent-tools {
     error(tool-error),
   }
 
-  /// Answer call `call` (from `content.call`). Only the first answer
-  /// counts, and only while Pitwall still waits for it: during the
-  /// `handle` that delivered the call. Without one, Pitwall answers with
-  /// what opened and where.
+  /// Answer call `call` (from `content.call`, or a `tool-call`'s `id`).
+  /// Only the first answer counts, and only while Pitwall still waits for
+  /// it: for a show-only call, during the `handle` that delivered it
+  /// (without one, Pitwall answers with what opened and where); for a
+  /// `read` or `act` call the tile's `tool` export didn't answer at once,
+  /// until its time limit (10 s for `read`, 120 s for `act`), after which
+  /// the tile gets `tool-cancelled`.
   reply: func(call: u64, out: tool-output);
 
   /// The user changed what call `call` put in the tile (they typed in an
@@ -59,4 +75,44 @@ interface agent-tools {
   /// changed this; show it under a new item id", so an agent never
   /// overwrites the user's edits.
   user-edited: func(call: u64);
+
+  /// What a tool does, as its manifest entry declares it.
+  enum tool-kind {
+    /// Opens or focuses the tile.
+    show,
+    /// Puts content into the tile, or changes content the same agent put
+    /// there.
+    present,
+    /// Returns what the tile has now, with the user's edits.
+    read,
+    /// Has effects outside the tile (the network, files, other services).
+    act,
+  }
+
+  /// A call of a `read` or `act` tool, delivered to `guest.tool`. Pitwall
+  /// has checked the input against the tool's schema, and the user has
+  /// allowed it.
+  record tool-call {
+    /// The call's id: answer it with `reply` when `tool` returned `none`.
+    id: u64,
+    /// The tool's name in the manifest.
+    tool: string,
+    kind: tool-kind,
+    /// The agent that called, as Pitwall identified it; `none`: the user
+    /// ran it themselves (the command palette, or `pitwall extension run`
+    /// in one of Pitwall's own terminals).
+    caller: option<caller>,
+    /// The input, as JSON text.
+    input: string,
+    /// The open view of the tool's tile, if one is open (a `read` or
+    /// `act` call never opens one).
+    view: option<view-id>,
+  }
+
+  /// Part of a large input: up to `len` bytes (at most 1 MiB) from byte
+  /// `offset` of the file a `present` call named instead of inline text
+  /// (`content.large` says how long it is), as UTF-8 text ending at a
+  /// character boundary (so a part may be a little shorter). Only while
+  /// the event that delivered the call is handled; an error says why not.
+  input-part: func(call: u64, offset: u64, len: u32) -> result<string, string>;
 }

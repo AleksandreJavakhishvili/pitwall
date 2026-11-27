@@ -29,6 +29,10 @@ impl HostState {
 
     /// Refused for want of `permission`, said in the Log.
     fn denied(&mut self, what: &str, permission: &str) {
+        if let Some(kind) = self.gated {
+            self.host_log(LogLevel::Info, format!("{what} was refused: an agent's {kind} call runs without the tile's acting permissions (agent-tools.md §11.2); only an act call has them"));
+            return;
+        }
         self.host_log(LogLevel::Info, format!("{what} was refused: it isn't granted “{permission}”"));
     }
 }

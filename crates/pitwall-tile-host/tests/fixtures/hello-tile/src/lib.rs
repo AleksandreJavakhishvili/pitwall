@@ -5,13 +5,16 @@
 //! hang, crash or overflow it (see `tests/host.rs`). Its `gallery` tile
 //! shows every component ([`gallery`], [`widgets`]). Agents open it with
 //! content (`hello__open`) and show messages in it with its declared
-//! `show_message` tool, one per agent's item.
+//! `show_message` tool, one per agent's item (appended to, or read from a
+//! file, and undone by the user), read them back with `current_messages`
+//! and send one with `send_message` (an `act`, answered at once or
+//! later).
 
 use std::collections::BTreeMap;
 
 use pitwall_extension::prelude::*;
 use pitwall_extension::tools;
-use pitwall_extension::tools::{Call, Problem, Reply, ToolError};
+use pitwall_extension::tools::{Call, Presented, Problem, Reply, ToolError};
 
 mod gallery;
 mod widgets;
@@ -25,9 +28,11 @@ struct Hello {
     huge: bool,
     hoard: Vec<Vec<u8>>,
     gallery: gallery::Gallery,
-    /// Agents' messages by `<agent-id>/<item>`: (from whom, the text, the
-    /// call that showed it).
-    messages: BTreeMap<String, (String, String, u64)>,
+    /// Agents' messages by `<agent-id>/<item>`: (from whom, the text).
+    messages: Presented<(String, String)>,
+    /// Messages sent with `send_message`, and calls given up.
+    sent: Vec<String>,
+    cancelled: u32,
     widgets: widgets::Widgets,
     /// The component a gallery view shows alone (its content
     /// `{"component": "<name>"}`), by view id.
@@ -37,7 +42,8 @@ struct Hello {
 /// `show_message`'s input (its schema is in extension.json).
 #[derive(serde::Deserialize)]
 struct Message {
-    message: String,
+    /// Absent when the call names a file instead (`from_file`).
+    message: Option<String>,
 }
 
 #[tools]
@@ -45,15 +51,68 @@ impl Hello {
     /// Show a message under the agent's item (the same item replaces it).
     #[tool(kind = "present")]
     fn show_message(&mut self, call: Call<Message>, cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
-        let text = call.input().message.trim().to_string();
+        // A file named instead of inline text: its text is the message.
+        let text = match call.large_input() {
+            Some(read) => read?.trim().to_string(),
+            None => call.input().message.clone().unwrap_or_default().trim().to_string(),
+        };
         if text.is_empty() {
             return Err(ToolError::problems("Nothing was shown: the message is empty.", [Problem::new("`message` has no text")]));
         }
         let from = call.caller().agent_name.clone();
-        self.messages.insert(call.key(), (from, text, call.origin()));
+        if call.is_append() {
+            self.messages.append(&call, |m| (from.clone(), format!("{}{text}", m.map(|(_, t)| t.as_str()).unwrap_or(""))));
+        } else {
+            self.messages.present(&call, (from, text));
+        }
         cx.notify();
         Ok(Reply::text(format!("Shown in Hello ({} messages)", self.messages.len())))
     }
+
+    /// The messages shown now, with the user's edits. Tries to notify,
+    /// which a read call may not.
+    #[tool(kind = "read")]
+    fn current_messages(&mut self, _call: Call<Empty>, _cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
+        let all: BTreeMap<&str, &str> = self.messages.iter().map(|(k, (_, t))| (k, t.as_str())).collect();
+        let notify = match notify::send("read", "a read call") {
+            Ok(()) => "ok",
+            Err(_) => "denied",
+        };
+        Reply::json(format!("{} messages (notify: {notify})", all.len()), &all)
+    }
+
+    /// Send a message: counted as sent, at once or after `wait_ms`.
+    #[tool(kind = "act")]
+    fn send_message(&mut self, call: Call<Send>, cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
+        let notify = match notify::send("sent", &call.input().text) {
+            Ok(()) => "ok",
+            Err(_) => "denied",
+        };
+        let by = if call.by_user() { "the user".to_string() } else { call.caller().agent_name.clone() };
+        let Some(ms) = call.input().wait_ms else {
+            self.sent.push(call.input().text.clone());
+            cx.notify();
+            return Ok(Reply::text(format!("Sent “{}” for {by} (notify: {notify})", call.input().text)));
+        };
+        let (origin, text) = (call.origin(), call.input().text.clone());
+        cx.after(Duration::from_millis(ms), move |t: &mut Hello, cx| {
+            t.sent.push(text.clone());
+            tools::reply(origin, Ok(Reply::text(format!("Sent “{text}” later"))));
+            cx.notify();
+        });
+        Ok(Reply::later())
+    }
+}
+
+/// An input with nothing in it.
+#[derive(serde::Deserialize)]
+struct Empty {}
+
+/// `send_message`'s input.
+#[derive(serde::Deserialize)]
+struct Send {
+    text: String,
+    wait_ms: Option<u64>,
 }
 
 impl Tile for Hello {
@@ -101,7 +160,8 @@ impl Tile for Hello {
             .child(text(format!("Ticks: {}", self.ticks)).id("ticks").text_color(Token::Text3))
             .child(text(format!("Typed: {}", self.typed)).id("typed").text_color(Token::Text3))
             .child(text(format!("Content: {}", self.content)).id("content").text_color(Token::Text3))
-            .children(self.messages.iter().map(|(k, (from, m, _))| text(format!("{from}: {m}")).id(format!("message-{k}")).text_color(Token::Text)))
+            .children(self.messages.iter().map(|(k, (from, m))| text(format!("{from}: {m}")).id(format!("message-{k}")).text_color(Token::Text)))
+            .child(text(format!("Sent: {}; cancelled: {}", self.sent.join(", "), self.cancelled)).id("sent").text_color(Token::Text3))
             .child(button("Click me").id("button").primary().icon(Icon::Plus).on_click(cx.listener(|t: &mut Hello, _, cx| {
                 t.clicks += 1;
                 if storage::set("clicks", t.clicks.to_le_bytes()).is_ok() {
@@ -135,6 +195,23 @@ impl Tile for Hello {
 
     fn on_view_closed(&mut self, view: &str, _cx: &mut Cx<Self>) {
         self.alone.remove(view);
+    }
+
+    fn on_event(&mut self, event: &Event, cx: &mut Cx<Self>) {
+        match event {
+            // The user's Undo on an agent's message.
+            Event::UndoPresent(call) => {
+                if self.messages.undo(*call) {
+                    cx.notify();
+                }
+            }
+            Event::ToolCancelled(_) => {
+                self.cancelled += 1;
+                cx.notify();
+            }
+            Event::Theme(_) | Event::SettingsChanged | Event::GrantsChanged(_) => cx.notify(),
+            _ => {}
+        }
     }
 
     fn save_state(&self) -> Option<SavedState> {
@@ -179,9 +256,11 @@ fn tests(cx: &mut Cx<Hello>) -> AnyElement {
         .child(button("Edit").id("edit").small().on_click(cx.listener(|t: &mut Hello, _, cx| {
             // The user edits every agent's message: Pitwall refuses to
             // replace them from now on.
-            for (_, m, call) in t.messages.values_mut() {
-                m.push_str(" (edited)");
-                tools::user_edited(*call);
+            let all: Vec<(String, (String, String))> = t.messages.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
+            for (k, (from, m)) in all {
+                if let Some(call) = t.messages.edit_by_user(&k, (from, format!("{m} (edited)"))) {
+                    tools::user_edited(call);
+                }
             }
             cx.notify();
         })))

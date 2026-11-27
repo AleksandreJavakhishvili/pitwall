@@ -43,7 +43,7 @@ fn show(name: &str, cx: &mut App) {
     let tiles = super::tiles(cx);
     let r = tiles.read(cx);
     let json = serde_json::json!({ "component": name }).to_string();
-    r.get("hello").and_then(|r| r.handle.as_ref()).expect("running").set_content("gallery", ui::Content { id: None, json: Some(json), bytes: None, call: None, tool: None, caller: None });
+    r.get("hello").and_then(|r| r.handle.as_ref()).expect("running").set_content("gallery", ui::Content { id: None, json: Some(json), bytes: None, call: None, tool: None, caller: None, append: false, large: None });
 }
 
 /// A selector for `debug_bounds` (which keeps it).

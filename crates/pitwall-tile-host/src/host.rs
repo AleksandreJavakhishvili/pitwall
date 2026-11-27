@@ -104,6 +104,15 @@ pub(crate) struct HostState {
     /// `handle` runs for), and the tile's reply to it, if any.
     pub awaiting: Option<u64>,
     pub reply: Option<agent_tools::ToolOutput>,
+    /// `read` and `act` calls the `tool` export left to answer later.
+    pub open_calls: BTreeSet<u64>,
+    /// The kind of agent call running without the tile's acting
+    /// permissions (`show`, `present` or `read`), while it runs.
+    pub gated: Option<&'static str>,
+    /// The grants put aside while a gated call runs.
+    pub ungated: Option<Grants>,
+    /// Large inputs of calls (`from_file`), shared with the host.
+    pub large: crate::agent::LargeInputs,
 }
 
 impl WasiView for HostState {
@@ -133,6 +142,7 @@ pub(crate) struct StateParts {
     pub db: Db,
     pub toolbar: Option<ToolbarDef>,
     pub has_service: bool,
+    pub large: crate::agent::LargeInputs,
 }
 
 impl HostState {
@@ -176,6 +186,10 @@ impl HostState {
             service_known: false,
             awaiting: None,
             reply: None,
+            open_calls: BTreeSet::new(),
+            gated: None,
+            ungated: None,
+            large: p.large,
         }
     }
 
@@ -184,6 +198,25 @@ impl HostState {
     pub fn end_call(&mut self) {
         if self.db.end_call() {
             self.host_log(LogLevel::Warn, "a database transaction was still open when the call returned: it was rolled back (commit it in the same call)".into());
+        }
+    }
+
+    /// An agent's `kind` call starts (`show`, `present` or `read`): the
+    /// tile's acting permissions are off until [`HostState::ungate`]
+    /// (agent-tools.md §11.2).
+    pub fn gate(&mut self, kind: &'static str) {
+        if self.gated.is_none() {
+            let acting = self.grants.without_acting();
+            self.ungated = Some(std::mem::replace(&mut self.grants, acting));
+        }
+        self.gated = Some(kind);
+    }
+
+    /// The gated call ended: the tile's grants are back.
+    pub fn ungate(&mut self) {
+        self.gated = None;
+        if let Some(g) = self.ungated.take() {
+            self.grants = g;
         }
     }
 
@@ -457,8 +490,12 @@ impl agent_tools::Host for HostState {
         if !self.count_call() {
             return;
         }
+        if self.open_calls.remove(&call) {
+            self.pending.push(Pending::Answer(call, crate::agent::Answer::Reply(crate::agent::capped_data(out))));
+            return;
+        }
         if self.awaiting != Some(call) {
-            self.host_log(LogLevel::Warn, format!("reply to call {call} was dropped: Pitwall answers a call only while the event that delivered it is handled"));
+            self.host_log(LogLevel::Warn, format!("reply to call {call} was dropped: Pitwall answers a show call only while the event that delivered it is handled, and a read or act call until its time limit"));
             return;
         }
         if self.reply.is_some() {
@@ -471,6 +508,17 @@ impl agent_tools::Host for HostState {
         if self.count_call() {
             self.pending.push(Pending::Edited(call));
         }
+    }
+
+    fn input_part(&mut self, call: u64, offset: u64, len: u32) -> Result<String, String> {
+        if !self.count_call() {
+            return Err("busy: too many calls this second".into());
+        }
+        if self.awaiting != Some(call) {
+            return Err(format!("call {call}'s input can be read only while the event that delivered it is handled"));
+        }
+        let text = self.large.get(&self.extension, call).ok_or_else(|| format!("call {call} named no file"))?;
+        Ok(crate::agent::part(&text, offset, len))
     }
 }
 

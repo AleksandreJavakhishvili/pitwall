@@ -55,6 +55,14 @@ interface types {
     /// Items are per agent: key what an agent shows by its agent id and
     /// `id`, so two agents never replace each other's.
     caller: option<caller>,
+    /// The call adds to the item instead of replacing it (`"mode":
+    /// "append"` in a `present` call, with the same `id`): `json` is the
+    /// part to add.
+    append: bool,
+    /// The call named a file instead of inline text (`"from_file"`): its
+    /// size in bytes, read in parts with `agent-tools.input-part` while
+    /// the event is handled.
+    large: option<u64>,
   }
 
   /// An agent calling a tile's tool, as Pitwall identified it from the
@@ -1274,6 +1282,14 @@ interface types {
     /// A node with a `dismiss` listener was closed or removed by the user;
     /// carries its handler.
     dismissed(handler),
+    /// The user pressed Undo on what agent call `u64` (a `present` call's
+    /// `content.call`) put in the tile: restore what was there before it,
+    /// or remove the item if the call created it.
+    undo-present(u64),
+    /// A `read` or `act` call the tile didn't answer in time was given up
+    /// (the agent was told): stop working on it; a `reply` to it is
+    /// dropped.
+    tool-cancelled(u64),
   }
 
   /// What the tile gets when it starts.
