@@ -114,6 +114,42 @@ content (JSON text or bytes and a content id). Its `input` is host-owned: a fram
 replace it, and `input-changed` carries the selection
 ([runtime.md 2.4](runtime.md#24-threading-with-gpui)).
 
+Phase 2 adds the components to WIT 0.1 in place (new cases at the end
+of `element`, `listen` and `event`, new records), and how they came out
+differs from the sketch above in these ways:
+
+- **Lists.** `virtual-list`, `table` and `tree` all have a fixed row
+  height (`uniform_list`); a variable-height `list` isn't in 0.1. A
+  frame names each list's count, row height, revision and selected keys;
+  the host asks `guest.rows(view, key-path, start, count)` (≤ 256 a call,
+  64 a page, a page either side of what is in sight) and keeps up to
+  2 048 rows per list by index, re-asking when the frame's revision moves
+  (the SDK's default revision is its render count, so data changes need
+  no extra call; `.revision(n)` saves calls). Rows are small trees (≤ 64
+  nodes) of `box`, `text`, `icon`, `button`, `image` and `context-menu`
+  only; a table row's root holds one child per column. A tree's rows
+  carry `depth` and `expanded`; the tile flattens its open branches.
+  Selection is by row key and kept by the tile (`selection` event with
+  `activate` for a double click or Enter).
+- **Tabs** are drawn as `kit::seg`, the segmented control Pitwall uses
+  for its own view switches; there is no separate `segmented` element.
+- **Menus.** A `context-menu(list<menu-entry>)` node applies to its
+  parent (it isn't drawn where it is) and uses its own `select`
+  listener; a `menu-button` is a button with entries. Both are drawn
+  above the tile as Pitwall's menus (a glass pop-up under Liquid Glass),
+  not anchored inside it: a menu clipped by a small tile would be unusable.
+- **Markdown** is a record (`markdown { text }`), drawn by
+  `markdown_view`; with `link` and `toggle` listeners every link click and
+  a task's box go to the tile (Notes' gap G6), without them `http(s)` and
+  `mailto` links open in the browser.
+- **Images** come from an asset path in the extension's folder (checked
+  to stay inside it, ≤ 16 MiB) or from bytes put with
+  `ui.put-image(name, bytes)` (≤ 8 MiB, 64 MiB a tile), sniffed as PNG,
+  JPEG, GIF, WebP or SVG. Never from the network.
+- Not in this cut: `checkbox`, `toggle`, `radio`, `chip`, `status`,
+  `spinner`, `divider`, `split`, `icon-button` as elements (the SDK
+  builds buttons), `code`, `canvas` and drag (another phase 2 item).
+
 What the tile can't do: set fonts other than Pitwall's UI and mono
 faces, set colours outside a canvas, draw outside its bounds, open
 overlays outside its tile (menus, tooltips and popovers are anchored

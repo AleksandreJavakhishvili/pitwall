@@ -131,6 +131,8 @@ Requests about the tile's own views, in `ui`. They act only inside the tile's ow
 | `ui::open_view(tile)` | Opens one of the extension's tiles (an id from `contributes.tiles`), or focuses its view when one is open |
 | `ui::scroll_to(view, key_path)` | Scrolls the element at that key path into sight after the view's next render. The key path is the one `cx.focus` takes: keys from the root down, without the root's (`"list/rows/n4"`) |
 | `ui::request_render(view)` | Renders the view again after this call; in a listener, `cx.notify()` is simpler |
+| `ui::put_image(name, &bytes)` | Hands Pitwall an image (PNG, JPEG, GIF, WebP or SVG, at most 8 MiB) for `image_data(name)` ([Images](ui.md#images)). Kept until put again or dropped; at most 64 MiB for all of a tile's. `Invalid` when the bytes aren't one of those formats, `TooLarge` over a limit |
+| `ui::drop_image(name)` | Forgets an image put under `name` |
 
 The `form` template saves a note and says so in a toast:
 

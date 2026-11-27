@@ -1,6 +1,6 @@
 # Tiles and UI components
 
-**Preview.** A tile describes what to show as a tree of elements, and Pitwall lays it out and draws it in its own theme. This page covers the core elements of WIT 0.1, styles and theme colours, events and keys, the `Tile` trait, and opening a tile with content. A canvas with drag and drop is on [Canvas and drag](canvas.md), and Pitwall's code and diff views on [Native building blocks](blocks.md). Further components (lists, tables, trees, tabs, menus, Markdown, images) come in phase 2.
+**Preview.** A tile describes what to show as a tree of elements, and Pitwall lays it out and draws it in its own theme. This page covers the elements and components of WIT 0.1 (long lists, tables, trees, tabs, selects, menus, Markdown and images, all drawn by Pitwall), styles and theme colours, events and keys, the `Tile` trait, and opening a tile with content. A canvas with drag and drop is on [Canvas and drag](canvas.md), and Pitwall's code and diff views on [Native building blocks](blocks.md).
 
 The names follow GPUI, the UI framework Pitwall is built with, so `div().flex().gap_2().child(…)` reads as it does there. Everything below comes from `use pitwall_extension::prelude::*;`.
 
@@ -40,6 +40,7 @@ End the crate with `pitwall_extension::export!(MyTile);`. The [quick start](quic
 | Icon | `icon(Icon::Check)` | One of Pitwall's icons ([the list](#icons)), in the text colour and size |
 | Text field | `input("key")` | A one-line or multi-line field ([below](#text-fields)). Its key is required |
 | Scroll | `.overflow_y_scroll()`, `.overflow_x_scroll()`, `.overflow_scroll()` on a box | Its children scroll inside it. Pitwall draws the scrollbar and keeps the position |
+| Components | `virtual_list`, `table`, `tree`, `tabs`, `select`, `menu_button`, `.context_menu(…)`, `markdown`, `image_asset`, `image_data` | Pitwall's own lists, menus, Markdown and images ([below](#components)) |
 
 Every element can have:
 
@@ -64,6 +65,91 @@ A row of the `list` template: a button that toggles the item, its text, and a bu
 `Icon` has one variant per icon Pitwall draws, and `Icon::from_name` and `.name()` go between them and their names, which are also what `extension.json` names an icon by. An unknown `Icon::Named("…")` draws a dot (`pitwall-extension-test` warns of it), and `pitwall extension check` warns of an unknown icon in the manifest. The names:
 
 `sidebar`, `search`, `gear`, `plus`, `x`, `send`, `stop`, `restart`, `refresh`, `trash`, `branch`, `folder`, `chevron`, `grid`, `wall`, `maximize`, `restore`, `window`, `more`, `review`, `terminal`, `file`, `expand`, `copy`, `chevron-down`, `check`, `headset`, `user`, `laptop`, `server`, `eye`, `external`, `image`, `browser`, `back`, `phone`, `inspect`, `page-right`, `page-left`, `page-below`, `pin`, `grip`, `minus`, `chevron-up`, `lock`, `alert`, `extension`, `inbox`, `bell`, `chat`, `list`.
+
+## Components
+
+Components are drawn by Pitwall as its own lists, menus and Preview are, so they look and behave like the rest of the app (theme, hover, keyboard, scrollbars), and work without a round trip to the tile while the user scrolls or hovers. The examples below come from the gallery tile Pitwall's tests run (`crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs`); `pitwall-extension-test` drives each one ([quick start](quick-start.md#test-it)).
+
+### Virtual list
+
+`virtual_list(key, count, rows)` is a list of `count` rows that scrolls smoothly at 100 000 rows. The frame holds only the count; `rows`, made with `cx.rows(|tile, i, cx| …)`, renders row `i` when it comes into sight. Pitwall asks for rows a page (64) at a time and keeps what it has drawn until the list's data changes.
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-virtual-list}}
+```
+
+- **Rows.** A row is a small tree (at most 64 nodes) of boxes, text, icons, buttons, images and a context menu; no text fields or nested lists. Every row is `.row_height(px)` tall (default 28, Pitwall's own rows'; 12 to 200). Give each row its item's id with `.id(…)`, so the selection follows the item; a key has no `/`. Listeners in a row (a button's `on_click`, a context menu) work like any other.
+- **Selection.** `.on_select` hears a click, Up, Down, Home, End, Page Up and Page Down (with the row's key, or the whole `Picked` with its index and modifiers), and a double click or Enter with `activate`. `.selected(keys)` draws the selection; the tile keeps it.
+- **Changes.** By default every render counts as new data, and Pitwall asks for the rows in sight again. `.revision(n)` with a number that changes only when the rows do saves those calls.
+- **Size.** It fills its parent: give the parent a height, or let it grow (`flex_1` in a column that has one).
+- **Speed.** Keep the row callback quick: a page of 64 rows in a few milliseconds. In Pitwall's measurement a page of 64 gallery rows took about 0.5 ms, and a jump to row 50 000 was drawn in about 20 ms ([runtime.md §2.7](../../spec/tile-sdk/runtime.md)).
+
+### Table
+
+`table(key, columns, count, rows)` is a virtual list with a header. Each row's root holds its cells, one child per column in order. `column(key, title)` takes `.width(px)` (else it shares the rest), `.align_end()` or `.align_center()`, and `.sortable()`.
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-table}}
+```
+
+A click on a sortable title calls `.on_sort` with the column and the next direction (ascending first); the tile sorts and passes `.sort(column, direction)`, which draws the arrow. The user drags a title's right edge to resize the column; `.on_column_resize` hears the width at the end of the drag, to keep it. Selection works as in a list.
+
+### Tree
+
+`tree(key, count, rows)` is a virtual list of the tree's visible rows, in order: the tile flattens its open branches. A row is a `tree_row(element)` with `.depth(n)` (its level, indented by Pitwall) and, for a branch, `.branch(open)` (drawn with a chevron).
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-tree}}
+```
+
+The chevron, a double click on a branch, and → and ← on the selected row call `.on_toggle` with the row's key and whether it opens. ← on a leaf or a closed branch moves to its parent. The tile opens or closes the branch and renders again.
+
+### Tabs
+
+`tabs(key, [tab(key, label), …])` is Pitwall's segmented control: a row of tabs, each with an optional `.icon(…)`. `.selected(key)` marks the current one; `.on_select` hears a click with the tab's key. Draw the tab's content yourself.
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-tabs}}
+```
+
+### Select
+
+`select(key, [choice(key, label), …])` is a dropdown. `.selected(key)`, `.placeholder("…")` (shown while none is selected), `.disabled(true)`; `.on_select` hears the chosen option's key.
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-select}}
+```
+
+### Menus
+
+A menu is a list of `menu_item(key, label)` (with `.icon(…)`, `.hint("⌘C")`, `.disabled(true)`, `.danger()`) and `separator()`. Pitwall draws it as its own menus, above the tile (a glass pop-up under Liquid Glass), closes it on a click outside or Esc, and calls the listener with the chosen item's key.
+
+- `menu_button(label, entries)` is a button that opens it; `menu_icon_button(icon, label, entries)` an icon-only one, `label` being its accessible name.
+- `.context_menu(entries, listener)` on any element opens it on a right-click there, rows of lists included (a right-click selects the row first).
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-menu-button}}
+```
+
+### Markdown
+
+`markdown(text)` draws Markdown with Pitwall's Preview: headings, lists, tasks, code, tables, quotes. It is inert: no HTML, no remote images, nothing runs. Without listeners, `http`, `https` and `mailto` links open in the browser and task boxes can't be clicked. `.on_link` gets every link click instead (`LinkClick` with the target as written, so a relative link can open another of the tile's items); `.on_toggle` makes task boxes clickable and gets `Toggled` with the task's line (0-based) and whether it is ticked now, for the tile to change its text.
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-markdown}}
+```
+
+Given a height (or room to grow), it fills it and scrolls; otherwise it is as tall as its text. At most 1 MiB of text.
+
+### Images
+
+`image_asset("assets/logo.svg")` shows a file of the extension's folder (a path inside it, no `..`); `image_data(name)` shows bytes the tile handed over with `ui::put_image(name, &bytes)` ([Platform services](platform-services.md#ui)). PNG, JPEG, GIF, WebP and SVG; never fetched from the network. `.contain()` (the default), `.cover()` or `.fill()` say how it fits its box; give it a size with `w` and `h`.
+
+```rust
+{{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-image}}
+```
+
+An asset is at most 16 MiB; a put image at most 8 MiB, and 64 MiB for all of a tile's. A missing or unreadable image draws an image icon in its place.
 
 ## Styles
 
@@ -117,6 +203,10 @@ A listener is made with `cx.listener` while rendering and handed to the element 
 | `on_drop` | Any element | `Dropped`: something dragged with `.draggable` was dropped on it ([Drag and drop](canvas.md#drag-and-drop)) |
 | `on_scroll` | Scroll container | `ScrollPosition`: offset and content size, for loading more at the end |
 | `on_focus`, `on_blur` | Text field or focusable element | `Focused` / `Blur`: it took the keyboard, or lost it (to another element, or out of the tile). A field's blur is the moment to save it |
+| `on_select` | List, table, tree, tabs, select, menu button, `context_menu` | The chosen row's, tab's, option's or item's key (`&str`), or the whole `Picked` (key, index, modifiers, `activate`) |
+| `on_toggle` | Tree, Markdown | `Toggled`: a branch opened or closed, or a task's box clicked (its line) |
+| `on_link` | Markdown | `LinkClick`: a link's target |
+| `on_sort`, `on_column_resize` | Table | `SortChange` (column, direction), `ColumnWidth` (column, width) |
 
 Events that aren't for one element (shown or hidden, focus, a view's size, the theme, settings, grants) go to `Tile::on_event`.
 
@@ -181,6 +271,10 @@ Keep the schema small and describe each field: agents read it. In this preview, 
 | A frame | About 2 MiB |
 | A key | 128 bytes |
 | A text field's text | 1 MiB |
+| A list's, table's or tree's rows | 1 000 000; a row 64 nodes, 12–200 px tall |
+| A table's columns; tabs, options or menu items | 64; 1 000 |
+| Markdown | 1 MiB |
+| An image | 16 MiB from the folder, 8 MiB put (64 MiB for all) |
 | `render` | 250 ms (aim for under 8 ms) |
 | A listener or event | 1 s |
 | `new` | 2 s |
