@@ -45,6 +45,9 @@ pub fn parse(keys: &str) -> Option<(Mods, String)> {
     let key = match key {
         "esc" => "escape",
         "return" => "enter",
+        // GPUI on Linux names the plus and minus keys this way.
+        "add" | "plus" => "+",
+        "subtract" | "minus" => "-",
         other => other,
     };
     Some((m, key.to_string()))
