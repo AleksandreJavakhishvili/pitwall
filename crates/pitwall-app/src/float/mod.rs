@@ -805,6 +805,7 @@ impl Global for InFront {}
 
 /// The control's window, when it is up (tests).
 #[cfg(test)]
+#[allow(dead_code)] // used by the macOS-only screenshots
 pub(crate) fn window_of(cx: &App) -> Option<gpui::AnyWindowHandle> {
     cx.try_global::<Float>().and_then(|f| f.window).map(Into::into)
 }
@@ -813,9 +814,11 @@ pub(crate) fn window_of(cx: &App) -> Option<gpui::AnyWindowHandle> {
 /// a bench instance's preview is (screenshots: a test window keeps the
 /// size it was opened at).
 #[cfg(test)]
+#[allow(dead_code)] // used by the macOS-only screenshots
 pub(crate) struct Preview(Entity<FloatView>);
 
 #[cfg(test)]
+#[allow(dead_code)] // used by the macOS-only screenshots
 impl Preview {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Preview {
         let v = cx.new(|cx| {
