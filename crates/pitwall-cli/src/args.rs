@@ -209,8 +209,13 @@ pub enum ExtensionCmd {
         #[arg(long, default_value_t = 100)]
         lines: usize,
     },
-    /// Install one Pitwall ships. It stays off. Asks the user.
-    Install { id: String },
+    /// Install one Pitwall ships, or (a folder: a path with a `/`) an
+    /// extension of tiles from a folder on this computer, as a preview:
+    /// copied, unsigned, never updated. It stays off. Asks the user.
+    Install {
+        /// Its id, or the folder with its extension.json.
+        id: String,
+    },
     /// Turn it on, granting what its permission screen grants by default
     /// (reading; nothing that acts). The approval shows what it runs, sets
     /// and adds. Asks the user.
