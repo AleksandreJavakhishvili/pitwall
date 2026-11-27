@@ -349,6 +349,10 @@ impl Harness {
             own_server: self.own_server,
             calls: pitwall_tile_host::agent::ShowCalls::new(),
             answers: HashMap::new(),
+            approval: Approval::Once,
+            always: Default::default(),
+            approvals: Vec::new(),
+            last_call: None,
             clipboard: None,
             opened_pages: Vec::new(),
         };
@@ -385,8 +389,19 @@ fn launch(host: &TileHost, ext: &Extension, options: StartOptions) -> (TileHandl
     (handle, rx)
 }
 
+/// What the agent is told of a call's answer.
+fn called(a: pitwall_tile_host::agent::Answer) -> Called {
+    use pitwall_tile_host::agent::{error_text, Answer, ToolOutput};
+    match a {
+        Answer::Handled => Called::Shown,
+        Answer::Reply(ToolOutput::Ok(ok)) => Called::Replied { text: ok.text, json: ok.json.and_then(|j| serde_json::from_str(&j).ok()), item: ok.item },
+        Answer::Reply(ToolOutput::Error(e)) => Called::Failed(error_text(&e)),
+        Answer::NotDelivered(why) => Called::Refused(format!("It didn't get it: {why}. Nothing was shown.")),
+    }
+}
+
 fn json_content(v: &serde_json::Value) -> ui::Content {
-    ui::Content { id: None, json: Some(v.to_string()), bytes: None, call: None, tool: None, caller: None }
+    ui::Content { id: None, json: Some(v.to_string()), bytes: None, call: None, tool: None, caller: None, append: false, large: None }
 }
 
 struct FakeSecrets(HashMap<String, String>);
@@ -515,6 +530,13 @@ pub struct Session {
     calls: pitwall_tile_host::agent::ShowCalls,
     /// Answers to calls, by call id, not taken yet.
     answers: HashMap<u64, pitwall_tile_host::agent::Answer>,
+    /// How the user answers the next approvals of `read` and `act` calls,
+    /// the (agent, tool) pairs they allowed always, the approvals asked so
+    /// far (what each asked), and the last call's id.
+    approval: Approval,
+    always: std::collections::BTreeSet<(String, String)>,
+    approvals: Vec<String>,
+    last_call: Option<u64>,
     /// What the last copy button put on the clipboard.
     clipboard: Option<String>,
     /// Web pages links opened.
@@ -537,15 +559,37 @@ pub enum Called {
     /// fit the schema, an item the user edited, too many calls), or it
     /// never reached the tile; why, as the agent reads it.
     Refused(String),
+    /// A `read` or `act` call the tile will answer later (it returned
+    /// `Reply::later`): let time pass, then [`Session::answer_of`].
+    Waiting(u64),
+}
+
+/// How the user answers the approval of a `read` or `act` call in the
+/// harness ([`Session::approve`]), as they would in Pitwall: Allow once,
+/// Always for this agent, or Deny.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Approval {
+    Once,
+    Always,
+    Deny,
 }
 
 impl Called {
-    /// What the agent reads (empty for [`Called::Shown`]).
+    /// What the agent reads (empty for [`Called::Shown`] and
+    /// [`Called::Waiting`]).
     pub fn text(&self) -> &str {
         match self {
-            Called::Shown => "",
+            Called::Shown | Called::Waiting(_) => "",
             Called::Replied { text, .. } => text,
             Called::Failed(t) | Called::Refused(t) => t,
+        }
+    }
+
+    /// The JSON the tile replied with (a `read` tool's data).
+    pub fn json(&self) -> Option<&serde_json::Value> {
+        match self {
+            Called::Replied { json, .. } => json.as_ref(),
+            _ => None,
         }
     }
 
@@ -1167,8 +1211,89 @@ impl Session {
     /// the user edited since (the tile called `user_edited`), then gives
     /// the tile's view (its id is the tile's) the content: `view-opened`
     /// when it isn't open, `view-content` when it is.
+    ///
+    /// A `read` or `act` tool goes through the user's approval first, as
+    /// in Pitwall: a `read` until the user allowed that agent always, an
+    /// `act` each time unless they did. The harness answers it as
+    /// [`Session::approve`] says (Allow once by default) and keeps what
+    /// each approval asked ([`Session::approvals_asked`]); then the call
+    /// reaches the tile's `tool` export, without opening a view.
     pub fn call(&mut self, agent: &str, tool: Option<&str>, item: Option<&str>, input: serde_json::Value) -> Called {
-        use pitwall_tile_host::agent::{error_text, Answer, Caller, ShowCall, ToolOutput};
+        self.call_with(Some(agent), tool, item, input, false, None)
+    }
+
+    /// [`Session::call`] of a `present` tool with `"mode": "append"`: the
+    /// input adds to the item.
+    pub fn call_append(&mut self, agent: &str, tool: &str, item: &str, input: serde_json::Value) -> Called {
+        self.call_with(Some(agent), Some(tool), Some(item), input, true, None)
+    }
+
+    /// [`Session::call`] of a `present` tool that names a file instead of
+    /// inline text (`"from_file"`): `text` is that file's text, which the
+    /// tile reads with `input-part`.
+    pub fn call_from_file(&mut self, agent: &str, tool: &str, item: Option<&str>, input: serde_json::Value, text: &str) -> Called {
+        self.call_with(Some(agent), Some(tool), item, input, false, Some(text.to_string()))
+    }
+
+    /// The user runs tool `tool` themselves (the command palette, or
+    /// `pitwall extension run` in one of Pitwall's terminals): an `act`
+    /// still asks for approval ([`Session::approve`]).
+    pub fn run_command(&mut self, tool: &str, input: serde_json::Value) -> Called {
+        self.call_with(None, Some(tool), None, input, false, None)
+    }
+
+    /// How the user answers the next approvals of `read` and `act` calls.
+    pub fn approve(&mut self, answer: Approval) -> &mut Self {
+        self.approval = answer;
+        self
+    }
+
+    /// What each approval asked so far (who, which tool, the input), in
+    /// order.
+    pub fn approvals_asked(&self) -> &[String] {
+        &self.approvals
+    }
+
+    /// The user takes back "Always" for agent `agent` and tool `tool` (on
+    /// the extension's card): its calls ask again.
+    pub fn revoke_always(&mut self, agent: &str, tool: &str) -> &mut Self {
+        self.always.remove(&(agent.to_string(), tool.to_string()));
+        self
+    }
+
+    /// The id of the last call that reached the tile (the origin of what
+    /// a `present` call showed, for [`Session::undo`]).
+    pub fn last_call(&self) -> Option<u64> {
+        self.last_call
+    }
+
+    /// The user presses Undo on what call `call` showed (beside the
+    /// host's "from <agent>" mark): the tile gets `undo-present`.
+    pub fn undo(&mut self, call: u64) -> &mut Self {
+        self.check_running();
+        assert!(self.handle.send(Event::UndoPresent(call)));
+        self.settle()
+    }
+
+    /// The answer to a call that was [`Called::Waiting`], once the tile
+    /// replied (`None`: not yet).
+    pub fn answer_of(&mut self, call: u64) -> Option<Called> {
+        self.settle();
+        self.answers.remove(&call).map(called)
+    }
+
+    /// Give up a [`Called::Waiting`] call as Pitwall does past its time
+    /// limit (10 s for `read`, 120 s for `act`): the tile gets
+    /// `tool-cancelled` and a later reply is dropped.
+    pub fn cancel_call(&mut self, call: u64) -> &mut Self {
+        self.check_running();
+        assert!(self.handle.cancel_tool(call));
+        self.settle()
+    }
+
+    fn call_with(&mut self, agent: Option<&str>, tool: Option<&str>, item: Option<&str>, input: serde_json::Value, append: bool, file: Option<String>) -> Called {
+        use pitwall_core::extensions::tools::ToolKind as K;
+        use pitwall_tile_host::agent::{Caller, ShowCall, ToolCall, ToolKind};
         self.check_running();
         let m = self.ext.manifest().clone();
         let def = match tool {
@@ -1177,22 +1302,68 @@ impl Session {
             None => m.contributes.tile(&self.main).unwrap_or_else(|| panic!("its extension.json has no tile “{}”", self.main)),
         };
         assert!(def.agents, "tile “{}” has \"agents\": false: agents get no tools of it", def.id);
+        let declared = tool.and_then(|t| def.tools.iter().find(|x| x.name == t));
+        let kind = declared.map_or(K::Show, |d| d.kind);
+        assert!(!append || kind == K::Present, "only a present tool takes \"mode\": \"append\"");
+        assert!(file.is_none() || kind == K::Present, "only a present tool takes \"from_file\"");
+        assert!(agent.is_some() || declared.is_some(), "the user runs a declared tool");
         let schema = match tool {
-            Some(t) => def.tools.iter().find(|x| x.name == t).map(|x| x.schema()),
+            Some(_) => declared.map(|x| x.schema()),
             None => def.input.as_deref().and_then(|rel| std::fs::read_to_string(self.ext.dir().join(rel)).ok()).and_then(|s| serde_json::from_str(&s).ok()),
         };
         if let Some(schema) = &schema {
             let problems = pitwall_core::extensions::tools::check_input(schema, &input);
             if !problems.is_empty() {
-                return Called::Refused(format!("Nothing was shown: the input doesn't fit.\n{}", problems.join("\n")));
+                return Called::Refused(format!("Nothing was done: the input doesn't fit.\n{}", problems.join("\n")));
             }
         }
-        let caller = Caller { agent_id: agent.to_string(), agent_name: agent.to_string(), project: None };
-        let call = ShowCall { tool: tool.map(str::to_string), tile: def.id.clone(), item: item.map(str::to_string), input: Some(input.to_string()), caller };
-        let (id, content) = match self.calls.begin(&call, Instant::now()) {
+        let caller = agent.map(|a| Caller { agent_id: a.to_string(), agent_name: a.to_string(), project: None });
+        if !kind.show_only() {
+            let tool = tool.unwrap_or_default();
+            // The user's approval: a read until allowed always, an act
+            // each time unless allowed always (the user's own commands:
+            // only an act asks).
+            let key = (agent.unwrap_or("").to_string(), tool.to_string());
+            let asks = match (agent, kind) {
+                (None, K::Read) => false,
+                _ => !self.always.contains(&key),
+            };
+            if asks {
+                let who = agent.unwrap_or("You");
+                self.approvals.push(format!("{who} wants to {} {tool} of {}: {input}", if kind == K::Read { "read with" } else { "run" }, m.name));
+                match self.approval {
+                    Approval::Deny => return Called::Refused(format!("The user denied {tool}. Nothing was done.")),
+                    Approval::Always if agent.is_some() => {
+                        self.always.insert(key);
+                    }
+                    _ => {}
+                }
+            }
+            let id = match self.calls.begin_tool(agent, &def.id, &input.to_string(), self.clock.now()) {
+                Ok(id) => id,
+                Err(refused) => return Called::Refused(refused.to_string()),
+            };
+            self.last_call = Some(id);
+            let view = self.frames.contains_key(&def.id).then(|| def.id.clone());
+            let kind = if kind == K::Act { ToolKind::Act } else { ToolKind::Read };
+            assert!(self.handle.tool_call(ToolCall { id, tool: tool.to_string(), kind, caller, input: input.to_string(), view }));
+            self.settle();
+            return match self.answers.remove(&id) {
+                Some(a) => called(a),
+                None => Called::Waiting(id),
+            };
+        }
+        let caller = caller.expect("show calls are an agent's");
+        let large = file.as_ref().map(|t| t.len() as u64);
+        let call = ShowCall { tool: tool.map(str::to_string), tile: def.id.clone(), item: item.map(str::to_string), input: Some(input.to_string()), caller, append, large };
+        let (id, content) = match self.calls.begin(&call, self.clock.now()) {
             Ok(v) => v,
             Err(refused) => return Called::Refused(refused.to_string()),
         };
+        self.last_call = Some(id);
+        if let Some(text) = file {
+            self.host.large_inputs().put(self.ext.id(), id, text);
+        }
         let view = def.id.clone();
         if self.frames.contains_key(&view) {
             assert!(self.handle.set_content(&view, content));
@@ -1200,11 +1371,9 @@ impl Session {
             assert!(self.handle.open_view(ViewSpec { id: view.clone(), tile: def.id.clone(), content: Some(content) }));
         }
         self.settle();
+        self.host.large_inputs().forget(self.ext.id(), id);
         match self.answers.remove(&id) {
-            Some(Answer::Handled) => Called::Shown,
-            Some(Answer::Reply(ToolOutput::Ok(ok))) => Called::Replied { text: ok.text, json: ok.json.and_then(|j| serde_json::from_str(&j).ok()), item: ok.item },
-            Some(Answer::Reply(ToolOutput::Error(e))) => Called::Failed(error_text(&e)),
-            Some(Answer::NotDelivered(why)) => Called::Refused(format!("It didn't get it: {why}. Nothing was shown.")),
+            Some(a) => called(a),
             None => panic!("the tile didn't answer call {id}"),
         }
     }

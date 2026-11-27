@@ -138,8 +138,8 @@ fn agents_open_it_and_show_messages() {
     assert!(t.find_text("claude: first").is_none() && t.find_text("claude: second").is_some() && t.find_text("codex: mine").is_some(), "{}", t.text_snapshot());
     // Input that doesn't fit the schema never reaches the tile.
     let before = t.text_snapshot();
-    let r = t.call("claude", Some("show_message"), Some("b"), json!({ "text": "x" }));
-    assert!(matches!(&r, Called::Refused(m) if m.contains("`message` is required")), "{r:?}");
+    let r = t.call("claude", Some("show_message"), Some("b"), json!({ "message": 5 }));
+    assert!(matches!(&r, Called::Refused(m) if m.contains("`message` must be a string")), "{r:?}");
     // The tile's own problems: nothing changes either.
     let r = t.call("claude", Some("show_message"), Some("b"), json!({ "message": "  " }));
     assert_eq!(r, Called::Failed("Nothing was shown: the message is empty.\n`message` has no text".into()));
@@ -151,4 +151,81 @@ fn agents_open_it_and_show_messages() {
     assert!(matches!(&r, Called::Refused(m) if m.contains("The user changed “a”")), "{r:?}");
     assert!(t.find_text("claude: second (edited)").is_some(), "{}", t.text_snapshot());
     assert!(t.call("claude", Some("show_message"), Some("c"), json!({ "message": "new" })).is_ok());
+}
+
+/// Phase 3 (agent-tools.md §11.2–11.7): a `read` tool asks the user until
+/// they allow that agent always, and runs without the tile's acting
+/// permissions; an `act` tool asks each time unless allowed always, and a
+/// denial reaches nothing; an act answered later, or given up; the user's
+/// own command; Undo of what a present call showed; appends; and a file
+/// named instead of inline text.
+#[test]
+fn agents_read_act_and_the_user_undoes() {
+    use pitwall_extension_test::{Approval, Called};
+    use serde_json::json;
+    let mut t = Harness::load(hello()).grant("notify").open("main");
+    t.call("claude", Some("show_message"), Some("a"), json!({ "message": "first" }));
+    // read: asked once, then always for that agent.
+    t.approve(Approval::Always);
+    let r = t.call("claude", Some("current_messages"), None, json!({}));
+    assert_eq!(r.text(), "1 messages (notify: denied)", "a read can't notify");
+    assert_eq!(r.json(), Some(&json!({ "claude/a": "first" })));
+    t.approve(Approval::Deny);
+    assert!(t.call("claude", Some("current_messages"), None, json!({})).is_ok(), "allowed always: no second ask");
+    assert_eq!(t.approvals_asked().len(), 1, "{:?}", t.approvals_asked());
+    assert!(matches!(t.call("codex", Some("current_messages"), None, json!({})), Called::Refused(m) if m.contains("denied")), "another agent asks for itself");
+    // act: denied reaches nothing; once runs with the tile's grants.
+    let r = t.call("claude", Some("send_message"), None, json!({ "text": "hi" }));
+    assert!(matches!(&r, Called::Refused(m) if m.contains("denied")), "{r:?}");
+    assert!(t.find_text("Sent: ; cancelled: 0").is_some(), "{}", t.text_snapshot());
+    t.approve(Approval::Once);
+    let r = t.call("claude", Some("send_message"), None, json!({ "text": "hi" }));
+    assert_eq!(r.text(), "Sent “hi” for claude (notify: ok)");
+    assert!(t.approvals_asked().last().unwrap().contains(r#"claude wants to run send_message of Hello: {"text":"hi"}"#), "{:?}", t.approvals_asked());
+    let asked = t.approvals_asked().len();
+    t.call("claude", Some("send_message"), None, json!({ "text": "again" }));
+    assert_eq!(t.approvals_asked().len(), asked + 1, "once is once");
+    // Answered later: waiting until the tile replies.
+    let Called::Waiting(id) = t.call("claude", Some("send_message"), None, json!({ "text": "slow", "wait_ms": 500 })) else { panic!() };
+    assert_eq!(t.answer_of(id), None);
+    t.advance(Duration::from_millis(500));
+    assert_eq!(t.answer_of(id).map(|c| c.text().to_string()), Some("Sent “slow” later".into()));
+    // Given up: the tile hears it, and its late reply is dropped.
+    let Called::Waiting(id) = t.call("claude", Some("send_message"), None, json!({ "text": "slower", "wait_ms": 500 })) else { panic!() };
+    t.cancel_call(id);
+    assert!(t.find_text("Sent: hi, again, slow; cancelled: 1").is_some(), "{}", t.text_snapshot());
+    t.advance(Duration::from_millis(500));
+    assert_eq!(t.answer_of(id), None);
+    // The user's own command: an act still asks.
+    let asked = t.approvals_asked().len();
+    // (Its notification is over the few a minute the tile may send.)
+    assert!(t.run_command("send_message", json!({ "text": "mine" })).text().starts_with("Sent “mine” for the user"));
+    assert!(t.approvals_asked()[asked].starts_with("You wants to run"), "{:?}", t.approvals_asked());
+    // Undo: the value before the call comes back; the call that made an
+    // item takes it away.
+    t.call("claude", Some("show_message"), Some("a"), json!({ "message": "second" }));
+    let second = t.last_call().unwrap();
+    assert!(t.find_text("claude: second").is_some());
+    t.undo(second);
+    assert!(t.find_text("claude: first").is_some(), "{}", t.text_snapshot());
+    t.call("claude", Some("show_message"), Some("new"), json!({ "message": "made" }));
+    let made = t.last_call().unwrap();
+    t.undo(made);
+    assert!(t.find_text("claude: made").is_none(), "{}", t.text_snapshot());
+    // Appends add to the item; a file's text arrives in parts (past
+    // the rate limit first: 10 calls in 10 seconds).
+    t.advance(Duration::from_secs(10));
+    t.call("claude", Some("show_message"), Some("log"), json!({ "message": "one" }));
+    let r = t.call_append("claude", "show_message", "log", json!({ "message": "+two" }));
+    assert!(r.is_ok(), "{r:?}");
+    assert!(t.find_text("claude: one+two").is_some(), "{}", t.text_snapshot());
+    // Appends close together: drawn at most 4 times a second.
+    t.call_append("claude", "show_message", "log", json!({ "message": "+3" }));
+    assert!(t.find_text("claude: one+two").is_some(), "held back: {}", t.text_snapshot());
+    t.advance(Duration::from_millis(250));
+    assert!(t.find_text("claude: one+two+3").is_some(), "{}", t.text_snapshot());
+    // Over the 1 MiB one part carries, cut between characters.
+    let big = "é".repeat(600_001);
+    assert!(t.call_from_file("claude", "show_message", Some("file"), json!({}), &big).is_ok());
+    assert!(t.find_text(&format!("claude: {big}")).is_some());
 }
