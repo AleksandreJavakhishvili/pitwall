@@ -314,3 +314,36 @@ fn categories_toml_is_pitwalls_list() {
     let c: repo::Categories = toml::from_str(&repo::categories_toml()).unwrap();
     assert_eq!(c.categories.len(), CATEGORIES.len());
 }
+
+#[test]
+fn a_listed_version_downloads_checked_and_stages_like_a_file() {
+    let f = IndexFixture::new();
+    let v = f.release("ci-status", "1.0.0", PERMS);
+    f.release("ci-status", "1.1.0", PERMS);
+    f.yank("ci-status", "1.1.0");
+    let b = f.publish(NOW);
+    let into = f.dir.path().join("staging");
+    let path = download(f.http.as_ref(), &b.index, &b.blocked, "ci-status", "1.0.0", &into).unwrap();
+    let exts = f.dir.path().join("extensions");
+    let (offer, opened) = crate::extensions::package::stage(&path, &exts).unwrap();
+    assert_eq!(offer.manifest.id, "ci-status");
+    assert_eq!(opened.signer, Some(f.author.signer()));
+    // Withdrawn: refused before anything is downloaded.
+    let before = f.http.requests().len();
+    assert!(download(f.http.as_ref(), &b.index, &b.blocked, "ci-status", "1.1.0", &into).unwrap_err().contains("withdrawn"));
+    assert_eq!(f.http.requests().len(), before);
+    // The release asset swapped after listing: refused.
+    f.http.put(&v.url, crate::testing::index::tile_package("ci-status", "1.0.0", "", b"\0asm\r\0\x01\0evil"));
+    assert!(download(f.http.as_ref(), &b.index, &b.blocked, "ci-status", "1.0.0", &into).unwrap_err().contains("isn't the one listed"));
+}
+
+#[test]
+fn a_listed_version_signed_by_a_key_the_index_doesnt_list_is_refused() {
+    let f = IndexFixture::new();
+    let v = f.release("ci-status", "1.0.0", PERMS);
+    let b = f.publish(NOW);
+    let bytes = crate::testing::index::tile_package("ci-status", "1.0.0", PERMS, &crate::testing::index::COMPONENT);
+    f.http.put(&format!("{}.minisig", v.url), Signing::new().sign(&bytes));
+    let err = download(f.http.as_ref(), &b.index, &b.blocked, "ci-status", "1.0.0", &f.dir.path().join("s")).unwrap_err();
+    assert!(err.contains("isn't signed by its author's key in the index"), "{err}");
+}

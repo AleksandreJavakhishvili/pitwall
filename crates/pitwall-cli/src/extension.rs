@@ -42,6 +42,7 @@ pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
         }
         ExtensionCmd::Pack { folder, out } => (pack(folder.as_deref().unwrap_or(std::path::Path::new(".")), out.as_deref())?, true),
         ExtensionCmd::Sign { file, key } => (sign(file, key.as_deref())?, true),
+        ExtensionCmd::Publish { .. } => (crate::publish::publish(cmd)?, true),
         _ => unreachable!("run against Pitwall (setup)"),
     })
 }
@@ -72,6 +73,10 @@ pub fn pack(folder: &std::path::Path, out: Option<&std::path::Path>) -> Result<O
         human.push_str(&format!("  {name}  {}\n", package::size_words(*size)));
     }
     human.push_str(&format!("\nNext:\n  pitwall extension sign {}\n", file.display()));
+    let missing: Vec<&str> = [(!p.files.iter().any(|(n, _)| n.starts_with("LICENSE")), "a LICENSE file"), (p.manifest.description.as_deref().is_none_or(|d| d.trim().is_empty()), "a \"description\" in extension.json")].iter().filter(|(m, _)| *m).map(|(_, w)| *w).collect();
+    if !missing.is_empty() {
+        human.push_str(&format!("For the extensions index it also needs {}.\n", missing.join(" and ")));
+    }
     let files: Vec<serde_json::Value> = p.files.iter().map(|(n, s)| json!({ "name": n, "bytes": s })).collect();
     let json = json!({ "file": file, "id": p.manifest.id, "name": p.manifest.name, "version": version, "bytes": p.bytes.len(), "sha256": p.sha256, "files": files });
     Ok(Output { json, human, failed: None })
@@ -117,12 +122,13 @@ pub fn sign(file: &std::path::Path, key: Option<&std::path::Path>) -> Result<Out
         return Err(failed("The signature was written but names another key."));
     }
     let human = format!(
-        "Signed {} {} with key {}: {}\nPublic key (publish it where your users can compare it): {}\nShip both files together; Pitwall checks the signature before it unpacks anything.\n",
+        "Signed {} {} with key {}: {}\nPublic key (publish it where your users can compare it): {}\nShip both files together; Pitwall checks the signature before it unpacks anything.\n\nFor the extensions index: release both on GitHub, then\n  pitwall extension publish {} --repository https://github.com/<you>/<repo> --author <handle>\n",
         m.name,
         m.version.clone().unwrap_or_default(),
         signer.key_id,
         to.display(),
-        signer.public_key
+        signer.public_key,
+        file.display()
     );
     Ok(Output { json: json!({ "file": file, "signature": to, "keyId": signer.key_id, "publicKey": signer.public_key, "sha256": back.sha256 }), human, failed: None })
 }
@@ -212,7 +218,7 @@ pub fn setup(cmd: &ExtensionCmd, c: &mut pitwall_client::Client) -> Result<Outpu
         ExtensionCmd::Commands { id } => crate::tile_tools::commands(c, id.as_deref()),
         ExtensionCmd::Call { id, tool, input, timeout } => crate::tile_tools::call_tool(c, id, tool, input, *timeout),
         ExtensionCmd::Run { id, command, json, timeout, props } => crate::tile_tools::run(c, id, command, json.as_deref(), props, *timeout),
-        ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Dev { .. } | ExtensionCmd::Pack { .. } | ExtensionCmd::Sign { .. } => unreachable!("offline (run, dev)"),
+        ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Dev { .. } | ExtensionCmd::Pack { .. } | ExtensionCmd::Sign { .. } | ExtensionCmd::Publish { .. } => unreachable!("offline (run, dev)"),
     }
 }
 

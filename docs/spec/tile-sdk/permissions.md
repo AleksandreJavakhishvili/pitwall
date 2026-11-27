@@ -144,3 +144,36 @@ are fixed before Browse opens; the rest are listed with dates. The
 owner picks the reviewer and decides whether later changes to the
 sandbox (`net.tcp`, the helper process, headless services) need
 another review.
+
+#### 5.5.1 The marketplace (phase 5)
+
+Written with the index ([7.8](marketplace.md#78-as-built-phase-5)).
+Each row says what an attacker tries, what stops it as built, what is
+left, and which test shows it. Tests are in
+`pitwall-core/src/extensions/index/tests.rs` (core) and
+`crates/pitwall-index/tests/index.rs` (tool).
+
+| Threat | What an attacker tries | What stops it (as built) | Left | Test |
+|---|---|---|---|---|
+| Index compromise: the repository or CI | Merge a malicious entry or change a listed version's file, through a stolen maintainer account, a malicious pull request that runs code in CI, or a poisoned workflow | Branch protection and required checks (owner's checklist); `check.yml` runs with a read-only token, no secrets and `persist-credentials: false`, and never runs the package as a program (only the tile runtime, with no grants); `auto-merge.yml` runs in the base repository's context and reads only the check's result file; listed versions can't be changed, only yanked (`judge`); every package must be signed by the author's key, not the index's | A maintainer who is malicious or compromised can still merge; the pinned `pitwall-index` commit must be bumped with care; `cargo install` from git trusts the Pitwall repository | `a_pull_request_is_judged_against_its_base`, `an_update_by_its_author_with_the_same_permissions_can_be_merged_by_the_bot` |
+| Index compromise: the index key | Sign an `index.json` that lists a malicious version, hides a block, or marks a version Verified | Packages are pinned by SHA-256 and must be signed by an author key the index lists, so a new listing needs the attacker's own author key; Verified is checked against review keys that ship in Pitwall, not the index, so a stolen index key can't make a version Verified; the key's secret is only in a protected environment of `publish.yml` | With the index key alone, an attacker can list a new extension under their own key, or drop a block for old Pitwalls; the key isn't in a hardware token | `an_index_signed_by_another_key_is_refused`, `browse_offers_the_last_verified_version_by_default` |
+| Index server or network | Serve a changed file, an old but validly signed index (replay or freeze), a huge file, or garbage | Signature checked before anything is kept; a file older than the cached one is refused; strict size and count limits; text-direction characters refused; https only; an index older than 14 days is marked stale; when a fetch fails, nothing changes | Browse doesn't show "stale" yet (Settings side); a first-time user with no cache can be frozen at whatever old index they get first, for up to 14 days | `the_https_source_caches_checks_and_falls_back`, `parsing_holds_the_limits`, `times_read_and_write` |
+| Key rotation: the index key | A compromised or lost index key strands Pitwalls, or a rotation is abused | Two keys ship (current and next); to rotate, CI switches to the next key and a Pitwall release adds a new next key and drops the old one | Pitwalls that never update keep trusting a compromised key; there is no signed revocation of an index key; the procedure needs writing down and rehearsing | `an_index_signed_by_another_key_is_refused` |
+| Key rotation: an author's key | A stolen author key ships a malicious update; an attacker swaps in their own key | A key change in `authors/` needs a maintainer (`judge`); a new version signed by another key than the one before it is sensitive and isn't auto-merged; installed copies keep trusting their first key (packaging 6.6) and ask before trusting another | A stolen key that is still listed can sign an update with the same permissions, which the bot auto-merges; rotation statements signed by the old key aren't read | `a_new_key_on_a_version_is_sensitive`, `into_a_clone_of_the_index_an_update_adds_a_version_that_its_checks_accept` |
+| Typosquatting and impersonation | List `ci-statu5` next to `ci-status`, or use another project's name or icon | A new id always needs a maintainer; look-alike ids (one edit apart, or the same once `-` and look-alike characters are folded) are flagged; ids belong to their first author; names are plain text without direction characters; the card shows the author's GitHub login and the repository | Names (not ids) aren't compared for look-alikes; nothing compares icons or screenshots; Unicode look-alikes in names are allowed (ids are ASCII) | `look_alikes_catch_typosquats`, `a_pull_request_is_judged_against_its_base` |
+| Malicious update | Ship harmful code in an update with the same permissions, or widen permissions quietly | Updates with a permission, host, memory or key change need a maintainer; new permissions stay off until Allow (6.4); a newer version isn't Verified until reviewed, and Browse offers the last Verified one; each new version must start headless; blocked versions are refused and turned off with the reason | Same-permission updates are auto-merged and, with auto-install, installed without review; how fast a block reaches users depends on the daily check (not yet wired in the app) | `a_new_version_keeps_what_was_recorded_and_says_what_it_changes`, `yanked_and_blocked_versions_are_refused_with_the_reason` |
+| Takedown abuse | Block someone else's extension, or un-yank a withdrawn version | `blocked.toml` and un-yanking need a maintainer; blocks are signed with the index | A compromised index key can block anything (denial of service) | `a_pull_request_is_judged_against_its_base` |
+
+**What the outside review must also cover, for the marketplace:** the
+index parsers and their limits (`extensions::index::{parse_index,
+parse_blocked}`), the signature checks with pinned keys (`verify_by`,
+`HttpsSource`'s cache, its replay check and its fallback), the review
+statement and its check, `refusal` and `installed_note`, the
+repository checks and the pull-request judge (`index::repo::{load,
+judge, build}`), `pitwall-index` (downloads, the headless run, signing),
+the three workflows (tokens, `workflow_run`, artifacts, the secret's
+environment), and the key handling in the owner's checklist.
+
+**Status: the outside review is not done.** It has not started; the
+owner picks the reviewer. Browse stays limited to SDK-preview authors
+until it is done and its serious findings are fixed.
