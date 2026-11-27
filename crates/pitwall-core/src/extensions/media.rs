@@ -352,7 +352,8 @@ pub fn screenshots(names: &[String], listed: &[ShotDef]) -> Result<Vec<Shot>, St
     let mut files: Vec<&String> = names.iter().filter(|n| n.starts_with("screenshots/") && n.matches('/').count() == 1 && matches!(Kind::of_name(n), Some(Kind::Png | Kind::Webp))).collect();
     files.sort();
     // Shared name → (light, dark, plain).
-    let mut groups: Vec<(String, Option<String>, Option<String>, Option<String>)> = Vec::new();
+    type Group = (String, Option<String>, Option<String>, Option<String>);
+    let mut groups: Vec<Group> = Vec::new();
     for f in files {
         let (base, theme) = pair_of(f);
         let i = match groups.iter().position(|g| g.0 == base) {

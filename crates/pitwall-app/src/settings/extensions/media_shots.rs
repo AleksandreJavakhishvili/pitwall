@@ -178,7 +178,7 @@ fn media_shots() {
     cx.update(|cx| settings.read(cx).scroll_by(px(520.)));
     shoot(&mut cx, w, "detail-readme");
     cx.update(|cx| settings.update(cx, |v, cx| v.show_extension_detail(Some("c4"), cx)));
-    cx.update(|cx| settings.update(cx, |v, cx| v.exts.page.enlarged = Some(("installed/c4".into(), 1))));
+    cx.update(|cx| settings.update(cx, |v, _| v.exts.page.enlarged = Some(("installed/c4".into(), 1))));
     shoot(&mut cx, w, "detail-large");
     cx.update(|cx| settings.update(cx, |v, cx| {
         v.exts.page.enlarged = None;
