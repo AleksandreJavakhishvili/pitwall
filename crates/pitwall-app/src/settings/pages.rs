@@ -92,6 +92,7 @@ impl SettingsView {
                 Part::section("show-web", |_, ui, _, cx| any(Self::show_web(ui, cx))),
                 Part::section("show-settings", |_, ui, _, cx| any(Self::show_settings(ui, cx))),
                 Part::section("show-device", |_, ui, _, cx| any(Self::show_device(ui, cx))),
+                Part::section("tile-tools", |_, ui, _, cx| any(Self::tile_tools(ui, cx))),
                 Part::section("edit-files", |_, ui, _, cx| any(Self::edit_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
@@ -425,6 +426,63 @@ impl SettingsView {
                             "Ask an agent to show you the app on a simulator or an emulator and its screen opens in a device tile next to its terminal (it boots one first if none is running). It only shows you the screen: the agent gets nothing back from it and can’t tap or type in it. Each kind gets it the way it gets files, listed above.",
                             &ui.t,
                         )),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
+        )
+    }
+
+    /// `agents.tileTools`: agents can open extensions' tiles and show
+    /// things in them (agent-tools.md §11.5), with the tools offered now.
+    fn tile_tools(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::tiles::agents::SETTING);
+        let on = crate::tiles::agents::enabled(cx);
+        // What agents get now, by extension (also while off: what they
+        // would get).
+        let ui_state = crate::ui_state::get(cx);
+        let mut offered: Vec<String> = Vec::new();
+        for m in crate::extensions::enabled(&crate::extensions::found(cx), &ui_state) {
+            let dir = crate::extensions::folder_of(&m.id, cx);
+            let mut list = crate::tiles::agents::tools_of(&m, dir.as_deref());
+            for t in &mut list {
+                t.tiles.retain(|x| crate::tiles::agents::tile_on(&m.id, &x.id, cx));
+            }
+            let names: Vec<String> = list.iter().filter(|t| !t.tiles.is_empty()).map(|t| t.name()).collect();
+            if !names.is_empty() {
+                offered.push(format!("{}: {}", m.name, names.join(", ")));
+            }
+        }
+        let list = if offered.is_empty() {
+            "No extension that’s on has tiles for agents.".to_string()
+        } else {
+            offered.join("\n")
+        };
+        section().child(
+            div()
+                .id("tile-tools")
+                .debug_selector(|| "tile-tools".into())
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Agents can use tiles"))
+                        .child(crate::kit::hint(
+                            "Ask an agent to draft a note or show you a diagram and it opens the extension’s tile next to its terminal with it. Agents only change what the tile shows: they get nothing of it back and can’t replace what you edited. Each tile has its own switch on its card in Extensions. Each kind gets these the way it gets files, listed above.",
+                            &ui.t,
+                        ))
+                        .child(div().mt(px(4.)).text_size(px(12.)).text_color(ui.t.text_3).child(list)),
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
