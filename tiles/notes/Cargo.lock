@@ -1244,9 +1244,19 @@ dependencies = [
 name = "pitwall-extension"
 version = "0.1.0"
 dependencies = [
+ "pitwall-extension-macros",
  "serde",
  "serde_json",
  "wit-bindgen",
+]
+
+[[package]]
+name = "pitwall-extension-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

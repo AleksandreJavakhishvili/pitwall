@@ -14,7 +14,7 @@ problems=$(cargo metadata --format-version 1 --all-features --manifest-path "$he
     | [ .resolve.nodes[]
         | $pkgs[.id]
         | select(.name | startswith("pitwall"))
-        | select(.name != "pitwall-extension" and .name != "pitwall-extension-test")
+        | select(.name != "pitwall-extension" and .name != "pitwall-extension-macros" and .name != "pitwall-extension-test")
         | "not allowed: \(.name)" ]
     + [ .resolve.nodes[] | .deps[]
         | select($pkgs[.pkg].name == "pitwall-extension-test")
