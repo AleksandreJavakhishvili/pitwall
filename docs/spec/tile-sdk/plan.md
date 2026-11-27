@@ -62,12 +62,13 @@ tile and show content in it, and the pages below match.
 - [ ] Registered with every agent: tile show-only tools in `mcp.tools`/`mcp.call` and `notifications/tools/list_changed`, named `<extension-id>__<tool>`, with `readOnlyHint` and added to the launch-time allow lists, plus one line per tile in the server's instructions ([11.4](agent-tools.md#114-how-agents-reach-them)). Done when an extension's declared show tool appears in Claude Code's and Codex's tool list without user setup, and each agent kind with an MCP launch mode is checked for the names
 - [ ] Agent access, show-only part: the per-tile "Agents can use <name>" switch, Settings → Agents "Tile tools", the tools on the permission screen, calls in the tile's Activity ([11.5](agent-tools.md#115-permissions), [11.10](agent-tools.md#1110-records)). Done when turning either switch off removes the tools from a running agent's list
 - [x] Native building blocks: code view and diff view ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)); read-only, as frame elements (16.2 "As built")
-- [ ] `sql` with quotas and migrations; `net`; notifications and toasts; open a file, the editor or a web tile ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12))
+- [x] `sql` with quotas and migrations; `net`; notifications and toasts; open a file, the editor or a web tile ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12); #127)
 - [x] Agents' questions group: `agents.read`, `badges`, `asks` in the floating control, `queue.add` with its origin mark (#124)
-- [ ] Toolbar items, opt-in and hideable ([3.9](ui.md#39-toolbar-items))
-- [ ] Permission screen changes for the new grants ([5](permissions.md))
-- [ ] Tile plus managed service documented and wired ([13.2](services.md#132-a-a-tile-plus-a-managed-service))
+- [x] Toolbar items, opt-in and hideable ([3.9](ui.md#39-toolbar-items); #127)
+- [x] Permission screen changes for the new grants ([5](permissions.md); `net` with its hosts, `notify`, `show`, the `sql` size; #127)
+- [x] Tile plus managed service documented and wired ([13.2](services.md#132-a-a-tile-plus-a-managed-service); #127)
 - [ ] Website docs: all components, Native building blocks, Platform services (minimum and agents' questions), Permissions (`net`, `notify`, `agents.*`, agents opening a tile), Servers in extensions, toolbar items, Agent tools (show-only part); the Extensions overview's first lines say that extensions bring their own agent tools and Pitwall registers them with every agent; the authoring skill and `llms.txt` cover declaring show tools
+  - [x] Platform services (minimum), Permissions (`net`, `notify`), Servers in extensions, toolbar items (#127)
 
 ## Later phases (to be broken down)
 
