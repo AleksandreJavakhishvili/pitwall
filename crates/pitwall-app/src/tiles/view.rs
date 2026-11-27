@@ -592,6 +592,23 @@ impl TileView {
             .collect()
     }
 
+    /// The texts drawn on the frame's canvases, in order (tests and bench
+    /// commands).
+    pub fn canvas_texts(&self) -> Vec<String> {
+        let Some(f) = &self.frame else { return vec![] };
+        f.nodes
+            .iter()
+            .filter_map(|n| match &n.element {
+                Element::Canvas(c) => Some(c.ops.iter().filter_map(|op| match op {
+                    ui::DrawOp::Text(t) => Some(t.text.clone()),
+                    _ => None,
+                })),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !self.focus.contains_focused(window, cx) {
             return;

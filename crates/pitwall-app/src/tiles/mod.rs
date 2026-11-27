@@ -40,6 +40,10 @@
 pub mod agents;
 #[cfg(test)]
 mod agents_tests;
+#[cfg(test)]
+mod c4_tests;
+#[cfg(test)]
+mod c4_shots;
 pub mod blocks;
 #[cfg(test)]
 mod blocks_tests;
