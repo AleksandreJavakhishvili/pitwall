@@ -126,6 +126,19 @@ impl MainScreen {
         self.place_web(&id, tile, None, cx);
     }
 
+    /// Open `url` in a new web tile for extension `ext`'s tile
+    /// (`show.web`): a plain page in the extension's own browser store, as
+    /// its web views are; it can't reach Pitwall.
+    pub fn open_ext_page(&mut self, ext: &str, url: &str, cx: &mut Context<Self>) {
+        if !enabled(cx) {
+            self.toast(Toast::info("Web pages are off", Some("Turn them on in Settings → General.".into())), cx);
+            return;
+        }
+        let id = super::workspace::new_web_id();
+        let tile = WebTile { url: url.to_string(), ext: Some(ext.to_string()), ..Default::default() };
+        self.place_web(&id, tile, None, cx);
+    }
+
     /// The browser account of a page the user opens here: that of the
     /// project of the agent whose tile has the focus, else Default.
     pub(super) fn new_page_profile(&self, cx: &mut Context<Self>) -> Option<String> {
