@@ -40,6 +40,15 @@
 //! start from, with tests that run the built tile in Pitwall's own runtime
 //! (the `pitwall-extension-test` crate).
 //!
+//! **What a tile has besides Pitwall's APIs.** WASI 0.2 for what Rust's
+//! standard library needs: the clocks (`std::time::Instant` and
+//! `SystemTime` work, for "5 min ago" and debouncing), random numbers
+//! (`getrandom`, hash maps' seeds), and stdout and stderr (`println!` and
+//! `eprintln!` go to the tile's Log). No environment, arguments, files or
+//! sockets: keep data with [`storage`]. In the test harness
+//! (`pitwall-extension-test`) both clocks are virtual and move only as the
+//! test lets time pass, so a timer test doesn't sleep.
+//!
 //! **Opening a tile with content.** A tile's manifest entry can name a JSON
 //! schema (`"input"`); the user or an agent then opens a view of the tile
 //! with content matching it. The tile hears [`Tile::on_content`] and reads
@@ -57,7 +66,7 @@ pub mod style;
 mod tile;
 
 pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
-pub use events::Event;
+pub use events::{Blur, Event, Focused};
 pub use host::{log, settings, storage, ui, HostError, Tone};
 pub use style::{px, relative, rems, Align, Length, Styled, Token};
 pub use tile::{Content, ContentError, Cx, SavedState, Tile, Timer, ViewInfo};
@@ -68,8 +77,8 @@ pub const WORLD: &str = "pitwall:tile@0.1.0";
 
 /// Everything a tile usually needs: `use pitwall_extension::prelude::*;`.
 pub mod prelude {
-    pub use crate::element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Handler, Icon, Interactive, IntoElement, ParentElement};
-    pub use crate::events::{Click, Event, InputChange, KeyPress, Submit, Theme, ThemeMode};
+    pub use crate::element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
+    pub use crate::events::{Blur, Click, Event, Focused, InputChange, KeyPress, Submit, Theme, ThemeMode};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};

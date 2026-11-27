@@ -19,9 +19,11 @@
 
 mod bindings;
 mod cache;
+mod clock;
 mod data;
 pub mod frame;
 mod host;
+pub mod keys;
 pub mod limits;
 mod platform;
 mod stdio;
@@ -38,6 +40,7 @@ use pitwall_core::extensions::{self, Manifest, TileDef};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine};
 
+pub use clock::{Clock, ManualClock};
 pub use data::ExtensionData;
 pub use frame::Diff;
 pub use worker::TileHandle;
@@ -279,13 +282,16 @@ pub struct StartOptions {
     pub visible: bool,
     /// What `save-state` returned last time ([`TileOutput::StateSaved`]).
     pub state: Option<Vec<u8>>,
+    /// The time it lives by: the wall clock (the app), or a virtual one a
+    /// test moves with [`TileHandle::advance`].
+    pub clock: Clock,
 }
 
 impl StartOptions {
     /// Visible, with tile `tile` open once (view id = tile id), nothing
-    /// granted, the default theme.
+    /// granted, the default theme, the wall clock.
     pub fn view(tile: &str) -> StartOptions {
-        StartOptions { views: vec![ViewSpec::tile(tile)], grants: Grants::default(), theme: ui::default_theme(), visible: true, state: None }
+        StartOptions { views: vec![ViewSpec::tile(tile)], grants: Grants::default(), theme: ui::default_theme(), visible: true, state: None, clock: Clock::Wall }
     }
 }
 

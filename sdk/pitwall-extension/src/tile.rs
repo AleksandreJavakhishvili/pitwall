@@ -192,6 +192,8 @@ pub struct ViewInfo {
 pub struct Timer(u32);
 
 type Callback<T> = dyn FnMut(&mut T, &Fired, &mut Cx<T>);
+/// A listener's closure, shared by its handler slot and a pending call.
+type Shared<T> = Rc<RefCell<Box<Callback<T>>>>;
 type TimerFn<T> = dyn FnMut(&mut T, &mut Cx<T>);
 
 /// What a listener stands for, by handler number.
@@ -247,6 +249,11 @@ pub struct Cx<T> {
     inputs: HashMap<(String, String), InputState>,
     timers: HashMap<u32, TimerEntry<T>>,
     firing: Option<(u32, bool)>,
+    /// The focused node of each view, as `focus-changed` said.
+    focused: HashMap<String, String>,
+    /// The blur listener of a focused node a frame took away, kept until
+    /// the focus moves (its blur comes after that frame).
+    lost_blur: HashMap<String, (String, Shared<T>)>,
 }
 
 impl<T: 'static> Cx<T> {
@@ -270,6 +277,8 @@ impl<T: 'static> Cx<T> {
             inputs: HashMap::new(),
             timers: HashMap::new(),
             firing: None,
+            focused: HashMap::new(),
+            lost_blur: HashMap::new(),
         }
     }
 
@@ -302,8 +311,10 @@ impl<T: 'static> Cx<T> {
     }
 
     /// While rendering: focus the node at `key_path` (keys from the root
-    /// down, joined by `/`), honoured only while the tile already has
-    /// focus.
+    /// down, joined by `/`, without the root's: `"editor/text"` for an
+    /// input keyed `text` in a box keyed `editor` under the root; the same
+    /// path [`ui::scroll_to`](crate::ui::scroll_to) takes), honoured only
+    /// while the tile already has focus.
     pub fn focus(&mut self, key_path: impl Into<String>) {
         self.pending_focus = Some(key_path.into());
     }
@@ -394,6 +405,12 @@ impl<T: 'static> Cx<T> {
         self.visible
     }
 
+    /// The key path of the node of view `view` that has keyboard focus
+    /// (as [`Cx::focus`] names it), if one has.
+    pub fn focused(&self, view: &str) -> Option<&str> {
+        self.focused.get(view).map(String::as_str)
+    }
+
     /// The open views.
     pub fn views(&self) -> impl Iterator<Item = &ViewInfo> {
         self.views.values()
@@ -448,9 +465,18 @@ impl<T: 'static> Cx<T> {
             self.handlers.insert(id, Entry { callback, input: None });
             keymap.push(wit::Binding { keys, handler: id });
         }
-        // Handler numbers no longer used in this view are forgotten.
+        // Handler numbers no longer used in this view are forgotten; a
+        // focused node's blur is kept until the focus moves off it.
         let old = self.ids.insert(view.to_string(), b.fresh).unwrap_or_default();
         let now = &self.ids[view];
+        if let Some(path) = self.focused.get(view) {
+            let slot = Slot::Node(path.clone(), Listen::Blur);
+            if let (Some(id), None) = (old.get(&slot), now.get(&slot)) {
+                if let Some(cb) = self.handlers.get(id).and_then(|e| e.callback.clone()) {
+                    self.lost_blur.insert(view.to_string(), (path.clone(), cb));
+                }
+            }
+        }
         for (slot, id) in old {
             if now.get(&slot) != Some(&id) {
                 self.handlers.remove(&id);
@@ -471,15 +497,19 @@ impl<T: 'static> Cx<T> {
             let input = (listen == Listen::Change && matches!(kind, Kind::Input(_))).then(|| (b.view.clone(), path.clone()));
             has_change |= input.is_some();
             self.handlers.insert(id, Entry { callback, input });
-            on.push(wit::Listener { on: listen.wit(), handler: id });
+            // Focus and blur are the SDK's, from `focus-changed`.
+            if let Some(on_wit) = listen.wit() {
+                on.push(wit::Listener { on: on_wit, handler: id });
+            }
         }
         let element = match kind {
             Kind::Box => wit::Element::Box,
             Kind::Scroll(axis) => wit::Element::Scroll(wit::Scroll { axis: axis.wit() }),
             Kind::Text(t) => wit::Element::Text(t),
-            Kind::Button { label, kind, icon, disabled } => wit::Element::Button(wit::Button {
+            Kind::Button { label, kind, small, icon, disabled } => wit::Element::Button(wit::Button {
                 label,
                 kind: kind.wit(),
+                size: if small { wit::ButtonSize::Small } else { wit::ButtonSize::Regular },
                 icon: icon.map(|i| wit::Icon::Named(i.name().to_string())),
                 disabled,
             }),
@@ -565,6 +595,33 @@ impl<T: 'static> Cx<T> {
         }
     }
 
+    /// The focus in `view` moved to `to`: the node it left hears its blur,
+    /// the one it reached its focus.
+    fn focus_moved(&mut self, tile: &mut T, view: &str, to: Option<String>) {
+        let from = match &to {
+            Some(p) => self.focused.insert(view.to_string(), p.clone()),
+            None => self.focused.remove(view),
+        };
+        if from == to {
+            return;
+        }
+        let lost = self.lost_blur.remove(view);
+        if let Some(from) = from {
+            let id = self.ids.get(view).and_then(|m| m.get(&Slot::Node(from.clone(), Listen::Blur))).copied();
+            match (id, lost) {
+                (Some(id), _) => self.fire(tile, None, id, Fired::Blur),
+                (None, Some((path, cb))) if path == from => (cb.borrow_mut())(tile, &Fired::Blur, self),
+                _ => {}
+            }
+        }
+        if let Some(to) = to {
+            let id = self.ids.get(view).and_then(|m| m.get(&Slot::Node(to, Listen::Focus))).copied();
+            if let Some(id) = id {
+                self.fire(tile, None, id, Fired::Focus);
+            }
+        }
+    }
+
     fn forget_view(&mut self, view: &str) {
         if let Some(ids) = self.ids.remove(view) {
             for id in ids.values() {
@@ -573,6 +630,8 @@ impl<T: 'static> Cx<T> {
         }
         self.inputs.retain(|(v, _), _| v != view);
         self.views.remove(view);
+        self.focused.remove(view);
+        self.lost_blur.remove(view);
     }
 }
 
@@ -598,8 +657,9 @@ fn clean_key(k: &str) -> String {
 }
 
 impl Listen {
-    fn wit(self) -> wit::Listen {
-        match self {
+    /// The WIT listener, for those the host sends events for.
+    fn wit(self) -> Option<wit::Listen> {
+        Some(match self {
             Listen::Click => wit::Listen::Click,
             Listen::Change => wit::Listen::Change,
             Listen::Select => wit::Listen::Select,
@@ -607,7 +667,8 @@ impl Listen {
             Listen::Scroll => wit::Listen::Scroll,
             Listen::Hover => wit::Listen::Hover,
             Listen::Pointer => wit::Listen::Pointer,
-        }
+            Listen::Focus | Listen::Blur => return None,
+        })
     }
 }
 
@@ -627,7 +688,6 @@ impl ButtonKind {
             ButtonKind::Primary => wit::ButtonKind::Primary,
             ButtonKind::Ghost => wit::ButtonKind::Ghost,
             ButtonKind::Danger => wit::ButtonKind::Danger,
-            ButtonKind::Small => wit::ButtonKind::Small,
             ButtonKind::Link => wit::ButtonKind::Link,
         }
     }
@@ -729,6 +789,10 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
                 tile.on_event(&Event::Visibility(v), cx);
             }
             wit::Event::Focus(f) => tile.on_event(&Event::Focus(f), cx),
+            wit::Event::FocusChanged(f) => {
+                cx.focus_moved(tile, &f.view, f.key_path.clone());
+                tile.on_event(&Event::FocusChanged { view: f.view, key_path: f.key_path }, cx);
+            }
             wit::Event::Resize(r) => tile.on_event(&Event::Resize { view: r.view, width: r.size.width, height: r.size.height }, cx),
             wit::Event::Theme(t) => {
                 cx.theme = t.into();
@@ -835,6 +899,41 @@ mod tests {
         // An unknown number is ignored.
         click(&mut cx, &mut t, 9999);
         assert_eq!(t.clicks, 1);
+    }
+
+    /// `.small()` keeps the look; a field hears its blur when the focus
+    /// moves off it, also after a frame took it away.
+    #[test]
+    fn size_and_look_combine_and_a_field_hears_its_blur() {
+        let (mut cx, mut t) = (cx(), T::default());
+        let draw = |t: &T, cx: &mut Cx<T>, with_field: bool| {
+            cx.generation += 1;
+            cx.pending.clear();
+            let root = v_flex()
+                .child(button("Delete").small().danger().id("a"))
+                .child(button("Keep").primary().small().id("b"))
+                .when(with_field, |d| d.child(input("f").value(t.typed.clone()).on_blur(cx.listener(|t: &mut T, _: &Blur, _| t.clicks += 10))))
+                .into_element();
+            cx.frame("main", root)
+        };
+        let f = draw(&t, &mut cx, true);
+        let look = |n: &wit::Node| match &n.element {
+            wit::Element::Button(b) => (b.kind, b.size),
+            _ => panic!(),
+        };
+        assert_eq!(look(&f.nodes[1]), (wit::ButtonKind::Danger, wit::ButtonSize::Small));
+        assert_eq!(look(&f.nodes[2]), (wit::ButtonKind::Primary, wit::ButtonSize::Small));
+        // No WIT listener for blur: it comes from focus-changed.
+        assert!(f.nodes[3].on.iter().all(|l| l.on == wit::Listen::Change));
+        cx.focus_moved(&mut t, "main", Some("f".into()));
+        assert_eq!(cx.focused("main"), Some("f"));
+        cx.focus_moved(&mut t, "main", Some("a".into()));
+        assert_eq!(t.clicks, 10, "blurred once");
+        cx.focus_moved(&mut t, "main", Some("f".into()));
+        // The field goes away while focused: its blur still comes.
+        draw(&t, &mut cx, false);
+        cx.focus_moved(&mut t, "main", None);
+        assert_eq!(t.clicks, 20);
     }
 
     #[test]

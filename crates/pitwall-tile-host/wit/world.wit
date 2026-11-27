@@ -22,10 +22,12 @@ package pitwall:tile@0.1.0;
 /// failing to load.
 ///
 /// Besides these, the host provides WASI 0.2 for what Rust's standard
-/// library needs: clocks, random numbers, and stdout and stderr, whose
-/// lines go to the tile's Log (stdout as info, stderr as warnings). There
-/// are no environment variables, arguments, files or sockets: keep data
-/// with [`storage`].
+/// library needs: the wall and monotonic clocks (`std::time::SystemTime`
+/// and `Instant` work), random numbers, and stdout and stderr, whose lines
+/// go to the tile's Log (stdout as info, stderr as warnings). There are no
+/// environment variables, arguments, files or sockets: keep data with
+/// [`storage`]. In the test harness both clocks are virtual: they move
+/// only when the test lets time pass.
 world tile {
   /// Ask for renders, scroll a node into view, show a toast, open a view.
   import ui;

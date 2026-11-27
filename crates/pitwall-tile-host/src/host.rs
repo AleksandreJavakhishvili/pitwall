@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use pitwall_core::extensions::{SettingDef, SettingKind};
 use serde_json::Value;
@@ -16,8 +16,9 @@ use wasmtime::StoreLimits;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use crate::bindings::pitwall::tile::{log, settings, storage, tasks, types, ui};
+use crate::clock::Clock;
 use crate::data::{KvError, KvStore};
-use crate::limits::{HOST_CALLS_PER_SECOND, MAX_LOG_LINE, MAX_TIMERS, MAX_TOAST, MIN_TIMER, TOASTS_PER_MINUTE};
+use crate::limits::{HOST_CALLS_PER_SECOND, MAX_GET_MANY, MAX_LOG_LINE, MAX_TIMERS, MAX_TOAST, MIN_TIMER, TOASTS_PER_MINUTE};
 use crate::stdio::LogPipe;
 use crate::ui::{HostError, Tone};
 use crate::{Grants, LogLevel, LogLine, Secrets, UiRequest};
@@ -63,6 +64,8 @@ pub(crate) struct HostState {
     toasts: VecDeque<Instant>,
     pub stdout: LogPipe,
     pub stderr: LogPipe,
+    /// The time timers and rate limits go by.
+    pub clock: Clock,
 }
 
 impl WasiView for HostState {
@@ -85,6 +88,7 @@ pub(crate) struct StateParts {
     pub kv: KvStore,
     pub stdout: LogPipe,
     pub stderr: LogPipe,
+    pub clock: Clock,
 }
 
 impl HostState {
@@ -107,17 +111,18 @@ impl HostState {
             pending: Vec::new(),
             render_requests: BTreeSet::new(),
             calls: 0,
-            window: Instant::now(),
+            window: p.clock.now(),
             dropped_lines: 0,
             toasts: VecDeque::new(),
             stdout: p.stdout,
             stderr: p.stderr,
+            clock: p.clock,
         }
     }
 
     /// Count a host call; false once over the limit for this second.
     fn count_call(&mut self) -> bool {
-        let now = Instant::now();
+        let now = self.clock.now();
         if now.duration_since(self.window) >= Duration::from_secs(1) {
             self.window = now;
             self.calls = 0;
@@ -132,7 +137,7 @@ impl HostState {
 
     /// A line in the tile's Log from the host itself.
     pub fn host_log(&mut self, level: LogLevel, message: String) {
-        self.pending.push(Pending::Log(LogLine { level, message, at: SystemTime::now(), from_host: true }));
+        self.pending.push(Pending::Log(LogLine { level, message, at: self.clock.system_now(), from_host: true }));
     }
 
     fn guest_log(&mut self, level: LogLevel, message: String) {
@@ -140,16 +145,17 @@ impl HostState {
             self.dropped_lines += 1;
             return;
         }
-        self.pending.push(Pending::Log(LogLine { level, message: cut(&message, MAX_LOG_LINE), at: SystemTime::now(), from_host: false }));
+        self.pending.push(Pending::Log(LogLine { level, message: cut(&message, MAX_LOG_LINE), at: self.clock.system_now(), from_host: false }));
     }
 
     /// Stdout and stderr lines written so far, into the Log.
     pub fn drain_stdio(&mut self, all: bool) {
+        let at = self.clock.system_now();
         for line in self.stdout.take_lines(all) {
-            self.pending.push(Pending::Log(LogLine { level: LogLevel::Info, message: line, at: SystemTime::now(), from_host: false }));
+            self.pending.push(Pending::Log(LogLine { level: LogLevel::Info, message: line, at, from_host: false }));
         }
         for line in self.stderr.take_lines(all) {
-            self.pending.push(Pending::Log(LogLine { level: LogLevel::Warn, message: line, at: SystemTime::now(), from_host: false }));
+            self.pending.push(Pending::Log(LogLine { level: LogLevel::Warn, message: line, at, from_host: false }));
         }
     }
 
@@ -228,7 +234,7 @@ impl ui::Host for HostState {
         if !self.count_call() {
             return;
         }
-        let now = Instant::now();
+        let now = self.clock.now();
         while self.toasts.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
             self.toasts.pop_front();
         }
@@ -260,7 +266,7 @@ impl tasks::Host for HostState {
         let every = Duration::from_millis(u64::from(ms)).max(MIN_TIMER);
         let id = self.next_timer;
         self.next_timer = self.next_timer.wrapping_add(1).max(1);
-        self.timers.insert(id, Timer { due: Instant::now() + every, every: repeat.then_some(every) });
+        self.timers.insert(id, Timer { due: self.clock.now() + every, every: repeat.then_some(every) });
         Ok(id)
     }
 
@@ -282,6 +288,18 @@ impl storage::Host for HostState {
             return Err(HostError::Busy);
         }
         self.kv.get(&key).map_err(kv_error)
+    }
+
+    fn get_many(&mut self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, HostError> {
+        // One call, however many keys: loading a tile's data at start
+        // shouldn't spend its budget of calls.
+        if !self.count_call() {
+            return Err(HostError::Busy);
+        }
+        if keys.len() > MAX_GET_MANY {
+            return Err(HostError::TooLarge);
+        }
+        keys.iter().map(|k| self.kv.get(k).map_err(kv_error)).collect()
     }
 
     fn set(&mut self, key: String, value: Vec<u8>) -> Result<(), HostError> {
