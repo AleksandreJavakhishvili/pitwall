@@ -558,6 +558,15 @@ fn screenshots() {
         })
         .unwrap();
     let settings: Entity<SettingsView> = sv.borrow().clone().unwrap();
+    shot(&mut cx, shell.into(), "extensions-intro.png", false);
+    // A folder whose component needs what this Pitwall doesn't provide.
+    let foreign = t.path().join("foreign");
+    copy_fixture(&foreign);
+    std::fs::write(foreign.join("tile.wasm"), foreign_component()).unwrap();
+    cx.update(|cx| settings.update(cx, |v, cx| v.look_at_folder(foreign, cx)));
+    settle(&mut cx, &mut |cx| settings.read(cx).add_folder_state().is_some_and(|(busy, _, _)| !busy));
+    cx.update(|cx| settings.read(cx).scroll_to_end());
+    shot(&mut cx, shell.into(), "install-refused.png", false);
     let s2 = src.clone();
     cx.update(|cx| settings.update(cx, |v, cx| v.look_at_folder(s2, cx)));
     settle(&mut cx, &mut |cx| settings.read(cx).add_folder_state().is_some_and(|(busy, _, _)| !busy));
@@ -590,11 +599,11 @@ fn screenshots() {
     settle(&mut cx, &mut |cx| tile.read(cx).texts().iter().any(|t| t.contains("Typed: Native")));
     shot(&mut cx, view.into(), "tile-dark.png", false);
     shot(&mut cx, view.into(), "tile-light.png", true);
-    // It panics (the fixture's handler 7): stopped, with why and Restart.
-    cx.update(|cx| {
-        let r = super::tiles(cx);
-        r.read(cx).send("hello", pitwall_tile_host::ui::Event::Click(pitwall_tile_host::ui::Click { handler: 7, button: pitwall_tile_host::ui::MouseButton::Left, modifiers: pitwall_tile_host::ui::Modifiers::empty(), count: 1, at: pitwall_tile_host::ui::Point { x: 0., y: 0. } }));
-    });
+    // Tab: the button focused, with the ring.
+    let _ = cx.update_window(view.into(), |_, window, cx| tile.update(cx, |t, cx| t.move_focus(false, window, cx)));
+    shot(&mut cx, view.into(), "tile-focus.png", false);
+    // It panics (the fixture's Panic button): stopped, with why and Restart.
+    cx.update(|cx| tile.read(cx).click("test/panic", pitwall_tile_host::ui::MouseButton::Left, pitwall_tile_host::ui::Modifiers::empty(), 1, pitwall_tile_host::ui::Point { x: 0., y: 0. }, cx));
     settle(&mut cx, &mut |cx| super::tiles(cx).read(cx).get("hello").is_some_and(|r| matches!(r.state, State::Stopped(_))));
     shot(&mut cx, view.into(), "tile-stopped.png", false);
 }
