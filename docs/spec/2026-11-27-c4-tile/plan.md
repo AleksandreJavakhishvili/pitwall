@@ -11,8 +11,9 @@ SDK phases are the Tile SDK's ([README §10.2](../tile-sdk/README.md#102-order-o
 [SDK plan](../tile-sdk/plan.md)). Each phase below names the SDK pieces
 it waits for.
 
-**Status:** phase A built in `tiles/c4/` (the crate `c4-tile`, its own
-Cargo workspace). The later phases wait for the Tile SDK. The owner's
+**Status:** phases A and B built in `tiles/c4/` (the crate `c4-tile`, its
+own Cargo workspace; the tile is its `tile` feature, `tile.wasm` is
+committed). Phase C waits for a `files.read` service. The owner's
 answers to [frd.md §9](frd.md#9-open-questions-for-the-owner) are
 recorded there.
 
@@ -63,31 +64,31 @@ the drawing right of that agent's terminal with no setup, and "add a
 cache" updates the same tile in place with Cache highlighted.
 
 SDK requests (each is a change to the SDK's design and plan, made there):
-- [ ] G1 canvas pointer position raised in the SDK design ([hla §7](hla.md#7-sdk-gaps)). Done when the SDK's `ui.md` has the decision and the SDK plan has an item, or the owner decides against it
-- [ ] G2 text measurement raised. Done as for G1
-- [ ] G3 canvas text in px, or a scale op, raised. Done as for G1
-- [ ] G4 stroke width and dashes raised. Done as for G1
-- [ ] G5 wheel and pinch raised. Done as for G1
-- [ ] Show-only agent tools in SDK phase 2, with `c4__show` as their first user. Done when the SDK's [agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds) and [plan](../tile-sdk/plan.md) say so (this pull request)
+- [x] G1 canvas pointer position raised in the SDK design ([hla §7](hla.md#7-sdk-gaps)). Done when the SDK's `ui.md` has the decision and the SDK plan has an item, or the owner decides against it (#123: hit regions with clicks, and pointer events on the canvas)
+- [ ] G2 text measurement raised. Done as for G1 (not raised as a design change yet; the tile carries its own advance-width table, listed as a gap in the [SDK plan](../tile-sdk/plan.md) item 6)
+- [x] G3 canvas text in px, or a scale op, raised. Done as for G1 (#123: text in pixels, and a transform)
+- [x] G4 stroke width and dashes raised. Done as for G1 (#123)
+- [x] G5 wheel and pinch raised. Done as for G1 (#123)
+- [x] Show-only agent tools in SDK phase 2, with `c4__show` as their first user. Done when the SDK's [agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds) and [plan](../tile-sdk/plan.md) say so (this pull request) (#125)
 
 The tile:
-- [ ] Manifest: id `c4` (the owner's choice, [frd.md §9](frd.md#9-open-questions-for-the-owner)), the tile, its `"input"`, the `show` tool (kind `present`), no permissions. Done when `pitwall extension check` passes
-- [ ] Dependency check in CI ([hla §6](hla.md#6-where-it-lives)): `tiles/c4` built for `wasm32-wasip2`, tests, `pitwall extension check`, and a `cargo metadata` check that no Pitwall crate but `pitwall-extension` (and the harness, dev only) is used. Done when the job runs on every pull request and a test branch that adds `pitwall-core` fails it. (Phase A added the `tile-c4` job with all of this but `pitwall extension check`, which doesn't exist yet; `tiles/c4/scripts/check-deps.sh` was checked locally against a fake `pitwall-core` path dependency.)
-- [ ] `c4__show`: all-or-nothing parse, items per agent and project, update in place, the reply (FR-34 to FR-38). Done when harness tests cover a new item, an update with the same item, a call with problems that changes nothing, a skipped part listed in the reply, and an unsupported type
-- [ ] Placement through the SDK: `where` and `of` reach Pitwall, not the tile; a later call reuses the view (FR-35). Done when a harness test calls with `where: "below"` and then without `where`, and the second call lands in the same view
-- [ ] "Changes since last show" (FR-40) and the host's "from <agent>" mark with close (FR-39). Done when harness tests update an item and switch to Changes, and close an item
-- [ ] Shown diagrams kept across restarts, with the limit per project (FR-41, FR-25). Done when a harness test drops and restores the tile and the shown diagrams come back, and a 51st item evicts the oldest unopened one
-- [ ] Painter and Navigator: boxes, shapes, boundaries, arrows, labels, pan, zoom, fit, theme tokens (FR-5 to FR-10). Done when harness snapshot tests of draw ops pass in Dark and Light
-- [ ] Click to zoom across shown diagrams, breadcrumb, selection and footer (FR-12 to FR-15). Done when harness tests click boxes (with G1) and the zoom path goes from a shown context diagram to a shown container diagram
-- [ ] Sequence diagrams drawn. Done when the fixtures' sequence diagrams have snapshot tests
-- [ ] Highlights for `new`, `changed`, `external` and the legend (FR-16, FR-10). Done when harness snapshot tests of a classed fixture pass
-- [ ] Fallbacks shown for a shown diagram that is too large or partly understood (FR-20, FR-21). Done when harness tests cover both
-- [ ] Outline ("Shown" group, by agent) and keys (FR-23, FR-26). Done when harness tests drive the outline and canvas by keyboard only
-- [ ] Speed measured in Wasmtime on an M-series Mac (NFR-2): parse, layout and first draw of 50, 150 and 300 boxes. Done when the numbers are recorded in `layout-lld.md` and the FR-21 limit is set from them
+- [x] Manifest: id `c4` (the owner's choice, [frd.md §9](frd.md#9-open-questions-for-the-owner)), the tile, its `"input"`, the `show` tool (kind `present`), no permissions. Done when `pitwall extension check` passes (#PR)
+- [x] Dependency check in CI ([hla §6](hla.md#6-where-it-lives)): `tiles/c4` built for `wasm32-wasip2`, tests, `pitwall extension check`, and a `cargo metadata` check that no Pitwall crate but `pitwall-extension` (and the harness, dev only) is used. Done when the job runs on every pull request and a test branch that adds `pitwall-core` fails it. (Phase A added the `tile-c4` job with all of this but `pitwall extension check`, which doesn't exist yet; `tiles/c4/scripts/check-deps.sh` was checked locally against a fake `pitwall-core` path dependency.) (#PR: the job as Notes', with `pitwall extension check` and the harness tests; the check-deps script now Notes' too, failing on a `pitwall-core` path dependency, checked locally)
+- [x] `c4__show`: all-or-nothing parse, items per agent and project, update in place, the reply (FR-34 to FR-38). Done when harness tests cover a new item, an update with the same item, a call with problems that changes nothing, a skipped part listed in the reply, and an unsupported type (#PR)
+- [x] Placement through the SDK: `where` and `of` reach Pitwall, not the tile; a later call reuses the view (FR-35). Done when a harness test calls with `where: "below"` and then without `where`, and the second call lands in the same view (#PR: proven headless in the app through Pitwall's MCP server, `where: right` and then no `where`, the same view in the same place; `where` and `of` never reach the tile, so the harness has nothing to test)
+- [x] "Changes since last show" (FR-40) and the host's "from <agent>" mark with close (FR-39). Done when harness tests update an item and switch to Changes, and close an item (#PR: Now / Changes in the bar; the host's mark is Pitwall's, close is the list's ×)
+- [x] Shown diagrams kept across restarts, with the limit per project (FR-41, FR-25). Done when a harness test drops and restores the tile and the shown diagrams come back, and a 51st item evicts the oldest unopened one (#PR)
+- [x] Painter and Navigator: boxes, shapes, boundaries, arrows, labels, pan, zoom, fit, theme tokens (FR-5 to FR-10). Done when harness snapshot tests of draw ops pass in Dark and Light (#PR)
+- [x] Click to zoom across shown diagrams, breadcrumb, selection and footer (FR-12 to FR-15). Done when harness tests click boxes (with G1) and the zoom path goes from a shown context diagram to a shown container diagram (#PR: a box several diagrams detail asks which in a menu)
+- [x] Sequence diagrams drawn. Done when the fixtures' sequence diagrams have snapshot tests (#PR)
+- [x] Highlights for `new`, `changed`, `external` and the legend (FR-16, FR-10). Done when harness snapshot tests of a classed fixture pass (#PR)
+- [x] Fallbacks shown for a shown diagram that is too large or partly understood (FR-20, FR-21). Done when harness tests cover both (#PR)
+- [x] Outline ("Shown" group, by agent) and keys (FR-23, FR-26). Done when harness tests drive the outline and canvas by keyboard only (#PR: `+` `-` `F` `0` zoom and fit, arrows, Enter, Backspace, `B` for Changes; ⌘+/⌘−/⌘0 are Pitwall's own keys, so plain keys)
+- [x] Speed measured in Wasmtime on an M-series Mac (NFR-2): parse, layout and first draw of 50, 150 and 300 boxes. Done when the numbers are recorded in `layout-lld.md` and the FR-21 limit is set from them (#PR: 24, 76 and 164 ms on an M5 Max; the limit stays at 300, [layout-lld §6](layout-lld.md#6-limits-and-checks))
 - [ ] Runs on macOS, Linux and Windows. Done when the CI job's tests pass on all three, and the owner has opened it on each
 - [ ] Checked with real agents: Claude Code and Codex see `c4__show` (Claude Code as `mcp__pitwall__c4__show`) without user setup and call it without asking. Done when both pass the phase's "done when" above, and the result for each other agent kind with an MCP launch mode is noted here
 - [ ] Shared as a preview folder with the SDK preview authors. Done when it installs with `pitwall extension install <folder>`
-- [ ] Website docs: the user part (ask an agent to show a diagram, where it opens, zoom, Changes since last show) on the Extensions pages, and the `c4__show` declaration as the example of a show tool on the Agent tools page, taken from this tile's source ([authoring §9.6](../tile-sdk/authoring.md#96-website-docs)). Done when published and the link check passes
+- [x] Website docs: the user part (ask an agent to show a diagram, where it opens, zoom, Changes since last show) on the Extensions pages, and the `c4__show` declaration as the example of a show tool on the Agent tools page, taken from this tile's source ([authoring §9.6](../tile-sdk/authoring.md#96-website-docs)). Done when published and the link check passes (#PR: [C4 diagrams and Notes](../../reference/extensions/seed-tiles.md), and the Agent tools page's example)
 
 ## Phase C: v1, second part: diagrams in the docs
 
