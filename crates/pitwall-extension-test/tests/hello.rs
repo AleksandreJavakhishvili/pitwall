@@ -25,6 +25,42 @@ fn clicks_render_and_are_stored() {
     assert!(snap.contains("input placeholder=\"Type here\" #field [change]"), "{snap}");
 }
 
+/// Typed text, focus, keys, time, size, theme and a restart without
+/// state, as the harness drives them.
+#[test]
+fn focus_keys_virtual_time_and_restart() {
+    let mut t = Harness::load(hello()).open("main");
+    assert!(!t.has_focus());
+    t.type_into("field", "abc");
+    assert!(t.has_focus() && t.focused() == Some("field"));
+    let field = t.field("field");
+    assert_eq!((field.text.as_str(), field.multiline, field.focused), ("abc", false, true));
+    assert!(t.text_snapshot().contains("input placeholder=\"Type here\" text=\"abc\" focused #field [change]"), "{}", t.text_snapshot());
+    // A plain key types into the focused field; Pitwall's keys are its own.
+    assert!(t.try_press("j").err().unwrap().contains("types into the focused text field"));
+    assert!(t.try_press("cmd-w").err().unwrap().contains("Pitwall keeps that key"));
+    assert!(t.logged(Level::Warn, "“cmd-w” was dropped"));
+    t.blur().press("j");
+    assert!(t.find_text("Clicked 1 times").is_some(), "{}", t.text_snapshot());
+    t.focus(false);
+    assert!(!t.has_focus() && t.focused().is_none());
+    // Time stands still until the test moves it.
+    t.click_key("test/timer").advance(Duration::from_millis(99));
+    assert!(t.find_text("Ticks: 0").is_some());
+    t.advance(Duration::from_millis(1));
+    assert!(t.find_text("Ticks: 1").is_some());
+    t.resize("main", 800., 600.).light();
+    assert!(t.find_text("Clicked 1 times").is_some());
+    t.type_into("field", "gone");
+    // Restarted without its state: what it stored is back, the typed text
+    // isn't.
+    t.click_text("Click me");
+    t.restart();
+    assert!(t.find_text("Clicked 2 times").is_some(), "{}", t.text_snapshot());
+    assert_eq!(t.field_text("field"), "");
+    assert!(t.unknown_icons().is_empty());
+}
+
 #[test]
 fn settings_typing_timers_and_toasts() {
     let mut t = Harness::load(hello()).setting("greeting", "Howdy").secret("token", "s3cret").open("main");

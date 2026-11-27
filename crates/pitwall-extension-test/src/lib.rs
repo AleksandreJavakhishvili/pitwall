@@ -18,7 +18,22 @@
 //!
 //! Every action waits until the tile has handled it and rendered (a round
 //! trip through its worker), so assertions after it see the new frame.
-//! Timers run on the wall clock: [`Session::wait`] lets time pass.
+//!
+//! **Time is virtual.** The tile's timers and its clocks (`Instant`,
+//! `SystemTime`) stand still until the test lets time pass with
+//! [`Session::advance`]: timers due meanwhile fire in order, at once, so a
+//! test of a one-second save doesn't wait a second
+//! ([`Harness::wall_clock`] for the real clock).
+//!
+//! **Focus works as in Pitwall.** A click, typing into a field or a key
+//! gives the tile focus first, as the pointer and keyboard would; typing
+//! into a field focuses it; [`Session::focus_key`], [`Session::blur`] and
+//! [`Session::focus`] move it by hand. The tile hears `focus-changed` and
+//! `focus(bool)` as it would in Pitwall: a field's blur (the SDK's
+//! `on_blur`) when the focus leaves it or the field goes away. A frame's
+//! `focus` request is honoured while the tile has focus. A key binding
+//! without ⌘/Ctrl/Alt doesn't fire while a field has focus, and Pitwall's
+//! reserved keys are dropped from the keymap, as in Pitwall.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -27,10 +42,12 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pitwall_tile_host::ui::{self, Element, Event, Frame, Modifiers, MouseButton, Node, Point};
-use pitwall_tile_host::{Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec};
+use pitwall_tile_host::ui::{self, Event, Modifiers, MouseButton, Point};
+use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec};
 
-pub use pitwall_tile_host::ui::{Listen, Tone};
+/// A frame's types, as the tile sent them (for checks the helpers don't
+/// cover): a [`Frame`] is a list of [`Node`]s, each an [`Element`].
+pub use pitwall_tile_host::ui::{Density, Element, Frame, Input, Listen, Node, ThemeInfo, ThemeMode, Tone};
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 
 /// The Rust target tiles are built for.
@@ -114,13 +131,15 @@ pub struct Harness {
     grants: Vec<String>,
     state: Option<Vec<u8>>,
     visible: bool,
+    wall: bool,
+    stored: BTreeMap<String, Vec<u8>>,
 }
 
 impl Harness {
     /// The extension in `dir`, already built (its component where its
     /// manifest names it).
     pub fn load(dir: impl AsRef<Path>) -> Harness {
-        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true }
+        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new() }
     }
 
     /// The extension in `dir`, built first with [`build`]. Panics with the
@@ -153,6 +172,20 @@ impl Harness {
         self
     }
 
+    /// Start with `value` stored under `key`, as though the tile had
+    /// stored it in an earlier run.
+    pub fn stored(mut self, key: &str, value: impl Into<Vec<u8>>) -> Harness {
+        self.stored.insert(key.to_string(), value.into());
+        self
+    }
+
+    /// [`Harness::stored`] with `value` as JSON (as the SDK's
+    /// `storage::set_json` keeps it).
+    pub fn stored_json(self, key: &str, value: &impl serde::Serialize) -> Harness {
+        let bytes = serde_json::to_vec(value).expect("the value is JSON");
+        self.stored(key, bytes)
+    }
+
     /// Start with this saved state (what `save_state` returned).
     pub fn state(mut self, state: Vec<u8>) -> Harness {
         self.state = Some(state);
@@ -162,6 +195,13 @@ impl Harness {
     /// Start hidden: no renders and no timers until [`Session::show`].
     pub fn hidden(mut self) -> Harness {
         self.visible = false;
+        self
+    }
+
+    /// Run on the computer's clock instead of the virtual one: timers fire
+    /// as real time passes ([`Session::advance`] then waits).
+    pub fn wall_clock(mut self) -> Harness {
+        self.wall = true;
         self
     }
 
@@ -186,9 +226,38 @@ impl Harness {
             check_setting(&ext, key);
             store.set_setting(key, Some(value)).expect("the setting is written");
         }
-        let options = StartOptions { views: vec![view.clone()], grants: Grants::new(self.grants.clone()), theme: ui::default_theme(), visible: self.visible, state: self.state.clone() };
+        if !self.stored.is_empty() {
+            store.set_storage(&self.stored).expect("the storage is written");
+        }
+        let clock = if self.wall { Clock::Wall } else { Clock::manual() };
+        let theme = ui::default_theme();
+        let options = StartOptions { views: vec![view.clone()], grants: Grants::new(self.grants.clone()), theme, visible: self.visible, state: self.state.clone(), clock: clock.clone() };
         let (handle, rx) = launch(&host, &ext, options);
-        let mut s = Session { _data: data, host, ext, store, handle, rx, main: view.id, frames: BTreeMap::new(), revisions: HashMap::new(), log: Vec::new(), ui: Vec::new(), stopped: None, saved: None, grants: self.grants, visible: self.visible };
+        let mut s = Session {
+            _data: data,
+            host,
+            ext,
+            store,
+            handle,
+            rx,
+            main: view.id,
+            frames: BTreeMap::new(),
+            revisions: HashMap::new(),
+            texts: HashMap::new(),
+            log: Vec::new(),
+            ui: Vec::new(),
+            stopped: None,
+            saved: None,
+            grants: self.grants,
+            visible: self.visible,
+            clock,
+            theme,
+            tile_focus: false,
+            focused: HashMap::new(),
+            asked: HashMap::new(),
+            sent: false,
+            unknown_icons: Vec::new(),
+        };
         s.settle();
         s
     }
@@ -248,6 +317,31 @@ impl Found {
     pub fn listens(&self, on: Listen) -> bool {
         self.node.on.iter().any(|l| l.on == on)
     }
+
+    /// Its text field, when it is one.
+    pub fn input(&self) -> Option<&Input> {
+        match &self.node.element {
+            Element::Input(i) => Some(i),
+            _ => None,
+        }
+    }
+}
+
+/// A text field as the user sees it now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    /// What it holds: the tile's last value, or what the test typed since.
+    pub text: String,
+    /// Several lines.
+    pub multiline: bool,
+    /// Its height in lines, as the tile asked.
+    pub rows: Option<u16>,
+    /// Its placeholder.
+    pub placeholder: Option<String>,
+    /// Drawn dimmed and can't be edited.
+    pub disabled: bool,
+    /// It has keyboard focus.
+    pub focused: bool,
 }
 
 fn node_text(n: &Node) -> Option<&str> {
@@ -286,12 +380,25 @@ pub struct Session {
     frames: BTreeMap<String, FrameUpdate>,
     /// The newest revision of each text field (view, key path).
     revisions: HashMap<(String, String), u64>,
+    /// What each text field holds (view, key path).
+    texts: HashMap<(String, String), String>,
     log: Vec<LogLine>,
     ui: Vec<UiRequest>,
     stopped: Option<StopReason>,
     saved: Option<Vec<u8>>,
     grants: Vec<String>,
     visible: bool,
+    clock: Clock,
+    theme: ThemeInfo,
+    /// The tile has keyboard focus.
+    tile_focus: bool,
+    /// The focused node of each view (key path).
+    focused: HashMap<String, String>,
+    /// The focus each view's frame asked for last.
+    asked: HashMap<String, Option<String>>,
+    /// An event was sent while taking outputs: settle once more.
+    sent: bool,
+    unknown_icons: Vec<String>,
 }
 
 impl Session {
@@ -299,16 +406,46 @@ impl Session {
         match o {
             TileOutput::Frame(f) => {
                 let paths = key_paths(&f.frame);
+                let view = f.view.clone();
+                let mut live = std::collections::HashSet::new();
                 for (i, n) in f.frame.nodes.iter().enumerate() {
+                    let at = (view.clone(), paths[i].clone());
                     if let Element::Input(input) = &n.element {
-                        if input.value.is_some() {
-                            let at = (f.view.clone(), paths[i].clone());
-                            let r = self.revisions.entry(at).or_default();
+                        live.insert(paths[i].clone());
+                        if let Some(v) = &input.value {
+                            let r = self.revisions.entry(at.clone()).or_default();
+                            if input.revision >= *r {
+                                self.texts.insert(at.clone(), v.clone());
+                            }
                             *r = (*r).max(input.revision);
+                        }
+                        self.texts.entry(at).or_default();
+                    }
+                    let icon = match &n.element {
+                        Element::Icon(ui::Icon::Named(name)) => Some(name),
+                        Element::Button(b) => b.icon.as_ref().map(|ui::Icon::Named(name)| name),
+                        _ => None,
+                    };
+                    if let Some(name) = icon.filter(|n| !pitwall_core::extensions::ICON_NAMES.contains(&n.as_str())) {
+                        if !self.unknown_icons.contains(name) {
+                            println!("[harness] “{}” names the icon “{name}”, which Pitwall doesn't have: it draws nothing (see the SDK's Icon)", paths[i]);
+                            self.unknown_icons.push(name.clone());
                         }
                     }
                 }
-                self.frames.insert(f.view.clone(), f);
+                self.texts.retain(|(v, p), _| v != &view || live.contains(p));
+                // The focused node went away: its blur.
+                if self.focused.get(&view).is_some_and(|p| !paths.contains(p)) {
+                    self.move_focus(&view, None);
+                }
+                // A new focus request, honoured while the tile has focus.
+                if self.asked.get(&view) != Some(&f.frame.focus) {
+                    self.asked.insert(view.clone(), f.frame.focus.clone());
+                    if let Some(p) = f.frame.focus.clone().filter(|p| self.tile_focus && paths.contains(p)) {
+                        self.move_focus(&view, Some(p));
+                    }
+                }
+                self.frames.insert(view, f);
             }
             TileOutput::Log(l) => {
                 // Shown with the test's output when it fails.
@@ -319,6 +456,28 @@ impl Session {
             TileOutput::StateSaved(b) => self.saved = Some(b),
             TileOutput::Stopped(r) => self.stopped = Some(r),
             TileOutput::Preparing | TileOutput::Started { .. } => {}
+        }
+    }
+
+    /// Tell the tile the focus in `view` moved to `to` (when it did).
+    fn move_focus(&mut self, view: &str, to: Option<String>) {
+        if self.focused.get(view) == to.as_ref() {
+            return;
+        }
+        match &to {
+            Some(p) => self.focused.insert(view.to_string(), p.clone()),
+            None => self.focused.remove(view),
+        };
+        if self.stopped.is_none() && self.handle.send(Event::FocusChanged(ui::NodeFocus { view: view.to_string(), key_path: to })) {
+            self.sent = true;
+        }
+    }
+
+    /// The tile takes the keyboard (a click or a key in it).
+    fn take_focus(&mut self) {
+        if !self.tile_focus {
+            self.tile_focus = true;
+            self.send(Event::Focus(true));
         }
     }
 
@@ -360,8 +519,12 @@ impl Session {
     pub fn try_settle(&mut self) -> Result<(), StopReason> {
         // Two round trips: the worker answers `save-state` in the batch
         // it takes, before rendering that batch; the second answer comes
-        // after the first batch's frames and Log lines.
-        for _ in 0..2 {
+        // after the first batch's frames and Log lines. Events sent while
+        // taking them (a focus change a frame caused) need two more.
+        self.sent = false;
+        let mut rounds = 0;
+        while rounds < 2 {
+            rounds += 1;
             self.saved = None;
             if !self.handle.save_state() {
                 self.pump(Instant::now() + WAIT, |s| s.stopped.is_some());
@@ -374,22 +537,52 @@ impl Session {
             if self.saved.is_none() {
                 panic!("the tile didn't answer within {WAIT:?}");
             }
+            if std::mem::take(&mut self.sent) {
+                rounds = 0;
+            }
         }
         Ok(())
     }
 
-    /// Let `time` pass (timers fire, while shown), then settle.
-    pub fn wait(&mut self, time: Duration) -> &mut Self {
-        self.pump(Instant::now() + time, |_| false);
+    /// Let `time` pass, then settle: on the virtual clock at once (timers
+    /// due meanwhile fire in order, each at its time, while the tile is
+    /// shown); on the wall clock by waiting.
+    pub fn advance(&mut self, time: Duration) -> &mut Self {
+        if self.clock.is_manual() {
+            self.check_running();
+            assert!(self.handle.advance(time), "the tile isn't running");
+        } else {
+            self.pump(Instant::now() + time, |_| false);
+        }
         self.settle()
     }
 
-    /// Wait up to `timeout` for a view to show `text`, for what a timer
-    /// brings. Panics when it doesn't.
+    /// [`Session::advance`]: let `time` pass.
+    pub fn wait(&mut self, time: Duration) -> &mut Self {
+        self.advance(time)
+    }
+
+    /// Let up to `timeout` pass until the main view shows `text`, for what
+    /// a timer brings (on the virtual clock in steps of 100 ms). Panics
+    /// when it doesn't.
     pub fn wait_for_text(&mut self, text: &str, timeout: Duration) -> &mut Self {
-        let until = Instant::now() + timeout;
         let main = self.main.clone();
-        let found = self.pump(until, |s| s.find_text_in(&main, text).is_some());
+        let found = if self.clock.is_manual() {
+            let mut left = timeout;
+            loop {
+                if self.find_text_in(&main, text).is_some() {
+                    break true;
+                }
+                if left.is_zero() {
+                    break false;
+                }
+                let step = left.min(Duration::from_millis(100));
+                left -= step;
+                self.advance(step);
+            }
+        } else {
+            self.pump(Instant::now() + timeout, |s| s.find_text_in(&main, text).is_some())
+        };
         self.check_running();
         assert!(found, "no “{text}” within {timeout:?}; it shows:\n{}", self.text_snapshot());
         self
@@ -454,8 +647,10 @@ impl Session {
     }
 
     /// The main view as an indented outline: one node a line with its
-    /// kind, text, key and listeners. Stable across Pitwall versions within
-    /// a world, for snapshot tests.
+    /// kind, text, key and listeners; a text field with its placeholder,
+    /// what it holds (`text=`), `multiline`, and `focused` on the node with
+    /// keyboard focus. Stable across Pitwall versions within a world, for
+    /// snapshot tests.
     pub fn text_snapshot(&self) -> String {
         self.text_snapshot_of(&self.main)
     }
@@ -464,6 +659,8 @@ impl Session {
     pub fn text_snapshot_of(&self, view: &str) -> String {
         let Some(f) = self.frames.get(view) else { return format!("(view “{view}” has no frame)\n") };
         let nodes = &f.frame.nodes;
+        let paths = key_paths(&f.frame);
+        let focused = self.focused.get(view);
         let mut depth = vec![0usize; nodes.len()];
         let mut out = String::new();
         for (i, n) in nodes.iter().enumerate() {
@@ -474,8 +671,17 @@ impl Session {
                 Element::Button(b) => format!("button {:?}{}", b.label, if b.disabled { " disabled" } else { "" }),
                 Element::Icon(ui::Icon::Named(name)) => format!("icon {name}"),
                 Element::Scroll(_) => "scroll".to_string(),
-                Element::Input(input) => format!("input{}", input.placeholder.as_ref().map(|p| format!(" placeholder={p:?}")).unwrap_or_default()),
+                Element::Input(input) => {
+                    let text = self.texts.get(&(view.to_string(), paths[i].clone())).filter(|t| !t.is_empty());
+                    format!(
+                        "input{}{}{}",
+                        input.placeholder.as_ref().map(|p| format!(" placeholder={p:?}")).unwrap_or_default(),
+                        text.map(|t| format!(" text={t:?}")).unwrap_or_default(),
+                        if input.multiline { " multiline" } else { "" }
+                    )
+                }
             };
+            let what = if focused == Some(&paths[i]) { format!("{what} focused") } else { what };
             let key = if n.key.chars().all(|c| c.is_ascii_digit()) || i == 0 { String::new() } else { format!(" #{}", n.key) };
             let on: Vec<&str> = n
                 .on
@@ -524,6 +730,22 @@ impl Session {
             assert!(!b.disabled, "the button “{}” is disabled", b.label);
         }
         let handler = self.handler_up(&found, Listen::Click);
+        // As in Pitwall: the press gives the tile the keyboard, and a
+        // focusable box clicked takes the focus (a button doesn't).
+        self.take_focus();
+        let nodes = &self.frame_of(&found.view).nodes;
+        let mut at = Some(found.index);
+        while let Some(i) = at {
+            if nodes[i].on.iter().any(|l| l.on == Listen::Click) {
+                break;
+            }
+            at = nodes[i].parent.map(|p| p as usize);
+        }
+        if let Some(i) = at.filter(|i| nodes[*i].focusable && matches!(nodes[*i].element, Element::Box | Element::Text(_) | Element::Icon(_) | Element::Scroll(_))) {
+            let path = key_paths(self.frame_of(&found.view))[i].clone();
+            let view = found.view.clone();
+            self.move_focus(&view, Some(path));
+        }
         self.send(Event::Click(ui::Click { handler, button: MouseButton::Left, modifiers: Modifiers::empty(), count: 1, at: Point { x: 1.0, y: 1.0 } }));
         self.settle()
     }
@@ -556,11 +778,18 @@ impl Session {
     }
 
     /// Replace what text field `key_path` holds with `text`, as if the
-    /// user typed it.
+    /// user clicked into it (it takes the focus) and typed it.
     pub fn type_into(&mut self, key_path: &str, text: &str) -> &mut Self {
         let f = self.input(key_path);
         let Some(l) = f.node.on.iter().find(|l| l.on == Listen::Change) else { panic!("the text field “{key_path}” doesn't listen for changes") };
+        let l = *l;
+        if let Some(i) = f.input() {
+            assert!(!i.disabled, "the text field “{key_path}” is disabled");
+        }
+        self.take_focus();
+        self.move_focus(&f.view, Some(f.key_path.clone()));
         let at = (f.view.clone(), f.key_path.clone());
+        self.texts.insert(at.clone(), text.to_string());
         let revision = {
             let r = self.revisions.entry(at).or_default();
             *r += 1;
@@ -571,21 +800,147 @@ impl Session {
         self.settle()
     }
 
-    /// Press Enter in text field `key_path`.
+    /// Press Enter (⌘Enter when multi-line) in text field `key_path`,
+    /// which takes the focus first.
     pub fn submit(&mut self, key_path: &str) -> &mut Self {
         let f = self.input(key_path);
         let handler = self.handler_up(&f, Listen::Submit);
+        self.take_focus();
+        self.move_focus(&f.view, Some(f.key_path.clone()));
+        self.settle();
         self.send(Event::Submit(handler));
         self.settle()
     }
 
-    /// Press `keys` (as the tile bound them: `j`, `cmd-r`) while the main
-    /// view has focus.
+    /// Press `keys` (as the tile bound them: `j`, `cmd-s`) in the main
+    /// view, which takes the keyboard first. Panics when the view doesn't
+    /// bind them (Pitwall's reserved keys are dropped from the keymap), or
+    /// when they have no ⌘/Ctrl/Alt and a text field has focus: in Pitwall
+    /// they would type into the field ([`Session::try_press`] to test
+    /// that).
     pub fn press(&mut self, keys: &str) -> &mut Self {
-        let Some(b) = self.frame().keymap.iter().find(|b| b.keys == keys) else { panic!("the view binds no “{keys}”") };
+        if let Err(why) = self.try_press(keys) {
+            panic!("{why}");
+        }
+        self
+    }
+
+    /// [`Session::press`], saying why the key didn't reach the tile
+    /// instead of panicking.
+    pub fn try_press(&mut self, keys: &str) -> Result<&mut Self, String> {
+        let Some(b) = self.frame().keymap.iter().find(|b| b.keys == keys) else {
+            let why = if pitwall_tile_host::keys::reserved(keys) { " (Pitwall keeps that key for itself)" } else { "" };
+            return Err(format!("the view binds no “{keys}”{why}"));
+        };
         let handler = b.handler;
+        let types = pitwall_tile_host::keys::parse(keys).is_some_and(|(m, _)| m.types());
+        let field = self.focused.get(&self.main).filter(|p| self.find_key(p).is_some_and(|f| f.input().is_some())).cloned();
+        if let (true, Some(field)) = (types, field) {
+            return Err(format!("“{keys}” types into the focused text field “{field}” instead: a binding without ⌘/Ctrl/Alt doesn't fire while a field has focus"));
+        }
+        self.take_focus();
         self.send(Event::Key(ui::KeyEvent { handler, keys: keys.to_string() }));
+        Ok(self.settle())
+    }
+
+    // ---- Focus, size and theme ---------------------------------------------
+
+    /// The tile gets (`true`) or loses (`false`) the keyboard, as when the
+    /// user clicks into it or into another tile. Losing it, the focused
+    /// node hears its blur first.
+    pub fn focus(&mut self, yes: bool) -> &mut Self {
+        self.check_running();
+        if yes {
+            self.take_focus();
+        } else {
+            let views: Vec<String> = self.focused.keys().cloned().collect();
+            for v in views {
+                self.move_focus(&v, None);
+            }
+            if self.tile_focus {
+                self.tile_focus = false;
+                self.send(Event::Focus(false));
+            }
+        }
         self.settle()
+    }
+
+    /// Move the keyboard focus to the node at `key_path` in the main view
+    /// (a text field, a focusable node), as a click or Tab would; the node
+    /// that had it hears its blur.
+    pub fn focus_key(&mut self, key_path: &str) -> &mut Self {
+        let Some(f) = self.find_key(key_path) else { panic!("there is no node “{key_path}”; it shows:\n{}", self.text_snapshot()) };
+        assert!(f.node.focusable || matches!(f.node.element, Element::Input(_) | Element::Button(_)), "“{key_path}” can't take focus: make it focusable");
+        self.take_focus();
+        self.move_focus(&f.view, Some(f.key_path));
+        self.settle()
+    }
+
+    /// The focus leaves the main view's nodes but stays in the tile (a
+    /// click on its background): the focused node hears its blur.
+    pub fn blur(&mut self) -> &mut Self {
+        let main = self.main.clone();
+        self.move_focus(&main, None);
+        self.settle()
+    }
+
+    /// Whether the tile has the keyboard.
+    pub fn has_focus(&self) -> bool {
+        self.tile_focus
+    }
+
+    /// The key path of the main view's focused node, if one has focus.
+    pub fn focused(&self) -> Option<&str> {
+        self.focused.get(&self.main).map(String::as_str)
+    }
+
+    /// What text field `key_path` holds now: the tile's last value, or what
+    /// was typed since. Panics when there is no such field.
+    pub fn field_text(&self, key_path: &str) -> String {
+        self.field(key_path).text
+    }
+
+    /// Text field `key_path` as the user sees it. Panics when there is no
+    /// such field.
+    pub fn field(&self, key_path: &str) -> Field {
+        let f = self.input(key_path);
+        let Some(i) = f.input() else { unreachable!() };
+        let at = (f.view.clone(), f.key_path.clone());
+        Field {
+            text: self.texts.get(&at).cloned().unwrap_or_default(),
+            multiline: i.multiline,
+            rows: i.rows,
+            placeholder: i.placeholder.clone(),
+            disabled: i.disabled,
+            focused: self.focused.get(&f.view) == Some(&f.key_path),
+        }
+    }
+
+    /// View `view` is now `width` × `height` logical pixels (a tile
+    /// dragged wider, a window resized).
+    pub fn resize(&mut self, view: &str, width: f32, height: f32) -> &mut Self {
+        self.send(Event::Resize(ui::ViewSize { view: view.to_string(), size: ui::Size { width, height } }));
+        self.settle()
+    }
+
+    /// The user's appearance changes (light or dark, density, motion).
+    pub fn set_theme(&mut self, theme: ThemeInfo) -> &mut Self {
+        self.check_running();
+        self.theme = theme;
+        self.handle.set_theme(theme);
+        self.settle()
+    }
+
+    /// The light theme (the default theme otherwise: dark, compact).
+    pub fn light(&mut self) -> &mut Self {
+        let t = ThemeInfo { mode: ThemeMode::Light, ..self.theme };
+        self.set_theme(t)
+    }
+
+    /// The icon names its frames used that Pitwall doesn't have (each also
+    /// printed when first seen).
+    pub fn unknown_icons(&self) -> &[String] {
+        &self.unknown_icons
     }
 
     /// Open view `view` of tile `tile`, with `content` (JSON) if given.
@@ -647,16 +1002,34 @@ impl Session {
 
     /// Reload it as `pitwall extension dev` does: save its state, stop it,
     /// start it again from its folder with that state and the same data,
-    /// and reopen the main view.
+    /// and reopen the main view (without the keyboard).
     pub fn reload(&mut self) -> &mut Self {
         let state = self.save_state();
+        self.start_again(Some(state))
+    }
+
+    /// Start it again with the same data but no saved state, as after
+    /// Pitwall restarts or the tile was dropped without saving: what it
+    /// kept in storage is all it has.
+    pub fn restart(&mut self) -> &mut Self {
+        self.check_running();
+        self.start_again(None)
+    }
+
+    fn start_again(&mut self, state: Option<Vec<u8>>) -> &mut Self {
         self.handle.stop();
         self.pump(Instant::now() + WAIT, |s| s.stopped.is_some());
         let ext = Extension::load(self.ext.dir()).unwrap_or_else(|e| panic!("it can't be loaded again: {e}"));
-        let options = StartOptions { views: vec![ViewSpec::tile(&self.main_tile())], grants: Grants::new(self.grants.clone()), theme: ui::default_theme(), visible: self.visible, state: Some(state) };
+        let options = StartOptions { views: vec![ViewSpec::tile(&self.main_tile())], grants: Grants::new(self.grants.clone()), theme: self.theme, visible: self.visible, state, clock: self.clock.clone() };
         let (handle, rx) = launch(&self.host, &ext, options);
         (self.handle, self.rx, self.ext, self.stopped) = (handle, rx, ext, None);
         self.frames.clear();
+        self.texts.clear();
+        self.revisions.clear();
+        self.focused.clear();
+        self.asked.clear();
+        self.tile_focus = false;
+        self.sent = false;
         self.settle()
     }
 
