@@ -1,6 +1,7 @@
 #!/bin/sh
 # The Notes tile is a seed tile: it may use no Pitwall crate but the public
-# `pitwall-extension`, and `pitwall-extension-test` as a dev-dependency only
+# `pitwall-extension` (with its macros, `pitwall-extension-macros`), and
+# `pitwall-extension-test` as a dev-dependency only
 # (docs/spec/2026-11-27-notes-tile/hla.md §1). Unlike tiles/c4 it uses the
 # harness, whose own dependencies are Pitwall crates under crates/ (the tile
 # runtime); those are allowed only behind it, in dev builds. So:
@@ -41,7 +42,7 @@ problems=$(cargo metadata --format-version 1 --all-features --manifest-path "$he
                 | .todo += [ $nodes[$id].deps[] | select(any(.dep_kinds[]; .kind != "dev")) | .pkg ]
               end)
         | [ .seen[] | $pkgs[.] | select(.id != $top)
-            | if (.name | startswith("pitwall")) and .name != "pitwall-extension" then "not allowed in tile.wasm: \(.name)"
+            | if (.name | startswith("pitwall")) and .name != "pitwall-extension" and .name != "pitwall-extension-macros" then "not allowed in tile.wasm: \(.name)"
               elif .source == null and (inside | not) then "path dependency outside tiles/notes and sdk in tile.wasm: \(.name) (\(.manifest_path))"
               else empty end ] )
     | unique | .[]')
