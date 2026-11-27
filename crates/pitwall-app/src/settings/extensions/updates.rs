@@ -595,7 +595,7 @@ impl SettingsView {
                 if !m.permissions.is_empty() {
                     let mut perms = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child("It asks for these permissions"));
                     for ask in &m.permissions {
-                        let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &ask.name, &ask.reason));
+                        let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &ask.name, &ask.reason, cx));
                         if let Some(amount) = pitwall_core::extensions::permissions::amount(m, &ask.name) {
                             let sel = format!("extension-add-folder-amount-{}", ask.name);
                             row = row.child(div().flex_none().mt(px(1.)).debug_selector(move || sel).child(crate::kit::mono_text(amount, &ui.t).text_color(ui.t.text_2)));

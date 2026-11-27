@@ -234,7 +234,7 @@ fn a_tile_opened_for_a_project_reaches_its_files(cx: &mut TestAppContext) {
     let refused = cx.update(|_, cx| crate::extensions::calls::activity("files", cx).lock().unwrap().entries());
     assert!(refused.iter().any(|e| e.method == "files.write" && e.refused()), "{refused:?}");
     // The permission screen names the folder it reaches now.
-    assert_eq!(super::scoped_folders("files"), [shop.clone()]);
+    assert_eq!(cx.update(|_, cx| super::scoped_folders("files", cx)), [shop.clone()]);
     cx.update(|_, cx| crate::main_screen::view_tile::close("files/main", cx));
 }
 
