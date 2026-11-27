@@ -145,7 +145,7 @@ fn widgets_shots() {
         .unwrap();
     let w: AnyWindowHandle = win.into();
     let tile: Entity<TileView> = vt.borrow().clone().unwrap();
-    let paths: Vec<String> = ALL.iter().map(|n| format!("{n}")).collect();
+    let paths: Vec<String> = ALL.iter().map(|n| n.to_string()).collect();
     let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     cx.update(|cx| tile.update(cx, |t, _| t.probe(&refs)));
     let refresh = |cx: &mut HeadlessAppContext| {
@@ -166,7 +166,7 @@ fn widgets_shots() {
     settle(&mut cx, "the gallery", &mut |cx| !tile.read(cx).texts().is_empty());
     for name in ALL {
         cx.update(|cx| show(name, cx));
-        let path = format!("{name}");
+        let path = name.to_string();
         settle(&mut cx, name, &mut |cx| tile.read(cx).node_bounds(&path).is_some());
         // Let the frame's own size settle (fields, charts).
         refresh(&mut cx);
