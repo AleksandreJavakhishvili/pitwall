@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, COMMUNITY_URL, NEW_LABEL } from "./site.config.js";
-import { renderPage, docsNavHtml, SOURCES, ROOT } from "./scripts/pages.mjs";
+import { renderPage, docsNavHtml, watchedFiles, llmsTxt, EXTENSION_PAGES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
@@ -35,19 +35,36 @@ function siteLinks() {
   };
 }
 
-// /changelog/, /roadmap/ and the reference pages under /docs/ are rendered from
-// the repository's CHANGELOG.md, ROADMAP.md and docs/reference/*.md
+// /changelog/, /roadmap/ and the reference pages under /docs/ (with the Extensions
+// pages under /docs/extensions/) are rendered from the repository's CHANGELOG.md,
+// ROADMAP.md, docs/reference/*.md and docs/reference/extensions/*.md
 // (scripts/pages.mjs): each page has a <!-- markdown:<name> --> marker where the
 // content goes, and docs pages a <!-- docs-nav --> marker for the sidebar. Runs
 // before pitwall-site-links, so the generated root-absolute links get the base
-// too. In dev, editing a source file reloads the page.
+// too. It also writes /sdk/llms.txt, the Extensions pages as one file for coding
+// agents. In dev, editing a source file, a file it includes or the WIT reloads.
 function markdownPages() {
+  let server = null;
+  const watched = new Set(watchedFiles());
+  const watch = (files) => {
+    const fresh = files.filter((f) => !watched.has(f));
+    fresh.forEach((f) => watched.add(f));
+    if (server && fresh.length) server.watcher.add(fresh);
+  };
+  const isWatched = (file) => [...watched].some((w) => file === w || file.startsWith(w + sep));
+  const llms = () => llmsTxt({ repoUrl: REPO_URL, pagesUrl: PAGES_URL });
   return {
     name: "pitwall-markdown-pages",
-    configureServer(server) {
-      server.watcher.add(Object.values(SOURCES));
-      server.watcher.on("change", (file) => {
-        if (Object.values(SOURCES).includes(file)) server.ws.send({ type: "full-reload" });
+    configureServer(s) {
+      server = s;
+      server.watcher.add([...watched]);
+      for (const event of ["change", "add", "unlink"])
+        server.watcher.on(event, (file) => {
+          if (isWatched(file)) server.ws.send({ type: "full-reload" });
+        });
+      server.middlewares.use("/sdk/llms.txt", (_req, res) => {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(llms());
       });
     },
     transformIndexHtml: {
@@ -56,11 +73,17 @@ function markdownPages() {
         html = html.replace("<!-- docs-nav -->", () => docsNavHtml(ctx.path));
         if (!html.includes("<!-- markdown:")) return html;
         const appVersion = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
-        return html.replace(/<!-- markdown:(\w+) -->/g, (_, name) => {
-          if (!SOURCES[name]) throw new Error(`${ctx.path}: no Markdown source "${name}"`);
-          return renderPage(name, { repoUrl: REPO_URL, appVersion });
+        return html.replace(/<!-- markdown:([\w-]+) -->/g, (_, name) => {
+          try {
+            return renderPage(name, { repoUrl: REPO_URL, appVersion, onFiles: watch });
+          } catch (e) {
+            throw new Error(`${ctx.path}: ${e.message}`);
+          }
         });
       },
+    },
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "sdk/llms.txt", source: llms() });
     },
   };
 }
@@ -190,6 +213,8 @@ export default defineConfig({
         agents: resolve(import.meta.dirname, "docs/agents/index.html"),
         detection: resolve(import.meta.dirname, "docs/detection/index.html"),
         howitworks: resolve(import.meta.dirname, "docs/how-it-works/index.html"),
+        // The Extensions pages, one per EXTENSION_PAGES entry in scripts/pages.mjs.
+        ...Object.fromEntries(EXTENSION_PAGES.map(([name, , path]) => [name, resolve(import.meta.dirname, `.${path}index.html`)])),
         changelog: resolve(import.meta.dirname, "changelog/index.html"),
         roadmap: resolve(import.meta.dirname, "roadmap/index.html"),
         notfound: resolve(import.meta.dirname, "404.html"),

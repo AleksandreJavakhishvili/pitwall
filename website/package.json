@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "node scripts/build.mjs",
     "build:pages": "vite build",
+    "test": "node --test \"scripts/**/*.test.mjs\"",
+    "check-links": "node scripts/check-links.mjs",
+    "wit-docs": "node scripts/wit-docs.mjs",
     "preview": "vite preview",
     "demo": "node scripts/build-demo.mjs",
     "demo:serve": "node scripts/build-demo.mjs --serve 5199"
