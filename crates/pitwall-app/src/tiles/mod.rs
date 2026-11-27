@@ -351,6 +351,16 @@ pub struct Openable {
     pub icon: &'static str,
 }
 
+/// The icon tile `t` of `m` is listed with: the extension's own image when
+/// it has one, else the tile's icon, else the extension's.
+pub fn tile_icon(m: &Manifest, t: &pitwall_core::extensions::TileDef) -> &'static str {
+    let own = crate::extensions::icon_of(m);
+    if let Some(k) = crate::kit::icons::image_icon(own).and_then(|_| crate::kit::icons::known(own)) {
+        return k;
+    }
+    t.icon.as_deref().and_then(crate::kit::icons::known).or_else(|| crate::kit::icons::known(own)).unwrap_or("extension")
+}
+
 /// The tiles of the extensions that are on, in folder order (their
 /// component starts when one opens).
 pub fn openable(cx: &App) -> Vec<Openable> {
@@ -358,7 +368,7 @@ pub fn openable(cx: &App) -> Vec<Openable> {
     let mut out = Vec::new();
     for m in crate::extensions::enabled(&crate::extensions::found(cx), &ui) {
         for t in &m.contributes.tiles {
-            let icon = t.icon.as_deref().and_then(crate::kit::icons::known).or_else(|| crate::kit::icons::known(crate::extensions::icon_of(&m))).unwrap_or("extension");
+            let icon = tile_icon(&m, t);
             out.push(Openable { ext: m.id.clone(), tile: t.id.clone(), title: t.title.clone(), name: m.name.clone(), label: open_label(&t.title, &m.name), icon });
         }
     }

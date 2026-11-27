@@ -45,7 +45,8 @@ pub enum Action {
 /// The toolbar item a manifest declares.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolbarDef {
-    /// One of Pitwall's icon names.
+    /// One of Pitwall's icon names; empty: the extension's own icon (its
+    /// manifest's `icon`, a name or its own image).
     pub icon: String,
     pub tooltip: String,
     /// Its component sets a badge: it keeps running while no tile shows.
@@ -90,9 +91,9 @@ pub fn parse(v: &Value, c: &Contributes) -> Result<ToolbarDef, String> {
             Some(_) => Err(format!("\"contributes.toolbar.{k}\" must be true or false")),
         }
     };
-    let icon = s("icon")?.ok_or("\"contributes.toolbar\" needs an \"icon\": one of Pitwall's icon names")?;
-    if !ICON_NAMES.contains(&icon) {
-        return Err(format!("\"contributes.toolbar.icon\" “{icon}” isn't one of Pitwall's icon names (an SVG of its own needs a newer Pitwall)"));
+    let icon = s("icon")?.unwrap_or("");
+    if !icon.is_empty() && !ICON_NAMES.contains(&icon) {
+        return Err(format!("\"contributes.toolbar.icon\" “{icon}” isn't one of Pitwall's icon names (leave it out to show the extension's own icon)"));
     }
     let tooltip = s("tooltip")?.ok_or("\"contributes.toolbar\" needs a \"tooltip\": what the button does, in a few words")?.trim();
     if tooltip.is_empty() || tooltip.chars().any(char::is_control) || tooltip.chars().count() > MAX_TOOLTIP {

@@ -356,7 +356,7 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
             None => s.tile_command(req.clone(), label.clone(), cx),
         });
         let label = format!("{}: {title}{}", t.extension_name, if needs_input { "…" } else { "" });
-        out.push(Command::new(format!("tile-tool-{}-{tool}", t.extension), label, format!("{} {} tile command", t.extension_name.to_lowercase(), title.to_lowercase()), run).icon("extension").rank(rank::TERMINALS));
+        out.push(Command::new(format!("tile-tool-{}-{tool}", t.extension), label, format!("{} {} tile command", t.extension_name.to_lowercase(), title.to_lowercase()), run).icon(crate::extensions::manifest_of(&t.extension, cx).and_then(|m| crate::kit::icons::known(crate::extensions::icon_of(&m))).unwrap_or("extension")).rank(rank::TERMINALS));
     }
     // Each running extension's views and commands (labelled with its
     // name; no keys of their own).

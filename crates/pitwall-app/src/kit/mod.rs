@@ -62,7 +62,7 @@ pub use fresh::{fresh_note, refresh_control, updated_label};
 pub use fonts::{BODY_LINE_HEIGHT, LABEL_FONT, MONO_FONT, UI_FONT, WEIGHT_550, WEIGHT_650};
 pub use hover::HoverText;
 pub use glass::{chrome_panel, chrome_width, glass_region, region_sweeper, PANEL_RADIUS};
-pub use icons::{chevron, chevron_at, has_icon, icon, Assets};
+pub use icons::{chevron, chevron_at, has_icon, icon, icon_any, Assets};
 pub use logos::agent_logo;
 pub use input::{InputEvent, TextFieldEvent, TextInput};
 pub use menu::{menu_body, menu_item, menu_panel};

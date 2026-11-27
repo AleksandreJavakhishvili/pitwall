@@ -938,6 +938,18 @@ mod tests {
             let r = pitwall_core::extensions::check::check(&dest.join(id), None);
             assert!(r.passed(), "{}", r.text());
         }
+        // A tile extension's sources stay out: only what its package holds.
+        for id in &ids {
+            if !dest.join(id).join("tile.wasm").is_file() {
+                continue;
+            }
+            for src in ["src", "Cargo.toml", "Cargo.lock", "build.rs", "scripts", "tests", "target"] {
+                assert!(!dest.join(id).join(src).exists(), "{id}/{src} is bundled");
+            }
+            if let Ok(p) = pitwall_core::extensions::package::pack(&Path::new(DEV_BUNDLE).join(id)) {
+                assert_eq!(files_under(&dest.join(id)), p.files.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(), "{id}: what its package holds");
+            }
+        }
         let offers = install::bundled(&dest);
         assert_eq!(offers.len(), ids.len(), "each usable as bundled");
         // And each installs from the bundle.
@@ -945,6 +957,60 @@ mod tests {
         for o in &offers {
             install::install(o, &data).unwrap();
         }
+    }
+
+    /// Every file under `dir`, as package names, sorted.
+    #[cfg(unix)]
+    fn files_under(dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                if e.path().is_dir() {
+                    stack.push(e.path());
+                } else {
+                    out.push(e.path().strip_prefix(dir).unwrap().to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// A tile extension is staged as its package holds it (no sources,
+    /// scripts, tests or build output); an adapter one whole, without its
+    /// tests.
+    #[cfg(unix)]
+    #[test]
+    fn bundling_leaves_tile_sources_out() {
+        use pitwall_core::testing::png::solid;
+        let t = pitwall_core::testing::TempDir::new("ext-stage-tile");
+        let src = t.path().join("src-exts");
+        let tile = src.join("pics");
+        for d in ["src", "scripts", "tests", "target/release", "assets", "screenshots", "media", "agents"] {
+            std::fs::create_dir_all(tile.join(d)).unwrap();
+        }
+        std::fs::write(tile.join("extension.json"), r#"{"v": 2, "id": "pics", "name": "Pics", "version": "1.0.0", "icon": "assets/icon.png", "contributes": {"tiles": [{"id": "main", "title": "Pics", "wasm": "tile.wasm", "input": "input.schema.json"}]}}"#).unwrap();
+        std::fs::write(tile.join("tile.wasm"), [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00]).unwrap();
+        for (f, body) in [("README.md", "# Pics\n\n![A](media/a.png)\n"), ("LICENSE", "MIT"), ("input.schema.json", "{}"), ("Cargo.toml", "[package]"), ("Cargo.lock", ""), ("build.rs", ""), ("src/lib.rs", ""), ("scripts/build.sh", ""), ("tests/t.rs", ""), ("target/release/x.wasm", ""), ("agents/SKILL.md", "---\nname: pics\ndescription: d\n---\n")] {
+            std::fs::write(tile.join(f), body).unwrap();
+        }
+        std::fs::write(tile.join("assets/icon.png"), solid(128, 128, [1, 2, 3, 255])).unwrap();
+        std::fs::write(tile.join("screenshots/main.png"), solid(64, 40, [1, 2, 3, 255])).unwrap();
+        std::fs::write(tile.join("media/a.png"), solid(64, 40, [1, 2, 3, 255])).unwrap();
+        let adapter = src.join("inbox");
+        std::fs::create_dir_all(adapter.join("test")).unwrap();
+        std::fs::create_dir_all(adapter.join("scripts")).unwrap();
+        std::fs::write(adapter.join("extension.json"), r#"{"id": "inbox", "name": "Inbox", "adapter": {"command": ["node", "scripts/a.mjs"]}}"#).unwrap();
+        std::fs::write(adapter.join("scripts/a.mjs"), "").unwrap();
+        std::fs::write(adapter.join("test/pitwall.json"), "{}").unwrap();
+        let dest = t.path().join("out");
+        let script = Path::new(DEV_BUNDLE).join("../scripts/stage-extensions.sh");
+        let out = std::process::Command::new("bash").arg(&script).arg(&src).arg(&dest).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let packed: Vec<String> = pitwall_core::extensions::package::pack(&tile).unwrap().files.into_iter().map(|(n, _)| n).collect();
+        assert_eq!(files_under(&dest.join("pics")), packed);
+        assert_eq!(files_under(&dest.join("inbox")), ["extension.json", "scripts/a.mjs"]);
     }
 
     /// The app ships the repo's extensions meant for users, the demo

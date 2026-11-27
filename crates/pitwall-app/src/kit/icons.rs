@@ -5,8 +5,66 @@
 //! [`super::file_icons`].
 
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
-use gpui::{px, svg, AssetSource, Hsla, Result, SharedString, Styled, Svg};
+use gpui::{div, img, px, svg, AnyElement, AssetSource, Hsla, IntoElement, ParentElement, Result, SharedString, Styled, StyledImage, Svg};
+
+/// Extensions' own icons (a PNG or WebP their manifest names, checked by
+/// `pitwall_core::extensions::media::check_icon`), by extension id: the
+/// name they go by where icon names are passed (`ext-icon/<id>`, kept
+/// for the life of the app) and the image.
+static IMAGE_ICONS: RwLock<Option<HashMap<String, (&'static str, Arc<gpui::Image>)>>> = RwLock::new(None);
+
+/// The prefix of an extension's own icon's name.
+pub const IMAGE_ICON_PREFIX: &str = "ext-icon/";
+
+/// Extension `id`'s own icon is `bytes` (checked already); `None`: it has
+/// none (any it had is dropped). Its name ([`image_key`]).
+pub fn set_image_icon(id: &str, bytes: Option<Vec<u8>>) {
+    let mut map = IMAGE_ICONS.write().unwrap_or_else(|e| e.into_inner());
+    let map = map.get_or_insert_with(HashMap::new);
+    let Some(bytes) = bytes else {
+        map.remove(id);
+        return;
+    };
+    let format = match pitwall_core::extensions::media::sniff(&bytes) {
+        Some(pitwall_core::extensions::media::Kind::Webp) => gpui::ImageFormat::Webp,
+        _ => gpui::ImageFormat::Png,
+    };
+    let name = match map.get(id) {
+        Some((n, _)) => *n,
+        None => Box::leak(format!("{IMAGE_ICON_PREFIX}{id}").into_boxed_str()),
+    };
+    map.insert(id.to_string(), (name, Arc::new(gpui::Image::from_bytes(format, bytes))));
+}
+
+/// The name of extension `id`'s own icon, when it has one.
+pub fn image_key(id: &str) -> Option<&'static str> {
+    IMAGE_ICONS.read().ok()?.as_ref()?.get(id).map(|(n, _)| *n)
+}
+
+/// The image of own icon `name` (`ext-icon/<id>`).
+pub fn image_icon(name: &str) -> Option<Arc<gpui::Image>> {
+    let id = name.strip_prefix(IMAGE_ICON_PREFIX)?;
+    IMAGE_ICONS.read().ok()?.as_ref()?.get(id).map(|(_, i)| i.clone())
+}
+
+/// Icon `name` at `size`: an extension's own icon as its image (rounded a
+/// little, as app icons are), else the stroke icon in `color`. Anywhere an
+/// extension's icon may be drawn.
+pub fn icon_any(name: &str, size: f32, color: Hsla) -> AnyElement {
+    match image_icon(name) {
+        Some(i) => div()
+            .flex_none()
+            .size(px(size))
+            .rounded(px((size * 0.22).max(2.)))
+            .overflow_hidden()
+            .child(img(i).size_full().with_fallback(move || icon("extension", size, color).into_any_element()))
+            .into_any_element(),
+        None => icon(name, size, color).into_any_element(),
+    }
+}
 
 /// `Icon.tsx` paths (20×20 view box).
 pub const ICONS: &[(&str, &str)] = &[
@@ -86,15 +144,17 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
 /// This app's own name for icon `name`, if it has it (kept for the life
 /// of the app).
 pub fn known(name: &str) -> Option<&'static str> {
-    ICONS.iter().chain(EXTRA_ICONS).find(|(n, _)| *n == name).map(|(n, _)| *n)
+    ICONS.iter().chain(EXTRA_ICONS).find(|(n, _)| *n == name).map(|(n, _)| *n).or_else(|| image_key(name.strip_prefix(IMAGE_ICON_PREFIX)?))
 }
 
-/// This app has an icon called `name`.
+/// This app has an icon called `name` (an extension's own included).
 pub fn has_icon(name: &str) -> bool {
-    icon_path(name).is_some()
+    icon_path(name).is_some() || image_icon(name).is_some()
 }
 
 fn icon_path(name: &str) -> Option<&'static str> {
+    // Drawn as a stroke icon, an extension's own is the extension icon.
+    let name = if name.starts_with(IMAGE_ICON_PREFIX) { "extension" } else { name };
     ICONS
         .iter()
         .chain(EXTRA_ICONS)

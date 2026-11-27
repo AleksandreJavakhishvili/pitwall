@@ -52,8 +52,150 @@ fn crc32(bytes: &[u8]) -> u32 {
     !c
 }
 
+/// Drawing for the seed tiles' icons (tiles/c4, tiles/notes): shapes as
+/// signed distances, 4×4 samples a pixel, on a rounded square with a
+/// vertical gradient. No third-party art; the same bytes every time.
+pub mod art {
+    /// A shape's signed distance at (x, y): below 0 inside.
+    pub type Shape = Box<dyn Fn(f32, f32) -> f32>;
+
+    /// A rounded rectangle centred at (cx, cy), half sizes (hw, hh),
+    /// corner radius r.
+    pub fn rrect(cx: f32, cy: f32, hw: f32, hh: f32, r: f32) -> Shape {
+        Box::new(move |x, y| {
+            let qx = (x - cx).abs() - hw + r;
+            let qy = (y - cy).abs() - hh + r;
+            let out = (qx.max(0.).powi(2) + qy.max(0.).powi(2)).sqrt();
+            out + qx.max(qy).min(0.) - r
+        })
+    }
+
+    /// A line from (ax, ay) to (bx, by), `w` wide with round ends.
+    pub fn line(ax: f32, ay: f32, bx: f32, by: f32, w: f32) -> Shape {
+        Box::new(move |x, y| {
+            let (px, py, dx, dy) = (x - ax, y - ay, bx - ax, by - ay);
+            let t = ((px * dx + py * dy) / (dx * dx + dy * dy)).clamp(0., 1.);
+            ((px - dx * t).powi(2) + (py - dy * t).powi(2)).sqrt() - w / 2.
+        })
+    }
+
+    /// `a` without `b`.
+    pub fn minus(a: Shape, b: Shape) -> Shape {
+        Box::new(move |x, y| a(x, y).max(-b(x, y)))
+    }
+
+    /// A layer: a shape and its colour (RGBA, 0–1).
+    pub struct Layer {
+        pub shape: Shape,
+        pub color: [f32; 4],
+    }
+
+    /// A `size`² icon: a rounded square (corner 22%) filled from `top` to
+    /// `bottom`, then `layers` over it, on a 0–1 square.
+    pub fn icon(size: u32, top: [f32; 3], bottom: [f32; 3], layers: &[Layer]) -> Vec<u8> {
+        let tile = rrect(0.5, 0.5, 0.5, 0.5, 0.22);
+        let n = 4;
+        super::png(size, size, |px, py| {
+            let mut acc = [0f32; 4];
+            for sy in 0..n {
+                for sx in 0..n {
+                    let x = (px as f32 + (sx as f32 + 0.5) / n as f32) / size as f32;
+                    let y = (py as f32 + (sy as f32 + 0.5) / n as f32) / size as f32;
+                    if tile(x, y) > 0. {
+                        continue;
+                    }
+                    let mut c = [0f32; 3];
+                    for i in 0..3 {
+                        c[i] = top[i] + (bottom[i] - top[i]) * y;
+                    }
+                    for l in layers {
+                        if (l.shape)(x, y) <= 0. {
+                            let a = l.color[3];
+                            for i in 0..3 {
+                                c[i] = c[i] * (1. - a) + l.color[i] * a;
+                            }
+                        }
+                    }
+                    for i in 0..3 {
+                        acc[i] += c[i];
+                    }
+                    acc[3] += 1.;
+                }
+            }
+            let s = (n * n) as f32;
+            if acc[3] == 0. {
+                return [0, 0, 0, 0];
+            }
+            let a = acc[3] / s;
+            [(acc[0] / acc[3] * 255.).round() as u8, (acc[1] / acc[3] * 255.).round() as u8, (acc[2] / acc[3] * 255.).round() as u8, (a * 255.).round() as u8]
+        })
+    }
+
+    /// C4 diagrams' icon: three boxes joined, on indigo.
+    pub fn c4(size: u32) -> Vec<u8> {
+        let w = [1., 1., 1., 1.];
+        let soft = [1., 1., 1., 0.78];
+        icon(
+            size,
+            [0.36, 0.42, 0.96],
+            [0.22, 0.25, 0.74],
+            &[
+                Layer { shape: line(0.5, 0.36, 0.3, 0.62, 0.045), color: soft },
+                Layer { shape: line(0.5, 0.36, 0.7, 0.62, 0.045), color: soft },
+                Layer { shape: rrect(0.5, 0.31, 0.15, 0.09, 0.035), color: w },
+                Layer { shape: rrect(0.3, 0.68, 0.13, 0.08, 0.03), color: w },
+                Layer { shape: rrect(0.7, 0.68, 0.13, 0.08, 0.03), color: w },
+            ],
+        )
+    }
+
+    /// Notes' icon: a page with lines and a folded corner, on amber.
+    pub fn notes(size: u32) -> Vec<u8> {
+        let page = minus(rrect(0.5, 0.5, 0.25, 0.31, 0.045), line(0.75, 0.19, 0.75, 0.19, 0.24));
+        let ink = [0.86, 0.55, 0.1, 1.];
+        icon(
+            size,
+            [1.0, 0.78, 0.28],
+            [0.96, 0.58, 0.12],
+            &[
+                Layer { shape: page, color: [1., 0.99, 0.96, 1.] },
+                Layer { shape: rrect(0.69, 0.25, 0.06, 0.06, 0.02), color: [0.99, 0.88, 0.62, 1.] },
+                Layer { shape: line(0.36, 0.42, 0.58, 0.42, 0.04), color: ink },
+                Layer { shape: line(0.36, 0.53, 0.64, 0.53, 0.04), color: ink },
+                Layer { shape: line(0.36, 0.64, 0.56, 0.64, 0.04), color: ink },
+            ],
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// The seed tiles' icons, written into their folders: run by hand
+    /// after changing their art (`PITWALL_SEED_ART=1 cargo test -p
+    /// pitwall-core seed_icons -- --ignored`).
+    #[test]
+    #[ignore]
+    fn seed_icons() {
+        if std::env::var_os("PITWALL_SEED_ART").is_none() {
+            return;
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tiles");
+        for (dir, art) in [("c4", super::art::c4 as fn(u32) -> Vec<u8>), ("notes", super::art::notes)] {
+            let to = root.join(dir).join("assets");
+            std::fs::create_dir_all(&to).unwrap();
+            let bytes = art(256);
+            crate::extensions::media::check_icon("icon.png", &bytes).unwrap();
+            std::fs::write(to.join("icon.png"), bytes).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_seed_icons_are_the_same_every_time() {
+        let a = super::art::notes(64);
+        assert_eq!(a, super::art::notes(64));
+        assert_eq!(crate::extensions::media::check_icon("i.png", &a), Ok(64));
+    }
+
     #[test]
     fn a_png_reads_as_one() {
         let p = super::solid(64, 64, [10, 20, 30, 255]);

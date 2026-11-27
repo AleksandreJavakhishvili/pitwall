@@ -377,7 +377,24 @@ pub fn init(root: Option<PathBuf>, cx: &mut App) {
     let dir = root.map(|r| pitwall_core::paths::Paths::new(r).extensions_dir());
     let dev = dev_paths(&crate::ui_state::get(cx));
     let found = find_all(dir.as_deref(), &dev);
+    load_icons(&found, dir.as_deref(), &dev);
     cx.set_global(Installed { dir, found: Rc::new(found), bundle: catalog::locate(), dev: Rc::new(dev) });
+}
+
+/// Each extension's own icon read from its folder and checked
+/// (`media::check_icon`); one that isn't there or doesn't check is
+/// dropped, so its named icon (or the extension icon) is drawn.
+pub fn load_icons(found: &[Found], dir: Option<&std::path::Path>, dev: &BTreeMap<String, PathBuf>) {
+    for f in found {
+        let Ok(m) = &f.manifest else { continue };
+        let bytes = m.icon_file.as_ref().and_then(|rel| {
+            let folder = dev.get(&m.id).cloned().or_else(|| dir.map(|d| d.join(&f.folder)))?;
+            let _small = std::fs::symlink_metadata(folder.join(rel)).ok().filter(|m| m.is_file() && m.len() <= pitwall_core::extensions::media::MAX_ICON_BYTES)?;
+            let b = std::fs::read(folder.join(rel)).ok()?;
+            pitwall_core::extensions::media::check_icon(rel, &b).ok().map(|_| b)
+        });
+        crate::kit::icons::set_image_icon(&m.id, bytes);
+    }
 }
 
 /// Look in the extensions folder and the development folders again
@@ -386,6 +403,7 @@ pub fn rescan(cx: &mut App) {
     let mut i = cx.try_global::<Installed>().cloned().unwrap_or_default();
     let dev = dev_paths(&crate::ui_state::get(cx));
     i.found = Rc::new(find_all(i.dir.as_deref(), &dev));
+    load_icons(&i.found, i.dir.as_deref(), &dev);
     i.dev = Rc::new(dev);
     cx.set_global(i);
 }
@@ -522,6 +540,9 @@ pub fn web_view_address(m: &Manifest, view: &str, cx: &App) -> Result<String, St
 
 /// The icon to draw for `m`.
 pub fn icon_of(m: &Manifest) -> &str {
+    if let Some(k) = m.icon_file.as_ref().and(crate::kit::icons::image_key(&m.id)) {
+        return k;
+    }
     m.icon.as_deref().filter(|i| crate::kit::has_icon(i)).unwrap_or(DEFAULT_ICON)
 }
 

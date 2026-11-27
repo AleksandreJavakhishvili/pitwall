@@ -982,7 +982,7 @@ impl SettingsView {
             .flex()
             .items_center()
             .justify_center()
-            .child(crate::kit::icon(crate::extensions::icon_of(m), 16., ui.t.text_2))
+            .child(crate::kit::icon_any(crate::extensions::icon_of(m), if crate::kit::icons::image_icon(crate::extensions::icon_of(m)).is_some() { 26. } else { 16. }, ui.t.text_2))
             .into_any_element();
         let mut name = div().flex().items_center().gap(px(6.)).child(div().flex_none().font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child(m.name.clone()));
         if let Some(v) = &m.version {

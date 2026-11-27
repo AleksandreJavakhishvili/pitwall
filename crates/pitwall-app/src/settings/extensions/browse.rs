@@ -4,8 +4,10 @@
 //! description, author, categories; as the palette matches), by category,
 //! "Verified only" (on at first) and "Works with this Pitwall". A card per
 //! extension: its icon, name, author, line, Verified, what it may do in
-//! words, and Install, Installed or Update. Its detail page: screenshots,
-//! what it does, permissions with their reasons and risk notes, versions
+//! words, its first screenshot, and Install, Installed or Update. Its
+//! detail page: screenshots (each theme's file, captioned, a click shows
+//! one large), its README with the images the index copied out of its
+//! package (never one from the network: a link), permissions with their reasons and risk notes, versions
 //! with how each stands (Verified, not yet reviewed, withdrawn, blocked),
 //! dates and changes, licence, repository, Install and "Report a problem"
 //! (a prefilled issue on the index's repository, opened in the browser;
@@ -29,7 +31,7 @@ use pitwall_core::extensions::{permissions, Manifest};
 
 use super::super::view::{Part, SettingsView};
 use super::super::widgets::Ui;
-use super::page::{btn, filter_chip, screenshots_row, title};
+use super::page::{btn, filter_chip, image_of, title, ShotImages};
 use crate::extensions::catalog;
 use crate::extensions::index::{self, Judge, Listing, Query, Read, Release, ReportKind, Standing, CATEGORIES};
 use crate::kit::{BtnKind, SegItem, TextInput, Tone};
@@ -65,9 +67,14 @@ pub struct Browse {
     /// The listing whose detail page is open.
     pub detail: Option<String>,
     pub cursor: Option<String>,
-    /// Screenshots, by path.
+    /// Screenshots, icons and README images, by their path in the index.
     screens: HashMap<String, Result<Arc<gpui::Image>, String>>,
+    /// READMEs, by their path in the index.
+    texts: HashMap<String, Result<Arc<str>, String>>,
     fetching: HashSet<String>,
+    /// Each listing's README images as drawn, with how many were loaded
+    /// when it was made.
+    readme_media: HashMap<String, (usize, std::rc::Rc<crate::markdown_view::Media>)>,
     /// Being downloaded.
     pub downloading: Option<String>,
     /// Why a download failed, by listing.
@@ -88,7 +95,9 @@ impl Default for Browse {
             detail: None,
             cursor: None,
             screens: HashMap::new(),
+            texts: HashMap::new(),
             fetching: HashSet::new(),
+            readme_media: HashMap::new(),
             downloading: None,
             notes: HashMap::new(),
             report: HashMap::new(),
@@ -174,17 +183,12 @@ fn size_words(bytes: u64) -> String {
     }
 }
 
-/// The image format of `bytes`, by their first bytes.
-fn format_of(bytes: &[u8]) -> Option<gpui::ImageFormat> {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        Some(gpui::ImageFormat::Png)
-    } else if bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        Some(gpui::ImageFormat::Webp)
-    } else if bytes.starts_with(&[0xFF, 0xD8]) {
-        Some(gpui::ImageFormat::Jpeg)
-    } else {
-        None
-    }
+/// How an image fetched from the index is checked.
+#[derive(Clone, Copy)]
+enum Check {
+    Icon,
+    Screenshot,
+    Image,
 }
 
 /// What the card's button does for a listing.
@@ -308,28 +312,118 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Its screenshots, fetched once.
+    /// Its README, icon, screenshots and README images, fetched once.
     fn fetch_listing_files(&mut self, id: &str, cx: &mut Context<Self>) {
+        use pitwall_core::extensions::media;
         let Some(l) = self.listing_of(id) else { return };
-        let Some(read) = self.index_now() else { return };
-        for path in l.screens.iter().take(pitwall_core::extensions::package::MAX_SCREENSHOTS).cloned() {
-            let b = &mut self.exts.page.browse;
-            if b.screens.contains_key(&path) || !b.fetching.insert(path.clone()) {
-                continue;
+        if let Some(r) = l.readme.clone() {
+            self.fetch_text(r, cx);
+        }
+        self.fetch_card_media(&l, cx);
+        for s in l.media.screenshots.iter().skip(1) {
+            self.fetch_image(s.light.clone(), media::MAX_SCREENSHOT_BYTES, Check::Screenshot, cx);
+            self.fetch_image(s.dark.clone(), media::MAX_SCREENSHOT_BYTES, Check::Screenshot, cx);
+        }
+        for path in l.media.images.values() {
+            self.fetch_image(path.clone(), media::MAX_README_IMAGE_BYTES, Check::Image, cx);
+        }
+        if l.media.screenshots.is_empty() {
+            for path in l.screens.iter().take(pitwall_core::extensions::index::MAX_SCREENS) {
+                self.fetch_image(path.clone(), media::MAX_SCREENSHOT_BYTES, Check::Screenshot, cx);
             }
-            let (setup, p) = (read.setup.clone(), path.clone());
-            let get = cx.background_executor().spawn(async move { setup.get(&p, pitwall_core::extensions::package::MAX_SCREENSHOT_BYTES) });
-            cx.spawn(async move |this, cx| {
-                let r = get.await;
-                let _ = this.update(cx, |v, cx| {
-                    let b = &mut v.exts.page.browse;
-                    b.fetching.remove(&path);
-                    let img = r.and_then(|bytes| format_of(&bytes).map(|f| Arc::new(gpui::Image::from_bytes(f, bytes))).ok_or_else(|| "Not a png or webp image.".to_string()));
-                    b.screens.insert(path, img);
-                    cx.notify();
+        }
+    }
+
+    /// What its card shows: its icon and first screenshot.
+    fn fetch_card_media(&mut self, l: &Listing, cx: &mut Context<Self>) {
+        use pitwall_core::extensions::media;
+        if let Some(i) = l.media.icon.clone() {
+            self.fetch_image(i, media::MAX_ICON_BYTES, Check::Icon, cx);
+        }
+        if let Some(s) = l.media.screenshots.first() {
+            self.fetch_image(s.light.clone(), media::MAX_SCREENSHOT_BYTES, Check::Screenshot, cx);
+            self.fetch_image(s.dark.clone(), media::MAX_SCREENSHOT_BYTES, Check::Screenshot, cx);
+        } else if let Some(p) = l.screens.first() {
+            self.fetch_image(p.clone(), media::MAX_SCREENSHOT_BYTES, Check::Screenshot, cx);
+        }
+    }
+
+    /// File `path` of the index, read off the UI thread (at most `limit`
+    /// bytes) once.
+    fn fetch_bytes(&mut self, path: String, limit: u64, done: impl FnOnce(&mut Browse, Result<Vec<u8>, String>) + 'static, cx: &mut Context<Self>) {
+        let Some(read) = self.index_now() else { return };
+        let b = &mut self.exts.page.browse;
+        if b.screens.contains_key(&path) || b.texts.contains_key(&path) || !b.fetching.insert(path.clone()) {
+            return;
+        }
+        let (setup, p) = (read.setup.clone(), path.clone());
+        let get = cx.background_executor().spawn(async move { setup.get(&p, limit) });
+        cx.spawn(async move |this, cx| {
+            let r = get.await;
+            let _ = this.update(cx, |v, cx| {
+                v.exts.page.browse.fetching.remove(&path);
+                done(&mut v.exts.page.browse, r);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Image `path` of the index, checked by its contents as `check` says.
+    fn fetch_image(&mut self, path: String, limit: u64, check: Check, cx: &mut Context<Self>) {
+        use pitwall_core::extensions::media;
+        let p = path.clone();
+        self.fetch_bytes(
+            path,
+            limit,
+            move |b, r| {
+                let img = r.and_then(|bytes| {
+                    match check {
+                        Check::Icon => media::check_icon(&p, &bytes).map(|_| ()),
+                        Check::Screenshot => media::check_screenshot(&p, &bytes),
+                        Check::Image => media::check_readme_image(&p, &bytes).map(|_| ()),
+                    }?;
+                    image_of(bytes).ok_or_else(|| "Not an image.".to_string())
                 });
-            })
-            .detach();
+                b.screens.insert(p, img);
+            },
+            cx,
+        );
+    }
+
+    /// Text `path` of the index (a README).
+    fn fetch_text(&mut self, path: String, cx: &mut Context<Self>) {
+        let p = path.clone();
+        self.fetch_bytes(path, pitwall_core::extensions::index::MAX_README_BYTES, move |b, r| {
+            b.texts.insert(p, r.and_then(|bytes| String::from_utf8(bytes).map(Arc::from).map_err(|_| "Not text.".to_string())));
+        }, cx);
+    }
+
+    /// Image `path` once fetched and checked.
+    fn fetched(&self, path: &str) -> Option<Arc<gpui::Image>> {
+        self.exts.page.browse.screens.get(path).and_then(|r| r.as_ref().ok()).cloned()
+    }
+
+    /// Listing `l`'s screenshots fetched so far, each with both its files.
+    fn listing_shot_images(&self, l: &Listing) -> Vec<ShotImages> {
+        if l.media.screenshots.is_empty() {
+            return l.screens.iter().filter_map(|p| self.fetched(p)).map(|i| ShotImages { light: i.clone(), dark: i, caption: None }).collect();
+        }
+        l.media.screenshots.iter().filter_map(|s| Some(ShotImages { light: self.fetched(&s.light)?, dark: self.fetched(&s.dark)?, caption: s.caption.clone() })).collect()
+    }
+
+    /// Listing `l`'s README images loaded so far, as its README draws them.
+    fn listing_readme_media(&mut self, l: &Listing) -> std::rc::Rc<crate::markdown_view::Media> {
+        let images: HashMap<String, Arc<gpui::Image>> = l.media.images.iter().filter_map(|(rel, p)| Some((rel.clone(), self.fetched(p)?))).collect();
+        let n = images.len();
+        let b = &mut self.exts.page.browse;
+        match b.readme_media.get(&l.id) {
+            Some((k, m)) if *k == n => m.clone(),
+            _ => {
+                let m = std::rc::Rc::new(crate::markdown_view::Media { images });
+                b.readme_media.insert(l.id.clone(), (n, m.clone()));
+                m
+            }
         }
     }
 
@@ -477,13 +571,16 @@ impl SettingsView {
         let Some(l) = self.listing_of(id) else { return div() };
         let Some(read) = self.index_now() else { return div() };
         let selected = self.exts.page.browse.cursor.as_deref() == Some(id);
-        let icon = listing_icon(ui, &l, 32.);
+        self.fetch_card_media(&l, cx);
+        let icon = listing_icon(ui, &l, 32., l.media.icon.as_deref().and_then(|p| self.fetched(p)));
+        let first = self.listing_shot_images(&l).into_iter().next().filter(|_| l.media.screenshots.first().is_none_or(|s| self.fetched(&s.light).is_some()));
         let mut name = div().flex().flex_wrap().items_center().gap(px(6.)).child(div().font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child(l.name.clone())).child(div().text_size(px(12.)).text_color(ui.t.text_3).child(format!("by {}", l.author)));
         if l.verified_release(&read.judge()).is_some() {
             name = name.child(verified_badge(ui, &l.id));
         }
         let summary = div().w_full().flex().items_start().gap(px(5.)).text_size(px(12.)).text_color(ui.t.text_2).child(div().flex_none().mt(px(3.)).child(crate::kit::icon("lock", 11., ui.t.text_3))).child(div().flex_1().min_w_0().child(index::summary(&l)));
-        let text = div().flex_1().min_w_0().flex().flex_col().gap(px(3.)).child(name).child(crate::kit::hint(l.description.clone(), &ui.t)).child(summary);
+        let line = l.tagline.clone().unwrap_or_else(|| l.description.clone());
+        let text = div().flex_1().min_w_0().flex().flex_col().gap(px(3.)).child(name).child(crate::kit::hint(line, &ui.t)).child(summary);
         let button = self.offer_button(ui, &l, cx);
         let lid = l.id.clone();
         let card_id = format!("extension-listing-{}", l.id);
@@ -502,6 +599,10 @@ impl SettingsView {
             .cursor_pointer()
             .hover(|d| d.bg(ui.t.surface_2))
             .child(div().flex().gap(px(12.)).items_start().child(icon).child(text).child(div().flex_none().mt(px(2.)).child(button)))
+            .children(first.map(|s| {
+                let sel = format!("extension-listing-shot-{}", l.id);
+                div().debug_selector(move || sel).mt(px(4.)).w_full().h(px(132.)).rounded(px(7.)).overflow_hidden().border_1().border_color(ui.t.line).bg(ui.t.surface_2).child(img(s.pick(ui)).size_full().object_fit(gpui::ObjectFit::Cover))
+            }))
             .on_click(cx.listener(move |v, _, _, cx| v.show_listing(Some(&lid), cx)));
         if let Some(n) = self.exts.page.browse.notes.get(&l.id) {
             card = card.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
@@ -556,12 +657,12 @@ impl SettingsView {
         let mut v = vec![Part::section("ext-detail-bar", move |s, ui, _, cx| s.detail_bar(ui, &name, true, cx).into_any_element())];
         let i2 = l.id.clone();
         v.push(Part::row(("listing-head", l.id.clone()), move |s, ui, _, cx| s.listing_head(&i2, ui, cx).into_any_element()));
-        if !l.screens.is_empty() {
+        if !l.screens.is_empty() || !l.media.screenshots.is_empty() {
             let i2 = l.id.clone();
             v.push(Part::section(("listing-shots", l.id.clone()), move |s, ui, _, cx| s.listing_shots(&i2, ui, cx).into_any_element()));
         }
-        let l2 = l.clone();
-        v.push(Part::section(("listing-about", l.id.clone()), move |_, ui, _, _| listing_about(ui, &l2).into_any_element()));
+        let i2 = l.id.clone();
+        v.push(Part::section(("listing-about", l.id.clone()), move |s, ui, _, cx| s.listing_about(&i2, ui, cx).into_any_element()));
         let l2 = l.clone();
         v.push(Part::section(("listing-perms", l.id.clone()), move |_, ui, _, _| listing_permissions(ui, &l2).into_any_element()));
         let l2 = l.clone();
@@ -594,7 +695,11 @@ impl SettingsView {
         }
         let cats = index::category_names(&l).join(", ");
         let by = if cats.is_empty() { format!("by {}", l.author) } else { format!("by {} · {cats}", l.author) };
-        let text = div().flex_1().min_w_0().flex().flex_col().gap(px(3.)).child(name).child(div().text_size(px(12.)).text_color(ui.t.text_3).child(by)).child(div().text_size(px(13.)).text_color(ui.t.text_2).child(l.description.clone()));
+        let mut text = div().flex_1().min_w_0().flex().flex_col().gap(px(3.)).child(name).child(div().text_size(px(12.)).text_color(ui.t.text_3).child(by));
+        if let Some(t) = &l.tagline {
+            text = text.child(div().text_size(px(13.)).text_color(ui.t.text).child(t.clone()));
+        }
+        text = text.child(div().text_size(px(13.)).text_color(ui.t.text_2).child(l.description.clone()));
         let button = self.offer_button(ui, &l, cx);
         let mut col = div()
             .id(SharedString::from(format!("extension-listing-page-{}", l.id)))
@@ -609,7 +714,7 @@ impl SettingsView {
             .rounded(px(10.))
             .border_1()
             .border_color(ui.t.line)
-            .child(div().flex().gap(px(14.)).items_start().child(listing_icon(ui, &l, 44.)).child(text).child(div().flex_none().mt(px(2.)).child(button)))
+            .child(div().flex().gap(px(14.)).items_start().child(listing_icon(ui, &l, 44., l.media.icon.as_deref().and_then(|p| self.fetched(p)))).child(text).child(div().flex_none().mt(px(2.)).child(button)))
             .child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(ui.t.text_2).child(crate::kit::icon("lock", 11., ui.t.text_3)).child(index::summary(&l)));
         if self.exts.page.browse.downloading.as_deref() == Some(l.id.as_str()) {
             let motion = crate::theme::motion_on(cx);
@@ -638,19 +743,36 @@ impl SettingsView {
         div().child(col)
     }
 
-    fn listing_shots(&mut self, id: &str, ui: &Ui, _: &mut Context<Self>) -> Div {
+    fn listing_shots(&mut self, id: &str, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let Some(l) = self.listing_of(id) else { return div() };
-        let mut images = Vec::new();
-        for p in l.screens.iter().take(pitwall_core::extensions::package::MAX_SCREENSHOTS) {
-            if let Some(Ok(i)) = self.exts.page.browse.screens.get(p) {
-                images.push(img(i.clone()));
-            }
-        }
-        if images.is_empty() {
-            let loading = l.screens.iter().any(|p| !self.exts.page.browse.screens.contains_key(p));
+        let shots = self.listing_shot_images(&l);
+        if shots.is_empty() {
+            let all: Vec<&String> = if l.media.screenshots.is_empty() { l.screens.iter().collect() } else { l.media.screenshots.iter().flat_map(|s| [&s.light, &s.dark]).collect() };
+            let loading = all.iter().any(|p| !self.exts.page.browse.screens.contains_key(*p));
             return div().flex().flex_col().gap(px(8.)).child(title(ui, "Screenshots")).child(crate::kit::hint(if loading { "Loading…" } else { "They couldn't be read." }, &ui.t));
         }
-        screenshots_row(ui, images)
+        self.screenshots_view(&format!("listing/{id}"), &shots, ui, cx)
+    }
+
+    /// What it does: its README as its package has it, with the images
+    /// the index copied (none from the network), else its line and where
+    /// its README is.
+    fn listing_about(&mut self, id: &str, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let Some(l) = self.listing_of(id) else { return div() };
+        let col = div().debug_selector(|| "extension-listing-about".into()).flex().flex_col().gap(px(8.)).child(title(ui, "About"));
+        let text = l.readme.as_ref().and_then(|r| self.exts.page.browse.texts.get(r).cloned());
+        match (l.readme.is_some(), text) {
+            (_, Some(Ok(t))) => {
+                let media = self.listing_readme_media(&l);
+                let md = self.readme_view(&format!("listing/{}/README.md", l.id), t, media, cx);
+                return col.child(div().debug_selector(|| "extension-readme".into()).child(md));
+            }
+            (true, None) => return col.child(crate::kit::hint("Loading its README…", &ui.t)),
+            _ => {}
+        }
+        let col = col.child(div().text_size(px(13.)).text_color(ui.t.text).child(l.description.clone()));
+        let u = format!("{}#readme", l.repository);
+        col.child(div().flex().child(btn(format!("extension-listing-readme-{}", l.id), "Read its README on GitHub", BtnKind::Link, false, ui).tooltip(crate::kit::tooltip("Opens its repository in your browser")).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &u))))
     }
 
     /// The version a report is about: the one offered, else the newest.
@@ -743,18 +865,15 @@ fn category_chip(id: &str, name: &str, on: bool, ui: &Ui) -> gpui::Stateful<Div>
     .child(name.to_string())
 }
 
-/// A listing's icon in a square.
-fn listing_icon(ui: &Ui, l: &Listing, size: f32) -> Div {
+/// A listing's icon in a square: its own image when the index has it
+/// (`own`, fetched and checked), else the Pitwall icon it names.
+fn listing_icon(ui: &Ui, l: &Listing, size: f32, own: Option<Arc<gpui::Image>>) -> Div {
+    if let Some(i) = own {
+        let sel = format!("extension-listing-icon-{}", l.id);
+        return div().debug_selector(move || sel).flex_none().size(px(size)).rounded(px(size * 0.22)).overflow_hidden().child(img(i).size_full());
+    }
     let name = l.icon.as_deref().filter(|i| crate::kit::has_icon(i)).unwrap_or(crate::extensions::DEFAULT_ICON);
     div().flex_none().size(px(size)).rounded(px(size / 4.)).bg(ui.t.surface_2).flex().items_center().justify_center().child(crate::kit::icon(name, size / 2., ui.t.text_2))
-}
-
-/// What it does: its line, and where its README is (the index carries no
-/// README; its repository has it).
-fn listing_about(ui: &Ui, l: &Listing) -> Div {
-    let col = div().debug_selector(|| "extension-listing-about".into()).flex().flex_col().gap(px(8.)).child(title(ui, "About")).child(div().text_size(px(13.)).text_color(ui.t.text).child(l.description.clone()));
-    let u = format!("{}#readme", l.repository);
-    col.child(div().flex().child(btn(format!("extension-listing-readme-{}", l.id), "Read its README on GitHub", BtnKind::Link, false, ui).tooltip(crate::kit::tooltip("Opens its repository in your browser")).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &u))))
 }
 
 /// What a listing asks for, each with its reason and what it gives (and,

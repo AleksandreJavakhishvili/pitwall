@@ -10,8 +10,10 @@
 //!
 //! An extension's **detail page**: its card at full size with who signed
 //! it (and Verified, when the index says so) under its name, then its
-//! README (Pitwall's inert Markdown Preview: no HTML, no remote images),
-//! screenshots, permissions and what it adds while it is off (on, the
+//! README (Pitwall's inert Markdown Preview: no HTML; only images in its
+//! own folder, checked, one from the network a plain link), its
+//! screenshots (the theme's file of each pair, captioned, a click shows
+//! one large), its tagline, categories and links, permissions and what it adds while it is off (on, the
 //! card has them with their switches), versions with the changelog, the
 //! licence and repository.
 
@@ -94,21 +96,59 @@ pub struct Facts {
     pub updated: Option<SystemTime>,
 }
 
+/// One screenshot as drawn: its image for each theme (checked by its
+/// contents), and its caption.
+#[derive(Clone)]
+pub struct ShotImages {
+    pub light: Arc<gpui::Image>,
+    pub dark: Arc<gpui::Image>,
+    pub caption: Option<String>,
+}
+
+impl ShotImages {
+    /// Its image for `ui`'s theme.
+    pub fn pick(&self, ui: &Ui) -> Arc<gpui::Image> {
+        if ui.t.mode == crate::theme::Mode::Dark {
+            self.dark.clone()
+        } else {
+            self.light.clone()
+        }
+    }
+}
+
+/// Image `bytes` for drawing, by their first bytes (PNG, WebP, JPEG,
+/// GIF); `None`: none of those.
+pub(super) fn image_of(bytes: Vec<u8>) -> Option<Arc<gpui::Image>> {
+    use pitwall_core::extensions::media::{sniff, Kind};
+    let f = match sniff(&bytes)? {
+        Kind::Png => gpui::ImageFormat::Png,
+        Kind::Webp => gpui::ImageFormat::Webp,
+        Kind::Jpeg => gpui::ImageFormat::Jpeg,
+        Kind::Gif => gpui::ImageFormat::Gif,
+    };
+    Some(Arc::new(gpui::Image::from_bytes(f, bytes)))
+}
+
 /// The files of an installed extension's folder its detail page shows.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Files {
     pub folder: Option<PathBuf>,
     pub readme: Option<Arc<str>>,
     pub changelog: Option<Arc<str>>,
     /// The licence's file and its first line ("MIT License").
     pub licence: Option<(PathBuf, String)>,
-    pub screenshots: Vec<PathBuf>,
+    pub shots: Vec<ShotImages>,
+    /// The images its README shows from its folder, checked.
+    pub media: std::rc::Rc<crate::markdown_view::Media>,
     pub installed_at: Option<SystemTime>,
 }
 
 impl Files {
-    /// Read `folder` (small files only).
-    pub fn read(folder: Option<PathBuf>) -> Files {
+    /// Read `folder` (small files only) of the extension with manifest
+    /// `m`: its screenshots and README images checked by their contents
+    /// (`pitwall_core::extensions::media`), what doesn't check left out.
+    pub fn read(folder: Option<PathBuf>, m: Option<&Manifest>) -> Files {
+        use pitwall_core::extensions::media;
         let Some(dir) = folder else { return Files::default() };
         let text = |name: &str| -> Option<Arc<str>> {
             let p = dir.join(name);
@@ -123,13 +163,28 @@ impl Files {
             let first = t.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").trim_start_matches('#').trim().chars().take(80).collect::<String>();
             Some((dir.join(n), first))
         });
-        let mut screenshots: Vec<PathBuf> = std::fs::read_dir(dir.join("screenshots"))
-            .map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png") || e.eq_ignore_ascii_case("webp"))).collect())
-            .unwrap_or_default();
-        screenshots.sort();
-        screenshots.truncate(package::MAX_SCREENSHOTS);
+        let bytes = |rel: &str, max: u64| -> Option<Vec<u8>> {
+            let meta = std::fs::symlink_metadata(dir.join(rel)).ok()?;
+            (meta.is_file() && meta.len() <= max).then(|| std::fs::read(dir.join(rel)).ok()).flatten()
+        };
+        let names: Vec<String> = std::fs::read_dir(dir.join(media::SCREENSHOTS)).map(|r| r.flatten().map(|e| format!("{}/{}", media::SCREENSHOTS, e.file_name().to_string_lossy())).collect()).unwrap_or_default();
+        let listed = m.map(|m| m.screenshots.clone()).unwrap_or_default();
+        let shot_list = media::screenshots(&names, &listed).or_else(|_| media::screenshots(&names, &[])).unwrap_or_default();
+        let checked = |rel: &str| bytes(rel, media::MAX_SCREENSHOT_BYTES).filter(|b| media::check_screenshot(rel, b).is_ok()).and_then(image_of);
+        let shots = shot_list.iter().filter_map(|s| Some(ShotImages { light: checked(&s.light)?, dark: checked(&s.dark)?, caption: s.caption.clone() })).collect();
+        let readme = text(package::README);
+        let mut images = std::collections::HashMap::new();
+        for src in readme.as_deref().map(media::readme_refs).unwrap_or_default() {
+            let media::Ref::Local(rel) = media::local_ref(&src) else { continue };
+            if images.len() >= media::MAX_README_IMAGES || !media::IMAGE_FOLDERS.iter().any(|f| rel.starts_with(&format!("{f}/"))) {
+                continue;
+            }
+            if let Some(i) = bytes(&rel, media::MAX_README_IMAGE_BYTES).filter(|b| media::check_readme_image(&rel, b).is_ok()).and_then(image_of) {
+                images.insert(rel, i);
+            }
+        }
         let installed_at = std::fs::metadata(dir.join(install::MARKER)).or_else(|_| std::fs::metadata(&dir)).and_then(|m| m.modified()).ok();
-        Files { readme: text(package::README), changelog: text("CHANGELOG.md"), licence, screenshots, installed_at, folder: Some(dir) }
+        Files { readme, changelog: text("CHANGELOG.md"), licence, shots, media: std::rc::Rc::new(crate::markdown_view::Media { images }), installed_at, folder: Some(dir) }
     }
 }
 
@@ -153,6 +208,9 @@ pub struct State {
     /// READMEs and changelogs drawn, by `<id>/<file>`.
     md: HashMap<String, Entity<MarkdownView>>,
     pub browse: super::browse::Browse,
+    /// The screenshot shown large: (whose: `installed/<id>` or
+    /// `listing/<id>`, which).
+    pub enlarged: Option<(String, usize)>,
 }
 
 /// A small pill that is on or off (a filter).
@@ -510,8 +568,9 @@ impl SettingsView {
             self.exts.page.files = Some((key, HashMap::new()));
         }
         let folder = crate::extensions::folder_of(id, cx);
+        let m = crate::extensions::manifest_of(id, cx);
         let (_, map) = self.exts.page.files.as_mut().expect("set above");
-        map.entry(id.to_string()).or_insert_with(|| Files::read(folder)).clone()
+        map.entry(id.to_string()).or_insert_with(|| Files::read(folder, m.as_ref())).clone()
     }
 
     /// What extension `m` is, for the filters.
@@ -795,7 +854,7 @@ impl SettingsView {
         let facts = self.facts(&m, cx);
         let (word, tone, _, _) = Self::card_status_of(&m, cx);
         let selected = self.is_selected(&m.id);
-        let icon = div().flex_none().size(px(26.)).rounded(px(7.)).bg(ui.t.surface_2).flex().items_center().justify_center().child(crate::kit::icon(crate::extensions::icon_of(&m), 14., ui.t.text_2));
+        let icon = div().flex_none().size(px(26.)).rounded(px(7.)).bg(ui.t.surface_2).flex().items_center().justify_center().child(crate::kit::icon_any(crate::extensions::icon_of(&m), 18., ui.t.text_2));
         let mut name = div().flex().items_center().gap(px(6.)).min_w_0().child(div().flex_none().font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child(m.name.clone()));
         if let Some(v) = &m.version {
             name = name.child(div().flex_none().text_size(px(12.)).text_color(ui.t.text_3).child(v.clone()));
@@ -946,6 +1005,100 @@ impl SettingsView {
         md
     }
 
+    /// An extension's README: only `media`'s images are shown (its own,
+    /// checked); one from the network is a link, never fetched.
+    pub(super) fn readme_view(&mut self, key: &str, text: Arc<str>, media: std::rc::Rc<crate::markdown_view::Media>, cx: &mut Context<Self>) -> Entity<MarkdownView> {
+        let md = self.markdown(key, text, None, cx);
+        md.update(cx, |v, cx| v.set_media(Some(media), cx));
+        md
+    }
+
+    /// Screenshots `shots` of `whose` (`installed/<id>`, `listing/<id>`):
+    /// side by side with their captions, each the theme's file; a click
+    /// shows one large here, with the one before and after and Close.
+    pub(super) fn screenshots_view(&mut self, whose: &str, shots: &[ShotImages], ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let col = div().debug_selector(|| "extension-screenshots".into()).flex().flex_col().gap(px(8.)).child(title(ui, "Screenshots"));
+        let open = self.exts.page.enlarged.as_ref().filter(|(w, i)| w == whose && *i < shots.len()).map(|(_, i)| *i);
+        let caption = |c: &Option<String>| c.clone().map(|c| div().text_size(px(12.)).text_color(ui.t.text_2).child(c));
+        if let Some(i) = open {
+            let n = shots.len();
+            let s = &shots[i];
+            let w = whose.to_string();
+            let go = move |to: Option<usize>| {
+                let w = w.clone();
+                move |v: &mut SettingsView, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<SettingsView>| {
+                    v.exts.page.enlarged = to.map(|t| (w.clone(), t));
+                    cx.notify();
+                }
+            };
+            let mut bar = div().flex().items_center().gap(px(6.));
+            if n > 1 {
+                bar = bar
+                    .child(crate::kit::icon_btn("extension-shot-prev", "back", "Previous screenshot", true, &ui.t).debug_selector(|| "extension-shot-prev".into()).on_click(cx.listener(go(Some((i + n - 1) % n)))))
+                    .child(crate::kit::icon_btn("extension-shot-next", "chevron", "Next screenshot", true, &ui.t).debug_selector(|| "extension-shot-next".into()).on_click(cx.listener(go(Some((i + 1) % n)))))
+                    .child(div().text_size(px(12.)).text_color(ui.t.text_3).child(format!("{} of {n}", i + 1)));
+            }
+            bar = bar.child(div().flex_1()).child(btn("extension-shot-close".into(), "Close", BtnKind::GhostSm, false, ui).on_click(cx.listener(go(None))));
+            let big = div()
+                .id("extension-shot-large")
+                .debug_selector(|| "extension-shot-large".into())
+                .w_full()
+                .rounded(px(10.))
+                .overflow_hidden()
+                .border_1()
+                .border_color(ui.t.line)
+                .bg(ui.t.surface_2)
+                .cursor_pointer()
+                .child(img(s.pick(ui)).w_full().max_h(px(640.)).object_fit(ObjectFit::Contain))
+                .on_click(cx.listener(go(None)));
+            return col.child(bar).child(big).children(caption(&s.caption));
+        }
+        let mut row = div().flex().gap(px(12.));
+        for (i, s) in shots.iter().enumerate() {
+            let w = whose.to_string();
+            let sel = format!("extension-shot-{i}");
+            let thumb = div()
+                .id(SharedString::from(sel.clone()))
+                .debug_selector(move || sel)
+                .flex_none()
+                .w(px(300.))
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .cursor_pointer()
+                .tooltip(crate::kit::tooltip("Show it large"))
+                .child(div().w_full().h(px(188.)).rounded(px(8.)).overflow_hidden().border_1().border_color(ui.t.line).bg(ui.t.surface_2).hover(|d| d.border_color(ui.t.line_strong)).child(img(s.pick(ui)).size_full().object_fit(ObjectFit::Cover)))
+                .children(caption(&s.caption))
+                .on_click(cx.listener(move |v, _, _, cx| {
+                    v.exts.page.enlarged = Some((w.clone(), i));
+                    cx.notify();
+                }));
+            row = row.child(thumb);
+        }
+        col.child(div().id(SharedString::from(format!("extension-screenshots-scroll-{whose}"))).overflow_x_scroll().child(row))
+    }
+
+    /// Tests: the screenshot shown large, if any.
+    pub fn enlarged_screenshot(&self) -> Option<(String, usize)> {
+        self.exts.page.enlarged.clone()
+    }
+
+    /// What its manifest says for its listing: its tagline and categories.
+    pub(super) fn listing_facts(ui: &Ui, tagline: Option<&str>, categories: &[String]) -> Option<Div> {
+        if tagline.is_none() && categories.is_empty() {
+            return None;
+        }
+        let mut col = div().debug_selector(|| "extension-detail-facts".into()).flex().flex_col().gap(px(8.));
+        if let Some(t) = tagline {
+            col = col.child(div().text_size(px(14.)).text_color(ui.t.text).child(t.to_string()));
+        }
+        if !categories.is_empty() {
+            let chips = categories.iter().filter_map(|c| pitwall_core::extensions::index::category_name(c)).map(|n| crate::kit::chip_tone(n, Tone::Plain, &ui.t));
+            col = col.child(div().flex().flex_wrap().gap(px(6.)).children(chips));
+        }
+        Some(col)
+    }
+
     /// The detail page of installed extension `id`: the bar, its card at
     /// full size, then what its folder says about it.
     pub(super) fn installed_detail_parts(&mut self, id: &str, cx: &mut Context<Self>) -> Vec<Part> {
@@ -959,9 +1112,13 @@ impl SettingsView {
         let Ok(m) = f.manifest.clone() else { return v };
         let on = crate::ui_state::get(cx).extension_on(&m.id);
         let files = self.files_of(&m.id, cx);
-        if !files.screenshots.is_empty() {
-            let shots = files.screenshots.clone();
-            v.push(Part::section(("ext-detail-shots", m.id.clone()), move |_, ui, _, _| screenshots_row(ui, shots.iter().map(|p| img(p.clone())).collect()).into_any_element()));
+        if m.tagline.is_some() || !m.categories.is_empty() {
+            let m2 = m.clone();
+            v.push(Part::section(("ext-detail-facts", m.id.clone()), move |_, ui, _, _| Self::listing_facts(ui, m2.tagline.as_deref(), &m2.categories).map(|d| d.into_any_element()).unwrap_or_else(|| div().into_any_element())));
+        }
+        if !files.shots.is_empty() {
+            let (shots, whose) = (files.shots.clone(), format!("installed/{}", m.id));
+            v.push(Part::section(("ext-detail-shots", m.id.clone()), move |s, ui, _, cx| s.screenshots_view(&whose, &shots, ui, cx).into_any_element()));
         }
         {
             let (m, files) = (m.clone(), files.clone());
@@ -969,7 +1126,7 @@ impl SettingsView {
                 let mut col = div().flex().flex_col().gap(px(8.)).child(title(ui, "About"));
                 col = match files.readme.clone() {
                     Some(t) => {
-                        let md = s.markdown(&format!("{}/README.md", m.id), t, files.folder.clone(), cx);
+                        let md = s.readme_view(&format!("{}/README.md", m.id), t, files.media.clone(), cx);
                         col.child(div().debug_selector(|| "extension-readme".into()).child(md))
                     }
                     None => col.child(crate::kit::hint(m.description.clone().unwrap_or_else(|| "It has no README.".into()), &ui.t)),
@@ -1062,13 +1219,20 @@ impl SettingsView {
                 )
             }
             (None, Some(l)) => div().text_size(px(12.5)).text_color(ui.t.text).child(l),
-            (None, None) => crate::kit::hint("None given", &ui.t),
+            (None, None) => match m.license.clone() {
+                Some(l) => div().text_size(px(12.5)).text_color(ui.t.text).child(l),
+                None => crate::kit::hint("None given", &ui.t),
+            },
         };
         col = col.child(row("Licence", licence.into_any_element()));
+        if let Some(h) = m.homepage.clone() {
+            let u = h.clone();
+            col = col.child(row("Homepage", btn(format!("extension-homepage-{}", m.id), h.trim_start_matches("https://").to_string(), BtnKind::Link, false, ui).tooltip(crate::kit::tooltip("Open in the browser")).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &u)).into_any_element()));
+        }
         let repo = listing.as_ref().map(|l| l.repository.clone()).or(match &origin {
             Some(Origin::Git { url, .. }) => Some(url.clone()),
             _ => None,
-        });
+        }).or_else(|| m.repository.clone());
         if let Some(url) = repo {
             let u = url.clone();
             col = col.child(row("Repository", btn(format!("extension-repo-{}", m.id), url.trim_start_matches("https://").to_string(), BtnKind::Link, false, ui).tooltip(crate::kit::tooltip("Open in the browser")).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &u)).into_any_element()));
@@ -1082,15 +1246,6 @@ impl SettingsView {
         }
         col
     }
-}
-
-/// Screenshots side by side, scrolling sideways when they don't fit.
-pub(super) fn screenshots_row(ui: &Ui, images: Vec<gpui::Img>) -> Div {
-    let mut row = div().flex().gap(px(10.));
-    for i in images {
-        row = row.child(div().flex_none().w(px(300.)).h(px(188.)).rounded(px(8.)).overflow_hidden().border_1().border_color(ui.t.line).bg(ui.t.surface_2).child(i.size_full().object_fit(ObjectFit::Cover)));
-    }
-    div().debug_selector(|| "extension-screenshots".into()).flex().flex_col().gap(px(8.)).child(title(ui, "Screenshots")).child(div().id("extension-screenshots-scroll").overflow_x_scroll().child(row))
 }
 
 /// Registered on the page list: ⌘F there too.

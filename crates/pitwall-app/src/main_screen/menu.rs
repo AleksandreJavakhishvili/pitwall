@@ -115,7 +115,7 @@ fn menu_rows(m: &Shown, t: &Theme, this: &WeakEntity<MainScreen>) -> gpui::State
             .on_click(move |_, window, cx| {
                 let _ = this.update(cx, |this, cx| this.choose_menu_item(i, window, cx));
             })
-            .child(div().w(px(16.)).flex().when(!icon.is_empty(), |d| d.child(crate::kit::icon(icon, 14., t.text_3))))
+            .child(div().w(px(16.)).flex().when(!icon.is_empty(), |d| d.child(crate::kit::icon_any(icon, 14., t.text_3))))
             .child(div().flex_1().child(label.clone()))
     });
     let (prev, next, confirm) = (this.clone(), this.clone(), this.clone());
