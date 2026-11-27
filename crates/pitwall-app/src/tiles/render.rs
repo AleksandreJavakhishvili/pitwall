@@ -116,15 +116,23 @@ pub fn radius(r: ui::Radius) -> Pixels {
     }
 }
 
-/// A button's kind as the kit's.
-pub fn button_kind(k: ui::ButtonKind) -> BtnKind {
+/// A button's kind and size as the kit's: a small ghost button is the
+/// kit's small button; a small primary or danger one is drawn at the small
+/// height (`shrink`).
+pub fn button_kind(k: ui::ButtonKind, size: ui::ButtonSize) -> (BtnKind, bool) {
+    let small = size == ui::ButtonSize::Small;
     match k {
-        ui::ButtonKind::Primary => BtnKind::Primary,
-        ui::ButtonKind::Ghost => BtnKind::Ghost,
-        ui::ButtonKind::Danger => BtnKind::Danger,
-        ui::ButtonKind::Small => BtnKind::Small,
-        ui::ButtonKind::Link => BtnKind::Link,
+        ui::ButtonKind::Primary => (BtnKind::Primary, small),
+        ui::ButtonKind::Ghost if small => (BtnKind::Small, false),
+        ui::ButtonKind::Ghost => (BtnKind::Ghost, false),
+        ui::ButtonKind::Danger => (BtnKind::Danger, small),
+        ui::ButtonKind::Link => (BtnKind::Link, false),
     }
+}
+
+/// A hover group's name in GPUI, apart from the app's own groups.
+pub fn group(name: &str) -> gpui::SharedString {
+    format!("tile-group-{name}").into()
 }
 
 /// What a node's styles say that its children inherit: text colour, size,
@@ -159,7 +167,7 @@ impl Inherit {
 }
 
 /// The flags a node's styles set that aren't GPUI styles.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Flags {
     /// Lay out in a row (the default is a column).
     pub row: bool,
@@ -167,6 +175,10 @@ pub struct Flags {
     pub cursor: Option<ui::Cursor>,
     pub overflow_x: Option<ui::Overflow>,
     pub overflow_y: Option<ui::Overflow>,
+    /// It is a hover group of this name.
+    pub group: Option<String>,
+    /// Hidden until the pointer is over the hover group of this name.
+    pub group_hover: Option<String>,
 }
 
 /// Apply `styles` to `d` (a flex column unless the styles say a row), and
@@ -263,17 +275,24 @@ pub fn apply(mut d: Div, styles: &[ui::Style], t: &Theme) -> (Div, Flags) {
                 f.cursor = Some(*c);
                 d
             }
+            ui::Style::Group(g) => {
+                f.group = Some(g.clone());
+                d
+            }
+            ui::Style::VisibleOnGroupHover(g) => {
+                f.group_hover = Some(g.clone());
+                d
+            }
         };
     }
     (d, f)
 }
 
-/// The keys of Pitwall's own that a tile's keymap never gets
-/// (ui.md §3.5): the palette, ⌘⏎, ⌘W, ⌘1–9, Esc, Tab.
+/// The keys of Pitwall's own that a tile's keymap never gets (ui.md §3.5;
+/// the host drops them from frames already): the palette, ⌘⏎, ⌘W, ⌘1–9,
+/// Esc, Tab and the rest of the main screen's and the menu's keys.
 pub fn reserved(keys: &str) -> bool {
-    let k = keys.trim().to_ascii_lowercase();
-    let cmd_digit = k.strip_prefix("cmd-").is_some_and(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_digit());
-    matches!(k.as_str(), "cmd-enter" | "cmd-w" | "cmd-k" | "cmd-p" | "cmd-shift-p" | "cmd-," | "cmd-q" | "cmd-n" | "cmd-t" | "escape" | "tab" | "shift-tab" | "ctrl-enter" | "ctrl-shift-enter") || cmd_digit
+    pitwall_tile_host::keys::reserved(keys)
 }
 
 /// Whether `pressed` is binding `keys` as a tile writes it (`j`, `enter`,
@@ -334,10 +353,49 @@ mod tests {
         assert!(matches("/", &ks("/", |_| {}), true));
         assert!(matches("cmd--", &ks("-", |m| m.platform = true), true));
         assert!(!matches("hyper-x", &ks("x", |_| {}), true));
-        for r in ["cmd-enter", "cmd-w", "cmd-3", "escape", "Tab"] {
+        for r in ["cmd-enter", "cmd-w", "cmd-3", "escape", "Tab", "cmd-r"] {
             assert!(reserved(r), "{r}");
         }
-        assert!(!reserved("cmd-r") && !reserved("j"));
+        assert!(!reserved("cmd-s") && !reserved("j"));
+    }
+
+    /// Every key the main screen and the menu bind for the whole window is
+    /// in the reserved list the docs publish, on this system's keys.
+    #[test]
+    fn the_apps_own_keys_are_reserved() {
+        let mut all = crate::main_screen::bindings();
+        all.extend(crate::menu::bindings());
+        let mac = cfg!(target_os = "macos");
+        for b in &all {
+            let Some(ks) = b.keystrokes().first().map(|k| k.inner().clone()) else { continue };
+            // Contexts other than the window's own (lists, menus) aren't a
+            // tile's business: only bindings with none or the main screen.
+            if b.predicate().is_some_and(|p| !p.to_string().contains("MainScreen")) {
+                continue;
+            }
+            let m = &ks.modifiers;
+            let mut keys = String::new();
+            if (mac && m.platform) || (!mac && m.control) {
+                keys.push_str("cmd-");
+            } else if m.control {
+                keys.push_str("ctrl-");
+            }
+            if mac && m.control && m.platform {
+                keys.push_str("ctrl-");
+            }
+            if m.alt {
+                keys.push_str("alt-");
+            }
+            if m.shift {
+                keys.push_str("shift-");
+            }
+            keys.push_str(&ks.key);
+            // Shifted symbols off macOS (ctrl-!) stand for cmd-shift-1.
+            if !mac && ks.key.len() == 1 && !ks.key.as_bytes()[0].is_ascii_alphanumeric() && !"=+-,".contains(ks.key.as_str()) {
+                continue;
+            }
+            assert!(reserved(&keys), "{keys} ({ks:?}) is Pitwall's but not reserved");
+        }
     }
 
     /// Every token has a colour of the theme; lengths keep within reason.

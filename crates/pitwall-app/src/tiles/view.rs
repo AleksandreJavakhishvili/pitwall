@@ -83,6 +83,9 @@ pub struct TileView {
     nodes: HashMap<String, NodeState>,
     size: Rc<Cell<Option<Size<Pixels>>>>,
     had_focus: bool,
+    /// The node with keyboard focus the tile was last told of
+    /// (`focus-changed`).
+    node_focus: Option<String>,
     /// A node the tile asked to focus, done while the tile has focus.
     want_focus: Option<String>,
     /// The newest `ui.scroll-to` taken, and the node it waits to scroll
@@ -162,6 +165,7 @@ impl TileView {
             nodes: HashMap::new(),
             size: Rc::new(Cell::new(None)),
             had_focus: false,
+            node_focus: None,
             want_focus: None,
             scrolled: 0,
             scroll_want: None,
@@ -256,7 +260,15 @@ impl TileView {
             let path = &paths[i];
             let mut st = old.remove(path).unwrap_or_default();
             match &node.element {
-                Element::Input(inp) => self.field(&mut st, path, inp, cx),
+                Element::Input(inp) => {
+                    self.field(&mut st, path, inp, cx);
+                    // A multi-line field given a height (or room to grow)
+                    // fills it; else it is its rows tall.
+                    let fill = inp.multiline && node.style.iter().any(|s| matches!(s, ui::Style::Height(_) | ui::Style::Grow(_)));
+                    if let Some(f) = &st.field {
+                        f.input.update(cx, |i, cx| i.set_fill(fill, cx));
+                    }
+                }
                 _ => st.field = None,
             }
             match &node.element {
@@ -567,17 +579,27 @@ impl TileView {
                 d.debug_selector(move || sel.clone()).child(StyledText::new(all).with_highlights(runs)).into_any_element()
             }
             Element::Button(b) => {
-                let kind = render::button_kind(b.kind);
+                let (kind, shrink) = render::button_kind(b.kind, b.size);
                 let fg = match kind {
                     kit::BtnKind::Primary => kit::on_primary(t),
-                    kit::BtnKind::Danger => t.red,
+                    kit::BtnKind::Danger => gpui::white(),
+                    kit::BtnKind::Small => t.text,
                     _ => t.text_2,
                 };
                 let mut el = kit::button(id, kind, b.disabled, t).debug_selector(move || sel.clone());
+                // A small primary or danger button: the small button's size.
+                if shrink {
+                    el = el.h(px(26.)).px(px(9.)).text_size(px(12.));
+                }
                 if let Some(ui::Icon::Named(name)) = &b.icon {
                     if kit::has_icon(name) {
                         el = el.child(kit::icon(name, 13., fg));
                     }
+                }
+                // An icon button is square.
+                if b.label.is_empty() && b.icon.is_some() && kind != kit::BtnKind::Link {
+                    let side = if shrink || kind == kit::BtnKind::Small { 26. } else { 30. };
+                    el = el.w(px(side)).px(px(0.)).justify_center();
                 }
                 el = el.child(b.label.clone());
                 // Its styles: size and place only (the kit draws it).
@@ -590,6 +612,7 @@ impl TileView {
                         ui::Style::SelfAlign(ui::Align::End) => el.self_end(),
                         ui::Style::SelfAlign(ui::Align::Start) => el.self_start(),
                         ui::Style::Margin(e) => el.mt(render::length(&e.top)).mr(render::length(&e.right)).mb(render::length(&e.bottom)).ml(render::length(&e.left)),
+                        ui::Style::VisibleOnGroupHover(g) => el.invisible().group_hover(render::group(g), |s| s.visible()),
                         _ => el,
                     };
                 }
@@ -671,6 +694,8 @@ impl TileView {
         let hover = handler(node, Listen::Hover);
         let pointer = handler(node, Listen::Pointer);
         let mut d = d
+            .when_some(f.group.as_deref(), |d, g| d.group(render::group(g)))
+            .when_some(f.group_hover.as_deref(), |d, g| d.invisible().group_hover(render::group(g), |s| s.visible()))
             .when_some(node.tooltip.clone(), |d, tip| d.tooltip(kit::tooltip(tip)))
             .when_some(f.hover_bg, |d, c| {
                 let c = render::color(c, t);
@@ -728,6 +753,16 @@ impl TileView {
         }
         let _ = path;
         d
+    }
+
+    /// The key path of the node that has the keyboard: a text field or a
+    /// focusable node.
+    fn focused_node(&self, window: &Window, cx: &App) -> Option<String> {
+        self.nodes.iter().find_map(|(path, st)| {
+            let field = st.field.as_ref().is_some_and(|f| f.input.read(cx).is_focused(window));
+            let own = st.focus.as_ref().is_some_and(|h| h.is_focused(window));
+            (field || own).then(|| path.clone())
+        })
     }
 
     /// What the tile shows while it can't draw: starting, stopped, off.
@@ -859,10 +894,21 @@ impl Render for TileView {
                 });
             });
         }
+        // The tile's focus and its focused node (ui.md §3.4): gaining it,
+        // `focus(true)` first; losing it, the node's `focus-changed` first.
         let focused = self.focus.contains_focused(window, cx);
-        if focused != self.had_focus {
-            self.had_focus = focused;
-            self.send(Event::Focus(focused), cx);
+        if focused && !self.had_focus {
+            self.had_focus = true;
+            self.send(Event::Focus(true), cx);
+        }
+        let node = if focused { self.focused_node(window, cx) } else { None };
+        if node != self.node_focus {
+            self.node_focus = node.clone();
+            self.send(Event::FocusChanged(ui::NodeFocus { view: self.tile.clone(), key_path: node }), cx);
+        }
+        if !focused && self.had_focus {
+            self.had_focus = false;
+            self.send(Event::Focus(false), cx);
         }
         if focused {
             if let Some(path) = self.want_focus.take() {
