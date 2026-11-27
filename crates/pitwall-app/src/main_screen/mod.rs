@@ -31,6 +31,7 @@ mod elsewhere;
 mod engineer;
 mod menu;
 mod next_up_chip;
+pub mod toolbar_items;
 pub mod model;
 mod part;
 pub mod peer_term;
@@ -438,6 +439,11 @@ pub struct MainScreen {
     menu_serial: usize,
     /// The open Next up popover (an agent tile's "2 queued").
     next_up: Option<next_up_chip::NextUpOpen>,
+    /// The open popover of an extension's toolbar button.
+    toolbar_pop: Option<toolbar_items::ToolbarPop>,
+    /// The popover a press outside just closed (its button's press then
+    /// doesn't open it again).
+    toolbar_dismissed: Option<(String, std::time::Instant)>,
     next_up_serial: usize,
     /// Whose popover a press outside just closed, and when.
     next_up_dismissed: Option<(String, std::time::Instant)>,
@@ -613,6 +619,8 @@ impl MainScreen {
             menu: None,
             menu_serial: 0,
             next_up: None,
+            toolbar_pop: None,
+            toolbar_dismissed: None,
             next_up_serial: 0,
             next_up_dismissed: None,
             rename: None,
@@ -1804,6 +1812,8 @@ impl MainScreen {
             self.menu = None;
         } else if self.next_up.is_some() {
             self.next_up = None;
+        } else if self.toolbar_pop.is_some() {
+            self.toolbar_pop = None;
         } else if self.elsewhere.bring.is_some() {
             self.elsewhere.bring = None;
         } else if self.modal.is_some() {

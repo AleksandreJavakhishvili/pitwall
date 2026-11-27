@@ -17,12 +17,20 @@
 //! - Theme changes and settings written in Settings are forwarded.
 //! - [`Tiles::reload`] restarts a component in place with the state it
 //!   saved, for `pitwall extension dev` (`extension.devReload`).
-//!
-//! [`TileView`] draws a view's frames with the kit ([`render`]).
+//! - A toolbar button with `"badge": true` keeps its component running
+//!   with no view open ([`Tiles::keep`]); its popover is the view
+//!   [`POPOVER_VIEW`] of the tile its manifest names.
+//! - Its own server's state (`crate::extensions::service`) is sent to it
+//!   as it changes; its address is reachable with `net` ([`grants_of`]).
+//! - What it asks of Pitwall: toasts, notifications (the OS's, as for an
+//!   agent that needs the user, and a toast), a file in the editor, a page
+//!   in a web tile, its toolbar button, a restart of its server.
 //! - The agents' questions group ([`group`]): tiles read the agents and
 //!   queue into Next up through the daemon's method table, and their
 //!   badges and questions are kept here for the sidebar and the floating
 //!   control.
+//!
+//! [`TileView`] draws a view's frames with the kit ([`render`]).
 
 pub mod blocks;
 #[cfg(test)]
@@ -40,6 +48,8 @@ mod group_shots;
 mod notes_shots;
 #[cfg(test)]
 mod gallery_tests;
+#[cfg(test)]
+mod services_shots;
 pub mod view;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -51,7 +61,7 @@ use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, Global};
 use pitwall_core::extensions::{permissions, Manifest};
-use pitwall_tile_host::{ui, FrameUpdate, Grants, HostConfig, LogLine, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec};
+use pitwall_tile_host::{ui, FrameUpdate, Grants, HostConfig, LogLine, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec, POPOVER_VIEW};
 
 pub use view::TileView;
 
@@ -134,6 +144,9 @@ pub struct Tiles {
     agents_seen: u64,
     /// The last answer sent to a tile's question.
     next_req: u64,
+    /// Extensions whose component runs without a view, for their toolbar
+    /// badge ([`Tiles::keep`]): never suspended or dropped.
+    kept: BTreeSet<String>,
 }
 
 struct Handle(Entity<Tiles>);
@@ -178,7 +191,7 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             })
             .detach();
         }
-        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0 }
+        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0, kept: BTreeSet::new() }
     });
     cx.set_global(Handle(e.clone()));
     // Turned off: its component stops at once (runtime.md §2.3).
@@ -193,9 +206,17 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
                 t.running.remove(&id);
                 cx.emit(group::MarksChanged);
                 cx.defer(crate::float::sync);
+                t.kept.remove(&id);
                 cx.notify();
             }
         });
+    })
+    .detach();
+    // Its own server's state, as it changes (the worker drops repeats).
+    let services = crate::extensions::service::services(cx);
+    let weak = e.downgrade();
+    cx.observe(&services, move |_, cx| {
+        let _ = weak.update(cx, |t, cx| t.send_services(cx));
     })
     .detach();
     let weak = e.downgrade();
@@ -297,10 +318,54 @@ pub fn theme_info(cx: &App) -> ui::ThemeInfo {
 }
 
 /// What extension `m` is granted, as the host enforces it: the
-/// permissions the user granted that tiles use (`memory`).
+/// permissions the user granted that tiles use (`memory`, `net` with its
+/// hosts, `notify`, `show`, `sql` with its size), and its own server's
+/// address, which it may reach without `net`.
 pub fn grants_of(m: &Manifest, cx: &App) -> Grants {
     let decisions = crate::ui_state::get(cx).extension(&m.id).grants;
-    Grants::new(permissions::effective(m, &decisions))
+    Grants::for_extension(m, permissions::effective(m, &decisions)).with_own_server(own_server(m, cx))
+}
+
+/// Where extension `m`'s own server listens (its `ready.listen`, as the
+/// user's settings make it).
+fn own_server(m: &Manifest, cx: &App) -> Option<std::net::SocketAddr> {
+    let s = m.service.as_ref()?;
+    let values = crate::extensions::connections::settings_target(&m.id, cx).map(|c| c.values).unwrap_or_default();
+    pitwall_core::extensions::service::listen_of(m, s, &values)?.ok()
+}
+
+/// Extension `m`'s own server as its tile sees it (`service.info`);
+/// `None` when it declares none.
+pub fn service_info(m: &Manifest, cx: &App) -> Option<ui::ServiceInfo> {
+    use crate::extensions::service::State as S;
+    use ui::ServiceState as T;
+    m.service.as_ref()?;
+    let svc = crate::extensions::service::try_services(cx).and_then(|s| s.read(cx).get(&m.id).map(|s| (s.state.clone(), s.version.clone())));
+    let (state, version) = svc.unwrap_or_default();
+    let (state, why) = match state {
+        S::Off | S::Updating => (T::Off, None),
+        S::NeedsConfirm { .. } => (T::Off, Some("Its commands need confirming on its card.".to_string())),
+        S::NeedsSetting(label) => (T::Off, Some(format!("Set {label} first."))),
+        S::BadAddress(why) => (T::Failed, Some(why)),
+        S::NotInstalled(name) => (T::NeedsInstall, Some(format!("{name} isn't installed."))),
+        S::TooOld { found, need } => (T::NeedsInstall, Some(format!("Version {found} is installed; it needs {need}."))),
+        S::UserStopped => (T::Stopped, None),
+        S::Checking | S::Starting | S::Restarting { .. } => (T::Starting, None),
+        S::Running { .. } | S::Elsewhere(_) => (T::Up, None),
+        S::Stopped(why) => (T::Failed, Some(why)),
+    };
+    let address = own_server(m, cx).map(|a| format!("http://{a}"));
+    Some(ui::ServiceInfo { state, address, version, why })
+}
+
+/// The view spec of view `view` of `m`: a tile's own view, or its toolbar
+/// popover ([`POPOVER_VIEW`], of the tile its manifest names).
+fn spec_of(m: &Manifest, view: &str) -> Option<ViewSpec> {
+    if view == POPOVER_VIEW {
+        let pitwall_core::extensions::toolbar::Action::Popover { tile, .. } = &m.contributes.toolbar.as_ref()?.action else { return None };
+        return Some(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: None });
+    }
+    m.contributes.tile(view).map(|_| ViewSpec::tile(view))
 }
 
 /// Secrets from the app's secure store: each running extension's secret
@@ -352,8 +417,9 @@ impl Tiles {
         match self.running.get_mut(id) {
             Some(r) if r.handle.is_some() => {
                 if r.views.insert(view.to_string()) {
-                    if let Some(h) = &r.handle {
-                        h.open_view(ViewSpec::tile(view));
+                    let spec = crate::extensions::manifest_of(id, cx).and_then(|m| spec_of(&m, view));
+                    if let (Some(h), Some(spec)) = (&r.handle, spec) {
+                        h.open_view(spec);
                     }
                 }
             }
@@ -377,7 +443,7 @@ impl Tiles {
         r.views.remove(view);
         r.shown.remove(view);
         r.frames.remove(view);
-        if r.views.is_empty() {
+        if r.views.is_empty() && !self.kept.contains(id) {
             // Its badges and questions go with it.
             self.running.remove(id);
             cx.emit(group::MarksChanged);
@@ -506,8 +572,12 @@ impl Tiles {
     }
 
     /// A step of hiding, when the component is still the one hidden then
-    /// and hasn't been shown since: whether it was.
+    /// and hasn't been shown since: whether it was. One kept for its
+    /// badge is neither suspended nor dropped.
     fn hidden_step(&mut self, id: &str, gen: u64, seq: u64, step: Hidden, cx: &mut Context<Self>) -> bool {
+        if self.kept.contains(id) {
+            return false;
+        }
         let Some(r) = self.running.get_mut(id).filter(|r| r.gen == gen && r.hidden_seq == seq && r.shown.is_empty()) else { return false };
         let Some(h) = &r.handle else { return false };
         match step {
@@ -565,10 +635,46 @@ impl Tiles {
     /// with its open views.
     pub fn restart(&mut self, id: &str, cx: &mut Context<Self>) {
         let views = self.running.remove(id).map(|r| r.views).unwrap_or_default();
-        if !views.is_empty() {
+        if !views.is_empty() || self.kept.contains(id) {
             self.start(id, views, None, cx);
         }
         cx.notify();
+    }
+
+    /// Keep extension `id`'s component running with no view open, for its
+    /// toolbar badge (`contributes.toolbar.badge`): started now when it
+    /// isn't; a stopped one stays stopped until Restart.
+    pub fn keep(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !crate::ui_state::get(cx).extension_on(id) || !self.kept.insert(id.to_string()) {
+            return;
+        }
+        match self.running.get_mut(id) {
+            None => self.start(id, BTreeSet::new(), None, cx),
+            Some(r) if r.suspended && r.state == State::Running => {
+                r.suspended = false;
+                if let Some(h) = &r.handle {
+                    h.set_visible(true);
+                }
+            }
+            Some(_) => {}
+        }
+        cx.notify();
+    }
+
+    /// Bench and tests: whether extension `id`'s component is kept for its
+    /// badge.
+    pub fn kept(&self, id: &str) -> bool {
+        self.kept.contains(id)
+    }
+
+    /// Send each running component its server's state.
+    fn send_services(&self, cx: &App) {
+        for (id, r) in &self.running {
+            let Some(h) = &r.handle else { continue };
+            if let Some(info) = crate::extensions::manifest_of(id, cx).and_then(|m| service_info(&m, cx)) {
+                h.set_service(info);
+            }
+        }
     }
 
     /// Reload in place (`pitwall extension dev`): the running component
@@ -635,14 +741,19 @@ impl Tiles {
             let ext = host.load(&dir).map_err(|e| format!("It can't be loaded: {e}."))?;
             let m = ext.manifest().clone();
             self.remember_secrets(&m, cx);
-            let views: Vec<ViewSpec> = views.iter().filter(|v| m.contributes.tile(v).is_some()).map(|v| ViewSpec::tile(v)).collect();
+            let views: Vec<ViewSpec> = views.iter().filter_map(|v| spec_of(&m, v)).collect();
             let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state, clock: Default::default() };
             let tx = self.tx.clone();
             let ext_id = id.to_string();
-            host.start(&ext, options, move |out| {
-                let _ = tx.unbounded_send((ext_id.clone(), gen, out));
-            })
-            .map_err(|e| format!("It can't be started: {e}."))
+            let h = host
+                .start(&ext, options, move |out| {
+                    let _ = tx.unbounded_send((ext_id.clone(), gen, out));
+                })
+                .map_err(|e| format!("It can't be started: {e}."))?;
+            if let Some(info) = service_info(&m, cx) {
+                h.set_service(info);
+            }
+            Ok(h)
         })();
         match started {
             Ok(h) => r.handle = Some(h),
@@ -669,8 +780,14 @@ impl Tiles {
             TileOutput::Started { .. } => {
                 r.state = State::Running;
                 // Shown views are drawn at once; none shown, the steps of
-                // hiding are timed from now.
-                if r.shown.is_empty() {
+                // hiding are timed from now. One kept for its badge runs
+                // as if shown.
+                if self.kept.contains(id) && r.shown.is_empty() {
+                    r.suspended = false;
+                    if let Some(h) = &r.handle {
+                        h.set_visible(true);
+                    }
+                } else if r.shown.is_empty() {
                     self.time_hiding(id, cx);
                 } else if let Some(h) = &r.handle {
                     r.suspended = false;
@@ -802,6 +919,20 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
         // Kept for its view, the sidebar and the floating control in
         // `Tiles::apply`.
         UiRequest::ScrollTo { .. } | UiRequest::Badges(_) | UiRequest::Asks(_) | UiRequest::AskResult { .. } | UiRequest::PutImage { .. } | UiRequest::DropImage(_) => {}
+        // As for an agent that needs the user (not while Pitwall is in
+        // front), and a toast with Open in the main window.
+        UiRequest::Notify { title, body } => {
+            crate::platform::notify_attention(format!("{name}: {title}"), body.clone(), cx);
+            let open = crate::extensions::manifest_of(id, cx).and_then(|m| m.contributes.tiles.first().map(|t| t.id.clone())).map(|view| pitwall_core::extensions::view::Open::View { view, item: None });
+            crate::windows::extension_toast(id, format!("{name}: {title}"), body, open, cx);
+        }
+        UiRequest::OpenFile { path, line } => crate::main_screen::editor_tile::open_path(&path, line, cx),
+        UiRequest::OpenWeb { url } => crate::windows::open_extension_page(id, &url, cx),
+        UiRequest::Toolbar(req) => crate::main_screen::toolbar_items::apply(id, req, cx),
+        UiRequest::RestartService => {
+            let services = crate::extensions::service::services(cx);
+            services.update(cx, |s, cx| s.restart(id, cx));
+        }
     }
 }
 

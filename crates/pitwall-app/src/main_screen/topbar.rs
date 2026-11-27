@@ -288,6 +288,9 @@ impl MainScreen {
                 ))
             });
 
+        // Extensions' buttons, in a group of their own after the counts.
+        let ext_buttons = self.render_toolbar_items(t, cx);
+
         let right = no_drag(div().id("topbar-right"))
             .flex()
             .items_center()
@@ -317,6 +320,7 @@ impl MainScreen {
                     .child(kbd("⌘K", t)),
             )
             .child(counts)
+            .children(ext_buttons)
             .child(
                 // The Race Engineer (docs/spec/engineer.md): lit while its
                 // pane is the focused one.
