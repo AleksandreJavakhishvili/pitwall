@@ -257,7 +257,7 @@ cat > "$cfg" <<EOF
   "version": "$version",
   "identifier": "$bundle_id",
   "description": "Hosts terminal coding agents and shows who needs you",
-  "homepage": "https://aleksandrejavakhishvili.github.io/pitwall/",
+  "homepage": "https://pitwalls.github.io/pitwall/",
   "publisher": "Pitwall",
   "category": "DeveloperTool",
   "licenseFile": "$(native "$root/LICENSE")",

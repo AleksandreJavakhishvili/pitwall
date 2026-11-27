@@ -524,7 +524,7 @@ A manifest's `source` says where its updates come from. Phase 1 knows
 one kind:
 
 ```json
-"source": { "git": "https://github.com/AleksandreJavakhishvili/pitwall", "dir": "extensions/agention", "tags": "agention-v{version}" }
+"source": { "git": "https://github.com/pitwalls/pitwall", "dir": "extensions/agention", "tags": "agention-v{version}" }
 ```
 - `git`: an `https://` URL (no `ssh:`, no `file:`, no credentials in the
   URL; a private repository works through the user's own git credential

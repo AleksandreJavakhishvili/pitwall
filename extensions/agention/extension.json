@@ -4,9 +4,9 @@
   "name": "Agention",
   "version": "1.4.0",
   "pitwall": ">=0.8.0",
-  "docs": "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/extensions/agention",
+  "docs": "https://github.com/pitwalls/pitwall/tree/main/extensions/agention",
   "source": {
-    "git": "https://github.com/AleksandreJavakhishvili/pitwall",
+    "git": "https://github.com/pitwalls/pitwall",
     "dir": "extensions/agention",
     "tags": "agention-v{version}"
   },

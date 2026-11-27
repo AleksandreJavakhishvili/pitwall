@@ -2,7 +2,7 @@
 
 Where Pitwall is heading. This is a direction, not a promise: there are no dates,
 and plans change as we learn. To ask for something, open an
-[issue on GitHub](https://github.com/AleksandreJavakhishvili/pitwall/issues), or add a
+[issue on GitHub](https://github.com/pitwalls/pitwall/issues), or add a
 thumbs-up to an existing one.
 
 ## Now

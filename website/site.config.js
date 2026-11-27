@@ -4,7 +4,7 @@
 //
 // The deployed base path (/pitwall/ on GitHub Pages) is not set here: the Pages
 // workflow passes it from the repository name (`pnpm build --base /<repo>/`).
-export const OWNER = "AleksandreJavakhishvili";
+export const OWNER = "pitwalls";
 export const REPO = "pitwall";
 
 export const REPO_URL = `https://github.com/${OWNER}/${REPO}`;

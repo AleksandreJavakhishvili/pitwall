@@ -283,11 +283,11 @@ function EngineerSetting() {
 }
 
 const LINKS = {
-  website: "https://aleksandrejavakhishvili.github.io/pitwall/",
-  source: "https://github.com/AleksandreJavakhishvili/pitwall",
-  issues: "https://github.com/AleksandreJavakhishvili/pitwall/issues",
-  license: "https://github.com/AleksandreJavakhishvili/pitwall/blob/main/LICENSE",
-  thirdParty: "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/LICENSES",
+  website: "https://pitwalls.github.io/pitwall/",
+  source: "https://github.com/pitwalls/pitwall",
+  issues: "https://github.com/pitwalls/pitwall/issues",
+  license: "https://github.com/pitwalls/pitwall/blob/main/LICENSE",
+  thirdParty: "https://github.com/pitwalls/pitwall/tree/main/LICENSES",
 };
 
 function AboutPage() {
