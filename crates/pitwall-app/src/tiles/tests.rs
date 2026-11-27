@@ -184,6 +184,60 @@ fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     until(cx, "the stop", |cx| r.read_with(cx, |r, _| r.get("hello").is_none()));
 }
 
+/// "Open Project files" in a project's menu: its view is told that
+/// project (folder and name), reads its files, and a refused write is in
+/// the extension's Activity.
+#[gpui::test]
+fn a_tile_opened_for_a_project_reaches_its_files(cx: &mut TestAppContext) {
+    use crate::agents::AgentStore;
+    use crate::main_screen::MainScreen;
+    let t = TempDir::new("tile-files");
+    let root = t.path().join("data");
+    copy_dir(&fixture().join("../files"), &root.join("extensions/files"));
+    let shop = t.path().join("shop");
+    std::fs::create_dir_all(shop.join("docs")).unwrap();
+    std::fs::write(shop.join("docs/a.md"), "# A in the shop").unwrap();
+    let shop = shop.canonicalize().unwrap().to_string_lossy().into_owned();
+    init(&root, cx);
+    cx.update(|cx| {
+        crate::main_screen::init(cx);
+        crate::extensions::follow(cx);
+        // files.read, on by default, as the permission screen grants it.
+        crate::ui_state::update(cx, |u| {
+            *u = std::mem::take(u).with_extension("files", |e| {
+                e.enabled = true;
+                e.grants.insert("files.read".into(), pitwall_core::extensions::permissions::Decision { granted: true, at: 1 });
+            })
+        });
+    });
+    let store = cx.new(|_| AgentStore::new(vec![crate::agents::tests::agent("web", &shop, "idle", 1, true)]));
+    let (view, cx) = cx.add_window_view(move |window, cx| MainScreen::new(store.clone(), window, cx));
+    cx.simulate_resize(gpui::size(gpui::px(1400.), gpui::px(900.)));
+    view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
+    frame(cx);
+    view.update_in(cx, |s, window, cx| s.demo_project_menu(&shop, window, cx));
+    view.update_in(cx, |s, window, cx| s.run_menu_label("Open Project files", window, cx));
+    frame(cx);
+    let tile = cx.update(|_, cx| crate::main_screen::view_tile::get("files/main", cx)).and_then(|v| v.read_with(cx, |v, _| v.tile().cloned())).expect("the view tile");
+    until(cx, "its first frame", |cx| has_text(&tile, "in ", cx));
+    let want = format!("in {} at {shop}", crate::kit::project_name(&shop));
+    assert!(has_text(&tile, &want, cx), "{want}: {:?}", texts(&tile, cx));
+    let at = pitwall_tile_host::ui::Point { x: 3., y: 3. };
+    let click = |tile: &Entity<TileView>, key: &str, cx: &mut VisualTestContext| {
+        assert!(tile.read_with(cx, |t, cx| t.click(key, pitwall_tile_host::ui::MouseButton::Left, pitwall_tile_host::ui::Modifiers::empty(), 1, at, cx)), "{key} has a click handler");
+    };
+    click(&tile, "do/read", cx);
+    until(cx, "its file read", |cx| has_text(&tile, "read: # A in the shop", cx));
+    // files.write starts off: refused, in its Activity.
+    click(&tile, "do/write", cx);
+    until(cx, "the write refused", |cx| has_text(&tile, "write: not allowed", cx));
+    let refused = cx.update(|_, cx| crate::extensions::calls::activity("files", cx).lock().unwrap().entries());
+    assert!(refused.iter().any(|e| e.method == "files.write" && e.refused()), "{refused:?}");
+    // The permission screen names the folder it reaches now.
+    assert_eq!(super::scoped_folders("files"), [shop.clone()]);
+    cx.update(|_, cx| crate::main_screen::view_tile::close("files/main", cx));
+}
+
 /// Settings → Extensions → Install from folder…: a bad folder is refused
 /// saying why; the hello folder lists its permissions with the memory it
 /// asks for and the preview warning, installs as a preview (copied, off),
