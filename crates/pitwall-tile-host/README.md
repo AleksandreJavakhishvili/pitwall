@@ -15,8 +15,8 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 
 | File | Interface | What |
 |---|---|---|
-| `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`, `agents`, `badges`, `asks`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
-| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node, `agents-changed`, `ask-answered`); views and content; `host-error` |
+| `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`, `agents`, `badges`, `asks`, `net`, `sql`, `notify`, `show`, `toolbar`, `service`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
+| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node, `agents-changed`, `ask-answered`, `fetched`, `toolbar-clicked`, `service-changed`); views and content; `host-error` |
 | `guest.wit` | `guest` (export) | `init`, `render(view)`, `handle(event) -> bool`, `save-state` |
 | `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view` |
 | `log.wit` | `log` | `debug`, `info`, `warn`, `error` |
@@ -26,6 +26,12 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | `agents.wit` | `agents` | `list` (`agents.read`), `queue-add` (`agents.queue`, ≤ 4 000 characters): the daemon's `agent.list` and `queue.add` through `HostConfig::methods`, called as the extension |
 | `badges.wit` | `badges` | `set`: the whole set of sidebar badges (`"badges": true`), checked and cut here, handed to the app as `UiRequest::Badges` |
 | `asks.wit` | `asks` | `set` (`"asks": true`) and `reply`: questions for the floating control (`UiRequest::Asks`, `UiRequest::AskResult`); answers come back as the `ask-answered` event |
+| `net.wit` | `net` | `fetch(request) -> request-id` (answer later as the `fetched` event), `cancel`; needs `net` and a host from the manifest (https; http only to loopback when listed), or the extension's own server; 8 at once, 8 MiB up, 32 MiB down, 30 s (≤ 120 s), ≤ 5 redirects re-checked; no cookies, proxy or credentials (`net::HttpFetcher`; `TileHost::set_fetcher` for a fake) |
+| `sql.wit` | `sql` | the extension's SQLite file (`<data>/extension-data/<id>/db.sqlite`): `execute`, `query` (≤ 10 000 rows, 8 MiB), `migrate(steps)` (`user_version`, a transaction per step), `begin`/`commit`/`rollback` (open past a call: rolled back), `usage`, `quota` (100 MiB, or the `sql` grant's size); no `ATTACH`, extensions or writing pragmas; stopped at the call's deadline |
+| `notify.wit` | `notify` | `send(title, body)`: needs `notify`; 3 a minute, the same words once in 10 minutes |
+| `show.wit` | `show` | `file(path, line)`, `web(url)`: need `show` |
+| `toolbar.wit` | `toolbar` | `set-badge`, `set-project-badge` (needs `projects.read`), `set-tooltip`, `set-shown` (≤ 1 in 5 s), `close-popover`; the popover is view `toolbar:popover` (`POPOVER_VIEW`) |
+| `service.wit` | `service` | `info`, `restart`, `open-card` for the extension's own server; `TileHandle::set_service` gives its state (the first after start isn't a change) |
 
 A guest is written with the SDK, `sdk/pitwall-extension` (its `wit/` is a
 copy of this one; `tests/sdk_wit.rs` keeps them equal), and built with
@@ -104,7 +110,7 @@ revision; ignored for no such list), `advance(Duration)`
 | `Started { cached, took }` | instantiated, `init` ok |
 | `Frame(FrameUpdate { view, tile, frame: Arc<ui::Frame>, diff: Diff, took })` | a view's whole tree, already checked against the limits, with its keyed diff (`continues[i]`: the old node index whose state node `i` keeps; `changed`, `added`, `removed`). Unchanged renders aren't sent |
 | `Log(LogLine { level, message, at, from_host })` | the tile's Log: its `log` calls, stdout (info) and stderr (warn), and host notes (slow calls, dropped toasts) |
-| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`, `PutImage { name, format, bytes }` (sniffed, within the limits; before the frames after it), `DropImage(name)`: apply with `cx.defer` |
+| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`, `PutImage { name, format, bytes }` (sniffed, within the limits; before the frames after it), `DropImage(name)`, `Notify { title, body }`, `OpenFile { path, line }`, `OpenWeb { url }`, `Toolbar(ToolbarRequest)`, `RestartService`: apply with `cx.defer` |
 | `Rows(RowsUpdate { view, list, revision, start, rows, took })` | answer to `rows(..)`: the rows, checked (`components::check_rows`: ≤ 64 nodes of box, text, icon, button, image, context-menu; unique keys); rows that fail stop the tile (`FrameRefused`) |
 | `StateSaved(Vec<u8>)` | answer to `save_state()` |
 | `Stopped(StopReason)` | the last output: `Stopped` (by `stop()`), `Deadline { call, limit }`, `Crashed(_)` (trap, panic, memory limit), `FrameRefused(_)` (tree limits), `InitFailed(_)`, `LoadFailed(_)`. `Display` gives the user-facing words |
@@ -112,9 +118,13 @@ revision; ignored for no such list), `advance(Duration)`
 `ui` re-exports the WIT types (`Frame`, `Node`, `Element`, `Style`, `Token`,
 `Event`, `Click`, `Content`, `ThemeInfo`, …); `ui::default_theme()`.
 
-`Grants::new(["memory"])`: the host enforces what the caller passes.
-Nothing in WIT 0.1 needs a permission; `memory` raises linear memory to the
-manifest's `"memory": {"reason", "mib"}` (64 MiB otherwise, at most 512).
+`Grants::for_extension(manifest, granted).with_own_server(addr)` (or
+`Grants::new(["memory"])`): the host enforces what the caller passes.
+`memory` raises linear memory to the manifest's `"memory": {"reason",
+"mib"}` (64 MiB otherwise, at most 512); `sql` raises the database quota
+(100 MiB otherwise, at most 2048; read when the tile starts); `net` allows
+the manifest's `hosts`; `notify` and `show` their calls. The own server's
+address is reachable over http without `net`.
 
 `ExtensionData` (`host.extension_data(id)` or `ExtensionData::new(data_dir,
 id)`): `settings()`, `set_setting(key, Option<&str>)` (values as

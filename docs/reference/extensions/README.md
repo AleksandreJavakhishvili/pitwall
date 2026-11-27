@@ -51,5 +51,6 @@ Agent tools that open a tile with content come in phase 2 of the SDK, and the ot
 - [Agent tools](agent-tools.md): tools a tile gives your agents (phases 2 and 3).
 - [Permissions](permissions.md): what each grant means.
 - [Platform services](platform-services.md): what Pitwall gives every tile.
+- [Servers in extensions](servers.md): a tile and a server the extension keeps running.
 - [WIT reference 0.1](wit.md): the tile world's interfaces, generated from the WIT.
 - [For coding agents](for-agents.md): the authoring skill and `llms.txt`.
