@@ -192,6 +192,8 @@ pub struct TextInput {
     /// Grows with its text (wrapped lines and new lines) from one row up
     /// to this many, then scrolls inside.
     grow: Option<usize>,
+    /// A multi-line input as tall as its box lets it be (at least `rows`).
+    fill: bool,
     mono: bool,
     frame: Frame,
     max_len: Option<usize>,
@@ -223,6 +225,7 @@ impl TextInput {
             placeholder: placeholder.to_string().into(),
             multiline: false,
             rows: 1,
+            fill: false,
             grow: None,
             mono: false,
             frame: Frame::Boxed,
@@ -340,6 +343,15 @@ impl TextInput {
         self.rows = 1;
         self.grow = Some(max.max(1));
         self
+    }
+
+    /// A multi-line input fills the height its owner gives it, at least
+    /// its rows (a tile's editor that takes the pane).
+    pub fn set_fill(&mut self, fill: bool, cx: &mut Context<Self>) {
+        if fill != self.fill {
+            self.fill = fill;
+            cx.notify();
+        }
     }
 
     /// Visible rows now.
@@ -982,7 +994,12 @@ impl Element for Field {
         let rows = if f.multiline { f.rows } else { 1 };
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        style.size.height = (window.line_height() * rows as f32).into();
+        if f.multiline && f.fill {
+            style.flex_grow = 1.;
+            style.min_size.height = (window.line_height() * rows as f32).into();
+        } else {
+            style.size.height = (window.line_height() * rows as f32).into();
+        }
         (window.request_layout(style, [], cx), ())
     }
 
@@ -1271,7 +1288,8 @@ impl Render for TextInput {
             Frame::Boxed => d
                 .w_full()
                 .flex()
-                .items_center()
+                .when(!(self.multiline && self.fill), |d| d.items_center())
+                .when(self.multiline && self.fill, |d| d.flex_col().h_full())
                 .overflow_hidden()
                 .rounded(theme::RADIUS)
                 .bg(t.bg)
