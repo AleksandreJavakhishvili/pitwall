@@ -7,13 +7,19 @@
 //! agents); it stays unsaved until the user keeps it. Once the user types
 //! in an agent's draft, Pitwall is told (`tools::user_edited`), so the
 //! agent can't replace what the user wrote.
+//!
+//! Project notes (notes-files-lld.md) are the `*.md` files in the notes
+//! folder of the project a view is open in, read with `files.read`, saved
+//! with `files.write` after a version check, and followed with a watch;
+//! private notes stay in storage.
 
 mod note;
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use note::{Note, Stored};
+use note::{Note, Place, Stored};
+use pitwall_extension::files::{self, Root};
 use pitwall_extension::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -83,6 +89,28 @@ struct Sending {
     error: Option<String>,
 }
 
+/// The project a view is open in, as its notes were read.
+#[derive(Debug, Default)]
+struct ViewProject {
+    folder: String,
+    name: String,
+    watch: Option<files::WatchId>,
+}
+
+/// A project note whose file changed under an unsaved edit
+/// (notes-files-lld.md §5).
+#[derive(Debug, Clone)]
+enum Conflict {
+    /// The file's text now.
+    Changed(String),
+    Deleted,
+}
+
+/// The notes folder (the `folder` setting).
+fn notes_folder() -> String {
+    settings::text("folder").map(|f| f.trim().trim_matches('/').to_string()).filter(|f| !f.is_empty()).unwrap_or_else(|| "notes".into())
+}
+
 /// What `save_state` keeps across a drop or a reload: unsaved text and
 /// each view's place.
 #[derive(Default, Serialize, Deserialize)]
@@ -107,6 +135,10 @@ struct Notes {
     /// Pitwall's agents, read when the Send picker opens and when they
     /// change; `Err` without `agents.read`.
     agents: Result<Vec<agents::Agent>, HostError>,
+    /// By view: the project it is open in.
+    projects: BTreeMap<String, ViewProject>,
+    /// Project notes changed or deleted on disk under an unsaved edit.
+    conflicts: BTreeMap<u64, Conflict>,
 }
 
 fn now_ms() -> u64 {
@@ -117,14 +149,14 @@ impl Tile for Notes {
     fn new(cx: &mut Cx<Self>) -> Self {
         // Every note in two host calls (the keys, then their values).
         let notes: Vec<Note> = match storage::entries_json::<Stored>(note::PREFIX) {
-            Ok(all) => all.into_iter().filter_map(|(k, s)| Some(Note { id: note::id_of(&k)?, text: s.text, updated: s.updated })).collect(),
+            Ok(all) => all.into_iter().filter_map(|(k, s)| Some(Note::private(note::id_of(&k)?, s.text, s.updated))).collect(),
             Err(e) => {
                 log::error(format!("the notes couldn't be read: {e}"));
                 Vec::new()
             }
         };
         let next_id = notes.iter().map(|n| n.id + 1).max().unwrap_or(1);
-        let mut this = Notes { notes, pending: BTreeMap::new(), views: BTreeMap::new(), restored: BTreeMap::new(), next_id, saver: None, last_edit: Instant::now(), save_failed: false, agents: Ok(Vec::new()) };
+        let mut this = Notes { notes, pending: BTreeMap::new(), views: BTreeMap::new(), restored: BTreeMap::new(), next_id, saver: None, last_edit: Instant::now(), save_failed: false, agents: Ok(Vec::new()), projects: BTreeMap::new(), conflicts: BTreeMap::new() };
         // Unsaved text from before a drop or a reload (FR-7): kept as
         // edits, saved a second from now.
         if let Some(saved) = cx.restore::<Saved>() {
@@ -137,16 +169,18 @@ impl Tile for Notes {
                 this.edited(cx);
             }
         }
-        // Edits restored for notes never saved.
-        let missing: Vec<u64> = this.pending.keys().copied().filter(|id| !this.has(*id)).collect();
+        // Edits restored for private notes never saved (a project note's
+        // come back when its project is read).
+        let missing: Vec<u64> = this.pending.keys().copied().filter(|id| !this.has(*id) && *id < 1 << 61).collect();
         for id in missing {
-            this.notes.push(Note { id, text: String::new(), updated: now_ms() });
+            this.notes.push(Note::private(id, String::new(), now_ms()));
         }
         this.sort();
         this
     }
 
     fn on_view_opened(&mut self, view: &ViewInfo, _cx: &mut Cx<Self>) {
+        self.read_project(&view.id);
         let mut vs = self.restored.remove(&view.id).unwrap_or_default();
         if let Some(Open::Note(id)) = vs.open {
             if !self.has(id) {
@@ -179,6 +213,9 @@ impl Tile for Notes {
     fn on_view_closed(&mut self, view: &str, cx: &mut Cx<Self>) {
         self.leave(view, cx);
         self.views.remove(view);
+        if let Some(p) = self.projects.remove(view) {
+            self.forget_project(&p.folder);
+        }
     }
 
     fn on_event(&mut self, event: &Event, cx: &mut Cx<Self>) {
@@ -190,6 +227,25 @@ impl Tile for Notes {
                     self.flush(cx);
                     cx.notify();
                 }
+            }
+            // Shown again or focused: the notes folders read again
+            // (FR-17); a change the watch saw, the same.
+            Event::Visibility(true) | Event::Focus(true) => {
+                self.read_projects();
+                cx.notify();
+            }
+            Event::FilesChanged { watch, .. } => {
+                if let Some(view) = self.projects.iter().find(|(_, p)| p.watch == Some(*watch)).map(|(v, _)| v.clone()) {
+                    self.read_project(&view);
+                    cx.notify();
+                }
+            }
+            Event::ProjectChanged(view) => {
+                if let Some(p) = self.projects.get_mut(view) {
+                    p.watch = None;
+                }
+                self.read_project(view);
+                cx.notify();
             }
             Event::Resize { view, width, .. } => {
                 let vs = self.view_mut(view);
@@ -204,7 +260,11 @@ impl Tile for Notes {
                 self.agents = agents::list();
                 cx.notify();
             }
-            Event::Theme(_) | Event::SettingsChanged | Event::GrantsChanged(_) => cx.notify(),
+            Event::SettingsChanged | Event::GrantsChanged(_) => {
+                self.read_projects();
+                cx.notify();
+            }
+            Event::Theme(_) => cx.notify(),
             _ => {}
         }
     }
@@ -288,8 +348,35 @@ impl Notes {
             .child(icon_button(Icon::Plus, "New note").id("new").tooltip("New note (N)").on_click(cx.listener(move |this: &mut Notes, _, cx| this.new_note(&v2, cx))));
 
         let query = vs.filter.trim().to_lowercase();
-        let shown: Vec<&Note> = self.notes.iter().filter(|n| note::matches(self.text_of(n), &query)).collect();
+        let project = self.projects.get(view);
+        let folder = project.map(|p| p.folder.as_str());
+        let shown: Vec<&Note> = self.notes.iter().filter(|n| n.place == Place::Private && note::matches(self.text_of(n), &query)).collect();
         let mut rows = div().id("rows").flex_1().min_h(px(0.)).overflow_y_scroll().py_1();
+        // The Project group (FR-1, FR-4), when the view is in a project or
+        // Notes can't know yet.
+        let reads = cx.is_granted("files.read");
+        if project.is_some() || !reads {
+            let mine: Vec<&Note> = self.notes.iter().filter(|n| n.folder().is_some() && n.folder() == folder && note::matches(self.text_of(n), &query)).collect();
+            let what = project.map_or_else(|| "Project".to_string(), |p| format!("In {}", p.name));
+            rows = rows.child(text(what).id("project-group").text_xs().font_semibold().text_color(Token::Text3).px_3().pt_2().pb_1());
+            if !reads {
+                rows = rows.child(
+                    v_flex()
+                        .id("no-files")
+                        .px_3()
+                        .pb_2()
+                        .gap_1()
+                        .child(text(format!("Keep notes in this project's {}/ folder", notes_folder())).text_xs().text_color(Token::Text2))
+                        .child(div().child(button("Allow in Settings").small().id("allow").on_click(cx.listener(|_: &mut Notes, _, _| settings::open())))),
+                );
+            } else if mine.is_empty() && query.is_empty() {
+                rows = rows.child(text(format!("No notes in {}/ yet", notes_folder())).id("no-project-notes").text_xs().text_color(Token::Text3).px_3().pb_2());
+            }
+            for n in mine {
+                rows = rows.child(self.row(view, vs, n, now, cx));
+            }
+            rows = rows.child(text("Private").id("private-group").text_xs().font_semibold().text_color(Token::Text3).px_3().pt_2().pb_1());
+        }
         if let Some(draft) = &vs.draft {
             let v = view.to_string();
             rows = rows.child(
@@ -306,7 +393,7 @@ impl Notes {
                     .on_click(cx.listener(move |this: &mut Notes, _, cx| this.open(&v, Open::Draft, cx))),
             );
         }
-        if self.notes.is_empty() && vs.draft.is_none() {
+        if !self.notes.iter().any(|n| n.place == Place::Private) && vs.draft.is_none() {
             rows = rows.child(
                 v_flex()
                     .id("empty")
@@ -442,9 +529,17 @@ impl Notes {
                         .selected(if vs.preview { "preview" } else { "edit" })
                         .tooltip("Edit or Preview (⌘/)")
                         .on_select(cx.listener(move |this: &mut Notes, key: &str, cx| this.set_preview(&vm, key == "preview", cx)));
+                    let file = self.notes.iter().find(|n| n.id == id).and_then(|n| match &n.place {
+                        Place::Project { path, .. } if !path.is_empty() => Some(path.clone()),
+                        _ => None,
+                    });
+                    let renamed = file.as_ref().filter(|f| self.rename_target(id).is_some_and(|t| t != **f)).is_some();
+                    let vr = view.to_string();
                     bar()
                         .when(!split, |h| h.child(back(cx)))
                         .child(text(title).text_sm().font_medium().truncate().flex_1())
+                        .when_some(file, |b, f| b.child(text(f).id("file").text_xs().font_mono().text_color(Token::Text3).truncate().flex_none()))
+                        .when(renamed, |b| b.child(button("Rename to the title").small().ghost().id("rename").on_click(cx.listener(move |this: &mut Notes, _, cx| this.rename(&vr, id, cx)))))
                         .child(text(saved).text_xs().text_color(Token::Text3).flex_none())
                         .child(mode)
                         .child(self.send_button(view, vs, &text_now, cx))
@@ -467,8 +562,11 @@ impl Notes {
                     return pane.child(head).child(v_flex().id(format!("p{id}")).flex_1().min_h(px(0.)).p_3().overflow_y_scroll().child(md));
                 }
                 let (v, v1, v2) = (view.to_string(), view.to_string(), view.to_string());
+                let project_note = self.notes.iter().find(|n| n.id == id).is_some_and(|n| n.folder().is_some());
+                let read_only = project_note && !cx.is_granted("files.write");
                 let field = input("text")
                     .multiline()
+                    .disabled(read_only)
                     .value(text_now)
                     .placeholder("Title on the first line, then anything")
                     .size_full()
@@ -493,8 +591,33 @@ impl Notes {
                             cx.notify();
                         }
                     }));
-                pane.child(head).child(v_flex().id(format!("n{id}")).flex_1().min_h(px(0.)).p_2().child(field))
+                let mut pane = pane.child(head);
+                if let Some(c) = self.conflicts.get(&id) {
+                    pane = pane.child(self.conflict_bar(view, id, c, cx));
+                }
+                if read_only {
+                    pane = pane.child(text("Read only: allow “Change files in your projects” for Notes in Settings → Extensions to edit project notes.").id("read-only").text_xs().text_color(Token::Text2).px_3().py_1().border_b_1().border_color(Token::Line));
+                }
+                pane.child(v_flex().id(format!("n{id}")).flex_1().min_h(px(0.)).p_2().child(field))
             }
+        }
+    }
+
+    /// "Changed on disk" or "Deleted on disk" over a project note, with
+    /// what the user can do (notes-files-lld.md §5).
+    fn conflict_bar(&self, view: &str, id: u64, c: &Conflict, cx: &mut Cx<Self>) -> Div {
+        let row = h_flex().id("conflict").flex_none().px_3().py_1().gap_1p5().bg(Token::WarnSoft).border_b_1().border_color(Token::Line);
+        let (v1, v2, v3) = (view.to_string(), view.to_string(), view.to_string());
+        match c {
+            Conflict::Changed(_) => row
+                .child(text("Changed on disk while you were editing. Not saved until you choose.").text_xs().flex_1().min_w(px(0.)))
+                .child(button("Reload").small().id("reload").on_click(cx.listener(move |this: &mut Notes, _, cx| this.resolve(&v1, id, "reload", cx))))
+                .child(button("Keep mine").small().id("keep-mine").on_click(cx.listener(move |this: &mut Notes, _, cx| this.resolve(&v2, id, "mine", cx))))
+                .child(button("Save as a copy").small().id("copy").on_click(cx.listener(move |this: &mut Notes, _, cx| this.resolve(&v3, id, "copy", cx)))),
+            Conflict::Deleted => row
+                .child(text("Deleted on disk while you were editing.").text_xs().flex_1().min_w(px(0.)))
+                .child(button("Save again").small().id("save-again").on_click(cx.listener(move |this: &mut Notes, _, cx| this.resolve(&v1, id, "mine", cx))))
+                .child(button("Discard").small().id("discard-note").on_click(cx.listener(move |this: &mut Notes, _, cx| this.resolve(&v2, id, "reload", cx)))),
         }
     }
 }
@@ -620,7 +743,16 @@ impl Notes {
             }
             Err(e) => body = body.child(text(format!("The agents couldn't be read: {e}")).text_xs().text_color(Token::Bad).px_2()),
             Ok(list) => {
-                let list: Vec<&agents::Agent> = list.iter().filter(|a| a.kind != "shell").collect();
+                let mut list: Vec<&agents::Agent> = list.iter().filter(|a| a.kind != "shell").collect();
+                // The note's project's agents first (FR-13, G5).
+                let open = match vs.open {
+                    Some(Open::Note(id)) => self.notes.iter().find(|n| n.id == id),
+                    _ => None,
+                };
+                let home = open.and_then(Note::folder).map(String::from).or_else(|| self.projects.get(view).map(|p| p.folder.clone()));
+                if let Some(home) = &home {
+                    list.sort_by_key(|a| a.project != *home);
+                }
                 if list.is_empty() {
                     body = body.child(text("No agents to send to. Start one in Pitwall first.").id("none").text_xs().text_color(Token::Text3).px_2().pb_1());
                 }
@@ -714,9 +846,14 @@ impl Notes {
 
     fn new_note(&mut self, view: &str, cx: &mut Cx<Self>) {
         self.leave(view, cx);
+        // In the view's project when Notes may write there.
+        let place = match self.projects.get(view) {
+            Some(p) if cx.is_granted("files.write") => Place::Project { folder: p.folder.clone(), path: String::new(), version: None },
+            _ => Place::Private,
+        };
         let id = self.next_id;
         self.next_id += 1;
-        self.notes.insert(0, Note { id, text: String::new(), updated: now_ms() });
+        self.notes.insert(0, Note { id, text: String::new(), updated: now_ms(), place });
         let vs = self.view_mut(view);
         vs.open = Some(Open::Note(id));
         vs.filter.clear();
@@ -727,6 +864,10 @@ impl Notes {
     fn open(&mut self, view: &str, what: Open, cx: &mut Cx<Self>) {
         if self.views.get(view).and_then(|v| v.open) != Some(what) {
             self.leave(view, cx);
+        }
+        // Opening a note reads its project again (FR-17).
+        if matches!(what, Open::Note(id) if id >= 1 << 61) {
+            self.read_project(view);
         }
         let vs = self.view_mut(view);
         vs.open = Some(what);
@@ -772,8 +913,10 @@ impl Notes {
         self.flush(cx);
         let empty = self.notes.iter().find(|n| n.id == id).is_some_and(|n| n.text.trim().is_empty());
         let elsewhere = self.views.iter().any(|(v, s)| v != view && s.open == Some(Open::Note(id)));
-        if empty && !elsewhere && self.pending.get(&id).is_none_or(|t| t.trim().is_empty()) {
-            if let Err(e) = storage::delete(&note::key(id)) {
+        let unsaved_file = self.notes.iter().find(|n| n.id == id).is_some_and(|n| matches!(&n.place, Place::Project { path, .. } if path.is_empty()));
+        let private = self.notes.iter().find(|n| n.id == id).is_some_and(|n| n.place == Place::Private);
+        if empty && !elsewhere && (private || unsaved_file) && self.pending.get(&id).is_none_or(|t| t.trim().is_empty()) {
+            if let Err(e) = if private { storage::delete(&note::key(id)) } else { Ok(()) } {
                 log::warn(format!("the empty note {id} wasn't removed: {e}"));
             }
             self.notes.retain(|n| n.id != id);
@@ -783,7 +926,17 @@ impl Notes {
 
     fn delete(&mut self, view: &str, id: u64, cx: &mut Cx<Self>) {
         self.view_mut(view).confirm_row = None;
-        if let Err(e) = storage::delete(&note::key(id)) {
+        let place = self.notes.iter().find(|n| n.id == id).map(|n| n.place.clone());
+        let done = match &place {
+            // A project note's file goes to the Trash (FR-9).
+            Some(Place::Project { folder, path, .. }) if !path.is_empty() => match self.view_in(folder) {
+                Some(v) => files::delete(&Root::project(&v), path).map_err(|e| e.to_string()),
+                None => Err("its project isn't open".into()),
+            },
+            Some(Place::Project { .. }) => Ok(()),
+            _ => storage::delete(&note::key(id)).map_err(|e| e.to_string()),
+        };
+        if let Err(e) = done {
             log::warn(format!("note {id} couldn't be deleted: {e}"));
             ui::toast(format!("The note couldn't be deleted: {e}"), Tone::Bad);
             return;
@@ -804,7 +957,7 @@ impl Notes {
         self.view_mut(view).draft_call = None;
         let id = self.next_id;
         self.next_id += 1;
-        self.notes.insert(0, Note { id, text: String::new(), updated: now_ms() });
+        self.notes.insert(0, Note::private(id, String::new(), now_ms()));
         self.pending.insert(id, text);
         self.flush(cx);
         self.view_mut(view).open = Some(Open::Note(id));
@@ -857,12 +1010,32 @@ impl Notes {
         }
         let now = now_ms();
         for (id, text) in std::mem::take(&mut self.pending) {
+            let project = self.notes.iter().find(|n| n.id == id).is_some_and(|n| n.folder().is_some());
+            if project {
+                // Waiting for the user's choice, or its project gone.
+                if self.conflicts.contains_key(&id) {
+                    self.pending.insert(id, text);
+                    continue;
+                }
+                match self.save_file(id, &text) {
+                    Ok(()) => self.save_failed = false,
+                    Err(e) => {
+                        log::warn(format!("project note {id} wasn't saved: {e}"));
+                        if !self.save_failed {
+                            ui::toast(format!("Notes couldn't save: {e}"), Tone::Bad);
+                            self.save_failed = true;
+                        }
+                        self.pending.insert(id, text);
+                    }
+                }
+                continue;
+            }
             match storage::set_json(&note::key(id), &Stored { text: text.clone(), updated: now }) {
                 Ok(()) => {
                     self.save_failed = false;
                     match self.notes.iter_mut().find(|n| n.id == id) {
                         Some(n) => (n.text, n.updated) = (text, now),
-                        None => self.notes.push(Note { id, text, updated: now }),
+                        None => self.notes.push(Note::private(id, text, now)),
                     }
                 }
                 Err(e) => {
@@ -876,10 +1049,300 @@ impl Notes {
             }
         }
         self.sort();
-        if !self.pending.is_empty() {
+        // Retried a second later, but not while only conflicts wait.
+        if self.pending.keys().any(|id| !self.conflicts.contains_key(id)) {
             self.edited(cx);
         }
     }
 }
+
+// ---- Project notes (notes-files-lld.md) --------------------------------------
+
+/// A file's version, as `stat` and `list` give it.
+fn version_of(e: &files::Entry) -> (u64, u64) {
+    (e.size, e.modified)
+}
+
+impl Notes {
+    /// A view open in project `folder`, to reach its files with.
+    fn view_in(&self, folder: &str) -> Option<String> {
+        self.projects.iter().find(|(_, p)| p.folder == folder).map(|(v, _)| v.clone())
+    }
+
+    fn read_projects(&mut self) {
+        let views: Vec<String> = self.views.keys().cloned().collect();
+        for v in views {
+            self.read_project(&v);
+        }
+    }
+
+    /// Read view `view`'s project's notes folder (FR-3, FR-17): the
+    /// files whose version changed, read again; unsaved edits under a
+    /// change become a conflict (§5). Watches the folder once.
+    fn read_project(&mut self, view: &str) {
+        let project = files::project(view);
+        let old = self.projects.get(view).map(|p| p.folder.clone());
+        if old.is_some() && old.as_deref() != project.as_ref().map(|p| p.folder.as_str()) {
+            if let Some(p) = self.projects.remove(view) {
+                if let Some(w) = p.watch {
+                    files::unwatch(w);
+                }
+                self.forget_project(&p.folder);
+            }
+        }
+        let Some(info) = project else {
+            self.projects.remove(view);
+            return;
+        };
+        let p = self.projects.entry(view.to_string()).or_default();
+        (p.folder, p.name) = (info.folder.clone(), info.name.clone());
+        let root = Root::project(view);
+        let dir = notes_folder();
+        if p.watch.is_none() {
+            // The folder may not be there yet: watch the project then.
+            let at = if files::stat(&root, &dir).is_ok_and(|e| e.is_folder()) { dir.as_str() } else { "" };
+            p.watch = files::watch(&root, at).ok();
+        }
+        let listed: Vec<files::Entry> = match files::list(&root, &dir, false) {
+            Ok(l) => l.into_iter().filter(|e| !e.is_folder() && e.path.ends_with(".md")).collect(),
+            Err(files::Error::NotFound) => Vec::new(),
+            Err(e) => {
+                log::warn(format!("the notes folder couldn't be read: {e}"));
+                return;
+            }
+        };
+        let folder = info.folder;
+        // Gone from disk.
+        let gone: Vec<u64> = self
+            .notes
+            .iter()
+            .filter(|n| matches!(&n.place, Place::Project { folder: f, path, .. } if *f == folder && !path.is_empty() && !listed.iter().any(|e| e.path == *path)))
+            .map(|n| n.id)
+            .collect();
+        for id in gone {
+            if self.pending.contains_key(&id) {
+                self.conflicts.insert(id, Conflict::Deleted);
+            } else {
+                self.drop_note(id);
+            }
+        }
+        for e in listed {
+            let id = note::project_id(&folder, &e.path);
+            let known = self.notes.iter().find(|n| n.id == id).and_then(|n| match &n.place {
+                Place::Project { version, .. } => Some(*version),
+                Place::Private => None,
+            });
+            if known == Some(Some(version_of(&e))) {
+                continue;
+            }
+            let Ok(text) = files::read_text(&root, &e.path) else { continue };
+            let place = Place::Project { folder: folder.clone(), path: e.path.clone(), version: Some(version_of(&e)) };
+            match self.pending.get(&id) {
+                Some(mine) if *mine != text => {
+                    self.conflicts.insert(id, Conflict::Changed(text));
+                    continue;
+                }
+                Some(_) => {
+                    self.pending.remove(&id);
+                }
+                None => {}
+            }
+            self.conflicts.remove(&id);
+            match self.notes.iter_mut().find(|n| n.id == id) {
+                Some(n) => (n.text, n.updated, n.place) = (text, e.modified, place),
+                None => self.notes.push(Note { id, text, updated: e.modified, place }),
+            }
+        }
+        self.sort();
+    }
+
+    /// No view is in project `folder` any more: its notes leave the
+    /// lists, unsaved edits saved first where they can be.
+    fn forget_project(&mut self, folder: &str) {
+        if self.view_in(folder).is_some() {
+            return;
+        }
+        let ids: Vec<u64> = self.notes.iter().filter(|n| n.folder() == Some(folder)).map(|n| n.id).collect();
+        for id in ids {
+            if !self.pending.contains_key(&id) {
+                self.drop_note(id);
+            }
+        }
+    }
+
+    fn drop_note(&mut self, id: u64) {
+        self.notes.retain(|n| n.id != id);
+        self.pending.remove(&id);
+        self.conflicts.remove(&id);
+        for vs in self.views.values_mut() {
+            if vs.open == Some(Open::Note(id)) {
+                vs.open = None;
+                vs.confirm_delete = false;
+            }
+        }
+    }
+
+    /// Create a new file in the notes folder for `title`'s name (with
+    /// `suffix`), numbered when taken; its path.
+    fn create_file(root: &Root, title: Option<&str>, suffix: &str, text: &str) -> Result<String, files::Error> {
+        let dir = notes_folder();
+        if files::stat(root, &dir).is_err() {
+            files::make_folder(root, &dir)?;
+        }
+        for n in 1..100 {
+            let path = format!("{dir}/{}", note::file_name(title, suffix, n));
+            match files::create(root, &path, text.as_bytes()) {
+                Ok(()) => return Ok(path),
+                Err(files::Error::Exists) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(files::Error::Exists)
+    }
+
+    /// Save project note `id`'s `text` after the version check (§4);
+    /// a change on disk becomes a conflict, not an error.
+    fn save_file(&mut self, id: u64, text: &str) -> Result<(), String> {
+        let Some(Place::Project { folder, path, version }) = self.notes.iter().find(|n| n.id == id).map(|n| n.place.clone()) else { return Ok(()) };
+        let view = self.view_in(&folder).ok_or("its project isn't open in a view")?;
+        let root = Root::project(&view);
+        if path.is_empty() {
+            let path = Self::create_file(&root, note::title(text).as_deref(), "", text).map_err(|e| e.to_string())?;
+            return self.saved_as(id, &root, &folder, &path, text);
+        }
+        match files::stat(&root, &path) {
+            Err(files::Error::NotFound) if version.is_some() => {
+                self.pending.insert(id, text.to_string());
+                self.conflicts.insert(id, Conflict::Deleted);
+                return Ok(());
+            }
+            Ok(e) if Some(version_of(&e)) != version => {
+                let disk = files::read_text(&root, &path).map_err(|e| e.to_string())?;
+                if disk != text {
+                    self.pending.insert(id, text.to_string());
+                    self.conflicts.insert(id, Conflict::Changed(disk));
+                    return Ok(());
+                }
+            }
+            _ => files::write_text(&root, &path, text).map_err(|e| e.to_string())?,
+        }
+        self.saved_as(id, &root, &folder, &path, text)
+    }
+
+    /// Note `id` is `text` in file `path` now: its version, its id (a new
+    /// file's id comes from its path) and the views that show it.
+    fn saved_as(&mut self, id: u64, root: &Root, folder: &str, path: &str, text: &str) -> Result<(), String> {
+        let e = files::stat(root, path).map_err(|e| e.to_string())?;
+        let new_id = note::project_id(folder, path);
+        if let Some(n) = self.notes.iter_mut().find(|n| n.id == id) {
+            (n.id, n.text, n.updated) = (new_id, text.to_string(), e.modified);
+            n.place = Place::Project { folder: folder.to_string(), path: path.to_string(), version: Some(version_of(&e)) };
+        }
+        if new_id != id {
+            if let Some(t) = self.pending.remove(&id) {
+                if t != text {
+                    self.pending.insert(new_id, t);
+                }
+            }
+            for vs in self.views.values_mut() {
+                if vs.open == Some(Open::Note(id)) {
+                    vs.open = Some(Open::Note(new_id));
+                }
+            }
+        }
+        self.conflicts.remove(&new_id);
+        Ok(())
+    }
+
+    /// The path project note `id` would have from its title now.
+    fn rename_target(&self, id: u64) -> Option<String> {
+        let n = self.notes.iter().find(|n| n.id == id)?;
+        let Place::Project { path, .. } = &n.place else { return None };
+        let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+        let name = note::file_name(note::title(self.text_of(n)).as_deref(), "", 1);
+        Some(if dir.is_empty() { name } else { format!("{dir}/{name}") })
+    }
+
+    /// "Rename to the title" (FR-8): the file takes its title's name,
+    /// numbered when taken.
+    fn rename(&mut self, view: &str, id: u64, cx: &mut Cx<Self>) {
+        self.flush(cx);
+        let Some(n) = self.notes.iter().find(|n| n.id == id) else { return };
+        let Place::Project { folder, path, .. } = n.place.clone() else { return };
+        let title = note::title(&n.text);
+        let root = Root::project(view);
+        let dir = path.rsplit_once('/').map_or(String::new(), |(d, _)| format!("{d}/"));
+        let mut done = Err(files::Error::Exists);
+        for k in 1..100 {
+            let to = format!("{dir}{}", note::file_name(title.as_deref(), "", k));
+            if to == path {
+                return;
+            }
+            match files::rename(&root, &path, &to) {
+                Err(files::Error::Exists) => continue,
+                r => {
+                    done = r.map(|_| to);
+                    break;
+                }
+            }
+        }
+        match done {
+            Ok(to) => {
+                let text = self.notes.iter().find(|n| n.id == id).map(|n| n.text.clone()).unwrap_or_default();
+                if let Err(e) = self.saved_as(id, &root, &folder, &to, &text) {
+                    log::warn(e);
+                }
+            }
+            Err(e) => ui::toast(format!("The note's file wasn't renamed: {e}"), Tone::Bad),
+        }
+        cx.notify();
+    }
+
+    /// The user's choice on a conflict (§5): `reload` (or Discard),
+    /// `mine` (Keep mine, Save again) or `copy`.
+    fn resolve(&mut self, view: &str, id: u64, choice: &str, cx: &mut Cx<Self>) {
+        let Some(c) = self.conflicts.remove(&id) else { return };
+        let mine = self.pending.remove(&id);
+        let root = Root::project(view);
+        let Some(Place::Project { folder, path, .. }) = self.notes.iter().find(|n| n.id == id).map(|n| n.place.clone()) else { return };
+        let result = match (choice, &c) {
+            ("reload", Conflict::Deleted) => {
+                self.drop_note(id);
+                Ok(())
+            }
+            ("reload", Conflict::Changed(disk)) => self.saved_as(id, &root, &folder, &path, disk),
+            ("mine", _) => {
+                let text = mine.unwrap_or_default();
+                let wrote = match c {
+                    Conflict::Deleted => files::create(&root, &path, text.as_bytes()),
+                    Conflict::Changed(_) => files::write_text(&root, &path, &text),
+                };
+                wrote.map_err(|e| e.to_string()).and_then(|_| self.saved_as(id, &root, &folder, &path, &text))
+            }
+            ("copy", Conflict::Changed(disk)) => {
+                let text = mine.unwrap_or_default();
+                let disk = disk.clone();
+                match Self::create_file(&root, note::title(&text).as_deref(), "-copy", &text) {
+                    Ok(copy) => {
+                        let _ = self.saved_as(id, &root, &folder, &path, &disk);
+                        let copy_id = note::project_id(&folder, &copy);
+                        let e = files::stat(&root, &copy).ok();
+                        self.notes.push(Note { id: copy_id, text, updated: e.as_ref().map_or(now_ms(), |e| e.modified), place: Place::Project { folder: folder.clone(), path: copy, version: e.as_ref().map(version_of) } });
+                        self.sort();
+                        self.view_mut(view).open = Some(Open::Note(copy_id));
+                        Ok(())
+                    }
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            _ => Ok(()),
+        };
+        if let Err(e) = result {
+            ui::toast(format!("Notes couldn't do that: {e}"), Tone::Bad);
+        }
+        cx.notify();
+    }
+}
+
 
 pitwall_extension::export!(Notes);

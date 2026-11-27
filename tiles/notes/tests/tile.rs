@@ -308,6 +308,12 @@ box
       input placeholder=\"Search notes\" #search [change]
       button \"\" #new label=\"New note\" [click]
     scroll #rows
+      text \"Project\" #project-group
+      box #no-files
+        text \"Keep notes in this project's notes/ folder\"
+        box
+          button \"Allow in Settings\" #allow [click]
+      text \"Private\" #private-group
       box #n2 [click]
         box
           box

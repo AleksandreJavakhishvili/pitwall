@@ -8,14 +8,81 @@ use serde::{Deserialize, Serialize};
 /// a tile learns its space's project (frd.md §7, G5).
 pub const PREFIX: &str = "p/_/";
 
-/// A private note, as the tile holds it.
+/// A note, as the tile holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
     pub id: u64,
-    /// The text as last saved.
+    /// The text as last saved (or read, for a project note).
     pub text: String,
     /// When it was last saved, in milliseconds since the Unix epoch.
     pub updated: u64,
+    pub place: Place,
+}
+
+/// Where a note is kept.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Place {
+    /// In the tile's storage, under [`key`].
+    Private,
+    /// A Markdown file in a project's notes folder (notes-files-lld.md).
+    Project {
+        /// The project's folder, as Pitwall names it.
+        folder: String,
+        /// The file from the project's folder; empty until first saved.
+        path: String,
+        /// The file's size and modified time when last read or written.
+        version: Option<(u64, u64)>,
+    },
+}
+
+impl Note {
+    pub fn private(id: u64, text: String, updated: u64) -> Note {
+        Note { id, text, updated, place: Place::Private }
+    }
+
+    /// The project folder of a project note.
+    pub fn folder(&self) -> Option<&str> {
+        match &self.place {
+            Place::Project { folder, .. } => Some(folder),
+            Place::Private => None,
+        }
+    }
+}
+
+/// The id of project note `path` in `folder`: stable across reloads, and
+/// never one a private note gets (those count up from 1).
+pub fn project_id(folder: &str, path: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in folder.bytes().chain([0]).chain(path.bytes()) {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    (h >> 2) | (1 << 61)
+}
+
+/// A file name from a note's title (notes-files-lld.md §3): lower case,
+/// letters and digits, `-` between, at most 60 characters, `.md`; `n`
+/// above 1 adds `-<n>`.
+pub fn file_name(title: Option<&str>, suffix: &str, n: u32) -> String {
+    let mut out = String::new();
+    for c in title.unwrap_or_default().chars().flat_map(char::to_lowercase) {
+        if c.is_alphanumeric() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let mut out: String = out.trim_end_matches('-').chars().take(60).collect();
+    out = out.trim_end_matches('-').to_string();
+    if out.is_empty() {
+        out.push_str("note");
+    }
+    out.push_str(suffix);
+    if n > 1 {
+        out.push_str(&format!("-{n}"));
+    }
+    out.push_str(".md");
+    out
 }
 
 /// A note as kept in storage under [`key`].
@@ -197,6 +264,16 @@ mod tests {
         assert_eq!(ago(3 * 1440 * m, 0), "3 d");
         assert_eq!(ago(15 * 1440 * m, 0), "2 w");
         assert_eq!(ago(0, 5), "now");
+    }
+
+    #[test]
+    fn file_names_come_from_titles() {
+        assert_eq!(file_name(Some("Login page flickers!"), "", 1), "login-page-flickers.md");
+        assert_eq!(file_name(Some("web: 429s on /api"), "", 3), "web-429s-on-api-3.md");
+        assert_eq!(file_name(None, "", 1), "note.md");
+        assert_eq!(file_name(Some("!!"), "-copy", 2), "note-copy-2.md");
+        assert!(file_name(Some(&"ab ".repeat(40)), "", 1).len() <= 60 + 3);
+        assert!(project_id("/p", "notes/a.md") > 1 << 60 && project_id("/p", "notes/a.md") != project_id("/q", "notes/a.md"));
     }
 
     #[test]
