@@ -15,6 +15,9 @@ use crate::agents::tests::agent;
 /// The platform's Maximise key (⌘⏎ on macOS, Ctrl+Shift+Enter elsewhere).
 const MAXIMISE: &str = if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-shift-enter" };
 
+/// The platform's Find key (⌘F on macOS, Ctrl+F elsewhere).
+const FIND: &str = if cfg!(target_os = "macos") { "cmd-f" } else { "ctrl-f" };
+
 fn main_view(cx: &mut TestAppContext) -> gpui::WindowHandle<crate::ui::MainView> {
     cx.update(|cx| crate::windows::main_window(crate::windows::MAIN, cx).unwrap())
 }
@@ -401,4 +404,89 @@ fn an_agent_shows_settings_without_taking_anything(cx: &mut TestAppContext) {
     assert_eq!(e.code, code::OFF);
     assert!(e.message.contains("agents.showSettings"));
     assert_eq!(tiles(cx), 0);
+}
+
+/// The bug: ⌘⏎ did nothing in Settings while one of its fields had the
+/// keys (a one-line field took ⌘⏎ as its own), nor anywhere in the
+/// Extensions tile (its keys were on nothing drawn, so no key reached
+/// it). Both maximise and restore with it now, from the page and from
+/// its search field, which keeps the keys.
+#[gpui::test]
+fn command_enter_maximises_settings_and_extensions_from_a_field_too(cx: &mut TestAppContext) {
+    app(cx, 1500.);
+    let data = pitwall_core::testing::TempDir::new("settings-max");
+    cx.update(|cx| crate::extensions::init(Some(data.path().to_path_buf()), cx));
+    let maximized = |what: Content, cx: &mut TestAppContext| cx.update(|cx| {
+        let ui = crate::ui_state::get(cx);
+        let (space, pane) = ui.tile_of(&what).unwrap();
+        ui.space(&space).and_then(|s| s.maximized_pane_id.clone()) == Some(pane)
+    });
+    let keys_in = |cx: &mut TestAppContext| main_view(cx).update(cx, |_, window, _| window.context_stack().iter().map(|c| format!("{c:?}")).collect::<Vec<_>>().join(" ")).unwrap();
+
+    // Settings, on its Extensions page.
+    main_view(cx).update(cx, |v, window, cx| v.screen().unwrap().update(cx, |s, cx| s.open_settings_tile(None, window, cx))).unwrap();
+    frames(cx);
+    cx.update(|cx| crate::settings::data::set_page(cx, Page::Extensions));
+    frames(cx);
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Settings, cx), "from the page");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Settings, cx));
+    // Its search field (⌘F) has the keys: ⌘⏎ still maximises.
+    keys(cx, FIND);
+    assert!(keys_in(cx).contains("PwTextInput"), "the search has the keys: {}", keys_in(cx));
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Settings, cx), "from a field");
+    assert!(keys_in(cx).contains("PwTextInput"), "and the field keeps them");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Settings, cx));
+
+    // The Extensions tile: its keys are in it.
+    main_view(cx).update(cx, |v, window, cx| v.screen().unwrap().update(cx, |s, cx| s.open_extensions_tile(window, cx))).unwrap();
+    frames(cx);
+    assert!(keys_in(cx).contains("ExtensionsTile"), "the tile has the keys: {}", keys_in(cx));
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Extensions, cx), "the Extensions tile");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Extensions, cx));
+    keys(cx, FIND);
+    assert!(keys_in(cx).contains("PwTextInput"), "its search has the keys: {}", keys_in(cx));
+    keys(cx, MAXIMISE);
+    assert!(maximized(Content::Extensions, cx), "from its search");
+    keys(cx, MAXIMISE);
+    assert!(!maximized(Content::Extensions, cx));
+}
+
+/// The tile guard's toast (`crate::tiles::guard`): the last launch ended
+/// while an extension's tile was starting, so this one says so in the
+/// main window with Resume, Keep paused and Turn <it> off; Turn off
+/// turns it off, and the toast goes.
+#[gpui::test]
+fn the_paused_tiles_toast_offers_resume_keep_paused_and_turn_off(cx: &mut TestAppContext) {
+    use crate::tiles::guard;
+    app(cx, 1500.);
+    let t = pitwall_core::testing::TempDir::new("guard-toast");
+    let rec = guard::Record { starting: [("inbox".to_string(), Some("2.0.0".to_string()))].into(), ..Default::default() };
+    cx.update(|cx| {
+        crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("inbox", true));
+        guard::init_for_test(t.path(), &rec, guard::HEALTHY_AFTER, cx);
+        guard::offer(cx);
+    });
+    frames(cx);
+    let screen = main_view(cx).update(cx, |v, _, _| v.screen().unwrap()).unwrap();
+    assert_eq!(screen.read_with(cx, |s, _| s.toast_titles()), ["Pitwall closed unexpectedly last time while inbox was running."]);
+    for (sel, label) in [("toast-act-0", "Resume"), ("toast-act-1", "Keep paused"), ("toast-act-2", "Turn inbox off")] {
+        assert!(bounds(cx, sel).is_some(), "{label} is drawn");
+    }
+    // Shown once a launch.
+    cx.update(guard::offer);
+    frames(cx);
+    assert_eq!(screen.read_with(cx, |s, _| s.toast_titles()).len(), 1);
+    click(cx, "toast-act-2");
+    frames(cx);
+    cx.update(|cx| {
+        assert!(!crate::ui_state::get(cx).extension_on("inbox"), "turned off");
+        assert!(!guard::paused("inbox", cx));
+    });
+    assert!(screen.read_with(cx, |s, _| s.toast_titles()).is_empty(), "answered");
 }

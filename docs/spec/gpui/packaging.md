@@ -122,6 +122,21 @@ Unchanged in substance from the Tauri release workflow:
   `entitlements.plist`); `notarytool submit --wait`, `stapler staple` for the
   app and the `.dmg`. Runtime shaders need no JIT entitlement (Metal compiles
   from source through the driver), but release builds precompile anyway.
+- macOS entitlements (`crates/pitwall-app/packaging/macos/entitlements.plist`):
+  `com.apple.security.cs.allow-unsigned-executable-memory`, because tiles
+  run in the app's process and Wasmtime makes the memory it compiled a
+  tile into executable without `MAP_JIT`. Without the key the hardened
+  runtime kills the app ("Code Signature Invalid") as soon as a tile
+  starts: once a tile extension updated, the installed app crashed on
+  every launch. The key covers the process's own memory only, so cached
+  compiled tiles are read into memory on macOS, not mapped
+  (tile-sdk/runtime.md §2.6). Guards: `scripts/check-entitlements.sh`
+  checks the file, and the signed app after `scripts/install-local.sh` and
+  Developer ID builds of `scripts/package-app.sh`; CI's macOS job runs
+  `scripts/check-hardened-tiles.sh` (tiles started in a program signed ad
+  hoc with `--options runtime` and the file; the same program without it
+  must be killed). If the app still crashes while a tile starts, the next
+  launch pauses that extension's tiles (`crate::tiles::guard`).
 - Windows: Authenticode with `signtool` on every `.exe` (app, sidecars,
   installer) when the certificate secret is present; unsigned otherwise, as
   now.

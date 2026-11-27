@@ -249,6 +249,17 @@ wants wall-clock deadlines, not determinism. Epochs need 64-bit atomics
   file name ties it to the exact wasm; Wasmtime's own header check
   ties it to the engine version and settings (S5). A file that fails
   to load is deleted and the wasm compiled again.
+- macOS: the app runs under the hardened runtime. Wasmtime makes the
+  memory it compiled into executable without `MAP_JIT`, which the
+  hardened runtime kills as an invalid code signature unless the app
+  is signed with `com.apple.security.cs.allow-unsigned-executable-memory`
+  (`crates/pitwall-app/packaging/macos/entitlements.plist`). That key
+  covers the process's own memory only, not a mapped file, so on macOS
+  a cached file is read into memory and loaded with
+  `Component::deserialize` instead of mapped. CI's macOS job starts a
+  tile in a binary signed that way (`scripts/check-hardened-tiles.sh`),
+  and the app's next launch pauses tiles that were starting when it
+  was killed ([crash-loop protection](../../reference/extensions/install.md#troubleshooting)).
 - Compiled files are tied to the exact Wasmtime version, patch
   included (S1), so any Pitwall update that moves Wasmtime recompiles
   each tile once, on first use, off the main thread. Phase 0 measured

@@ -55,3 +55,28 @@ Remove on the extension's card asks first. If the extension stored anything, the
 ## From a folder
 
 An author can also share a tile as a folder: Settings → Extensions → Install from folder…, or `pitwall extension install ./folder`. A folder is never signed and always marked as a preview ([Quick start](quick-start.md#share-a-preview-tile)).
+
+## Troubleshooting
+
+### "Pitwall closed unexpectedly last time while … was running"
+
+Tiles run inside Pitwall. If Pitwall quits unexpectedly (crashes, or
+macOS stops it) while an extension's tiles are starting or have just
+started, the next launch doesn't start them again: they would likely
+take Pitwall down again. A note says which extension it was, and its
+tiles show **paused**:
+
+- **Resume** starts its tiles again.
+- **Keep paused** leaves them off until Pitwall starts again.
+- **Turn … off** turns the extension off.
+
+Its card in Settings → Extensions says the same, and has **Go back to
+…** when it was just updated and the version before is kept: an update
+can't undo itself once Pitwall was stopped mid-way, so going back is
+offered here.
+
+If Pitwall closes again the next time those tiles start, the extension
+is turned off, with a note on its card. Turn it on again when you want
+to try it again (after an update, for example). A launch where its
+tiles run normally for a while clears the count.
+

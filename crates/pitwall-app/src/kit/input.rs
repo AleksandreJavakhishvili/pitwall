@@ -5,7 +5,8 @@
 //! word, triple click a line) and shift-arrows, grapheme and word moves
 //! ([`super::edit`]), word delete, clipboard, select all. Enter, ⌘↵ and Esc
 //! are reported as events so the owner decides (submit, cancel); in a
-//! multi-line input Enter is a new line and ⌘↵ / Ctrl+↵ submits.
+//! multi-line input Enter is a new line and ⌘↵ / Ctrl+↵ submits (a
+//! one-line input lets ⌘↵ through: the screen's, maximise the tile).
 //!
 //! Looks: boxed (`.input`: 34 px, hairline, the focus border; a multi-line
 //! one is the `textarea`), [`TextInput::plain`] for a field drawn inside
@@ -62,7 +63,8 @@ actions!(
         /// otherwise.
         Enter,
         ShiftEnter,
-        /// ⌘↵ / Ctrl+↵ (either works everywhere, as in the React app).
+        /// ⌘↵ / Ctrl+↵ (either works everywhere, as in the React app): a
+        /// multi-line input's send; a one-line input lets it through.
         Submit,
         Escape,
     ]
@@ -722,6 +724,12 @@ impl TextInput {
     }
 
     fn on_submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
+        // One line: Enter submits it, so ⌘↵ isn't the field's and goes on
+        // to the screen (⌘⏎ maximises the tile, as in Settings' fields).
+        if !self.multiline {
+            cx.propagate();
+            return;
+        }
         cx.emit(InputEvent::Submit);
         cx.emit(TextFieldEvent::Submit);
     }

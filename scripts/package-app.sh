@@ -198,6 +198,11 @@ if [ $os = macos ]; then
   for s in $sidecars; do macos_sign "$app/Contents/MacOS/$s"; done
   macos_sign "$app"
   codesign --verify --deep --strict --verbose=2 "$app"
+  # Developer ID builds run under the hardened runtime: without the
+  # entitlements macOS kills the app as soon as a tile starts.
+  if [ "${APPLE_SIGNING_IDENTITY:--}" != - ]; then
+    sh scripts/check-entitlements.sh "$app"
+  fi
   macos_notarize "$app"
   echo "package-app: $app"
 

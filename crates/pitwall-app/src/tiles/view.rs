@@ -1071,6 +1071,19 @@ impl TileView {
                     })),
                 )
             }
+            Some(State::Paused) => {
+                let (ext, off) = (self.ext.clone(), self.ext.clone());
+                calm("alert", &format!("{name} is paused"), format!("Pitwall closed unexpectedly last time while {name} was running, so its tiles weren't started. Resume them, or turn {name} off."), t).child(
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(kit::text_button("tile-resume", "Resume", kit::BtnKind::Primary, false, t).debug_selector(|| "tile-resume".into()).on_click(move |_, _, cx| {
+                            let ext = ext.clone();
+                            cx.defer(move |cx| super::guard::resume(&ext, cx));
+                        }))
+                        .child(kit::text_button("tile-turn-off", format!("Turn {name} off"), kit::BtnKind::Small, false, t).debug_selector(|| "tile-turn-off".into()).on_click(move |_, _, cx| super::guard::turn_off(&off, cx))),
+                )
+            }
             Some(State::Starting { preparing: true }) => calm("refresh", "Starting…", format!("Preparing {name} for this computer. This happens once for each version."), t),
             None | Some(State::Starting { .. } | State::Dropped) => calm("refresh", "Starting…", format!("{name} is starting."), t),
             Some(State::Running) if self.frame.is_none() => calm("refresh", "Starting…", format!("{name} is starting."), t),

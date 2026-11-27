@@ -157,6 +157,9 @@ pub fn run() {
         cx.set_global(state);
         ui_state::init(root.clone(), cx);
         extensions::init(root.clone(), cx);
+        // Before any tile starts: the last launch crashed while one was
+        // starting? Its tiles are paused (or it is turned off).
+        tiles::guard::init(root.as_deref(), cx);
         if cx.global::<AppState>().host.is_some() {
             extensions::start(root.as_deref(), engine.clone(), api, cx);
             extensions::actions::seal_steps(cx);
@@ -230,6 +233,8 @@ pub fn run() {
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
         cx.on_app_quit(|cx| {
             window_state::flush();
+            // A clean quit: no tile that was starting crashed it.
+            tiles::guard::quit(cx);
             extensions::quit(cx);
             if let Some(host) = cx.global_mut::<AppState>().host.as_mut() {
                 host.shutdown();
@@ -259,6 +264,8 @@ pub fn run() {
         bench::prepare();
         let main = show_main(cx);
         windows::restore(cx);
+        // What the tile guard paused or turned off, said in the main window.
+        tiles::guard::offer(cx);
         // Web pages left in windows of their own, behind the rest.
         web::window::restore(cx);
         // Extensions' inboxes left in windows of their own, too.

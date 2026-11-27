@@ -56,8 +56,13 @@ the environment variables its manifest lists, shown in Settings.
 Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
 - **Shipped with the app**, like the skills: the repo's `extensions/`
   folders that have an `extension.json`, staged by
-  `scripts/stage-extensions.sh` without their tests (`test/`), any
-  `node_modules` and `.DS_Store`. macOS: `Contents/Resources/extensions`;
+  `scripts/stage-extensions.sh` with only what they need at run time,
+  as a tile package holds it: `extension.json`, `tile.wasm`, the
+  README, changelog and licence, `agents/SKILL.md`, `assets/`,
+  `icons/`, `screenshots/` and the files the manifest names (an
+  adapter's script, an input schema); no sources or build files (`src/`,
+  `Cargo.toml`, `Cargo.lock`, `scripts/`), tests, `node_modules` or
+  hidden files. macOS: `Contents/Resources/extensions`;
   Linux and Windows packages: an `extensions` folder beside the program.
   Found as the skills are: `$PITWALL_BUNDLED_EXTENSIONS`, then
   `../Resources/extensions`, `../lib/pitwall/extensions` and

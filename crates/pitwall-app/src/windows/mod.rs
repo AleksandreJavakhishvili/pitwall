@@ -779,6 +779,35 @@ pub fn device_offer(key: &str, title: String, detail: String, agent: Option<Stri
     });
 }
 
+/// "Pitwall closed unexpectedly last time while <name> was running. Its
+/// tiles are paused." in the main window (`crate::tiles::guard`), with
+/// Resume, Keep paused and Turn <name> off. Nothing comes forward.
+pub fn paused_tiles_offer(ext: &str, name: &str, cx: &mut App) {
+    use crate::main_screen::strip::{Toast, ToastAction};
+    let (ext, name) = (ext.to_string(), name.to_string());
+    cx.defer(move |cx| {
+        let Some(handle) = main_window(MAIN, cx) else { return };
+        let _ = handle.update(cx, |view, _, cx| {
+            let Some(screen) = view.screen.clone() else { return };
+            let (title, detail) = crate::tiles::guard::paused_words(&name);
+            let run = |f: fn(&str, &mut App), ext: &str| {
+                let ext = ext.to_string();
+                // Answered from inside the screen's own handler: later.
+                std::rc::Rc::new(move |cx: &mut App| {
+                    let ext = ext.clone();
+                    cx.defer(move |cx| f(&ext, cx));
+                }) as std::rc::Rc<dyn Fn(&mut App)>
+            };
+            let actions = vec![
+                ToastAction { label: "Resume".into(), primary: true, run: run(crate::tiles::guard::resume, &ext) },
+                ToastAction { label: "Keep paused".into(), primary: false, run: std::rc::Rc::new(|_: &mut App| {}) },
+                ToastAction { label: format!("Turn {name} off").into(), primary: false, run: run(crate::tiles::guard::turn_off, &ext) },
+            ];
+            screen.update(cx, |s, cx| s.toast(Toast::ask(format!("tiles-paused-{ext}"), title, Some(detail), actions), cx));
+        });
+    });
+}
+
 /// An agent was shown in window `from`; when it lives in another window,
 /// that window comes forward and focuses it (`focusRequest` + `focus_window`).
 fn route_agent(from: &str, agent: &str, cx: &mut App) {

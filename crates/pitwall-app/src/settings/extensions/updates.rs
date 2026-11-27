@@ -322,11 +322,16 @@ impl SettingsView {
     /// "Go back to 1.0.0" in a card's footer, when the last update kept the
     /// copy before it.
     pub(super) fn go_back_button(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<AnyElement> {
+        self.go_back_button_as(format!("extension-back-{}", m.id), BtnKind::GhostSm, ui, m, cx)
+    }
+
+    /// The same, as button `sel` of kind `kind` (the crash note's).
+    pub(super) fn go_back_button_as(&mut self, sel: String, kind: BtnKind, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<AnyElement> {
         let back = self.origins_now(cx).remove(&m.id).and_then(|(_, b)| b)?;
         let working = self.exts.working.contains(&m.id);
         let id = m.id.clone();
         Some(
-            btn(format!("extension-back-{}", m.id), format!("Go back to {back}"), BtnKind::GhostSm, working, ui)
+            btn(sel, format!("Go back to {back}"), kind, working, ui)
                 .tooltip(crate::kit::tooltip("Put back the copy from before the last update; its settings and secrets stay"))
                 .on_click(cx.listener(move |v, _, _, cx| {
                     // A backup of its data was taken at that update: ask
