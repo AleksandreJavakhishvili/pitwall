@@ -1,6 +1,6 @@
 ---
 name: pitwall-extension-authoring
-description: "How to build, test and check a Pitwall tile (a Rust WebAssembly component made with the pitwall-extension SDK): the project layout, extension.json, the Tile trait and elements, content from agents, storage and settings, the test harness, and the pitwall extension commands. Use it whenever you change this extension."
+description: "How to build, test and check a Pitwall tile (a Rust WebAssembly component made with the pitwall-extension SDK): the project layout, extension.json, the Tile trait and elements, content and show tools for agents, storage and settings, the test harness, and the pitwall extension commands. Use it whenever you change this extension."
 ---
 
 # Building a Pitwall tile
@@ -197,6 +197,57 @@ fn on_content(&mut self, view: &ViewInfo, cx: &mut Cx<Self>) {
 
 The same content id again updates the same view (`on_content` again). Keep
 the schema small and describe each field: agents read it.
+
+## Tools for agents
+
+Every agent Pitwall starts gets `<extension-id>__open` for your tiles
+(content: the `"input"` schema; `"agents": false` on a tile entry keeps it
+from agents). Declare show tools of your own in the tile entry, kind `show`
+(opens or focuses, maybe at something) or `present` (puts content in):
+
+```json
+"tools": [{ "name": "show_message", "kind": "present",
+            "description": "Show a short message (the same item replaces it).",
+            "input": { "type": "object", "required": ["message"],
+                       "properties": { "item": { "type": "string" }, "message": { "type": "string" } } } }]
+```
+
+and write each as a method of a `#[tools]` block of the same name and kind
+(`export!` finds it):
+
+```rust
+use pitwall_extension::tools;
+use pitwall_extension::tools::{Call, Problem, Reply, ToolError};
+
+#[derive(serde::Deserialize)]
+struct Message { message: String }
+
+#[tools]
+impl MyTile {
+    #[tool(kind = "present")]
+    fn show_message(&mut self, call: Call<Message>, cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
+        if call.input().message.trim().is_empty() {
+            return Err(ToolError::problems("Nothing was shown.", [Problem::new("`message` has no text")]));
+        }
+        self.shown.insert(call.key(), call.input().message.clone()); // per agent and item
+        cx.notify();
+        Ok(Reply::text("Shown"))
+    }
+}
+```
+
+- Names: lowercase, digits, `_`, at most 32, not `open`; `<id>__<name>`
+  at most 50. `where` and `of` are Pitwall's (placement), not yours.
+- An error shows nothing new; give each input problem with
+  `Problem::at(line, column, msg)`.
+- When the user edits what an agent showed, call
+  `tools::user_edited(call.origin())` (or `content.call()` for `__open`
+  content): Pitwall then refuses that agent's replacing that item.
+- Limits: 1 MiB input, 10 s per call, 10 calls in 10 s; the reply's text
+  at most 4 KiB.
+- Test with `tile.call("claude", Some("show_message"), Some("a"), json!({..}))`
+  (`None`: `__open`), which returns `Called::Shown`, `Replied`, `Failed` or
+  `Refused`.
 
 ## Services (no permission needed)
 
