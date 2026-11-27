@@ -61,6 +61,7 @@ pub mod service;
 pub mod source;
 pub mod starter;
 pub mod toolbar;
+pub mod agent_skill;
 pub mod tools;
 pub mod update;
 pub mod view;
