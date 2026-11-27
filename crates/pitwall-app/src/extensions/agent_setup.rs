@@ -29,7 +29,7 @@ use gpui::{App, Global};
 use pitwall_core::accounts::Account;
 use pitwall_core::extensions::install::{self, Origin, Status};
 use pitwall_core::extensions::service as core;
-use pitwall_core::extensions::{Action, Manifest, SettingKind};
+use pitwall_core::extensions::{package, Action, Manifest, SettingKind};
 use pitwall_daemon::extension_setup::{Prepared, BUSY};
 use pitwall_daemon::ExtensionsBackend;
 use pitwall_proto::extensions::*;
@@ -71,6 +71,9 @@ enum Task {
     Update(Box<catalog::Prepared>),
     /// Install from a preview folder (copied aside, checked).
     InstallFolder(Box<catalog::Prepared>),
+    /// Install or update from a package file (read, checked, unpacked
+    /// aside), with what the caller agreed to about its signature.
+    InstallPackage(Box<catalog::Prepared>, package::Accept),
     Remove(Manifest),
     Setup(Box<Setup>),
     Service { m: Manifest, what: ServiceOp, digest: String },
@@ -210,6 +213,8 @@ fn source_of(id: &str, cx: &App) -> String {
         Some(Origin::Git { url, tag, .. }) => format!("git {url} {tag}"),
         Some(Origin::Npm { package, version, .. }) => format!("npm {package}@{version}"),
         Some(Origin::Folder { path }) => format!("unsigned preview folder {}", pitwall_core::paths::tildify(&path)),
+        Some(Origin::Package { path, signer: Some(s), .. }) => format!("package {}, signed by key {}", pitwall_core::paths::tildify(&path), s.key_id),
+        Some(Origin::Package { path, signer: None, .. }) => format!("unsigned package {}", pitwall_core::paths::tildify(&path)),
         None => "put there by hand".into(),
     }
 }
@@ -643,6 +648,7 @@ fn prepare_on_main(act: &ExtAct, cx: &mut App) -> Result<(Task, String, Vec<Stri
     Ok(match &act.op {
         ExtOp::Install => unreachable!("handled above"),
         ExtOp::InstallFolder { .. } => unreachable!("prepared off the UI thread (prepare_folder)"),
+        ExtOp::InstallPackage { .. } => unreachable!("prepared off the UI thread (prepare_package)"),
         ExtOp::On => {
             if on {
                 return Err(err(code::CONFLICT, format!("{} is on already.", m.name)));
@@ -894,6 +900,19 @@ fn start(task: Task, cx: &mut App) -> Result<(String, String, Watch), ErrorBody>
             });
             (id, "install".into(), w)
         }
+        Task::InstallPackage(p, accept) => {
+            let id = p.offer.manifest.id.clone();
+            let (tx, w) = told(FETCH_WITHIN);
+            let text = match (&p.replaces, &p.offer.origin) {
+                (Some(_), _) => format!("Updated to {}; the version before is kept for Go back.", p.offer.manifest.version.clone().unwrap_or_default()),
+                (None, Origin::Package { signer: None, .. }) => "Installed, unsigned (a preview). It is off: turn it on to use its tiles.".to_string(),
+                (None, _) => "Installed. Its key is trusted for its updates from now on. It is off: turn it on to use its tiles.".to_string(),
+            };
+            catalog::apply_with(&p, false, accept, cx, move |o, _| {
+                let _ = tx.send(outcome(o, &text));
+            });
+            (id, "install".into(), w)
+        }
         Task::Remove(m) => {
             let (tx, w) = told(FETCH_WITHIN);
             let kept = m.service.as_ref().and_then(|_| service::data_dir(&m.id, cx)).map(|d| format!(" Its service's data in {} was kept.", service::shown(&d))).unwrap_or_default();
@@ -1058,6 +1077,9 @@ impl ExtensionsBackend for AppExtensions {
         if let ExtOp::InstallFolder { path } = &act.op {
             return self.prepare_folder(act.id.trim(), path, token);
         }
+        if let ExtOp::InstallPackage { path, unsigned, new_key } = &act.op {
+            return self.prepare_package(act.id.trim(), path, package::Accept { unsigned: *unsigned, new_key: *new_key }, token);
+        }
         let act = act.clone();
         self.on_main(move |cx| {
             let (task, summary, details, risk) = prepare_on_main(&act, cx)?;
@@ -1094,7 +1116,7 @@ impl ExtensionsBackend for AppExtensions {
 
     fn discard(&self, token: u64) {
         let _ = self.on_main(move |cx| {
-            if let Some(Task::Update(p) | Task::InstallFolder(p)) = cx.default_global::<Tasks>().0.remove(&token) {
+            if let Some(Task::Update(p) | Task::InstallFolder(p) | Task::InstallPackage(p, _)) = cx.default_global::<Tasks>().0.remove(&token) {
                 catalog::discard(&p, cx);
             }
             Ok(())
@@ -1207,6 +1229,61 @@ impl AppExtensions {
             }
             let summary = format!("install the extension {} from a folder (unsigned preview)", m.name);
             cx.default_global::<Tasks>().0.insert(token, Task::InstallFolder(Box::new(p)));
+            Ok(Prepared { token, summary, details: d, risk: Risk::High })
+        })
+    }
+
+    /// Install or update from package file `path` (`id`: what the caller
+    /// read in its manifest): read, its signature checked and unpacked
+    /// aside off the UI thread; refused at once when its signature isn't
+    /// one `accept` lets in (unsigned, another key) or its version can't
+    /// replace the installed one; else the approval lists how its
+    /// signature stands, what it asks for (an update: what changes in its
+    /// permissions) and what it changes on this computer.
+    fn prepare_package(&self, id: &str, path: &str, accept: package::Accept, token: u64) -> Result<Prepared, ErrorBody> {
+        let file = std::path::Path::new(path);
+        if !file.is_absolute() {
+            return Err(err(code::BAD_PARAMS, format!("{path} isn't an absolute path")));
+        }
+        let (tx, rx) = mpsc::channel::<Result<catalog::Prepared, String>>();
+        let file = file.to_path_buf();
+        self.on_main(move |cx| {
+            catalog::prepare_from_package(&file, cx, move |r, _| {
+                let _ = tx.send(r);
+            });
+            Ok(())
+        })?;
+        let p = rx.recv_timeout(FETCH_WITHIN).map_err(|_| err(code::OTHER, "Checking the package took too long."))?.map_err(|why| err("failed", format!("It can't be installed: {why}")))?;
+        let i = id.to_string();
+        self.on_main(move |cx| {
+            let m = p.offer.manifest.clone();
+            let refused = if !i.is_empty() && m.id != i {
+                Some(err(code::CONFLICT, format!("The package's extension is “{}”, not “{i}”: it changed meanwhile. Nothing was installed.", m.id)))
+            } else {
+                catalog::package_refusal(&p, accept, cx).map(|why| err(code::CONFLICT, format!("{why} Nothing was installed.")))
+            };
+            if let Some(e) = refused {
+                catalog::discard(&p, cx);
+                return Err(e);
+            }
+            let key = catalog::package_key(&p, cx).unwrap_or(package::Key::Unsigned);
+            let old = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|o| o.id == m.id).cloned();
+            let v = m.version.clone().unwrap_or_default();
+            let mut d = vec![match &p.replaces {
+                Some(was) => format!("{} {} is replaced with {v}; the installed copy is kept for Go back. Its settings and data stay.", m.name, was.clone().unwrap_or_default()),
+                None => format!("{} {v} is copied into Pitwall's extensions folder. It stays off: nothing of it runs until it is turned on.", m.name),
+            }];
+            d.extend(package::review_lines(&m, &key, old.as_ref().filter(|_| p.replaces.is_some())));
+            for c in &p.changes {
+                d.push(c.title.clone());
+                d.extend(c.lines.iter().map(|l| format!("  {l}")));
+            }
+            let summary = match (&p.replaces, &key) {
+                (Some(_), _) => format!("update the extension {} to {v} from a package", m.name),
+                (None, package::Key::Unsigned) => format!("install the extension {} from an unsigned package", m.name),
+                (None, _) => format!("install the extension {} from a signed package", m.name),
+            };
+            cx.default_global::<Tasks>().0.insert(token, Task::InstallPackage(Box::new(p), accept));
             Ok(Prepared { token, summary, details: d, risk: Risk::High })
         })
     }

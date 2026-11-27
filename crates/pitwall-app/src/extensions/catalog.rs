@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime};
 use gpui::{App, AppContext, Entity, Global};
 use pitwall_core::extensions::install::{self, Change, Local, Offer, Origin, Refused, Status};
 use pitwall_core::extensions::source::{self, Tag};
-use pitwall_core::extensions::{npm, Manifest, SettingKind, Source};
+use pitwall_core::extensions::{npm, package, Manifest, SettingKind, Source};
 
 use super::{dir, hub, rescan, Installed};
 
@@ -339,6 +339,7 @@ pub fn prepare(id: &str, offer: Offer, cx: &mut App, done: impl FnOnce(Result<Pr
             })
         }
         Origin::Folder { .. } => cx.background_executor().spawn(async move { Err("A preview folder gets no updates: install a newer folder to replace it.".to_string()) }),
+        Origin::Package { .. } => cx.background_executor().spawn(async move { Err("A package is updated from a newer file: Install from file… with it.".to_string()) }),
     };
     let origin = cx.background_executor().spawn(async move { install::local(&folder).origin });
     cx.spawn(async move |cx| {
@@ -511,6 +512,51 @@ pub fn prepare_from_folder(path: &std::path::Path, cx: &mut App, done: impl FnOn
     finish_add(job, cx, done);
 }
 
+/// "Install from file…" (docs/spec/tile-sdk/packaging.md §6.3): tile
+/// package `path` (`.pwtile`) read off the UI thread, its signature
+/// checked over its bytes (against the installed version's key when it
+/// names it) before anything is unpacked, then unpacked into a staging
+/// folder of Pitwall's and checked as a folder is, its tiles compiled and
+/// their imports checked; `done` gets what installing it would change, or
+/// why it can't be. Whether its signature may be taken is the user's
+/// ([`package_key`], [`apply_with`]). The file itself is never changed.
+pub fn prepare_from_package(path: &std::path::Path, cx: &mut App, done: impl FnOnce(Result<Prepared, String>, &mut App) + 'static) {
+    let Some(data) = dir(cx) else {
+        let why: String = "Extensions need Pitwall's data folder.".into();
+        cx.defer(move |cx| done(Err(why), cx));
+        return;
+    };
+    let path = path.to_path_buf();
+    let host = crate::tiles::checker(cx);
+    let job = cx.background_executor().spawn(async move {
+        let (offer, _) = package::stage(&path, &data)?;
+        if let Err(why) = host.and_then(|h| crate::tiles::check_folder(&h, &offer.folder)) {
+            let _ = std::fs::remove_dir_all(&offer.folder);
+            return Err(why);
+        }
+        let origin = install::local(&data.join(&offer.manifest.id)).origin;
+        Ok((offer, origin))
+    });
+    finish_add(job, cx, done);
+}
+
+/// How prepared package `p`'s signature stands against the installed
+/// copy (`None`: `p` isn't a package).
+pub fn package_key(p: &Prepared, cx: &App) -> Option<package::Key> {
+    let Origin::Package { signer, .. } = &p.offer.origin else { return None };
+    let installed = dir(cx).and_then(|d| install::origin(&d.join(&p.offer.manifest.id)));
+    Some(package::key(installed.as_ref(), signer.as_ref()))
+}
+
+/// Why prepared `p` can't be installed with what the user agreed to
+/// (`accept`), against the installed copy now; `None` when it can.
+pub fn package_refusal(p: &Prepared, accept: package::Accept, cx: &App) -> Option<String> {
+    let data = dir(cx)?;
+    let target = data.join(&p.offer.manifest.id);
+    let local = target.is_dir().then(|| install::local(&target));
+    package::refusal(local.as_ref(), &p.offer, accept)
+}
+
 /// A prepared copy the user didn't take: a fetched folder is deleted.
 pub fn discard(p: &Prepared, cx: &mut App) {
     if p.offer.origin != Origin::Bundled {
@@ -528,6 +574,14 @@ pub fn discard(p: &Prepared, cx: &mut App) {
 /// folder is deleted afterwards (kept while the user is asked whether to
 /// replace a folder changed by hand).
 pub fn apply(p: &Prepared, replace_changed: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
+    apply_with(p, replace_changed, package::Accept::default(), cx, done);
+}
+
+/// [`apply`], with what the user agreed to for a package (`accept`): one
+/// without a signature, or signed by another key than the installed
+/// version. A package or folder is installed only when
+/// [`package::refusal`] has nothing against it, checked again then.
+pub fn apply_with(p: &Prepared, replace_changed: bool, accept: package::Accept, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let offer = p.offer.clone();
     let fetched = (offer.origin != Origin::Bundled).then(|| offer.folder.clone());
     let id = offer.manifest.id.clone();
@@ -550,14 +604,19 @@ pub fn apply(p: &Prepared, replace_changed: bool, cx: &mut App, done: impl FnOnc
         return;
     }
     if p.replaces.is_some() {
-        update_with(offer, replace_changed, cx, cleanup);
+        update_with(offer, replace_changed, accept, cx, cleanup);
     } else {
         let Some(data) = dir(cx) else {
             cx.defer(move |cx| cleanup(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
             return;
         };
         let id = offer.manifest.id.clone();
-        let job = cx.background_executor().spawn(async move { install::install(&offer, &data) });
+        let job = cx.background_executor().spawn(async move {
+            match offer.origin {
+                Origin::Package { .. } | Origin::Folder { .. } => package::install(&offer, &data, accept),
+                _ => install::install(&offer, &data),
+            }
+        });
         cx.spawn(async move |cx| {
             let res = job.await;
             cx.update(|cx| {
@@ -711,14 +770,18 @@ pub fn update_one(id: &str, replace_changed: bool, cx: &mut App, done: impl FnOn
         cx.defer(move |cx| done(Outcome::Failed("It isn't shipped with this Pitwall.".into()), cx));
         return;
     };
-    update_with(s.offer, replace_changed, cx, done);
+    update_with(s.offer, replace_changed, package::Accept::default(), cx, done);
 }
 
 /// Replace installed extension `offer.manifest.id` with `offer` (the
 /// installed copy kept for Go back): its settings and secrets stay; one
 /// that was on is stopped for the copy, then started again. A folder
-/// changed by hand is replaced only when `replace_changed`.
-fn update_with(offer: Offer, replace_changed: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
+/// changed by hand is replaced only when `replace_changed`. A package or a
+/// folder replaces it only when [`package::refusal`] (with `accept`) has
+/// nothing against it. Grants whose permission now asks for more (`net`
+/// with a new host) are forgotten, so they are asked again
+/// ([`pitwall_core::extensions::permissions::after_update`]).
+fn update_with(offer: Offer, replace_changed: bool, accept: package::Accept, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let Some(data) = dir(cx) else {
         cx.defer(move |cx| done(Outcome::Failed("Extensions need Pitwall's data folder.".into()), cx));
         return;
@@ -733,14 +796,23 @@ fn update_with(offer: Offer, replace_changed: bool, cx: &mut App, done: impl FnO
         cx.defer(move |cx| done(Outcome::ChangedLocally, cx));
         return;
     }
+    let old = installed(&id, cx);
     if was_on {
         switch(&id, false, cx);
     }
-    let job = cx.background_executor().spawn(async move { install::update(&offer, &data, replace_changed) });
+    let job = cx.background_executor().spawn(async move {
+        match offer.origin {
+            Origin::Package { .. } | Origin::Folder { .. } => package::update(&offer, &data, replace_changed, accept),
+            _ => install::update(&offer, &data, replace_changed),
+        }
+    });
     cx.spawn(async move |cx| {
         let res = job.await;
         cx.update(|cx| {
             rescan(cx);
+            if let (Ok(()), Some(old), Some(new)) = (&res, old, installed(&id, cx)) {
+                crate::ui_state::update(cx, |s| *s = std::mem::take(s).with_extension(&id, |e| e.grants = pitwall_core::extensions::permissions::after_update(&old, &new, &e.grants)));
+            }
             if was_on {
                 switch(&id, true, cx);
             }
@@ -752,7 +824,8 @@ fn update_with(offer: Offer, replace_changed: bool, cx: &mut App, done: impl FnO
 
 /// Remove extension `id`: its adapter stopped, it turned off, its secrets
 /// deleted from the secure store, its settings forgotten and its folder
-/// deleted. Its service is stopped; its data folder is deleted only with
+/// deleted. Its service is stopped; its data folder (its service's, or its
+/// tiles' storage, settings and database) is deleted only with
 /// `delete_data` (once the service has stopped), else kept.
 pub fn remove_one(m: &Manifest, delete_data: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let Some(data) = dir(cx) else {
@@ -777,7 +850,9 @@ pub fn remove_one(m: &Manifest, delete_data: bool, cx: &mut App, done: impl FnOn
     let svc = super::service::services(cx);
     svc.update(cx, |s, cx| s.reconcile(cx));
     let stopping = svc.read(cx).stopping(&id);
-    let service_data = if delete_data && m.service.is_some() { super::service::data_dir(&id, cx) } else { None };
+    // Its service's, and its tiles' storage, settings and database: the
+    // same folder (packaging.md §6.5); its tiles stopped with it off.
+    let service_data = if delete_data && (m.service.is_some() || !m.contributes.tiles.is_empty()) { super::service::data_dir(&id, cx) } else { None };
     let store = super::secret_store(cx);
     let job = cx.background_executor().spawn(async move {
         let secrets: Vec<String> = accounts.iter().filter_map(|a| store.delete(a).err()).collect();
