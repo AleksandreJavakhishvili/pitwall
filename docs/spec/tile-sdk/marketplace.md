@@ -150,3 +150,166 @@ address for security reports is in the index's `SECURITY.md`.
 A hosted server (search, install counts, ratings, faster review
 queues), paid tiles and licences, organisation-private indexes (a
 second index URL in Settings is easy and could come earlier), mirrors.
+
+### 7.8 As built (phase 5)
+
+What phase 5 built for the index, publishing, Verified and takedowns
+(the Settings pages are listed separately), and where it differs from
+7.1–7.6.
+
+- **Where.** The format, its checks and the build are
+  `pitwall_core::extensions::index` (`repo` for the repository's TOML
+  files, `source` for reading the built index). The index repository's
+  workflows run `pitwall-index` (crates/pitwall-index, not shipped with
+  Pitwall), which adds https downloads, the headless run and the
+  signatures. Its `template/` folder is the repository's first content:
+  `check.yml`, `publish.yml`, `auto-merge.yml`, the report issue form,
+  `SECURITY.md`, `categories.toml` and a README.
+- **Repository files.** As 7.1, with these changes. An entry also has
+  `license` (SPDX) and, set by maintainers, `delisted = "<why>"`. A
+  version has `yanked` and, set by maintainers, `[versions.review]`. The
+  entry-level `verified` is gone, because Verified is per version (7.3).
+  `maintainers.toml` lists each maintainer's handle, GitHub login and
+  review key. `blocked.toml` holds `[[blocked]]` rules with `id`,
+  `versions`, `sha256`, `reason` and `date`. Every file is read with
+  `deny_unknown_fields`, and each file must be at most 256 KiB.
+- **`index.json`.** As 7.1, with these changes. `permissions` is a list
+  of `{name, reason, hosts, amount}`, so the detail page shows each
+  reason (7.4). The listing has no `verified`: Pitwall works that out
+  from the reviews (below). A version carries `commit`, `yanked`,
+  `review` and its `CHANGELOG.md` section (at most 4 KiB). The index also
+  lists `delisted` ids with their reasons, so an installed copy can say
+  why it is no longer listed. `blocked.json` holds the rules from
+  `blocked.toml`. Both files carry `format: 1` and `generated`.
+- **Strict limits when reading.** `index.json` may be at most 16 MiB,
+  with at most 20 000 extensions, 500 versions each, 8 keys, 3
+  categories, 6 screenshots and 32 permissions. `blocked.json` may be at
+  most 2 MiB. Names, descriptions and reasons must be plain text of
+  bounded length, with no control or text-direction characters (so a
+  name can't be spelled backwards on screen). Addresses must be the
+  repository's `https://github.com/<owner>/<name>` and its release
+  assets. Hashes and commits must be lower-case hex, versions like
+  `1.2.3`, and categories from the fixed list. Screenshots must be
+  `screens/<id>/<sha256>.png|webp` and keys valid minisign keys. No id
+  may appear twice. Anything else rejects the whole file.
+- **Signatures.** `index.json` and `blocked.json` are checked against the
+  index keys Pitwall ships (`OFFICIAL_INDEX_KEYS`: current and next).
+  Only those keys count, never a key named inside the signature. None
+  exist yet, so the official index isn't read until the owner makes the
+  keys (checklist below).
+- **`IndexSource`.** `HttpsSource` fetches both files with a conditional
+  GET (ETag), and checks each signature before anything is kept. It
+  falls back to the cached copy, saying why, when it is offline, when
+  the server fails, when a file doesn't check, or when the new index is
+  older than the cached one (a replay). With no cache, it returns an
+  error, never an unchecked index. A missing block list blocks nothing.
+  `is_stale` marks an index more than 14 days old: `publish.yml` signs a
+  fresh one daily, so an older one is being held back.
+  `FixtureSource` gives an index directly, or reads a `dist/v1/` folder
+  checked against given keys. The app's https client implements
+  `IndexHttp`.
+- **Checks (`pitwall-index check`).** The repository is checked offline:
+  file names match ids and handles, authors and categories exist,
+  versions are well formed and released from the entry's repository, no
+  key belongs to two authors, and reviews are maintainers' signatures.
+  The change is judged against the base: an id keeps its author, listed
+  versions are never changed or removed (only yanked), new versions come
+  after the listed ones, and look-alike ids are flagged (folded
+  look-alike characters such as `l`/`1` and `0`/`o`, or one edit apart).
+  Some changes need a maintainer: a new extension, a new key, a change
+  of GitHub login or repository, a review, a delisting, un-yanking,
+  `blocked.toml` and `maintainers.toml`. Each new version is then
+  downloaded: at most 50 MiB, its SHA-256 the listed one, its signature
+  (`<url>.minisig`) by one of the author's keys only, the package rules
+  (6.6), a LICENSE and a description present, and the manifest's id,
+  version, worlds and `pitwall` equal to the entry's. Each tile is
+  loaded headless in Pitwall's own runtime with no grants, and must
+  start and draw. Each new version is compared with the one before it:
+  a permission, host or memory change, or another signing key, means a
+  maintainer merges it. Otherwise `auto-merge.yml` merges it when the
+  pull request's author is the entry author's GitHub login (7.2 step 5).
+- **Not automated: the reproducible rebuild (7.2 step 3).** CI does not
+  yet rebuild from `repository` at `commit` in a pinned toolchain image.
+  The maintainer rebuilds it when reviewing, and `pitwall-index review`
+  refuses to write a review without `--reproducible`. Screenshots are
+  copied and hashed, not resized (that needs an image library).
+- **Verified.** A review is the maintainer's minisign signature over
+  `pitwall-verified <id> <version> sha256:<hash>` (one line), written by
+  `pitwall-index review` into the version's `[versions.review]`. The
+  index's CI checks it against `maintainers.toml`. Pitwall checks it
+  against the review keys it ships (`OFFICIAL_REVIEW_KEYS`), not against
+  anything in the index, so a stolen index key can't make a version
+  Verified. Adding a reviewer therefore needs a Pitwall release.
+  `Listing::standing` gives Verified, Not yet reviewed (newer than a
+  Verified version), Not verified, Withdrawn or Blocked. `default_release`
+  is the newest Verified version, else the newest. A version is offered
+  only if it is not yanked, not blocked, and its world and `pitwall`
+  requirement fit this Pitwall.
+- **Publishing (`pitwall extension publish`).** It reads a signed
+  package (an unsigned one is refused), checks for a LICENSE and a
+  description, and works out the release asset address and the commit
+  (`git rev-parse HEAD`, or `--commit`). With `--index-dir` (a clone of
+  the index), it adds the version to the entry there, or writes a new
+  entry. It writes `authors/<handle>.toml` the first time, and adds a new
+  key to it for a maintainer to check. It runs the repository checks and
+  prints the git commands and a prefilled compare link
+  (`quick_pull=1`). Without a clone, it writes the files into
+  `index-entry/` and prints GitHub's prefilled new-file link. With
+  `--update`, it prints the `[[versions]]` block and the edit link
+  instead. It never commits, pushes or uploads anything. `pack` says
+  what the index will also need (a LICENSE, a description), and `sign`
+  points at `publish`.
+- **Report (7.5).** `report_url` builds
+  `https://github.com/<index>/issues/new?template=report.yml&…`, prefilled
+  with the extension id, version, SHA-256 and a category (malware,
+  misleading, broken, other), for the browser to open. The issue form's
+  field ids match.
+- **Takedown (7.6).** `refusal` explains why an install or update from
+  the index is refused: the version is blocked (with the reason),
+  yanked ("withdrawn by its author"), not listed, delisted ("no longer
+  listed", with the reason), or the file's hash isn't the listed one.
+  `installed_note` gives an installed copy's line: turned off as
+  blocked, withdrawn, or no longer listed. `Blocked::turned_off` gives
+  the installed copies the daily check turns off. `download` fetches a
+  listed version for an install or update: refused first as `refusal`
+  says, then its SHA-256 must be the listed one and its signature by one
+  of the author's keys in the index (only those), and it is written with
+  its `.minisig` for `package::stage`. Not yet wired in the app: Browse's
+  Install calling it, the daily check turning blocked copies off, and the
+  install marker recording that a copy came from the index (packaging
+  6.3's `Origin::Package { index }`). Those belong with Browse, on the
+  Settings side.
+
+#### Creating the real index repository (the owner's checklist)
+
+Nothing has been created or published yet. To open the index:
+
+1. **Create the repository** `pitwalls/pitwall-extensions` (public), or
+   pick its final name and change `OFFICIAL_REPO` and `OFFICIAL_BASE`.
+   Copy in `crates/pitwall-index/template/`, and replace `PITWALL_COMMIT`
+   in the workflows with a pinned Pitwall commit. Replace
+   `SECURITY_ADDRESS` in `SECURITY.md` with a private address.
+2. **Protect `main`.** Require pull requests and the `check` workflow,
+   with no direct pushes except by `publish.yml`'s bot. Require signed
+   commits from maintainers, and two-factor authentication for everyone
+   with write access.
+3. **Make the index keys** offline: `minisign -G` twice (current and
+   next). Store the current key's secret half and password as the
+   `INDEX_KEY` and `INDEX_KEY_PASSWORD` secrets of an `index`
+   environment that only `publish.yml` on `main` can use. Keep the next
+   key offline, with backups. Put both public keys in
+   `OFFICIAL_INDEX_KEYS` and release Pitwall.
+4. **Make each maintainer's review key** (`minisign -G`, kept by that
+   person, never in CI). List the keys in `maintainers.toml` and in
+   `OFFICIAL_REVIEW_KEYS`.
+5. **Labels and forms.** Add a `report` label. The issue form
+   `report.yml` is in the template.
+6. **Pages.** Decide whether `dist/` is served from
+   `raw.githubusercontent.com` (the default `OFFICIAL_BASE`, with ETags)
+   or from GitHub Pages, and set `OFFICIAL_BASE` to match.
+7. **Run `publish.yml` once by hand.** Check that Pitwall built with the
+   keys reads the index (an empty one is fine).
+8. **Before Browse opens to the public:** the threat model in
+   [5.5](permissions.md#55-threat-model-and-outside-review) is reviewed,
+   and the outside security review is done. Until then, list only
+   SDK-preview authors.

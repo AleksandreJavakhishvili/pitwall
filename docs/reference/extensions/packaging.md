@@ -63,6 +63,8 @@ The trusted comment names the file and the extension's id and version. It is sig
 
 Send both files, the `.pwtile` and its `.minisig`, and keep them side by side. The person installs it from Settings → Extensions → Install from file…, or with `pitwall extension install <file>`.
 
+To list it in the extensions index for Browse, release both files on GitHub and run `pitwall extension publish` ([Publishing](publishing.md)). The index also needs a `LICENSE` file and a `"description"` in `extension.json`: `pack` tells you when either is missing.
+
 ## Updates
 
 Pack and sign each new version with **the same key**, and raise `version` in `extension.json`. Pitwall refuses:
