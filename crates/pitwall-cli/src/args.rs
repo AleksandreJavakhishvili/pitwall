@@ -169,9 +169,16 @@ pub enum ExtensionCmd {
         #[arg(long, value_enum, conflicts_with_all = ["protocol", "view", "service"])]
         template: Option<TileTemplate>,
         /// With --template: take the SDK from this checkout of Pitwall's
-        /// repository (path dependencies) instead of its git URL.
+        /// repository (path dependencies; relative when the new folder is
+        /// inside the checkout) instead of its git URL.
         #[arg(long, requires = "template", value_name = "CHECKOUT")]
         sdk: Option<PathBuf>,
+        /// With --template: don't copy the authoring skill into .agents/
+        /// and .claude/; AGENTS.md points to the SDK's own copy instead (for
+        /// a tile kept inside Pitwall's repository, where copies would
+        /// drift).
+        #[arg(long, requires = "template")]
+        no_skill: bool,
     },
     /// Develop a tile: build it (`cargo build --release --target
     /// wasm32-wasip2`), copy the component beside extension.json, check
