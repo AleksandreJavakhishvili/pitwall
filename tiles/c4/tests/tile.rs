@@ -169,6 +169,10 @@ fn bad_mermaid_changes_nothing_and_comes_back_with_the_line() {
     let code = tile.code_view("problems");
     assert_eq!(code.marks.len(), 1, "line 3 marked");
     assert_eq!(code.marks[0].lines.start, 2);
+    // Marked as an error, saying what is wrong after the line.
+    assert_eq!(code.marks[0].kind, pitwall_extension_test::LineMarkKind::Error);
+    assert!(code.marks[0].message.as_deref().is_some_and(|m| !m.is_empty()), "{:?}", code.marks[0]);
+    assert!(tile.text_snapshot().contains("error@3 "), "{}", tile.text_snapshot());
     assert!(shows(&tile, "Line 3, column 16"), "{}", tile.text_snapshot());
     // The next good show of that item clears it.
     ok(&show(&mut tile, "api", Some("containers"), CONTAINERS_2));
@@ -240,6 +244,14 @@ fn a_box_several_diagrams_detail_asks_which() {
     // Two of its diagrams detail Shop: a menu to pick one.
     tile.click_region("Shop");
     assert!(shows(&tile, "Open which diagram?"), "{}", tile.text_snapshot());
+    // Anchored under the box, on the canvas, not to the bar.
+    let c = tile.canvas("diagram");
+    let tf = c.transform;
+    let shop = c.regions.iter().find(|r| r.label == "Shop").unwrap().rect;
+    let snap = tile.text_snapshot();
+    let at = snap.lines().find(|l| l.contains("popover at (")).unwrap_or_else(|| panic!("{snap}"));
+    let want = format!("({}, {})", num(shop.x * tf.scale + tf.dx), num((shop.y + shop.height) * tf.scale + tf.dy));
+    assert!(at.contains(&want), "{want} in {at}");
     assert!(draws(&tile, "Payments"), "still the context");
     tile.click_key("t0");
     assert!(!shows(&tile, "Open which diagram?"));
@@ -399,4 +411,10 @@ fn an_update_without_a_title_keeps_its_title() {
     let text = ok(&show(&mut tile, "api", Some("containers"), CONTAINERS_2));
     assert!(text.starts_with("Updated “Shop containers” in place"), "{text}");
     assert!(shows(&tile, "Shop containers"), "{}", tile.text_snapshot());
+}
+
+/// A number as the text snapshot writes it.
+fn num(v: f32) -> String {
+    let s = format!("{v:.2}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
