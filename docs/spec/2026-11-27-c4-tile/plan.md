@@ -26,20 +26,20 @@ rust-sugiyama).
 Waits for: nothing. Parsing, linking and layout don't need the SDK, so
 they can be written and tested natively now, inside `tiles/c4/`.
 
-- [ ] `tiles/c4/` exists as its own Cargo workspace, not a member of the root workspace. Done when `cargo test --manifest-path tiles/c4/Cargo.toml` passes and the root `cargo test --workspace` doesn't build it
-- [ ] `mermaid-lld.md` written in this folder: the grammar of the subset in [frd.md §6.1](frd.md#61-supported-in-v1), the model, and every error message. Done when merged and linked from here
-- [ ] `layout-lld.md` written in this folder: sizing, the dagre options, edge routing, the sequence layout, the size limits. Done when merged and linked from here
-- [ ] Block finder: Mermaid fences in Markdown with line numbers, heading path and diagram ids ([hla §3.2](hla.md#32-finding-blocks)). Done when tests cover fences with `~~~`, indented fences, repeats under one heading, and CRLF files
-- [ ] Mermaid parser for the flowchart subset. Done when every row of [frd.md §6.1](frd.md#61-supported-in-v1) for flowcharts has a passing test, and each error test checks line, column and message
-- [ ] Mermaid parser for the sequence subset. Done when every sequence row of [frd.md §6.1](frd.md#61-supported-in-v1) has a passing test
-- [ ] Unsupported types and partial support: the fallback model and the "Not shown" list (FR-18, FR-20). Done when a test feeds each Mermaid type named in [frd.md §6.2](frd.md#62-not-supported-in-v1) and gets the fallback
-- [ ] C4 reading of labels: `Name [Kind]`, purpose line, classes, levels (FR-11). Done when tests cover each separator in [frd.md §3.2](frd.md#32-c4-structure-diagrams-context-container-component) and each level rule
-- [ ] Linker: zoom links and before/after pairs ([hla §3.4](hla.md#34-levels-zoom-links-and-beforeafter-pairs)). Done when, with this folder's `hla.md` as input, the "C4 tile" box links to the container diagram and "tile.wasm" to the component diagram, and a fixture with Before/After headings pairs
-- [ ] Changes view model (FR-17): added, removed and changed boxes and arrows. Done when fixture tests pass
-- [ ] Layout with the `dagre` crate behind a `Layout` trait. Done when every fixture lays out natively with no overlapping boxes and every box inside its boundary (a test checks both)
-- [ ] `rust-sugiyama` fallback compared on the same fixtures. Done when a short note in `layout-lld.md` records quality and time for both, and which one v1 uses
-- [ ] Inter advance-width table generated at build time ([hla §3.7](hla.md#37-text-sizes)). Done when a test compares its widths with the font's for 100 sample labels, within 1 %
-- [ ] Fixtures: this folder's `hla.md`, and the SDK's own docs (`docs/spec/tile-sdk/runtime.md`'s diagrams), plus hand-written cases. Done when they live in `tiles/c4/tests/fixtures/` and all of the above use them
+- [x] `tiles/c4/` exists as its own Cargo workspace, not a member of the root workspace. Done when `cargo test --manifest-path tiles/c4/Cargo.toml` passes and the root `cargo test --workspace` doesn't build it (#113)
+- [x] `mermaid-lld.md` written in this folder: the grammar of the subset in [frd.md §6.1](frd.md#61-supported-in-v1), the model, and every error message. Done when merged and linked from here (#113)
+- [x] `layout-lld.md` written in this folder: sizing, the dagre options, edge routing, the sequence layout, the size limits. Done when merged and linked from here (#113)
+- [x] Block finder: Mermaid fences in Markdown with line numbers, heading path and diagram ids ([hla §3.2](hla.md#32-finding-blocks)). Done when tests cover fences with `~~~`, indented fences, repeats under one heading, and CRLF files (#113)
+- [x] Mermaid parser for the flowchart subset. Done when every row of [frd.md §6.1](frd.md#61-supported-in-v1) for flowcharts has a passing test, and each error test checks line, column and message (#113)
+- [x] Mermaid parser for the sequence subset. Done when every sequence row of [frd.md §6.1](frd.md#61-supported-in-v1) has a passing test (#113)
+- [x] Unsupported types and partial support: the fallback model and the "Not shown" list (FR-18, FR-20). Done when a test feeds each Mermaid type named in [frd.md §6.2](frd.md#62-not-supported-in-v1) and gets the fallback (#113)
+- [x] C4 reading of labels: `Name [Kind]`, purpose line, classes, levels (FR-11). Done when tests cover each separator in [frd.md §3.2](frd.md#32-c4-structure-diagrams-context-container-component) and each level rule (#113)
+- [x] Linker: zoom links and before/after pairs ([hla §3.4](hla.md#34-levels-zoom-links-and-beforeafter-pairs)). Done when, with this folder's `hla.md` as input, the "C4 tile" box links to the container diagram and "tile.wasm" to the component diagram, and a fixture with Before/After headings pairs (#113)
+- [x] Changes view model (FR-17): added, removed and changed boxes and arrows. Done when fixture tests pass (#113)
+- [x] Layout with the `dagre` crate behind a `Layout` trait. Done when every fixture lays out natively with no overlapping boxes and every box inside its boundary (a test checks both) (#113)
+- [x] `rust-sugiyama` fallback compared on the same fixtures. Done when a short note in `layout-lld.md` records quality and time for both, and which one v1 uses (#113; dagre, [layout-lld §7](layout-lld.md#7-dagre-against-rust-sugiyama))
+- [x] Inter advance-width table generated at build time ([hla §3.7](hla.md#37-text-sizes)). Done when a test compares its widths with the font's for 100 sample labels, within 1 % (#113; the table gained kerning pairs to get there: 0.36 %)
+- [x] Fixtures: this folder's `hla.md`, and the SDK's own docs (`docs/spec/tile-sdk/runtime.md`'s diagrams), plus hand-written cases. Done when they live in `tiles/c4/tests/fixtures/` and all of the above use them (#113; copies, dated: `c4-tile/hla.md`, `tile-sdk/diagrams.md`, the `shop/` project, `markdown/fences.md`, `unsupported.md`)
 
 ## Phase B: v1, first part: shown diagrams
 
