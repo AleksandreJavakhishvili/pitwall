@@ -93,6 +93,9 @@ pub(crate) struct HostState {
     /// `service`: whether the manifest declares one, and its state.
     pub has_service: bool,
     pub service: crate::ui::ServiceInfo,
+    /// Pitwall has said the state once (the first, sent after start,
+    /// isn't a change).
+    pub service_known: bool,
 }
 
 impl WasiView for HostState {
@@ -162,6 +165,7 @@ impl HostState {
             shown_at: None,
             has_service: p.has_service,
             service: no_service(p.has_service),
+            service_known: false,
         }
     }
 
