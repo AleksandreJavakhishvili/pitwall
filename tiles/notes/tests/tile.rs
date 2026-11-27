@@ -297,7 +297,7 @@ box
         button \"\" #send label=\"Send to an agent\" [click]
       button \"\" #trash label=\"Delete note\" [click]
     box #n2
-      input placeholder=\"Title on the first line, then anything\" text=\"web: login flickers\\non reload\" multiline focused #text [change, submit]
+      input placeholder=\"Title on the first line, then anything\" text=\"web: login flickers\\non reload\" multiline focused #text [change, select, submit]
 ";
     assert_eq!(tile.text_snapshot(), editor);
     tile.click_label("All notes");
@@ -389,6 +389,29 @@ fn a_section_can_be_sent_alone() {
     tile.select_option("what", "§ Tomorrow");
     tile.click_key("a-a2");
     assert_eq!(tile.queued()[0].text, "## Tomorrow\n- release 0.9");
+}
+
+#[test]
+fn the_selection_is_sent_when_there_is_one() {
+    let mut tile = notes_with_agents();
+    write(&mut tile, "Plan\n## Today\n- rebase api\n- fix the login flicker in Safari\n## Tomorrow\n- release 0.9");
+    tile.select_in("text", "fix the login flicker in Safari");
+    tile.click_label("Send the selection to an agent");
+    let snap = tile.text_snapshot();
+    assert!(snap.contains("(•) The selection") || snap.contains("The selection"), "{snap}");
+    assert!(shows(&tile, "“fix the login flicker in Safari”"), "{snap}");
+    tile.click_key("a-a1");
+    assert_eq!(tile.queued()[0].text, "fix the login flicker in Safari");
+    // The whole note is still a choice.
+    tile.select_in("text", "rebase api");
+    tile.click_label("Send the selection to an agent");
+    tile.select_option("what", "The whole note");
+    assert!(!shows(&tile, "“rebase api”"));
+    tile.click_key("a-a2");
+    assert!(tile.queued()[1].text.starts_with("Plan\n## Today"), "{:?}", tile.queued());
+    // A bare cursor is no selection.
+    tile.select_text("text", 3..3);
+    assert!(tile.find_label("Send to an agent").is_some(), "{}", tile.text_snapshot());
 }
 
 #[test]
