@@ -503,6 +503,11 @@ pub struct ExtensionPrefs {
     /// ids): agents get no tools of those (agent-tools.md §11.5).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
     pub agents_off: Vec<String>,
+    /// Its `read` and `act` tools the user allowed an agent to call
+    /// without asking ("Always for <agent>", agent-tools.md §11.5), until
+    /// revoked on its card or in Settings → Agents.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub tool_grants: Vec<ToolGrant>,
     /// The share of the first pane of each split pane of its tiles the
     /// user dragged, by `<view>/<key path>` (ui.md §3.10).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
@@ -510,6 +515,20 @@ pub struct ExtensionPrefs {
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
+}
+
+/// "Always for <agent>": agent `agent` (its id; `name` as it was then)
+/// may call tool `tool` of the extension without asking, since `at`
+/// (Unix seconds).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolGrant {
+    pub agent: String,
+    #[serde(default)]
+    pub name: String,
+    pub tool: String,
+    #[serde(default)]
+    pub at: u64,
 }
 
 /// An extension's service in `ui.json` (`extensions.<id>.service`).

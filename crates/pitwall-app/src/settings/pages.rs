@@ -456,7 +456,33 @@ impl SettingsView {
         } else {
             offered.join("\n")
         };
-        section().child(
+        // The "Always for <agent>" grants of every extension, revocable.
+        let mut kept = Vec::new();
+        for (ext, prefs) in ui_state.extensions.iter() {
+            for g in &prefs.tool_grants {
+                kept.push((ext.clone(), g.clone()));
+            }
+        }
+        let kept_rows = kept.into_iter().map(|(ext, g)| {
+            let who = if g.name.is_empty() { g.agent.clone() } else { g.name.clone() };
+            let (e, a, tool) = (ext.clone(), g.agent.clone(), g.tool.clone());
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(div().flex_1().min_w_0().text_size(px(12.5)).text_color(ui.t.text_2).child(format!("{who} may call {} without asking", pitwall_proto::tile_tools::mcp_name(&ext, Some(&g.tool)))))
+                .child(
+                    crate::kit::text_button(SharedString::from(format!("tile-grant-revoke-{ext}-{}-{}", g.agent, g.tool)), "Revoke", crate::kit::BtnKind::GhostSm, false, &ui.t)
+                        .tooltip(crate::kit::tooltip("Ask again next time"))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.stop_propagation();
+                            crate::tiles::agents::revoke(&e, &a, Some(&tool), cx);
+                            cx.notify();
+                        })),
+                )
+        });
+        let kept_rows: Vec<Div> = kept_rows.collect();
+        section().when(!kept_rows.is_empty(), |s| s.child(div().pb(px(10.)).flex().flex_col().gap(px(6.)).child(crate::kit::label("Tile tools allowed without asking", ui.t.text_3, 11.)).children(kept_rows))).child(
             div()
                 .id("tile-tools")
                 .debug_selector(|| "tile-tools".into())
@@ -479,7 +505,7 @@ impl SettingsView {
                         .gap(px(2.))
                         .child(head(ui, "Agents can use tiles"))
                         .child(crate::kit::hint(
-                            "Ask an agent to draft a note or show you a diagram and it opens the extension’s tile next to its terminal with it. Agents only change what the tile shows: they get nothing of it back and can’t replace what you edited. Each tile has its own switch on its card in Extensions. Each kind gets these the way it gets files, listed above.",
+                            "Ask an agent to draft a note or show you a diagram and it opens the extension’s tile next to its terminal with it. Showing only changes what the tile shows, marked with the agent and undoable; a tool that reads a tile or does something outside it asks you first, once or “Always” for that agent. Each tile has its own switch on its card in Extensions. Each kind gets these the way it gets files, listed above.",
                             &ui.t,
                         ))
                         .child(div().mt(px(4.)).text_size(px(12.)).text_color(ui.t.text_3).child(list)),

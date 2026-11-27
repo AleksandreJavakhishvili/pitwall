@@ -315,6 +315,22 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         let (ext, view) = (t.ext, t.tile);
         out.push(Command::new(id, t.label, words, on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx))).icon(t.icon).rank(rank::TERMINALS));
     }
+    // Tiles' tools offered to the palette (`"expose": ["palette"]`) that
+    // need no input: "<Extension>: <title>", run as the user's own.
+    for t in crate::tiles::agents::tools(cx) {
+        let (Some(tool), Some(title), Some(tile)) = (t.tool.clone(), t.title.clone(), t.tiles.first().map(|x| x.id.clone())) else { continue };
+        let needs_input = t.input.as_ref().and_then(|s| s.get("required")).and_then(|r| r.as_array()).is_some_and(|r| !r.is_empty());
+        if !t.exposed("palette") || needs_input {
+            continue;
+        }
+        let label = format!("{}: {title}", t.extension_name);
+        let req = pitwall_proto::tile_tools::TileRun { by_user: true, extension: t.extension.clone(), tile, tool: tool.clone(), kind: t.kind.clone(), input: "{}".into(), ..Default::default() };
+        out.push(
+            Command::new(format!("tile-tool-{}-{tool}", t.extension), label.clone(), format!("{} {} tile command", t.extension_name.to_lowercase(), title.to_lowercase()), on_screen(pc, move |s, _, cx| s.tile_command(req.clone(), label.clone(), cx)))
+                .icon("extension")
+                .rank(rank::TERMINALS),
+        );
+    }
     // Each running extension's views and commands (labelled with its
     // name; no keys of their own).
     let focused =pc.screen.as_ref().and_then(|s| s.upgrade()).and_then(|s| s.read(cx).focused_agent_id());

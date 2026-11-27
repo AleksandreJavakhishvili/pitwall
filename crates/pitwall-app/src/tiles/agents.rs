@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use gpui::App;
 use pitwall_core::extensions::Manifest;
-use pitwall_proto::tile_tools::{TileReply, TileShow, TileShown, TileTarget, TileTool};
+use pitwall_proto::tile_tools::{TileRan, TileReply, TileRun, TileShow, TileShown, TileTarget, TileTool};
 use pitwall_proto::{code, ErrorBody, ViewerPlace};
 use pitwall_tile_host::agent::{error_text, Answer, Caller, ShowCall, ToolOutput};
 use serde_json::Value;
@@ -77,11 +77,13 @@ pub fn tools_of(m: &Manifest, dir: Option<&Path>) -> Vec<TileTool> {
         return out;
     }
     let target = |t: &pitwall_core::extensions::TileDef| TileTarget { id: t.id.clone(), title: t.title.clone(), input: t.input.as_deref().and_then(|i| schema_file(dir, i)) };
-    let base = TileTool { extension: m.id.clone(), extension_name: m.name.clone(), summary: m.description.clone().unwrap_or_default(), kind: "show".into(), ..Default::default() };
+    let skill = dir.and_then(|d| pitwall_core::extensions::agent_skill::read(d, &m.id)).and_then(Result::ok).map(|s| s.description);
+    let base = TileTool { extension: m.id.clone(), extension_name: m.name.clone(), summary: m.description.clone().unwrap_or_default(), skill, kind: "show".into(), ..Default::default() };
     out.push(TileTool { tiles: agents.iter().map(|t| target(t)).collect(), ..base.clone() });
     for t in &agents {
         for d in &t.tools {
-            out.push(TileTool { tool: Some(d.name.clone()), kind: d.kind.word().into(), description: d.description.clone(), input: Some(d.schema()), tiles: vec![target(t)], ..base.clone() });
+            let expose = if d.expose.is_empty() { Vec::new() } else { d.expose.iter().map(|e| e.word().to_string()).collect() };
+            out.push(TileTool { tool: Some(d.name.clone()), kind: d.kind.word().into(), description: d.description.clone(), input: Some(d.schema()), tiles: vec![target(t)], destructive: d.destructive, idempotent: d.idempotent, expose, title: d.title.clone(), ..base.clone() });
         }
     }
     out.retain(|t| t.name().len() <= pitwall_proto::tile_tools::MAX_NAME);
@@ -111,9 +113,12 @@ pub fn tools(cx: &App) -> Vec<TileTool> {
     out
 }
 
-/// The MCP names of [`tools`] (what launch-time allow lists add).
+/// The MCP names of [`tools`] that launch-time allow lists add: the
+/// show-only ones offered to agents. `read` and `act` tools are never
+/// allowed there: the agent's own tool prompt may ask, and Pitwall asks
+/// the user in any case (agent-tools.md §11.5).
 pub fn tool_names(cx: &App) -> Vec<String> {
-    tools(cx).iter().map(TileTool::name).collect()
+    tools(cx).iter().filter(|t| t.show_only() && t.exposed("agents")).map(TileTool::name).collect()
 }
 
 /// A call placed and delivered, its answer still to come.
@@ -143,9 +148,16 @@ pub fn show(req: &TileShow, cx: &mut App) -> Result<Result<Placed, TileShown>, E
         }
     }
     let caller = Caller { agent_id: req.agent_id.clone(), agent_name: req.agent_name.clone(), project: req.project.clone() };
-    let call = ShowCall { tool: req.tool.clone(), tile: def.id.clone(), item: req.item.clone(), input: req.input.clone(), caller };
+    let large = req.large.as_ref().map(|t| t.len() as u64);
+    let call = ShowCall { tool: req.tool.clone(), tile: def.id.clone(), item: req.item.clone(), input: req.input.clone(), caller, append: req.append, large };
     let tiles = super::tiles(cx);
     let begun = tiles.update(cx, |t, _| t.calls(&m.id).begin(&call, Instant::now()));
+    // The file's text waits for the component's `input-part` reads.
+    if let (Ok((id, _)), Some(text)) = (&begun, &req.large) {
+        if let Some(l) = tiles.update(cx, |t, cx| t.large_inputs(cx)) {
+            l.put(&m.id, *id, text.clone());
+        }
+    }
     let tool_name = pitwall_proto::tile_tools::mcp_name(&m.id, req.tool.as_deref());
     let (id, content) = match begun {
         Ok(v) => v,
@@ -259,14 +271,166 @@ pub fn finish(p: Placed, within: std::time::Duration) -> (TileShown, Result<(), 
 /// timed out no longer waits), in the extension's activity log, and the
 /// view's "from <agent>" mark when it showed something.
 pub fn finished(ext: &str, tile: &str, call: u64, req: &TileShow, outcome: &Result<(), String>, cx: &mut App) {
-    super::tiles(cx).update(cx, |t, _| t.forget_call(ext, tile, call));
+    super::tiles(cx).update(cx, |t, cx| {
+        t.forget_call(ext, tile, call);
+        if let Some(l) = t.large_inputs(cx) {
+            l.forget(ext, call);
+        }
+    });
     let name = pitwall_proto::tile_tools::mcp_name(ext, req.tool.as_deref());
     record(ext, &name, req, outcome.clone().err(), cx);
     if outcome.is_ok() && req.input.is_some() {
         let tiles = super::tiles(cx);
         let agent = (req.agent_id.clone(), req.agent_name.clone());
-        tiles.update(cx, |t, cx| t.set_origin(ext, tile, agent, cx));
+        // A `present` call can be taken back (Undo beside the mark).
+        let presents = req.tool.as_ref().is_some_and(|tool| {
+            crate::extensions::manifest_of(ext, cx).and_then(|m| m.contributes.tile(tile).and_then(|d| d.tools.iter().find(|d| d.name == *tool).map(|d| d.kind == pitwall_core::extensions::tools::ToolKind::Present))).unwrap_or(false)
+        });
+        if presents {
+            tiles.update(cx, |t, cx| t.set_presented(ext, tile, agent, call, cx));
+        } else {
+            tiles.update(cx, |t, cx| t.set_origin(ext, tile, agent, cx));
+        }
     }
+}
+
+/// What the user's approval of a `read` or `act` call looks like, and
+/// whether it is needed.
+pub struct ToAsk {
+    pub summary: String,
+    pub details: Vec<String>,
+    /// "Always for <agent>" may be offered.
+    pub always: Option<String>,
+}
+
+/// A `read` or `act` call checked on the main thread: allowed as it is
+/// (`None`), or the approval to ask for.
+pub fn check_run(req: &TileRun, cx: &App) -> Result<Option<ToAsk>, ErrorBody> {
+    if !enabled(cx) {
+        return Err(ErrorBody::new(code::OFF, OFF.replace("Nothing was shown", "Nothing was done")));
+    }
+    let m = crate::extensions::manifest_of(&req.extension, cx).filter(|m| crate::ui_state::get(cx).extension_on(&m.id)).ok_or_else(|| ErrorBody::new(code::OFF, format!("The extension “{}” is off or not installed in Pitwall. Nothing was done.", req.extension)))?;
+    let def = m.contributes.tile(&req.tile).filter(|t| t.agents).ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("{} has no tile “{}” agents may use", m.name, req.tile)))?;
+    if !tile_on(&m.id, &def.id, cx) {
+        return Err(ErrorBody::new(code::OFF, format!("The user turned off agents' use of {} (Settings → Extensions → {} → “Agents can use {}”). Nothing was done.", def.title, m.name, def.title)));
+    }
+    let tool = def.tools.iter().find(|d| d.name == req.tool && d.kind.word() == req.kind).ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("{} has no tool “{}”", def.title, req.tool)))?;
+    // The user's own read runs; their act asks (a script can't act
+    // behind their back).
+    if req.by_user && req.kind == "read" {
+        return Ok(None);
+    }
+    if !req.by_user && granted(&m.id, &req.agent_id, &req.tool, cx) {
+        return Ok(None);
+    }
+    let verb = if req.kind == "read" { format!("read what {} has", def.title) } else { tool.title.clone().map(|t| t.to_lowercase()).unwrap_or_else(|| format!("run {}", tool.name)) };
+    let summary = format!("{verb} ({}: {})", m.name, tool.name);
+    let mut details = vec![tool.description.clone()];
+    if let Some(p) = req.project.as_deref() {
+        details.push(format!("Project: {p}"));
+    }
+    details.extend(input_lines(&req.input));
+    // "Always" only for an agent, never for tiles that can make agents
+    // act (decision 5).
+    let g = super::grants_of(&m, cx);
+    let risky = g.has(pitwall_core::extensions::permissions::AGENTS_QUEUE) || g.has(pitwall_core::extensions::permissions::AGENTS_START);
+    let always = (!req.by_user && !(risky && req.kind == "act")).then(|| format!("Always for {}", req.agent_name));
+    Ok(Some(ToAsk { summary, details, always }))
+}
+
+/// The input as the dialog shows it: one line per property, long values
+/// folded.
+fn input_lines(input: &str) -> Vec<String> {
+    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(input) else { return Vec::new() };
+    map.iter()
+        .map(|(k, v)| {
+            let text = match v {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            let short: String = text.chars().take(160).collect();
+            let more = if short.len() < text.len() { format!("… ({} characters)", text.chars().count()) } else { String::new() };
+            format!("{k}: {short}{more}")
+        })
+        .collect()
+}
+
+/// Whether the user allowed agent `agent` tool `tool` of extension `ext`
+/// always.
+pub fn granted(ext: &str, agent: &str, tool: &str, cx: &App) -> bool {
+    !agent.is_empty() && crate::ui_state::get(cx).extension(ext).tool_grants.iter().any(|g| g.agent == agent && g.tool == tool)
+}
+
+/// "Always for <agent>": kept until revoked.
+pub fn grant(ext: &str, agent: &str, name: &str, tool: &str, cx: &mut App) {
+    let g = crate::main_screen::workspace::ToolGrant { agent: agent.into(), name: name.into(), tool: tool.into(), at: pitwall_core::extensions::permissions::Decision::now(true).at };
+    let e = ext.to_string();
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(&e, |p| {
+            p.tool_grants.retain(|x| !(x.agent == g.agent && x.tool == g.tool));
+            p.tool_grants.push(g.clone());
+        })
+    });
+}
+
+/// Revoke a grant ([`grant`]); `tool` `None`: all of the agent's.
+pub fn revoke(ext: &str, agent: &str, tool: Option<&str>, cx: &mut App) {
+    let (e, a, t) = (ext.to_string(), agent.to_string(), tool.map(str::to_string));
+    crate::ui_state::update(cx, |ui| *ui = std::mem::take(ui).with_extension(&e, |p| p.tool_grants.retain(|x| !(x.agent == a && t.as_ref().is_none_or(|t| x.tool == *t)))));
+}
+
+/// A `read` or `act` call handed to its tile; its answer still to come.
+pub struct Running {
+    pub call: u64,
+    pub answer: mpsc::Receiver<Answer>,
+}
+
+/// On the main thread, once allowed: call `req` of its tile.
+pub fn start_run(req: &TileRun, cx: &mut App) -> Result<Running, ErrorBody> {
+    use pitwall_tile_host::agent::{ToolCall, ToolKind};
+    let kind = if req.kind == "read" { ToolKind::Read } else { ToolKind::Act };
+    let tiles = super::tiles(cx);
+    let agent = (!req.by_user).then_some(req.agent_id.as_str());
+    let id = tiles.update(cx, |t, _| t.calls(&req.extension).begin_tool(agent, &req.tile, &req.input, Instant::now())).map_err(|r| ErrorBody::new(code::OTHER, r.to_string()))?;
+    let caller = (!req.by_user).then(|| Caller { agent_id: req.agent_id.clone(), agent_name: req.agent_name.clone(), project: req.project.clone() });
+    let call = ToolCall { id, tool: req.tool.clone(), kind, caller, input: req.input.clone(), view: None };
+    let (tx, rx) = mpsc::channel();
+    let ext = req.extension.clone();
+    tiles.update(cx, |t, cx| t.tool_call(&ext, call, tx, cx)).map_err(|why| ErrorBody::new(code::OTHER, format!("{} can't take it now: {why}", req.extension)))?;
+    Ok(Running { call: id, answer: rx })
+}
+
+/// Off the UI thread: wait for the tile's answer to a `read` or `act`
+/// call (at most `within`). `None`: it ran out of time.
+pub fn wait_run(r: &Running, within: std::time::Duration) -> Option<TileRan> {
+    let answer = r.answer.recv_timeout(within).ok()?;
+    Some(match answer {
+        Answer::Handled => TileRan { ok: true, text: "Done.".into(), ..Default::default() },
+        Answer::Reply(ToolOutput::Ok(ok)) => TileRan { ok: true, text: ok.text, json: ok.json, ..Default::default() },
+        Answer::Reply(ToolOutput::Error(e)) => TileRan { ok: false, text: error_text(&e), ..Default::default() },
+        Answer::NotDelivered(why) => TileRan { ok: false, text: format!("The tile didn't get it: {why}. Nothing was done."), ..Default::default() },
+    })
+}
+
+/// After a `read` or `act` call, on the main thread: let go (the tile
+/// hears `tool-cancelled` when it ran out of time), in the activity log.
+pub fn ran(req: &TileRun, call: Option<u64>, ran: &TileRan, cx: &mut App) {
+    if let (Some(call), true) = (call, ran.timed_out) {
+        let ext = req.extension.clone();
+        super::tiles(cx).update(cx, |t, _| t.cancel_tool(&ext, call));
+    }
+    use pitwall_core::extensions::activity::{Entry, Outcome, Via};
+    let outcome = if ran.ok {
+        Outcome::Ok
+    } else {
+        Outcome::Refused { code: if ran.refused { "refused".into() } else { "error".into() }, message: ran.text.clone() }
+    };
+    // `act`: the whole input; `read`: its first 200 characters.
+    let input: String = if req.kind == "act" { req.input.clone() } else { req.input.chars().take(200).collect() };
+    let who = if req.by_user { "You".to_string() } else { req.agent_name.clone() };
+    let name = pitwall_proto::tile_tools::mcp_name(&req.extension, Some(&req.tool));
+    let log = crate::extensions::calls::activity(&req.extension, cx);
+    log.lock().unwrap_or_else(|e| e.into_inner()).push(Entry::now(Via::Agent, &name, outcome).with_detail(Some(format!("{who} ({}): {input}", req.kind))));
 }
 
 /// A line in extension `ext`'s activity log for a call of tool `name`:

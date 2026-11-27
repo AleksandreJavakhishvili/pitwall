@@ -52,11 +52,22 @@ pub struct ApprovalDialog {
 struct Global_(Entity<ApprovalDialog>);
 impl Global for Global_ {}
 
+/// The approvals the dialog answers, for the app's own asks (a tile
+/// tool's `read` or `act` call).
+struct Asker(Arc<Approvals>);
+impl Global for Asker {}
+
 /// Set up the dialog for `store`'s approvals, answered by `approvals`.
 pub fn init(store: &Entity<AgentStore>, approvals: Arc<Approvals>, cx: &mut App) {
+    cx.set_global(Asker(approvals.clone()));
     let answer: Answerer = Arc::new(move |a: &ApprovalAnswer| approvals.answer(a));
     let dialog = cx.new(|cx| ApprovalDialog::new(store.clone(), answer, cx));
     cx.set_global(Global_(dialog));
+}
+
+/// The approvals the dialog shows (`None` before [`init`]).
+pub fn approvals(cx: &App) -> Option<Arc<Approvals>> {
+    cx.try_global::<Asker>().map(|a| a.0.clone())
 }
 
 /// The dialog, for a window to draw over everything, while a request
@@ -142,13 +153,24 @@ impl ApprovalDialog {
 
     /// Answer the request shown (Deny also for ✕, Esc and a click outside).
     pub fn answer(&mut self, allow: bool, cx: &mut Context<Self>) {
+        let remember = self.remember;
+        self.reply(allow, remember, cx);
+    }
+
+    /// "Always for <agent>" (a request that offers it): allowed, and
+    /// its grant kept until revoked.
+    pub fn answer_always(&mut self, cx: &mut Context<Self>) {
+        self.reply(true, true, cx);
+    }
+
+    fn reply(&mut self, allow: bool, remember: bool, cx: &mut Context<Self>) {
         let Some((a, _)) = self.pending(cx) else {
             return;
         };
         let reply = ApprovalAnswer {
             id: a.id,
             allow,
-            remember: allow && self.remember && a.rememberable,
+            remember: allow && remember && (a.rememberable || a.always.is_some()),
         };
         if let Err(e) = (self.answer)(&reply) {
             self.error = Some(e);
@@ -284,8 +306,15 @@ impl Render for ApprovalDialog {
                         kit::text_button("approval-deny", "Deny", kit::BtnKind::Ghost, false, &t)
                             .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx))),
                     )
+                    // A tile tool's request: "Always for <agent>" too.
+                    .when_some(a.always.clone(), |d, label| {
+                        d.child(
+                            kit::text_button("approval-always", label, kit::BtnKind::Ghost, false, &t)
+                                .on_click(cx.listener(|this, _, _, cx| this.answer_always(cx))),
+                        )
+                    })
                     .child(
-                        button("approval-allow", "Allow", &t, true)
+                        button("approval-allow", if a.always.is_some() { "Allow once" } else { "Allow" }, &t, true)
                             .on_click(cx.listener(|this, _, _, cx| this.answer(true, cx))),
                     ),
             );
