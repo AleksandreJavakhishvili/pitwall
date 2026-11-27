@@ -139,10 +139,21 @@ variant event {
   timer(u32), task-done(task-result),
   settings-changed, grants-changed(list<string>),
   agents-changed,               // with agents.read; the snapshot is read via `pitwall`
-  undo-present(u64),            // the user pressed Undo on an agent's change (11.6)
+  undo-present(u64),            // the user pressed Undo on an agent's change (11.6); phase 3
   tool-cancelled(u64),          // the call timed out or the agent went away
 }
 ```
+
+**Opened by an agent.** Every tile can be opened by an agent, with no
+code from the author ([11.1](agent-tools.md#111-why-and-what)): Pitwall
+places the view next to the calling agent's terminal, or where `where`
+and `of` say, as it places a web tile ([11.8](agent-tools.md#118-where-the-tile-opens)),
+then sends `view-opened` (or `view-content` for a view already open)
+with the agent's input as the content, if the tile declares an
+`"input"`. A tile that ignores the content still opens; one that reads
+it shows the payload (a diagram, a draft note) and may `reply` with
+problems in it. A later call with the same item (the content id)
+updates that view in place.
 
 Handlers are numbers. The SDK keeps the closures guest-side in a table
 rebuilt on each render and sends only the numbers. A handler from an

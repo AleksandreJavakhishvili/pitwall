@@ -4,9 +4,19 @@ Status: design, not built. Started 2026-11-27.
 
 The C4 diagram tile is Pitwall's flagship seed tile
 ([Tile SDK §10.1](../tile-sdk/README.md#101-seed-tiles-first-party-public-sdk-only)).
-It shows the C4 diagrams that coding agents write into a project's
-Markdown docs, drawn natively, next to the agents. Later, agents use its
-tools to create and change those diagrams.
+Its headline use: the user asks a coding agent "draw me this diagram
+and show it on the right"; the agent writes Mermaid and calls the tile's
+show tool, `c4__show`; the diagram opens in a C4 tile next to that
+agent's terminal, drawn natively. A later call with the same diagram id
+updates the tile in place. Placement works like Pitwall's own
+`show_files` and `show_web`. Second, the tile shows the C4 diagrams that
+agents write into a project's Markdown docs. Later, agents use its tools
+to read and change those docs' diagrams, with the user's approval.
+
+The C4 tile is the first user of an SDK-wide principle: extensions
+provide their own agent tools, Pitwall registers them with every agent
+it starts, and every tile can be opened by an agent
+([agent-tools §11.1](../tile-sdk/agent-tools.md#111-why-and-what)).
 
 It is a third-party tile in every sense but its author. It is built only
 on the public Tile SDK, so every gap it hits is a gap in the SDK.
@@ -31,7 +41,13 @@ user reads them as source text in an editor, or opens a browser preview
 that sits apart from the agents. Neither shows how the levels connect,
 or what an agent's change adds.
 
-The tile answers four questions at a glance, inside Pitwall:
+Agents also draw diagrams on request, in chat: "how does auth flow
+through these services?" The answer comes back as Mermaid source in the
+terminal, which the user can't read as a picture. The agent has no way
+to put a picture in front of the user beside its own terminal.
+
+The tile answers five questions at a glance, inside Pitwall:
+0. What did the agent just draw for me? (Show it, next to the agent.)
 1. What does the system look like? (Draw the diagram.)
 2. What is inside this box? (Click it to go one level down.)
 3. What does this change add or alter? (New and changed parts stand out;
@@ -43,7 +59,7 @@ The tile answers four questions at a glance, inside Pitwall:
 | Persona | Who | What they want from the tile |
 |---|---|---|
 | The engineer | A Pitwall user who runs several agents on a project and reviews their design docs | Read the architecture fast, see what a proposed change touches, jump to the source line |
-| The agent | A coding agent Pitwall started (Claude Code, Codex, …) | v2: list and read the project's diagrams; show a proposed change to the user; write it into the doc after approval; export SVG |
+| The agent | A coding agent Pitwall started (Claude Code, Codex, …) | v1: show a diagram it wrote to the user, next to its terminal, and update it; v2: list and read the project's diagrams; propose a change to a doc's diagram; write it into the doc after approval; export SVG |
 | The tile author | Pitwall's own team, writing the tile on the public SDK | Prove that canvas, files and agent tools are enough for a real tile; find the gaps before WIT 1.0 |
 
 ## 3. The input format
@@ -62,6 +78,8 @@ to confirm.
   list in the tile's settings.
 - Several diagrams per file are normal. The heading above a block names
   it.
+- A shown diagram (§5.1) is not in a file: its Mermaid source comes in
+  the agent's `c4__show` call, in the same convention.
 
 ### 3.2 C4 structure diagrams (context, container, component)
 
@@ -79,7 +97,7 @@ to confirm.
   that a change adds, alters, or that sit outside the system. Classes
   are applied with `class a,b new` or `a:::new`.
 - The level (context, container, component) is not written in the
-  diagram. The tile infers it ([§5.3](#53-levels-and-zoom-v1)).
+  diagram. The tile infers it ([§5.5](#55-levels-and-zoom-v1)).
 
 A container diagram in this convention looks like this:
 
@@ -119,6 +137,31 @@ alone show the change.
 
 ## 4. User stories
 
+v1, first part (shown diagrams; no file access), and v1.1:
+
+- **S1. Show me.** In Claude Code I type "draw me the containers of this
+   service as a C4 diagram and show it on the right". The agent writes
+   Mermaid in the convention (§3) and calls `c4__show` with
+   `item: "containers"`. A C4 tile opens right of that agent's terminal
+   with the drawing, marked "from <agent>". I say "add the cache"; the
+   agent calls `c4__show` again with the same item, and the same tile
+   redraws in place, with Cache highlighted as new ("Changes since last
+   show"). If its Mermaid has an error, nothing changes in the tile and
+   the agent gets "line 4, column 9: …" and fixes it.
+- **S2. Placement.** "Show it below the api agent's terminal": the agent
+   passes `where: "below"`, `of: "api"`. "In its own window":
+   `where: "window"`. I drag the tile elsewhere; the agent's next call
+   goes to it there.
+- **S3. Zoom across shown diagrams.** The agent shows a context diagram
+   and a container diagram as two items. Clicking the system box in the
+   first zooms into the second (§5.5).
+- **S4. Save to file** (v1.1). I press "Save to file" on a shown diagram.
+   The tile asks which Markdown file in the agent's project and under
+   which heading (default: a new `docs/diagrams.md`), and writes the
+   Mermaid block there, after Pitwall's `files.write` grant (§5.2).
+
+v1, second part (diagrams in the docs), and v2:
+
 1. **Open.** I open "C4 diagrams" from the palette. The tile asks which
    project it may read. I pick `my-app`. It lists the diagrams it found,
    grouped by file, and draws the first context diagram.
@@ -143,7 +186,7 @@ alone show the change.
 7. **Unsupported diagram.** A doc has a `classDiagram`. The tile lists
    it, and when selected, shows "Class diagrams aren't drawn here" with
    the source in a read-only code view and "Open source".
-8. **(v2) Ask an agent.** I tell my agent "add the cache container". It
+8. **(v2) Ask an agent to change the docs.** I tell my agent "add the cache container". It
    reads the container diagram through the tile, sends a proposal, and
    the tile shows it over the current diagram with "from api" and Undo.
    I press Apply, or the agent asks to write it; Pitwall asks me first,
@@ -153,7 +196,77 @@ alone show the change.
 
 ## 5. Functional requirements
 
-### 5.1 Finding diagrams (v1)
+FR numbers are stable ids: requirements added later get the next free
+number, wherever they sit. v1 ships in two parts: **shown diagrams**
+(§5.1) first, which need no file access, and **diagrams in the docs**
+(§5.3) second. Save to file (§5.2) is v1.1. Drawing, zoom, change views
+and fallbacks (§5.4 to §5.8) apply to shown diagrams and docs diagrams
+alike.
+
+### 5.1 Shown diagrams (v1, first)
+
+- **FR-34.** The tile declares one show tool, `show` (kind `present`,
+  [agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds)),
+  which agents see as `c4__show`. Input: `mermaid` (the source, required,
+  ≤ 200 000 characters), `title` (optional; else the frontmatter title,
+  else the first box's Name), `item` (the diagram id chosen by the
+  agent, optional; the tile makes one when absent and returns it).
+  Pitwall adds `where` and `of` to the schema and handles them
+  [SDK, [agent-tools §11.8](../tile-sdk/agent-tools.md#118-where-the-tile-opens)].
+- **FR-35.** A call opens the C4 tile next to the calling agent's
+  terminal (right by default; `where`: `right`, `left`, `above`,
+  `below`, `replace`, `window`; `of`: another agent in the space), or
+  goes to the C4 tile that agent opened before, wherever the user moved
+  it [SDK]. The tile draws the diagram and selects it.
+- **FR-36.** The same `item` from the same agent replaces that diagram
+  in place, keeping zoom and pan when the boxes still fit; a new `item`
+  adds a diagram to the outline's "Shown" group, under the agent's name.
+- **FR-37.** All or nothing: Mermaid that doesn't parse, an unsupported
+  type, or a diagram over the size limit (FR-21) changes nothing in the
+  tile, and the agent gets the problems as "line L, column C: message",
+  lines counted in its `mermaid` text. A diagram that parses with
+  skipped parts (FR-20) is shown, and the reply lists what was skipped.
+- **FR-38.** The reply is short text: what was shown, the item id, the
+  number of boxes, and what was skipped. It never returns other
+  diagrams, the user's state or file contents (show-only rule [SDK]).
+- **FR-39.** Each shown diagram carries the host's mark "from <agent>"
+  [SDK]; clicking it focuses that agent's terminal. The user can close
+  a shown diagram. If the user has edited it (in v1 nothing in the tile
+  edits a diagram, so this applies only from v2) a later call with the
+  same item is refused [SDK, phase 2 rule].
+- **FR-40.** "Changes since last show": after an update in place, the
+  tile offers the Changes view (FR-17) between the previous and the new
+  version, as for a before/after pair, until the next update.
+- **FR-41.** Shown diagrams are kept in the tile's storage per project
+  of the calling agent (the agent's project folder, or "no project")
+  and come back after a restart (FR-25). At most 50 per project
+  (*proposal*); past that the oldest the user hasn't opened for a week
+  goes first.
+- **FR-42.** Opening the tile with the host-provided `c4__open` [SDK]
+  shows it as it was. The tile's declared `"input"` (v1, second part) takes a
+  `diagram`: the id of a diagram in the docs (§3.1), to open at it.
+- **FR-43.** Shown diagrams need no permission: no `files.*`, no `net`.
+  The agent's access follows the SDK's agent-access switches [SDK].
+
+### 5.2 Save to file (v1.1)
+
+- **FR-44.** "Save to file" on a shown diagram writes it as a fenced
+  `mermaid` block into a Markdown file of the calling agent's project:
+  an existing file under a heading the user picks, or a new file
+  (default `docs/diagrams.md`, heading from the title). After saving,
+  the diagram is also a docs diagram (§5.3) and the tile links the two.
+- **FR-45.** It needs `files.write` on that project, which starts off
+  [SDK]; the first Save asks for it.
+
+**Why v1.1, not v1.** Writing needs `files.write`, an on-demand service
+that isn't built yet and starts off by default; v1's first part needs
+no file access at all, so it can ship as soon as SDK phase 2 does.
+Meanwhile the agent that drew the diagram can already write it into
+the docs with its own file tools when the user asks ("put that in
+hla.md"), so v1 loses little. Save to file comes with, or right after,
+the `files.read` that the docs part brings.
+
+### 5.3 Finding diagrams in the docs (v1, second)
 
 - **FR-1.** The tile reads only projects the user granted it under
   `files.read` [SDK]. It never asks for more.
@@ -168,7 +281,7 @@ alone show the change.
   the tile is shown (*proposal*). While hidden, the tile is suspended
   [SDK]; it checks for changes when shown again.
 
-### 5.2 Drawing (v1)
+### 5.4 Drawing (v1)
 
 - **FR-5.** It draws supported diagrams (§6) on the SDK canvas [SDK],
   laid out automatically. Boxes show Name, Kind and purpose. Shapes
@@ -189,26 +302,28 @@ alone show the change.
   opens fitted to the tile.
 - **FR-10.** A legend shows the classes the diagram uses.
 
-### 5.3 Levels and zoom (v1)
+### 5.5 Levels and zoom (v1)
 
 - **FR-11.** The tile infers each structure diagram's level: a heading or
   title that says "context", "container" or "component" wins; otherwise
   the Kinds decide (any `[Component]` → component; any `[Container]` →
   container; else context) (*proposal*).
-- **FR-12.** A box is "detailed" by another diagram when that diagram
+- **FR-12.** A box is "detailed" by another diagram (a shown one of
+  the same agent and project, or one in the docs) when that diagram
   has a boundary (subgraph) whose title is the box's Name (compared
   without the `[Kind]` part, case and extra spaces). Detailed boxes show
   a small zoom mark.
 - **FR-13.** Clicking a detailed box opens the diagram that details it.
-  When several diagrams detail it, the tile prefers one in the same file,
-  then the same folder; if still more than one, it shows a menu.
+  When several diagrams detail it, the tile prefers one in the same file
+  (for a shown diagram: shown by the same agent), then the same folder;
+  if still more than one, it shows a menu.
 - **FR-14.** A breadcrumb shows the path from the top. Each crumb goes
   back to its level. Backspace goes up one level.
 - **FR-15.** Clicking a box that is not detailed selects it. The footer
   shows its Name, Kind, purpose, its class, and the sequence diagrams in
   which a participant has the same Name. Clicking one opens it.
 
-### 5.4 Change views (v1)
+### 5.6 Change views (v1)
 
 - **FR-16.** Boxes and arrows with `new` or `changed` are highlighted
   (FR-8).
@@ -218,7 +333,7 @@ alone show the change.
   without a class. Boxes match by Name; arrows by both ends' Names and
   the label.
 
-### 5.5 Problems and fallbacks (v1)
+### 5.7 Problems and fallbacks (v1)
 
 - **FR-18.** A block of an unsupported diagram type is listed, with its
   type, and shows the fallback: a short note, the source in a read-only
@@ -236,24 +351,30 @@ alone show the change.
   the tile keeps the last good drawing, marked "out of date", with the
   problems listed.
 
-### 5.6 Navigation and state (v1)
+### 5.8 Navigation and state (v1)
 
 - **FR-23.** An outline lists files, and the diagrams in each, with
   their level or type. It is keyboard friendly: ↑ ↓ move, Enter opens.
 - **FR-24.** "Open source" opens the file at the block's line in
-  Pitwall's editor (`viewer.open`, `show` permission [SDK]).
+  Pitwall's editor (`viewer.open`, `show` permission [SDK]). A shown
+  diagram that isn't saved has no file; it offers its source in a
+  read-only code view instead.
 - **FR-25.** The tile remembers the project, the open diagram, the zoom
-  path and pan per diagram across restarts (own storage [SDK]).
+  path and pan per diagram, and the shown diagrams (FR-41), across
+  restarts (own storage [SDK]).
 - **FR-26.** Keyboard on the canvas: arrows move the selection between
   boxes, Enter zooms into a detailed box, Backspace goes up, `f` fits,
   `b` cycles Before / After / Changes. No key that Pitwall reserves
   [SDK].
 
-### 5.7 Agent tools (v2)
+### 5.9 Agent tools for the docs (v2)
 
 Kinds are the SDK's four ([agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds)).
+The show-only tools moved to v1 (§5.1); these return data or change
+files, so they wait for SDK phase 3.
 
-- **FR-27.** `show`: open the tile at a given diagram.
+- **FR-27.** Opening the tile at a docs diagram is the host-provided
+  `c4__open` with a `diagram` input (FR-42), in v1.
 - **FR-28.** `read`: list the project's diagrams (file, line, title,
   level or type, boundaries, which box each details, problems).
 - **FR-29.** `read`: get one diagram: its Mermaid text, the boxes (Name,
@@ -310,10 +431,12 @@ Kinds are the SDK's four ([agent-tools §11.2](../tile-sdk/agent-tools.md#112-fo
   is parsed, laid out and drawn within 100 ms of opening it; a redraw
   after pan or zoom fits in the SDK's 8 ms budget for `draw`
   ([runtime §2.5](../tile-sdk/runtime.md#25-sandbox-and-limits-summary-details-in-5)).
-- **NFR-3. Least privilege.** v1 asks only for `files.read` on chosen
-  projects and `show`. v2 adds `files.write`, which starts off [SDK].
+- **NFR-3. Least privilege.** Shown diagrams ask for nothing. The docs
+  part asks for `files.read` on chosen projects and `show`. Save to file
+  (v1.1) and v2 add `files.write`, which starts off [SDK].
 - **NFR-4. No network.** The tile never asks for `net`.
-- **NFR-5. Never writes in v1.** v1 changes no file in the project.
+- **NFR-5. Never writes in v1.** v1 changes no file in the project;
+  the first write is Save to file in v1.1, by the user's press.
 - **NFR-6. Accessible outline.** Everything the canvas shows can also be
   reached from the outline and the footer by keyboard, since a canvas has
   no accessible structure of its own.
@@ -338,4 +461,8 @@ Kinds are the SDK's four ([agent-tools §11.2](../tile-sdk/agent-tools.md#112-fo
 3. Whether the tile should also draw Mermaid's own `C4Context` syntax
    (§6.2).
 4. The extension id. This spec uses `c4`, so agents see tools such as
-   `c4__get_diagram` ([agent-tools §11.4](../tile-sdk/agent-tools.md#114-how-agents-reach-them)).
+   `c4__show` and `c4__get_diagram` ([agent-tools §11.4](../tile-sdk/agent-tools.md#114-how-agents-reach-them)).
+5. Whether a shown diagram should also go into the docs without a press
+   (an agent option `save_to`), once `files.write` exists. This spec
+   says no: the agent can write files itself, and a show tool stays
+   show-only.
