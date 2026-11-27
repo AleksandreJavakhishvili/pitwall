@@ -45,7 +45,7 @@ on macOS, Linux and Windows, and the Preview docs describe exactly that.
 - [x] Lean Wasmtime in the release build (#111): no `cache` feature, Wasmtime's and Cranelift's crates at `opt-level = "s"` ([10.3](README.md#103-decisions) item 19)
 - [ ] A 2–3 MB tile compiles in under 1 s on a 4-core CI runner ([10.3](README.md#103-decisions) item 19)
 - [ ] Authoring skill and generated `llms.txt` ([9.5](authoring.md#95-docs-for-authors-agents))
-- [ ] Docs pipeline: pages from Markdown, examples from source, a link check ([9.6](authoring.md#96-website-docs))
+- [x] Docs pipeline: pages from Markdown, examples from source, a link check ([9.6](authoring.md#96-website-docs)) (#109)
 - [ ] Website docs, marked Preview: Extensions sidebar group, overview, Quick start (`new`, `dev`, share a preview tile), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and skill download
 - [ ] First outside author has built a tile with the preview
 
