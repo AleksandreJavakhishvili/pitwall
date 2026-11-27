@@ -279,14 +279,17 @@ jobs:
         run: cargo test -p pitwall-cli
 
   tile-c4:
-    name: C4 tile (test + wasm build + dependency check)
+    name: C4 tile (wasm build + tests + harness tests + check + dependency check)
     # The C4 seed tile is its own Cargo workspace (tiles/c4/, outside the root
     # one) and may use no Pitwall crate but pitwall-extension
-    # (docs/spec/2026-11-27-c4-tile/hla.md §6).
+    # (pitwall-extension-test for its tests) (docs/spec/2026-11-27-c4-tile/hla.md
+    # §6). Its core is tested natively; its harness tests build tile.wasm and
+    # run it in Pitwall's tile runtime; `check` is the workspace's CLI.
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # As the Tile SDK job: pitwall-cli builds there without extra packages.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -295,16 +298,24 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: tiles/c4
-
-      - name: cargo test
-        run: cargo test --manifest-path tiles/c4/Cargo.toml --all-features
-
-      - name: cargo clippy
-        run: cargo clippy --manifest-path tiles/c4/Cargo.toml --all-features --all-targets -- -D warnings
+          cache-on-failure: true
+          workspaces: |
+            tiles/c4 -> target
+            . -> target
 
       - name: cargo build (wasm32-wasip2)
-        run: cargo build --manifest-path tiles/c4/Cargo.toml --target wasm32-wasip2
+        run: cargo build --manifest-path tiles/c4/Cargo.toml --target wasm32-wasip2 --release
+
+      - name: cargo clippy (wasm32-wasip2 and native, with the tests)
+        run: |
+          cargo clippy --manifest-path tiles/c4/Cargo.toml --target wasm32-wasip2 -- -D warnings
+          cargo clippy --manifest-path tiles/c4/Cargo.toml --all-features --all-targets -- -D warnings
+
+      - name: cargo test (the core, and harness tests in the tile runtime)
+        run: cargo test --manifest-path tiles/c4/Cargo.toml --all-features
+
+      - name: pitwall extension check
+        run: cargo run -p pitwall-cli -- extension check tiles/c4 -H
 
       - name: Dependency check
         run: sh tiles/c4/scripts/check-deps.sh

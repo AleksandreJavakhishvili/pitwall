@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "C4 diagrams: open the tile",
+  "description": "Open the C4 tile as it was, or at a diagram you showed before (its item id). To draw a new diagram, use c4__show.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "diagram": { "type": "string", "maxLength": 200, "description": "The item id of a diagram you showed with c4__show, to open at it" }
+  }
+}
