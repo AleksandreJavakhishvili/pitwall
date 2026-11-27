@@ -64,6 +64,17 @@ struct ViewState {
     /// The note is shown formatted (Preview), not in its editor (FR-11).
     #[serde(default)]
     preview: bool,
+    /// The Send picker is open (FR-13).
+    #[serde(skip)]
+    send: Option<Sending>,
+}
+
+/// The Send picker: what goes (the whole note, or section `n`), and why
+/// the last try didn't.
+#[derive(Debug, Clone, Default)]
+struct Sending {
+    section: Option<usize>,
+    error: Option<String>,
 }
 
 /// What `save_state` keeps across a drop or a reload: unsaved text and
@@ -87,6 +98,9 @@ struct Notes {
     last_edit: Instant,
     /// A save failed and the user was told; not told again until one works.
     save_failed: bool,
+    /// Pitwall's agents, read when the Send picker opens and when they
+    /// change; `Err` without `agents.read`.
+    agents: Result<Vec<agents::Agent>, HostError>,
 }
 
 fn now_ms() -> u64 {
@@ -104,7 +118,7 @@ impl Tile for Notes {
             }
         };
         let next_id = notes.iter().map(|n| n.id + 1).max().unwrap_or(1);
-        let mut this = Notes { notes, pending: BTreeMap::new(), views: BTreeMap::new(), restored: BTreeMap::new(), next_id, saver: None, last_edit: Instant::now(), save_failed: false };
+        let mut this = Notes { notes, pending: BTreeMap::new(), views: BTreeMap::new(), restored: BTreeMap::new(), next_id, saver: None, last_edit: Instant::now(), save_failed: false, agents: Ok(Vec::new()) };
         // Unsaved text from before a drop or a reload (FR-7): kept as
         // edits, saved a second from now.
         if let Some(saved) = cx.restore::<Saved>() {
@@ -179,6 +193,11 @@ impl Tile for Notes {
                     cx.notify();
                 }
             }
+            // The picker shows them as they are now.
+            Event::AgentsChanged | Event::GrantsChanged(_) if self.views.values().any(|v| v.send.is_some()) => {
+                self.agents = agents::list();
+                cx.notify();
+            }
             Event::Theme(_) | Event::SettingsChanged | Event::GrantsChanged(_) => cx.notify(),
             _ => {}
         }
@@ -209,6 +228,12 @@ impl Tile for Notes {
             }
         }
         self.view_mut(view).focus_search = false;
+        // ⌘/ switches Edit and Preview (FR-11), also while typing.
+        if let Some(Open::Note(_)) = vs.open {
+            let v = view.to_string();
+            let flip = cx.listener(move |this: &mut Notes, _: &KeyPress, cx| this.set_preview(&v, !this.views.get(&v).is_some_and(|s| s.preview), cx));
+            cx.bind_key("cmd-/", flip);
+        }
         if vs.focus_editor {
             self.view_mut(view).focus_editor = false;
             match vs.open {
@@ -407,18 +432,16 @@ impl Notes {
                     let (v, vm) = (view.to_string(), view.to_string());
                     let saved = if self.pending.contains_key(&id) { "Editing…" } else { "Saved" };
                     // Edit and Preview (FR-11).
-                    let mode = tabs("mode", [tab("edit", "Edit"), tab("preview", "Preview")]).selected(if vs.preview { "preview" } else { "edit" }).on_select(cx.listener(move |this: &mut Notes, key: &str, cx| {
-                        this.view_mut(&vm).preview = key == "preview";
-                        if key == "edit" {
-                            this.view_mut(&vm).focus_editor = true;
-                        }
-                        cx.notify();
-                    }));
+                    let mode = tabs("mode", [tab("edit", "Edit"), tab("preview", "Preview")])
+                        .selected(if vs.preview { "preview" } else { "edit" })
+                        .tooltip("Edit or Preview (⌘/)")
+                        .on_select(cx.listener(move |this: &mut Notes, key: &str, cx| this.set_preview(&vm, key == "preview", cx)));
                     bar()
                         .when(!split, |h| h.child(back(cx)))
                         .child(text(title).text_sm().font_medium().truncate().flex_1())
                         .child(text(saved).text_xs().text_color(Token::Text3).flex_none())
                         .child(mode)
+                        .child(self.send_button(view, vs, &text_now, cx))
                         .child(icon_button(Icon::Trash, "Delete note").id("trash").on_click(cx.listener(move |this: &mut Notes, _, cx| {
                             this.view_mut(&v).confirm_delete = true;
                             cx.notify();
@@ -455,6 +478,165 @@ impl Notes {
                 pane.child(head).child(v_flex().id(format!("n{id}")).flex_1().min_h(px(0.)).p_2().child(field))
             }
         }
+    }
+}
+
+// ---- Send to an agent ---------------------------------------------------------
+
+/// "5 210" for 5210, as the frd's messages write counts.
+fn count(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn state_word(s: agents::State) -> &'static str {
+    match s {
+        agents::State::Working => "working",
+        agents::State::Blocked => "needs you",
+        agents::State::Idle => "idle",
+        agents::State::Done => "done",
+        agents::State::Stopped => "stopped",
+        agents::State::Unknown => "",
+    }
+}
+
+impl Notes {
+    /// The note's Send button and, while open, its picker (FR-13–FR-16):
+    /// what to send (the whole note or one section), then the agents
+    /// that can take it; a click puts it in that agent's Next up.
+    fn send_button(&self, view: &str, vs: &ViewState, text_now: &str, cx: &mut Cx<Self>) -> Div {
+        let v = view.to_string();
+        let send = icon_button(Icon::Send, "Send to an agent").id("send").disabled(text_now.trim().is_empty()).on_click(cx.listener(move |this: &mut Notes, _, cx| {
+            let open = this.views.get(&v).is_some_and(|s| s.send.is_some());
+            if open {
+                this.view_mut(&v).send = None;
+            } else {
+                this.agents = agents::list();
+                this.view_mut(&v).send = Some(Sending::default());
+            }
+            cx.notify();
+        }));
+        let wrap = div().id("send-at").child(send);
+        let Some(sending) = &vs.send else { return wrap };
+        let sections = note::sections(text_now);
+        let section = sending.section.filter(|n| *n < sections.len());
+        let what = section.map_or(text_now.trim().to_string(), |n| sections[n].1.clone());
+        let chars = what.chars().count();
+        let mut body = v_flex().id("picker").gap_1().p_1().child(text("Send to an agent").text_sm().font_semibold().px_2().pt_1());
+        if !sections.is_empty() {
+            let v = view.to_string();
+            let mut choices = vec![choice("all", "The whole note")];
+            choices.extend(sections.iter().enumerate().map(|(n, (name, _))| choice(format!("s{n}"), format!("§ {name}"))));
+            body = body.child(
+                div().px_2().child(
+                    select("what", choices)
+                        .selected(section.map_or("all".to_string(), |n| format!("s{n}")))
+                        .on_select(cx.listener(move |this: &mut Notes, key: &str, cx| {
+                            if let Some(s) = this.view_mut(&v).send.as_mut() {
+                                s.section = key.strip_prefix('s').and_then(|n| n.parse().ok());
+                                s.error = None;
+                            }
+                            cx.notify();
+                        })),
+                ),
+            );
+        }
+        let too_long = chars > agents::MAX_TEXT;
+        if too_long {
+            let hint = if sections.is_empty() { "Make it shorter, or split it under headings." } else { "Pick a section." };
+            body = body.child(text(format!("Too long to send: {} of {} characters. {hint}", count(chars), count(agents::MAX_TEXT))).id("too-long").text_xs().text_color(Token::Warn).px_2());
+        }
+        if let Some(e) = &sending.error {
+            body = body.child(text(e.clone()).id("error").text_xs().text_color(Token::Bad).px_2());
+        }
+        match &self.agents {
+            Err(HostError::Denied) => {
+                body = body.child(text("Notes can't see your agents yet. Allow “See your agents” and “Put text in an agent's Next up” for Notes in Settings → Extensions.").id("denied").text_xs().text_color(Token::Text2).px_2()).child(
+                    div().px_2().pb_1().child(button("Open settings").small().id("settings").on_click(cx.listener(|_: &mut Notes, _, _| settings::open()))),
+                );
+            }
+            Err(e) => body = body.child(text(format!("The agents couldn't be read: {e}")).text_xs().text_color(Token::Bad).px_2()),
+            Ok(list) => {
+                let list: Vec<&agents::Agent> = list.iter().filter(|a| a.kind != "shell").collect();
+                if list.is_empty() {
+                    body = body.child(text("No agents to send to. Start one in Pitwall first.").id("none").text_xs().text_color(Token::Text3).px_2().pb_1());
+                }
+                let mut rows = v_flex().id("agents").max_h(px(280.)).overflow_y_scroll();
+                for a in list {
+                    let (v, id, name) = (view.to_string(), a.id.clone(), a.name.clone());
+                    let detail = [a.kind_name.as_str(), state_word(a.state)].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+                    let detail = match &a.branch {
+                        Some(b) => format!("{detail} · {b}"),
+                        None => detail,
+                    };
+                    let what = what.clone();
+                    rows = rows.child(
+                        h_flex()
+                            .id(format!("a-{}", a.id))
+                            .gap_2()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .when(!too_long, |r| r.cursor_pointer().focusable().hover_bg(Token::Surface2))
+                            .when(too_long, |r| r.opacity(0.5))
+                            .child(avatar(a.name.clone()).small())
+                            .child(v_flex().flex_1().min_w(px(0.)).child(text(a.name.clone()).text_sm().truncate()).child(text(detail).text_xs().text_color(Token::Text3).truncate()))
+                            .when(a.queued > 0, |r| r.child(badge(format!("{} queued", a.queued))))
+                            .when(!too_long, |r| r.on_click(cx.listener(move |this: &mut Notes, _, cx| this.send_to(&v, &id, &name, &what, cx)))),
+                    );
+                }
+                body = body.child(rows);
+            }
+        }
+        let v = view.to_string();
+        wrap.child(popover().id("send-menu").width(320.).on_dismiss(cx.listener(move |this: &mut Notes, _: &Dismissed, cx| {
+            this.view_mut(&v).send = None;
+            cx.notify();
+        })).child(body))
+    }
+
+    /// Put `text` in agent `id`'s Next up, waiting for the user's Send
+    /// (FR-15); Pitwall's refusals stay in the picker (FR-16).
+    fn send_to(&mut self, view: &str, id: &str, name: &str, text: &str, cx: &mut Cx<Self>) {
+        match agents::queue_add(id, text) {
+            Ok(()) => {
+                self.view_mut(view).send = None;
+                ui::toast(format!("In {name}'s Next up, waiting for your Send"), Tone::Good);
+            }
+            Err(e) => {
+                let why = match e {
+                    HostError::Busy => format!("{name} already has Notes' items waiting, or one was just sent: send or remove those first, or try again in a few seconds."),
+                    HostError::TooLarge => format!("Too long to send: {} of {} characters.", count(text.chars().count()), count(agents::MAX_TEXT)),
+                    HostError::Denied => "Notes may not put text in an agent's Next up: allow it for Notes in Settings → Extensions.".to_string(),
+                    HostError::Invalid(_) => format!("{name} isn't there any more."),
+                    e => format!("It wasn't sent: {e}"),
+                };
+                if let Some(s) = self.view_mut(view).send.as_mut() {
+                    s.error = Some(why);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Edit or Preview (FR-11).
+    fn set_preview(&mut self, view: &str, on: bool, cx: &mut Cx<Self>) {
+        if on && !self.pending.is_empty() {
+            self.flush(cx);
+        }
+        let vs = self.view_mut(view);
+        vs.preview = on;
+        if !on {
+            vs.focus_editor = true;
+        }
+        cx.notify();
     }
 }
 
