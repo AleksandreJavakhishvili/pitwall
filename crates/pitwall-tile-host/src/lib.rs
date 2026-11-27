@@ -18,6 +18,7 @@
 //! - [`ExtensionData`]: an extension's settings and stored data on disk.
 
 mod bindings;
+pub mod blocks;
 mod cache;
 mod clock;
 mod data;
