@@ -1,6 +1,6 @@
 # Extensions quick start
 
-**Preview.** This page takes you from an empty folder to a tile that builds, passes its checks and runs its tests in Pitwall's own tile runtime. Two steps are still being built in this preview and are marked below: showing the tile in Pitwall's layout (which `pitwall extension dev` loads it into), and installing it from a folder.
+**Preview.** This page takes you from an empty folder to a tile running in Pitwall: scaffolded, reloaded on every save, checked, tested, and shared with someone else as a folder.
 
 ## Before you start
 
@@ -10,7 +10,7 @@ You need Rust, installed with [rustup](https://rustup.rs), and its WebAssembly t
 rustup target add wasm32-wasip2
 ```
 
-You also need Pitwall's CLI, `pitwall`, which comes with the app (see [the CLI reference](../cli.md#install)). The `pitwall extension new`, `check` and `test` commands work on a folder without the app running.
+You also need Pitwall's CLI, `pitwall`, which comes with the app (see [the CLI reference](../cli.md#install)). The `pitwall extension new`, `check` and `test` commands work on a folder without the app running; `dev` and `install` work with the running app.
 
 ## Make a tile
 
@@ -81,9 +81,13 @@ An extension has one component. Every tile entry names the same `tile.wasm`, and
 pitwall extension dev
 ```
 
-Each round, `dev` builds the tile (`cargo build --release --target wasm32-wasip2`), copies the component to `tile.wasm` beside `extension.json`, and checks it as `pitwall extension check` does. It does this once at the start and again after every save in the folder (changes in `target/` and to `tile.wasm` are ignored), and prints one JSON line per round. `--once` does one round and exits, with status 1 when the build or the check failed.
+Each round, `dev` builds the tile (`cargo build --release --target wasm32-wasip2`), copies the component to `tile.wasm` beside `extension.json`, checks it as `pitwall extension check` does, and loads it into the running Pitwall. It does this once at the start and again after every save in the folder (changes in `target/` and to `tile.wasm` are ignored), and prints one JSON line per round. `--once` does one round and exits, with status 1 when the build or the check failed. A round whose build or check fails loads nothing.
 
-**Coming in this preview: loading into Pitwall.** After a round that passes, `dev` asks the running Pitwall to load the folder as a development extension, or to reload it there, keeping the tile's state across the reload. The app's side of this comes with tiles in Pitwall's layout. Until then the running Pitwall answers that it can't load development tiles yet, and `dev` says so and goes on building and checking.
+**Loading into Pitwall.** The first time, Pitwall asks you to confirm. It then lists the folder in Settings → Extensions as a development extension, loaded where it is (never copied or updated), and turns it on. Open the tile from the command palette: "Open <tile title> (<extension name>)". It opens as a tile in the layout, beside your terminals.
+
+**Reloading.** Later rounds ask nothing. The running tile saves its state, a new one starts from the new build with that state, and the tiles that were open stay open. If Pitwall isn't running, `dev` says so, and a later round loads the tile once it is. `dev` is only for extensions that add tiles and run no programs; one with an adapter, a service or setup actions is loaded from Settings → Extensions instead.
+
+**The Log.** What the tile logs and prints is in its Log, on its card in Settings → Extensions, and `pitwall extension log <id>` prints it. When a tile stops (over a deadline, a crash, a frame too large), it says why in its place, with Restart.
 
 Keep what the user is typing or looking at across a reload with `save_state`. The `list` template keeps its filter and the item being typed:
 
@@ -131,14 +135,14 @@ The harness, `pitwall-extension-test`, can also type into fields (`type_into`, `
 
 ## Share a preview tile
 
-**Coming in this preview.** Before packages exist, an author can pass a tile around as a folder: the one holding `extension.json`, `tile.wasm` and the files the manifest names (such as `input.schema.json`).
+Before packages exist, an author can pass a tile around as a folder: the one holding `extension.json`, `tile.wasm` and the files the manifest names (such as `input.schema.json`). The person you send it to installs it:
 
 - **In Pitwall:** Settings → Extensions → Install from folder…
-- **From a terminal:** `pitwall extension install <folder>`, or a URL of such a folder served over HTTPS.
+- **From a terminal:** `pitwall extension install <folder>`. The argument must be a path with a `/` in it (such as `./my-tile`); a bare name is the id of an extension Pitwall ships. The terminal prints what installing changes, and you approve it in Pitwall.
 
-Pitwall copies the folder into its own data folder, checks the component's imports, and shows the permission screen with an "Unsigned, preview: only install tiles from people you trust" warning ([Permissions](permissions.md#unsigned-preview-tiles)). The tile is marked as a developer preview wherever it appears. It is never updated: installing a newer folder replaces it. Unlike `pitwall extension dev`, the folder is copied, not loaded in place.
+Only extensions that add tiles and run no programs install this way. Pitwall checks the folder (its manifest, its files, and that `tile.wasm` is a component), copies it into its own extensions folder, and lists the tiles it adds and the permissions it asks for with their reasons, with the warning "Unsigned, preview: only install tiles from people you trust" ([Permissions](permissions.md#unsigned-preview-tiles)). It is installed off: turn it on in Settings → Extensions, or with `pitwall extension on <id>`, to use its tiles. It is never updated: installing a newer folder replaces it and keeps its settings and data. Unlike `pitwall extension dev`, the folder is copied, not loaded in place.
 
-Today `pitwall extension install` takes only the id of an extension Pitwall ships. Signed packages, updates and a marketplace come in later releases.
+**Coming in this preview:** installing from the address of such a folder served over HTTPS. For now `pitwall extension install` refuses an address: download and unpack it, then install the folder. Signed packages, updates and a marketplace come in later releases.
 
 ## Next
 
