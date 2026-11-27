@@ -445,7 +445,7 @@ pub fn stage(path: &Path, extensions: &Path) -> Result<(Offer, Opened), String> 
     let checked = unpack(&opened.files, &into).and_then(|()| super::preview::check(&into));
     match checked {
         Ok(m) if m == opened.manifest => {
-            let origin = Origin::Package { path: path.to_string_lossy().into_owned(), sha256: opened.sha256.clone(), signer: opened.signer.clone() };
+            let origin = Origin::Package { path: path.to_string_lossy().into_owned(), sha256: opened.sha256.clone(), signer: opened.signer.clone(), index: None };
             Ok((Offer { manifest: m, folder: into, origin }, opened))
         }
         Ok(_) => {
