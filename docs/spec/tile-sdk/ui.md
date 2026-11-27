@@ -633,7 +633,7 @@ How it works:
 #### Component catalogue
 
 Every component a tile can use, its WIT shape (element case and
-record) and its status. Batch 1 is #126; batch 2 is PR #TBD.
+record) and its status. Batch 1 is #126; batch 2 is #128.
 
 | Component | WIT | SDK | Status |
 |---|---|---|---|
