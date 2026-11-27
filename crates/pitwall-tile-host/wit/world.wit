@@ -14,12 +14,12 @@ package pitwall:tile@0.1.0;
 
 /// What a tile's component imports from Pitwall and exports to it.
 ///
-/// Every import here works without a permission in 0.1: each one reaches
-/// only the tile's own things (its tree, its log, its timers, its stored
-/// data, its settings). Later versions add interfaces that need a
-/// permission the user grants (network, project files, agents); a tile
-/// that isn't granted one gets `host-error.denied` from it instead of
-/// failing to load.
+/// Most imports here work without a permission: each one reaches only the
+/// tile's own things (its tree, its log, its timers, its stored data, its
+/// settings). Those that reach Pitwall's agents need a permission the user
+/// grants (`agents.read`, `agents.queue`), and badges and questions need
+/// the manifest to contribute them; a tile that isn't granted one gets
+/// `host-error.denied` from it instead of failing to load.
 ///
 /// Besides these, the host provides WASI 0.2 for what Rust's standard
 /// library needs: the wall and monotonic clocks (`std::time::SystemTime`
@@ -39,6 +39,12 @@ world tile {
   import storage;
   /// The tile's settings, as the user set them in Settings.
   import settings;
+  /// Pitwall's agents and their Next up (`agents.read`, `agents.queue`).
+  import agents;
+  /// Counts and notes on sidebar rows (`"badges": true`).
+  import badges;
+  /// Questions in the floating control (`"asks": true`).
+  import asks;
 
   /// What Pitwall calls in the tile.
   export guest;

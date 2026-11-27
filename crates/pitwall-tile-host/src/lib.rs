@@ -23,6 +23,7 @@ mod cache;
 mod clock;
 mod data;
 pub mod frame;
+mod group;
 mod host;
 pub mod keys;
 pub mod limits;
@@ -44,12 +45,16 @@ use wasmtime::{Config, Engine};
 pub use clock::{Clock, ManualClock};
 pub use data::ExtensionData;
 pub use frame::Diff;
+pub use group::{MethodError, Methods, NoMethods};
 pub use worker::TileHandle;
 
 /// The element tree, events and other types of `pitwall:tile@0.1.0`, as
 /// Rust types (generated from `wit/`; each item's WIT doc comment says
 /// what it means).
 pub mod ui {
+    pub use crate::bindings::pitwall::tile::agents::{Agent, AgentState};
+    pub use crate::bindings::pitwall::tile::asks::{Ask, Suggestion};
+    pub use crate::bindings::pitwall::tile::badges::{Badge, Row};
     pub use crate::bindings::pitwall::tile::settings::SettingValue;
     pub use crate::bindings::pitwall::tile::types::*;
 
@@ -76,12 +81,16 @@ pub struct HostConfig {
     pub data_dir: PathBuf,
     /// Reads `secret` settings from the system's secure store.
     pub secrets: Arc<dyn Secrets>,
+    /// Answers `agents.list` and `agents.queue-add` (the app's method
+    /// table, as adapters reach it).
+    pub methods: Arc<dyn Methods>,
 }
 
 impl HostConfig {
-    /// A config with no secret store (every secret reads as unset).
+    /// A config with no secret store (every secret reads as unset) and no
+    /// method table (every agents call fails).
     pub fn new(data_dir: impl Into<PathBuf>) -> HostConfig {
-        HostConfig { data_dir: data_dir.into(), secrets: Arc::new(NoSecrets) }
+        HostConfig { data_dir: data_dir.into(), secrets: Arc::new(NoSecrets), methods: Arc::new(NoMethods) }
     }
 }
 
@@ -102,11 +111,11 @@ impl Secrets for NoSecrets {
 }
 
 /// The permissions the user granted an extension (permissions.md §5),
-/// which the host enforces. Nothing in WIT 0.1 needs a permission; the
-/// one with an effect is `memory`: linear memory up to the size the
-/// manifest asks for, instead of 64 MiB. Interfaces that need a grant
-/// arrive in later worlds, linked to stubs that return `denied` until
-/// granted (permissions.md §5.2).
+/// which the host enforces: `memory` (linear memory up to the size the
+/// manifest asks for, instead of 64 MiB), `agents.read` and
+/// `agents.queue` (`agents`), `projects.read` (badges on project rows).
+/// An interface whose grant is missing returns `denied` (permissions.md
+/// §5.2).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Grants {
     granted: BTreeSet<String>,
@@ -356,6 +365,13 @@ pub enum UiRequest {
     ScrollTo { view: String, key_path: String },
     /// Open the extension's card in Settings.
     OpenSettings,
+    /// Its badges on sidebar rows now (`badges.set`): the whole set,
+    /// checked against the limits and its grants.
+    Badges(Vec<ui::Badge>),
+    /// Its open questions now (`asks.set`): the whole set, checked.
+    Asks(Vec<ui::Ask>),
+    /// Its reply to an answer (`asks.reply`): taken, or why not.
+    AskResult { id: String, refused: Option<String> },
 }
 
 /// A new frame of a view.

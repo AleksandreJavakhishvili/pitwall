@@ -1,0 +1,64 @@
+package pitwall:tile@0.1.0;
+
+/// Pitwall's agents as a tile may see them, and their Next up
+/// (platform-services.md §14.2, the agents' questions group). The same
+/// methods and permissions as adapters' `agent.list` and `queue.add`,
+/// with the same limits, recorded in the extension's Activity.
+interface agents {
+  use types.{host-error};
+
+  /// What an agent is doing now, as Pitwall reads it.
+  enum agent-state {
+    /// Working on its turn.
+    working,
+    /// It asks the user something (an approval, a question) and is held
+    /// up until it is answered.
+    blocked,
+    /// Waiting for its next prompt.
+    idle,
+    /// Done with its turn.
+    done,
+    /// Not running: it exited or was stopped.
+    stopped,
+    /// Pitwall can't tell yet.
+    unknown,
+  }
+
+  /// An agent (or a terminal) Pitwall shows.
+  record agent {
+    /// Pitwall's id for it: what `queue-add` and a badge's row take.
+    id: string,
+    /// Its name, as the sidebar shows it.
+    name: string,
+    /// Its kind's id (`claude`, `codex`, `shell` for a plain terminal…).
+    kind: string,
+    /// Its kind's name ("Claude Code").
+    kind-name: string,
+    /// Its project's folder.
+    project: string,
+    /// The git branch it works on, when known.
+    branch: option<string>,
+    /// What it is doing.
+    state: agent-state,
+    /// It waits on the user: the sidebar's and the Dock's "needs you"
+    /// (`blocked`).
+    waiting-on-you: bool,
+    /// Items waiting in its Next up (the "N queued" chip on its tile).
+    queued: u32,
+  }
+
+  /// Every agent Pitwall shows, in the sidebar's order. Needs the
+  /// `agents.read` permission (`host-error.denied` without it). The tile
+  /// gets `agents-changed` when this changes.
+  %list: func() -> result<list<agent>, host-error>;
+
+  /// Put `text` in agent `agent`'s Next up, marked "From <extension
+  /// name>", waiting for the user's Send (Auto-send sends it only when the
+  /// user lets the extension send without asking). Needs the
+  /// `agents.queue` permission. At most 4 000 characters
+  /// (`host-error.too-large` over that), not empty (`invalid`); at most 3
+  /// of the extension's items wait in one agent's Next up and one is
+  /// queued per agent every 10 seconds (`busy`); `invalid` for an agent
+  /// that isn't there.
+  queue-add: func(agent: string, text: string) -> result<_, host-error>;
+}

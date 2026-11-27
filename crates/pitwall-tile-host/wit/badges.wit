@@ -1,0 +1,43 @@
+package pitwall:tile@0.1.0;
+
+/// Counts and short notes on sidebar rows (platform-services.md §14.2),
+/// beside Pitwall's own waiting badges, as adapters' `badges` do. Only
+/// when the manifest says `"badges": true` in `contributes`; gone when
+/// the extension is turned off or its last tile closes.
+interface badges {
+  use types.{host-error, tone};
+
+  /// Which sidebar row a badge is on.
+  variant row {
+    /// An agent, by Pitwall's id (`agents.list`). Needs `agents.read`.
+    agent(string),
+    /// A project, by its folder. Needs `projects.read`.
+    project(string),
+  }
+
+  /// A count and/or a few words on a row.
+  record badge {
+    /// The row.
+    row: row,
+    /// A number (at most 9999).
+    count: option<u32>,
+    /// A few words (at most 16 characters; longer is cut). A badge needs
+    /// a count or a note.
+    note: option<string>,
+    /// Its colour by meaning: `info` is neutral.
+    tone: tone,
+    /// Shown on hover after the extension's name (at most 120
+    /// characters).
+    tooltip: option<string>,
+    /// One of the extension's tiles (an id from `contributes.tiles`) that
+    /// a click on the badge opens.
+    open: option<string>,
+  }
+
+  /// The whole set of badges, each time (an empty list clears them). At
+  /// most 500 (`host-error.too-large` over that); at most four sets a
+  /// second are shown (the newest waits for its turn). `denied` when the
+  /// manifest doesn't contribute `badges`. A badge on a row the tile may
+  /// not name (a missing permission) is dropped and noted in its Log.
+  set: func(badges: list<badge>) -> result<_, host-error>;
+}
