@@ -24,12 +24,14 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | `storage.wit` | `storage` | key-value: `get`, `set`, `delete`, `list`, `usage` (10 MiB) |
 | `settings.wit` | `settings` | `get`, `secret`, `open` |
 
-A guest builds against it with `wit_bindgen::generate!({ path: ".../wit",
-world: "tile" })` and `cargo build --target wasm32-wasip2`; see
-`tests/fixtures/hello-tile/` (its own workspace and toolchain file) and
+A guest is written with the SDK, `sdk/pitwall-extension` (its `wit/` is a
+copy of this one; `tests/sdk_wit.rs` keeps them equal), and built with
+`cargo build --target wasm32-wasip2`; see `tests/fixtures/hello-tile/` (an
+SDK tile with its own workspace and toolchain file) and
 `tests/fixtures/build-hello-tile.sh`, which rebuilds the committed
 `tests/fixtures/hello/tile.wasm`. **Changing `wit/` means rebuilding and
-committing that file**; CI never builds wasm.
+committing that file** (and copying it to the SDK). Only CI's Tile SDK job
+builds wasm. Tests of a tile from outside: `crates/pitwall-extension-test`.
 
 ## The API
 

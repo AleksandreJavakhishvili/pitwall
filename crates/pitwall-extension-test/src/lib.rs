@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pitwall_tile_host::ui::{self, Element, Event, Frame, Modifiers, MouseButton, Node, Point};
@@ -44,8 +44,16 @@ const WAIT: Duration = Duration::from_secs(30);
 /// `cargo build --release --target wasm32-wasip2` and copy the component
 /// to where the manifest's tile entry names it (`"wasm"`, like
 /// `tile.wasm`). Returns that path, or what went wrong (with the
-/// compiler's output, or how to install the target).
+/// compiler's output, or how to install the target). Built once per test
+/// process and folder, however many tests ask.
 pub fn build(dir: &Path) -> Result<PathBuf, String> {
+    static BUILT: Mutex<BTreeMap<PathBuf, Result<PathBuf, String>>> = Mutex::new(BTreeMap::new());
+    let key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
+    built.entry(key).or_insert_with(|| build_now(dir)).clone()
+}
+
+fn build_now(dir: &Path) -> Result<PathBuf, String> {
     let manifest = pitwall_core::extensions::read_in_place(dir)?;
     let wasm = manifest.contributes.tiles.first().map(|t| t.wasm.clone()).ok_or("its extension.json contributes no tiles")?;
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -63,7 +71,9 @@ pub fn build(dir: &Path) -> Result<PathBuf, String> {
     }
     let built = artifact(&String::from_utf8_lossy(&out.stdout), dir).ok_or("the build made no .wasm: is the crate's crate-type [\"cdylib\"]?")?;
     let to = dir.join(&wasm);
-    std::fs::copy(&built, &to).map_err(|e| format!("{} couldn't be copied to {}: {e}", built.display(), to.display()))?;
+    // Written beside, then renamed: a reader never sees half a file.
+    let tmp = to.with_extension("wasm.part");
+    std::fs::copy(&built, &tmp).and_then(|_| std::fs::rename(&tmp, &to)).map_err(|e| format!("{} couldn't be copied to {}: {e}", built.display(), to.display()))?;
     Ok(to)
 }
 

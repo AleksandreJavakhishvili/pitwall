@@ -1,0 +1,30 @@
+//! Runs the built tile in Pitwall's tile runtime: `cargo test` builds
+//! tile.wasm first (it needs `rustup target add wasm32-wasip2`).
+
+use pitwall_extension_test::{Harness, Tone};
+use serde_json::json;
+
+#[test]
+fn a_note_needs_a_title_and_is_saved_signed() {
+    let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).setting("author", "Ana").open("main");
+    tile.click_text("Save");
+    assert!(tile.find_text("Give it a title.").is_some(), "{}", tile.text_snapshot());
+    tile.type_into("title", "Standup").type_into("body", "Ship the beta");
+    tile.click_text("Save");
+    assert!(tile.find_text("Give it a title.").is_none());
+    assert!(tile.find_text("by Ana").is_some());
+    assert_eq!(tile.toasts(), vec![("Saved".to_string(), Tone::Good)]);
+    let notes: serde_json::Value = tile.stored_json("notes").expect("stored");
+    assert_eq!(notes[0]["title"], "Standup");
+    // The setting changes in Settings: the form follows.
+    tile.set_setting("author", Some("Bo"));
+    assert!(tile.find_text("Signed as Bo").is_some());
+}
+
+#[test]
+fn an_agent_opens_it_with_a_draft() {
+    let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).open_with("main", json!({ "title": "From the agent" }));
+    tile.submit("title");
+    let notes: serde_json::Value = tile.stored_json("notes").expect("stored");
+    assert_eq!(notes[0]["title"], "From the agent");
+}

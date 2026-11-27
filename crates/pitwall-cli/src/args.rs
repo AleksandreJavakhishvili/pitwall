@@ -106,7 +106,8 @@ pub enum Command {
     /// step approved by the user in Pitwall (list, status, log, install,
     /// on, setup, service, first-run, set, secret, connection…). For
     /// authors, check, test and new work on a folder, offline, without the
-    /// app (exit status 1 when a check fails).
+    /// app (exit status 1 when a check fails); dev builds a tile and loads
+    /// it into the running app.
     #[command(subcommand)]
     Extension(ExtensionCmd),
 }
@@ -115,15 +116,20 @@ pub enum Command {
 pub enum ExtensionCmd {
     /// Read an extension's folder without running anything: its manifest
     /// and limits, the files it names, and what it would run and set, in
-    /// plain words.
+    /// plain words. For a tile: its component's world and imports (only
+    /// WIT 0.1 and WASI 0.2), its size, its input schemas and permission
+    /// reasons. A component file alone (tile.wasm) is checked as such.
     Check {
-        /// The extension's folder (the one with extension.json).
+        /// The extension's folder (the one with extension.json), its
+        /// extension.json, or a component (.wasm).
         folder: PathBuf,
     },
     /// Run what the folder's test/pitwall.json expects: its actions'
     /// command lines, the variables it sets, its adapter's run and its
     /// agreement with its fake server (skipped when the adapter's program,
-    /// such as node, isn't installed).
+    /// such as node, isn't installed). For a tile project (Cargo.toml and
+    /// contributes.tiles): build it, check it, and run `cargo test` (its
+    /// output on stderr).
     Test {
         /// The extension's folder.
         folder: PathBuf,
@@ -135,7 +141,10 @@ pub enum ExtensionCmd {
     /// --view it draws a list view tile instead, with a palette command and
     /// a note on your agents' rows. With --service it adds a tiny local server (server.mjs) that Pitwall
     /// keeps running while the extension is on, once the user confirms its
-    /// command.
+    /// command. With --template it writes a tile instead: a Rust project
+    /// (Cargo.toml, extension.json, src/lib.rs, tests/, README.md, and the
+    /// authoring skill for coding agents) built to a WebAssembly component
+    /// with the pitwall-extension SDK.
     New {
         /// The folder to make (absent or empty), named like my-extension.
         folder: PathBuf,
@@ -154,6 +163,28 @@ pub enum ExtensionCmd {
         /// is on: the extension's service (format 2, protocol 1).
         #[arg(long, conflicts_with_all = ["protocol", "view"])]
         service: bool,
+        /// A tile (a Rust WebAssembly component) from this template: blank
+        /// (a counter), list (a checklist an agent can open with items),
+        /// form (a form with a setting, opened with a draft).
+        #[arg(long, value_enum, conflicts_with_all = ["protocol", "view", "service"])]
+        template: Option<TileTemplate>,
+        /// With --template: take the SDK from this checkout of Pitwall's
+        /// repository (path dependencies) instead of its git URL.
+        #[arg(long, requires = "template", value_name = "CHECKOUT")]
+        sdk: Option<PathBuf>,
+    },
+    /// Develop a tile: build it (`cargo build --release --target
+    /// wasm32-wasip2`), copy the component beside extension.json, check
+    /// it, and ask the running Pitwall to load it as a development
+    /// extension (reloaded keeping its state); then again after every
+    /// change to the folder until stopped. One JSON line per round.
+    Dev {
+        /// The tile project (default: this folder).
+        folder: Option<PathBuf>,
+        /// One round, then exit (status 1 when the build or the check
+        /// failed).
+        #[arg(long)]
+        once: bool,
     },
     /// The installed extensions (id, name, version, on or off, where it
     /// came from, an update already known) and those Pitwall ships that
@@ -263,6 +294,17 @@ impl ExtensionCmd {
 }
 
 /// `pitwall extension service <id> <what>`.
+/// `pitwall extension new --template`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TileTemplate {
+    /// A counter kept in storage.
+    Blank,
+    /// A checklist, opened with content.
+    List,
+    /// A form with a setting, opened with a draft.
+    Form,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ServiceWhat {
     Confirm,

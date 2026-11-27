@@ -352,12 +352,16 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
     } else {
         r.add(Level::Warn, "there is no README.md: say what it does and how to set it up");
     }
+    // A tile's own tests are Rust (`cargo test` with the harness); the
+    // fixture is for adapters.
+    let only_tiles = m.adapter.is_none() && m.service.is_none() && !m.contributes.tiles.is_empty();
     match std::fs::read_to_string(folder.join(FIXTURE)) {
         Ok(t) => match serde_json::from_str::<Value>(&t) {
             Ok(Value::Object(_)) => r.add(Level::Ok, format!("{FIXTURE} is there: `pitwall extension test` runs it")),
             Ok(_) => r.add(Level::Fail, format!("{FIXTURE} must be a JSON object")),
             Err(e) => r.add(Level::Fail, format!("{FIXTURE} isn't valid JSON: {e}")),
         },
+        Err(_) if only_tiles => {}
         Err(_) => r.add(Level::Warn, format!("there is no {FIXTURE}: `pitwall extension test` has nothing to run")),
     }
     r.does = does(&m, path);
@@ -391,7 +395,8 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
                 format!("{} ({}): {kind}{more}, {need}", s.label, s.key)
             })
             .collect();
-        push("The user sets (they reach the adapter only in its hello):".to_string(), lines);
+        let how = if m.adapter.is_none() && !m.contributes.tiles.is_empty() { "The user sets (its tiles read them; secrets from the system's secure store):" } else { "The user sets (they reach the adapter only in its hello):" };
+        push(how.to_string(), lines);
     }
     if m.format >= 2 {
         let lines = m
@@ -402,7 +407,9 @@ pub fn does(m: &Manifest, path: Option<&str>) -> Vec<Does> {
                 Some(why) => format!("{}: {} ({why}: never granted here)", p.name, p.reason),
             })
             .collect::<Vec<_>>();
-        if lines.is_empty() {
+        if lines.is_empty() && m.adapter.is_none() && !m.contributes.tiles.is_empty() {
+            push("It asks for no permissions: its tiles reach only their own views, storage, settings and timers.".to_string(), vec![]);
+        } else if lines.is_empty() {
             push("It asks for no permissions: Pitwall answers none of its calls.".to_string(), vec![]);
         } else {
             push("It asks for (the user grants or refuses each when turning it on):".to_string(), lines);

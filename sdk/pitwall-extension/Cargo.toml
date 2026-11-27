@@ -13,7 +13,7 @@ description = "Write Pitwall tiles in Rust: GPUI-style elements, a Tile trait, t
 repository = "https://github.com/pitwalls/pitwall"
 keywords = ["pitwall", "wasm", "component", "tile", "extension"]
 categories = ["wasm", "gui"]
-include = ["src/**", "wit/**", "README.md", "Cargo.toml"]
+include = ["src/**", "wit/**", "skills/**", "README.md", "Cargo.toml"]
 
 [dependencies]
 # The WIT glue (an internal detail: authors never see its types). Only the

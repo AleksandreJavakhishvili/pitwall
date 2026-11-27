@@ -90,7 +90,7 @@ These work with every command.
 - [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in a window of its own (beside the agent's terminal if you docked it there), without bringing Pitwall forward over another app. Off with `agents.showFiles`. With --web, a web page instead: in the agent's page tile next to its terminal (or a window of its own), http and https only; it only shows the page to the user. Off with `agents.showWeb`. With --settings, Pitwall's Settings at a page instead, in the Settings tile (next to the agent's terminal unless it is open already); it only shows Settings to the user. Off with `agents.showSettings`. With --device, a device's screen instead (an iOS Simulator, an Android emulator or phone): in a device tile next to the agent's terminal; one still booting is waited for (up to a minute). It only shows the screen to the user. Off with `agents.showDevice`
 - [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files`, `show_folder`, `show_web`, `show_settings` and `show_device` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
-- [`extension`](#extension): The user's extensions: see how each stands and set one up, each step approved by the user in Pitwall (list, status, log, install, on, setup, service, first-run, set, secret, connection…). For authors, check, test and new work on a folder, offline, without the app (exit status 1 when a check fails)
+- [`extension`](#extension): The user's extensions: see how each stands and set one up, each step approved by the user in Pitwall (list, status, log, install, on, setup, service, first-run, set, secret, connection…). For authors, check, test and new work on a folder, offline, without the app (exit status 1 when a check fails); dev builds a tile and loads it into the running app
 
 ## agent
 
@@ -1260,11 +1260,11 @@ pitwall events --topics attention | jq -r 'select(.data.reason == "blocked") | .
 
 ## extension
 
-The user's extensions: see how each stands and set one up, each step approved by the user in Pitwall (list, status, log, install, on, setup, service, first-run, set, secret, connection…). For authors, check, test and new work on a folder, offline, without the app (exit status 1 when a check fails).
+The user's extensions: see how each stands and set one up, each step approved by the user in Pitwall (list, status, log, install, on, setup, service, first-run, set, secret, connection…). For authors, check, test and new work on a folder, offline, without the app (exit status 1 when a check fails); dev builds a tile and loads it into the running app.
 
 ### extension check
 
-Read an extension's folder without running anything: its manifest and limits, the files it names, and what it would run and set, in plain words.
+Read an extension's folder without running anything: its manifest and limits, the files it names, and what it would run and set, in plain words. For a tile: its component's world and imports (only WIT 0.1 and WASI 0.2), its size, its input schemas and permission reasons. A component file alone (tile.wasm) is checked as such.
 
 ```bash
 pitwall extension check [OPTIONS] <FOLDER>
@@ -1272,11 +1272,11 @@ pitwall extension check [OPTIONS] <FOLDER>
 
 | Argument | |
 |---|---|
-| `FOLDER` | The extension's folder (the one with extension.json). |
+| `FOLDER` | The extension's folder (the one with extension.json), its extension.json, or a component (.wasm). |
 
 ### extension test
 
-Run what the folder's test/pitwall.json expects: its actions' command lines, the variables it sets, its adapter's run and its agreement with its fake server (skipped when the adapter's program, such as node, isn't installed).
+Run what the folder's test/pitwall.json expects: its actions' command lines, the variables it sets, its adapter's run and its agreement with its fake server (skipped when the adapter's program, such as node, isn't installed). For a tile project (Cargo.toml and contributes.tiles): build it, check it, and run `cargo test` (its output on stderr).
 
 ```bash
 pitwall extension test [OPTIONS] <FOLDER>
@@ -1292,7 +1292,7 @@ pitwall extension test . --human        # in CI: exit status 1 when a check fail
 
 ### extension new
 
-Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread. With --view it draws a list view tile instead, with a palette command and a note on your agents' rows. With --service it adds a tiny local server (server.mjs) that Pitwall keeps running while the extension is on, once the user confirms its command.
+Write a starter into a new folder: a manifest, a Node adapter that speaks protocol 1 and shows one inbox thread, a README and test/pitwall.json. Its id is the folder's name. With --protocol 2 it asks for agents.read and shows your agents in its thread. With --view it draws a list view tile instead, with a palette command and a note on your agents' rows. With --service it adds a tiny local server (server.mjs) that Pitwall keeps running while the extension is on, once the user confirms its command. With --template it writes a tile instead: a Rust project (Cargo.toml, extension.json, src/lib.rs, tests/, README.md, and the authoring skill for coding agents) built to a WebAssembly component with the pitwall-extension SDK.
 
 ```bash
 pitwall extension new [OPTIONS] <FOLDER>
@@ -1308,12 +1308,30 @@ pitwall extension new [OPTIONS] <FOLDER>
 | `--protocol <PROTOCOL>` | The adapter protocol it speaks: 1 (an inbox of its own) or 2 (also reads Pitwall, with permissions). |
 | `--view` | A view tile, a palette command and sidebar notes (format 2, protocol 2) instead of an inbox. |
 | `--service` | An inbox and a small local server Pitwall keeps running while it is on: the extension's service (format 2, protocol 1). |
+| `--template <TEMPLATE>` | A tile (a Rust WebAssembly component) from this template: blank (a counter), list (a checklist an agent can open with items), form (a form with a setting, opened with a draft). |
+| `--sdk <CHECKOUT>` | With --template: take the SDK from this checkout of Pitwall's repository (path dependencies) instead of its git URL. |
 
 ```bash
 pitwall extension new ~/code/my-inbox --name "My inbox"
 pitwall extension check ~/code/my-inbox --human
 pitwall extension test ~/code/my-inbox --human
 ```
+
+### extension dev
+
+Develop a tile: build it (`cargo build --release --target wasm32-wasip2`), copy the component beside extension.json, check it, and ask the running Pitwall to load it as a development extension (reloaded keeping its state); then again after every change to the folder until stopped. One JSON line per round.
+
+```bash
+pitwall extension dev [OPTIONS] [FOLDER]
+```
+
+| Argument | |
+|---|---|
+| `FOLDER` (optional) | The tile project (default: this folder). |
+
+| Option | |
+|---|---|
+| `--once` | One round, then exit (status 1 when the build or the check failed). |
 
 ### extension list
 
