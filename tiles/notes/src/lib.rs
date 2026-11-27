@@ -56,6 +56,9 @@ struct ViewState {
     focus_editor: bool,
     #[serde(skip)]
     focus_search: bool,
+    /// The note is shown formatted (Preview), not in its editor (FR-11).
+    #[serde(default)]
+    preview: bool,
 }
 
 /// What `save_state` keeps across a drop or a reload: unsaved text and
@@ -391,17 +394,39 @@ impl Notes {
                         })))
                         .child(button("Delete").small().danger().id("delete").on_click(cx.listener(move |this: &mut Notes, _, cx| this.delete(&v2, id, cx))))
                 } else {
-                    let v = view.to_string();
+                    let (v, vm) = (view.to_string(), view.to_string());
                     let saved = if self.pending.contains_key(&id) { "Editing…" } else { "Saved" };
+                    // Edit and Preview (FR-11).
+                    let mode = tabs("mode", [tab("edit", "Edit"), tab("preview", "Preview")]).selected(if vs.preview { "preview" } else { "edit" }).on_select(cx.listener(move |this: &mut Notes, key: &str, cx| {
+                        this.view_mut(&vm).preview = key == "preview";
+                        if key == "edit" {
+                            this.view_mut(&vm).focus_editor = true;
+                        }
+                        cx.notify();
+                    }));
                     bar()
                         .when(!split, |h| h.child(back(cx)))
                         .child(text(title).text_sm().font_medium().truncate().flex_1())
                         .child(text(saved).text_xs().text_color(Token::Text3).flex_none())
+                        .child(mode)
                         .child(icon_button(Icon::Trash, "Delete note").id("trash").on_click(cx.listener(move |this: &mut Notes, _, cx| {
                             this.view_mut(&v).confirm_delete = true;
                             cx.notify();
                         })))
                 };
+                if vs.preview {
+                    // Pitwall's inert Markdown (FR-12); a task's box ticks
+                    // it in the note's text, links open in the browser.
+                    let md = markdown(text_now.clone()).on_toggle(cx.listener(move |this: &mut Notes, e: &Toggled, cx| {
+                        let text = this.notes.iter().find(|n| n.id == id).map(|n| this.text_of(n).to_string()).unwrap_or_default();
+                        if let Some(new) = note::tick(&text, e.index, e.on) {
+                            this.typed(id, &new, cx);
+                            this.flush(cx);
+                            cx.notify();
+                        }
+                    }));
+                    return pane.child(head).child(v_flex().id(format!("p{id}")).flex_1().min_h(px(0.)).p_3().overflow_y_scroll().child(md));
+                }
                 let v = view.to_string();
                 let field = input("text")
                     .multiline()
