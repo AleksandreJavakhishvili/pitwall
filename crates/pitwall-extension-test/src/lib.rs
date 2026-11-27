@@ -1340,7 +1340,7 @@ impl Session {
     /// The tile's database file, in the test's data folder (open it with
     /// any SQLite library to check what it keeps).
     pub fn database(&self) -> PathBuf {
-        pitwall_tile_host::sql::db_file(&self.store.dir())
+        pitwall_tile_host::sql::db_file(self.store.dir())
     }
 }
 
