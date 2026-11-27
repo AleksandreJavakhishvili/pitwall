@@ -1,4 +1,4 @@
-Status: design, not built. Requirements in [frd.md](frd.md), progress in
+Status: step 0 built in `tiles/notes/` (#119); the rest is design. Requirements in [frd.md](frd.md), progress in
 [plan.md](plan.md).
 
 # Notes tile: high-level architecture
