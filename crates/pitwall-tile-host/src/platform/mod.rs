@@ -4,6 +4,13 @@
 
 use std::path::Path;
 
+/// Whether a compiled file from the cache can run where it is mapped.
+/// Not on macOS: under the hardened runtime (how the app is signed) a
+/// file's pages can't be made executable ("Permission denied"), so its
+/// bytes are read and loaded into memory of the process's own, which
+/// the app's `allow-unsigned-executable-memory` entitlement lets run.
+pub const RUN_MAPPED_FILES: bool = !cfg!(target_os = "macos");
+
 /// Create `dir` (and its parents) and limit it to this user: mode 700 on
 /// Unix. On Windows a folder under the user's profile already inherits an
 /// ACL limited to the user and administrators; a narrower one is README

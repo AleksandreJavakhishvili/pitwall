@@ -1,9 +1,10 @@
 //! Pitwall's compile cache (runtime.md §2.6): a component compiled once
 //! with Cranelift is kept as `<data>/cache/tiles/<id>/<sha256>.cwasm`, in a
 //! folder only this user may read, never in the extension's folder, and
-//! memory-mapped on the next start. Wasmtime's header check ties each file
-//! to this engine's version and settings; a file that fails to load is
-//! deleted and the wasm compiled again.
+//! memory-mapped on the next start (read into memory on macOS, where the
+//! hardened runtime doesn't let a mapped file run). Wasmtime's header
+//! check ties each file to this engine's version and settings; a file
+//! that fails to load is deleted and the wasm compiled again.
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +39,15 @@ pub fn load_or_compile(engine: &Engine, data_dir: &Path, id: &str, wasm: &[u8]) 
         // header against this engine's version and settings, refusing
         // (not running) a file from another one. Files in the cache are
         // never rewritten in place, so the mapping can't change under us.
-        match unsafe { Component::deserialize_file(engine, &path) } {
+        // Where a mapped file can't be made executable (macOS's hardened
+        // runtime), its bytes are loaded instead: the same check, in
+        // memory of our own.
+        let loaded = if platform::RUN_MAPPED_FILES {
+            unsafe { Component::deserialize_file(engine, &path) }
+        } else {
+            std::fs::read(&path).map_err(wasmtime::Error::from).and_then(|bytes| unsafe { Component::deserialize(engine, &bytes) })
+        };
+        match loaded {
             Ok(c) => return Ok((c, true)),
             Err(_) => {
                 let _ = std::fs::remove_file(&path);
