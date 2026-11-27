@@ -183,15 +183,28 @@ What phase 5 built for the index, publishing, Verified and takedowns
   `blocked.toml`. Both files carry `format: 1` and `generated`.
 - **Strict limits when reading.** `index.json` may be at most 16 MiB,
   with at most 20 000 extensions, 500 versions each, 8 keys, 3
-  categories, 6 screenshots and 32 permissions. `blocked.json` may be at
+  categories, 6 legacy screenshots (`screens`), 8 listed screenshots and
+  32 permissions. `blocked.json` may be at
   most 2 MiB. Names, descriptions and reasons must be plain text of
   bounded length, with no control or text-direction characters (so a
   name can't be spelled backwards on screen). Addresses must be the
   repository's `https://github.com/<owner>/<name>` and its release
   assets. Hashes and commits must be lower-case hex, versions like
   `1.2.3`, and categories from the fixed list. Screenshots must be
-  `screens/<id>/<sha256>.png|webp` and keys valid minisign keys. No id
+  `screens/<id>/<sha256>.png|webp`, listing media
+  `media/<id>/<sha256>.<ext>`, and keys valid minisign keys. No id
   may appear twice. Anything else rejects the whole file.
+- **Listing media (additive).** A listing may also carry `tagline`,
+  `homepage`, `readme` (`media/<id>/<sha256>.md`, at most 64 KiB) and
+  `media`: `{icon, screenshots: [{light, dark, caption}], images:
+  {"<path in the README>": "media/<id>/<sha256>.<ext>"}}`. The build
+  (`repo::listing_media`) takes them from the newest version's package,
+  checked as the package rules check them (packaging 6.1), and writes
+  each file once under `dist/v1/media/<id>/`, named by its SHA-256; the
+  first screenshots also stay in `screens` for older Pitwalls. Pitwall
+  fetches them only from the index's base address, checks each file's
+  type and size again, and draws a README image only when its path is
+  in `images`. Older readers ignore the new fields.
 - **Signatures.** `index.json` and `blocked.json` are checked against the
   index keys Pitwall ships (`OFFICIAL_INDEX_KEYS`: current and next).
   Only those keys count, never a key named inside the signature. None

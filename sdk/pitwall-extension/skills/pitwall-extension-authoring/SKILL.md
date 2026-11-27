@@ -58,6 +58,17 @@ done.
 ```
 
 - `id`: lowercase letters, digits and hyphens; the folder is named after it.
+- **Listing and images** (no upload service: files in the folder, linked
+  relatively, packed with it): `"icon": "assets/icon.png"` (square png or
+  webp, 64–1024 px, ≤ 256 KiB; or an icon name), `"tagline"` (≤ 80
+  characters), `"categories"` (1–3 of git, ci, databases, apis, notes,
+  monitoring, docs, fun, other), `"homepage"`, `"repository"`,
+  `"license"` (SPDX), and `"screenshots": [{ "path":
+  "screenshots/main.png", "caption": "…" }]` (png/webp in `screenshots/`,
+  ≤ 8; `main-dark.png` + `main-light.png` are one, shown by theme). README
+  images go in `media/` and are linked relatively (`![Flow](media/flow.png)`);
+  network images show as links, `..` isn't shown. `pitwall extension
+  check` checks them all.
 - Every tile entry names the same `wasm` (one component per extension); each
   tile id is a view the component renders.
 - **Permissions**: every permission needs your reason, one line the user

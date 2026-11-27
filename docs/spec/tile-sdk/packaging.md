@@ -15,8 +15,14 @@ LICENSE               required for the index
 CHANGELOG.md          optional; "What's new" on update
 agents/SKILL.md       optional; an agent skill, text only, ≤ 16 KiB (11.11)
 assets/               optional; svg, png, webp, fonts are refused
-screenshots/          optional; png/webp, ≤ 6, ≤ 2 MiB each
+screenshots/          optional; png/webp, ≤ 8, ≤ 2 MiB each; -dark/-light pairs count once
+media/                optional; the README's images: png/webp/jpeg/gif, ≤ 2 MiB each
+<icon file>           when "icon" names one: square png/webp, 64–1024 px, ≤ 256 KiB
 ```
+Every image is checked by its first bytes, not its name. The README's
+images must be relative paths inside `assets/`, `media/` or
+`screenshots/` (at most 24); a network image is drawn as a link and
+never fetched, a path with `..` is refused.
 Rules, checked before anything is written: ≤ 50 MiB packed and
 unpacked, ≤ 5 000 files [today's limits], `tile.wasm` ≤ 20 MiB, no
 absolute paths, no `..`, no symlinks or special files, names NFC and

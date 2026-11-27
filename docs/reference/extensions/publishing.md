@@ -14,7 +14,9 @@ On top of what every package needs:
 - **The commit** the component was built from, so that it can be rebuilt for Verified.
 - **1 to 3 categories:** `git`, `ci`, `databases`, `apis`, `notes`, `monitoring`, `docs`, `fun`, `other`.
 
-`pitwall extension pack` reminds you when the license or the description is missing.
+`pitwall extension publish` takes the categories and licence from `extension.json` (`"categories"`, `"license"`) when you don't give them. `pitwall extension pack` reminds you when the license or the description is missing.
+
+Its icon, screenshots, README and the README's own images ([Adding images](packaging.md#adding-images)) go into the index too: its build copies them out of the package to `media/<id>/<sha256>.<ext>`, so Browse shows them before anyone installs it, from the index's own address and nowhere else.
 
 ## Release
 
