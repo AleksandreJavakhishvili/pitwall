@@ -1753,3 +1753,20 @@ fn extension_setup_end_to_end() {
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
+
+/// `pitwall extension dev`'s reload against a Pitwall without
+/// `extension.devReload` (this server has none), and with none running.
+#[test]
+fn dev_reload_says_what_the_running_pitwall_can_do() {
+    let dir = TempDir::new("cli-dev-reload");
+    let engine = Engine::open(Deps { paths: Paths::new(dir.path().join("pitwall")), events: RecordingSink::new(), clock: ManualClock::new(1), store: MemStore::with(vec![]), providers: vec![] });
+    let sock_dir = std::env::temp_dir().join(format!("pwdev-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("d.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: None, events: None, extensions: None, ext_backend: None };
+    let server = serve(engine, Approvals::new(Duration::from_secs(10)), Arc::new(Outside), cfg).unwrap();
+    assert_eq!(tile::dev_reload(&socket, dir.path()), tile::Reload::Unsupported);
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+    assert_eq!(tile::dev_reload(&socket, dir.path()), tile::Reload::NotRunning);
+}

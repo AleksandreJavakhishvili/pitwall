@@ -1,0 +1,42 @@
+//! Runs the built tile in Pitwall's tile runtime: `cargo test` builds
+//! tile.wasm first (it needs `rustup target add wasm32-wasip2`).
+
+use pitwall_extension_test::Harness;
+use serde_json::json;
+
+#[test]
+fn shows_a_list_it_is_opened_with() {
+    let content = json!({
+        "title": "Release",
+        "items": [
+            { "id": "a", "text": "Write the changelog" },
+            { "id": "b", "text": "Tag the release", "done": true }
+        ]
+    });
+    let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).open_with("main", content);
+    assert!(tile.find_text("Release").is_some(), "{}", tile.text_snapshot());
+    assert!(tile.find_text("1 of 2").is_some());
+    tile.click_key("items/a/0");
+    assert!(tile.find_text("2 of 2").is_some());
+    // The same view given new content (an agent showing an update).
+    tile.set_content("main", json!({ "items": [{ "id": "c", "text": "Announce it" }] }));
+    assert!(tile.find_text("Announce it").is_some());
+    assert!(tile.find_text("Write the changelog").is_none());
+}
+
+#[test]
+fn adds_filters_and_removes_items() {
+    let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).open("main");
+    assert!(tile.find_text("Nothing here yet").is_some());
+    tile.type_into("new", "Buy milk").submit("new");
+    tile.type_into("new", "Call Sam").submit("new");
+    assert!(tile.find_text("0 of 2").is_some(), "{}", tile.text_snapshot());
+    tile.type_into("filter", "milk");
+    assert!(tile.find_text("Buy milk").is_some());
+    assert!(tile.find_text("Call Sam").is_none());
+    tile.type_into("filter", "");
+    tile.click_label("Remove");
+    assert!(tile.find_text("Buy milk").is_none());
+    let stored: serde_json::Value = tile.stored_json("list").expect("the list is stored");
+    assert_eq!(stored["items"].as_array().map(Vec::len), Some(1));
+}

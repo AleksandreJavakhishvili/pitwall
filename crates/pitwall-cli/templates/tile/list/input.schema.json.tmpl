@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "{{name_str}}: a checklist to show",
+  "description": "Open the tile with this to show a checklist; the same content id again replaces it in place.",
+  "type": "object",
+  "required": ["items"],
+  "properties": {
+    "title": { "type": "string", "description": "Shown above the list" },
+    "items": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable id of the item" },
+          "text": { "type": "string" },
+          "done": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

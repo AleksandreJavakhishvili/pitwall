@@ -1,0 +1,50 @@
+//! {{name}}: a Pitwall tile. Change `render`, save, and `pitwall extension
+//! dev` rebuilds and reloads it.
+
+use pitwall_extension::prelude::*;
+
+#[derive(Default)]
+struct App {
+    clicks: u32,
+}
+
+impl Tile for App {
+    fn new(_cx: &mut Cx<Self>) -> Self {
+        // What the user must not lose goes in storage: on disk at once,
+        // kept across restarts and updates.
+        let clicks = storage::get_json("clicks").ok().flatten().unwrap_or(0);
+        App { clicks }
+    }
+
+    fn render(&mut self, _view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .gap_2()
+            .p_3()
+            .child(text("{{name_str}}").text_lg().font_semibold())
+            .child(text(format!("Clicked {} times", self.clicks)).text_color(Token::Text2))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(button("Click me").primary().on_click(cx.listener(|this, _, cx| {
+                        this.set_clicks(this.clicks + 1);
+                        cx.notify();
+                    })))
+                    .child(button("Reset").on_click(cx.listener(|this, _, cx| {
+                        this.set_clicks(0);
+                        cx.notify();
+                    }))),
+            )
+    }
+}
+
+impl App {
+    fn set_clicks(&mut self, n: u32) {
+        self.clicks = n;
+        if let Err(e) = storage::set_json("clicks", &n) {
+            log::warn(format!("the count wasn't saved: {e}"));
+        }
+    }
+}
+
+pitwall_extension::export!(App);

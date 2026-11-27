@@ -1,5 +1,7 @@
 //! `pitwall extension check|test|new` (docs/extensions/checks.md): for an
 //! extension's author, on a folder, offline: no socket, no running app.
+//! Tiles (Rust components) are `crate::tile`'s: `new --template`, `dev`,
+//! and the component part of `check` and `test`.
 //! The work is `pitwall_core::extensions::{check, starter}`; Pitwall's own
 //! tests run the same checks on the extensions in its repository.
 //!
@@ -17,9 +19,11 @@ use crate::Output;
 /// Run `cmd`: its output and whether every check passed.
 pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
     Ok(match cmd {
-        ExtensionCmd::Check { folder } => report(check::check(folder, None)),
+        ExtensionCmd::Check { folder } => report(crate::tile::check(folder)),
+        ExtensionCmd::Test { folder } if is_tile_project(folder) => report(crate::tile::test(folder)),
         ExtensionCmd::Test { folder } => report(check::test(folder, None)),
-        ExtensionCmd::New { folder, name, protocol, view, service } => {
+        ExtensionCmd::New { folder, name, template: Some(t), sdk, .. } => new_tile(folder, name.as_deref(), *t, sdk.as_deref())?,
+        ExtensionCmd::New { folder, name, protocol, view, service, .. } => {
             let shape = match (view, service) {
                 (_, true) => starter::Shape::Service,
                 (true, _) => starter::Shape::View,
@@ -38,6 +42,34 @@ pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
         }
         _ => unreachable!("run against Pitwall (setup)"),
     })
+}
+
+/// A Rust tile project: a Cargo.toml and a manifest with tiles.
+fn is_tile_project(folder: &std::path::Path) -> bool {
+    folder.join("Cargo.toml").is_file() && pitwall_core::extensions::read_in_place(folder).is_ok_and(|m| !m.contributes.tiles.is_empty())
+}
+
+/// `pitwall extension new <folder> --template …`.
+fn new_tile(folder: &std::path::Path, name: Option<&str>, t: crate::args::TileTemplate, sdk: Option<&std::path::Path>) -> Result<(Output, bool), Error> {
+    use crate::tile;
+    let files = tile::new_project(folder, name, t, sdk).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
+    let m = pitwall_core::extensions::read_in_place(folder).map_err(|e| Error::Server(ErrorBody::new("failed", e)))?;
+    let shown = folder.display();
+    let target = tile::target_installed(folder.parent().unwrap_or(folder));
+    let mut human = format!("Made {} ({}), a tile from the {} template, in {shown}:\n", m.name, m.id, tile::template_name(t));
+    for f in &files {
+        human.push_str(&format!("  {}\n", f.strip_prefix(folder).unwrap_or(f).display()));
+    }
+    if !target {
+        human.push_str(&format!("\nFirst: {}.\n", tile::missing_target()));
+    }
+    human.push_str(&format!("\nNext:\n  cd {shown}\n  pitwall extension dev     build it, check it, load it into Pitwall; again on every save\n  cargo test                its tests, in Pitwall's tile runtime\n"));
+    if sdk.is_none() {
+        human.push_str(&format!("\nThe SDK comes from {} until it is on crates.io (Cargo.toml says where).\n", tile::REPO));
+    }
+    let files: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
+    let json = json!({ "folder": folder, "id": m.id, "name": m.name, "template": tile::template_name(t), "files": files, "targetInstalled": target, "addTarget": (!target).then_some(tile::ADD_TARGET) });
+    Ok((Output { json, human, failed: None }, true))
 }
 
 fn report(r: check::Report) -> (Output, bool) {
@@ -91,7 +123,7 @@ pub fn setup(cmd: &ExtensionCmd, c: &mut pitwall_client::Client) -> Result<Outpu
         ExtensionCmd::Connection(ConnectionCmd::Add { id, name }) => act(c, id, ExtOp::ConnectionAdd { name: name.clone() }),
         ExtensionCmd::Connection(ConnectionCmd::Rename { id, connection, name }) => act(c, id, ExtOp::ConnectionRename { connection: connection.clone(), name: name.clone() }),
         ExtensionCmd::Connection(ConnectionCmd::Remove { id, connection, default }) => act(c, id, ExtOp::ConnectionRemove { connection: connection.clone(), default: default.clone() }),
-        ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } => unreachable!("offline (run)"),
+        ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Dev { .. } => unreachable!("offline (run, dev)"),
     }
 }
 
@@ -116,7 +148,7 @@ mod tests {
     fn new_then_check_and_test() {
         let t = pitwall_core::testing::TempDir::new("cli-ext");
         let folder = t.path().join("hello-ext");
-        let (o, ok) = run(&ExtensionCmd::New { folder: folder.clone(), name: Some("Hello".into()), protocol: 1, view: false, service: false }).unwrap();
+        let (o, ok) = run(&ExtensionCmd::New { folder: folder.clone(), name: Some("Hello".into()), protocol: 1, view: false, service: false, template: None, sdk: None }).unwrap();
         assert!(ok);
         assert_eq!((o.json["id"].as_str(), o.json["name"].as_str()), (Some("hello-ext"), Some("Hello")));
         assert!(o.human.contains("pitwall extension check"));
@@ -127,7 +159,7 @@ mod tests {
         let (o, ok) = run(&ExtensionCmd::Test { folder: folder.clone() }).unwrap();
         assert!(ok, "{}", o.human);
         // Made again on the same folder: refused, as bad arguments.
-        let Err(Error::Server(e)) = run(&ExtensionCmd::New { folder, name: None, protocol: 1, view: false, service: false }) else { panic!("made twice") };
+        let Err(Error::Server(e)) = run(&ExtensionCmd::New { folder, name: None, protocol: 1, view: false, service: false, template: None, sdk: None }) else { panic!("made twice") };
         assert_eq!(e.code, code::BAD_PARAMS);
         // A folder that isn't an extension fails, with exit status 1.
         let (o, ok) = run(&ExtensionCmd::Check { folder: t.path().join("nope") }).unwrap();

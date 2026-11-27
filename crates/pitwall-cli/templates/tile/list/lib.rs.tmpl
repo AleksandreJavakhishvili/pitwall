@@ -1,0 +1,160 @@
+//! {{name}}: a checklist. The user adds, ticks and removes items; an agent
+//! (or the user) can open the tile with a list to show, as JSON matching
+//! input.schema.json, and Pitwall delivers it to `on_content`.
+
+use pitwall_extension::prelude::*;
+use serde::{Deserialize, Serialize};
+
+/// What the tile is opened with (input.schema.json).
+#[derive(Deserialize)]
+struct Shown {
+    title: Option<String>,
+    items: Vec<Item>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Item {
+    id: String,
+    text: String,
+    #[serde(default)]
+    done: bool,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct List {
+    title: String,
+    items: Vec<Item>,
+    #[serde(skip)]
+    filter: String,
+    #[serde(skip)]
+    draft: String,
+}
+
+impl Tile for List {
+    fn new(cx: &mut Cx<Self>) -> Self {
+        let mut list = match storage::get_json::<List>("list") {
+            Ok(Some(list)) => list,
+            _ => List { title: "Checklist".into(), ..List::default() },
+        };
+        // After a reload (`pitwall extension dev`): what was being typed.
+        if let Some((filter, draft)) = cx.restore::<(String, String)>() {
+            (list.filter, list.draft) = (filter, draft);
+        }
+        list
+    }
+
+    fn on_content(&mut self, view: &ViewInfo, _cx: &mut Cx<Self>) {
+        let Some(content) = &view.content else { return };
+        match content.parse::<Shown>() {
+            Ok(shown) => {
+                self.title = shown.title.unwrap_or_else(|| "Checklist".into());
+                self.items = shown.items;
+                self.save();
+            }
+            Err(e) => {
+                log::warn(e.to_string());
+                ui::toast("That list couldn't be shown", Tone::Warn);
+            }
+        }
+    }
+
+    fn render(&mut self, _view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
+        let done = self.items.iter().filter(|i| i.done).count();
+        let filter = self.filter.to_lowercase();
+        let shown: Vec<Item> = self.items.iter().filter(|i| i.text.to_lowercase().contains(&filter)).cloned().collect();
+        v_flex()
+            .size_full()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .p_2()
+                    .border_b_1()
+                    .border_color(Token::Line)
+                    .child(text(self.title.clone()).font_semibold().flex_1().truncate())
+                    .child(text(format!("{done} of {}", self.items.len())).text_sm().text_color(Token::Text3))
+                    .child(input("filter").placeholder("Filter").value(self.filter.clone()).w(px(140.0)).on_change(cx.listener(|this, v: &str, cx| {
+                        this.filter = v.to_string();
+                        cx.notify();
+                    }))),
+            )
+            .child(
+                v_flex()
+                    .id("items")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .when(shown.is_empty(), |list| list.child(text("Nothing here yet").p_3().text_color(Token::Text3)))
+                    .children(shown.into_iter().map(|item| row(item, cx))),
+            )
+            .child(
+                h_flex().gap_2().p_2().border_t_1().border_color(Token::Line).child(
+                    input("new")
+                        .placeholder("Add an item and press Enter")
+                        .value(self.draft.clone())
+                        .flex_1()
+                        .on_change(cx.listener(|this, v: &str, _| this.draft = v.to_string()))
+                        .on_submit(cx.listener(|this, _, cx| {
+                            this.add();
+                            cx.notify();
+                        })),
+                ),
+            )
+    }
+
+    fn save_state(&self) -> Option<SavedState> {
+        // Keep what's being typed across a reload.
+        SavedState::json(&(&self.filter, &self.draft))
+    }
+}
+
+/// One row: a check, the text, a remove button. Keyed by the item's id so
+/// Pitwall keeps each row's state when the list changes.
+fn row(item: Item, cx: &mut Cx<List>) -> AnyElement {
+    let (toggle, remove) = (item.id.clone(), item.id.clone());
+    h_flex()
+        .id(item.id.clone())
+        .gap_2()
+        .px_2()
+        .py_1()
+        .hover_bg(Token::Surface2)
+        .child(
+            button(if item.done { "Done" } else { "To do" })
+                .small()
+                .when(item.done, |b| b.icon(Icon::Check))
+                .on_click(cx.listener(move |this: &mut List, _, cx| {
+                    if let Some(i) = this.items.iter_mut().find(|i| i.id == toggle) {
+                        i.done = !i.done;
+                    }
+                    this.save();
+                    cx.notify();
+                })),
+        )
+        .child(text(item.text).flex_1().when(item.done, |t| t.text_color(Token::Text3)))
+        .child(icon_button(Icon::X, "Remove").on_click(cx.listener(move |this: &mut List, _, cx| {
+            this.items.retain(|i| i.id != remove);
+            this.save();
+            cx.notify();
+        })))
+        .into_any()
+}
+
+impl List {
+    fn add(&mut self) {
+        let text = self.draft.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let n = self.items.len() + 1;
+        let id = (n..).map(|k| format!("item-{k}")).find(|id| !self.items.iter().any(|i| &i.id == id)).unwrap_or_default();
+        self.items.push(Item { id, text, done: false });
+        self.draft.clear();
+        self.save();
+    }
+
+    fn save(&self) {
+        if let Err(e) = storage::set_json("list", self) {
+            log::warn(format!("the list wasn't saved: {e}"));
+        }
+    }
+}
+
+pitwall_extension::export!(List);

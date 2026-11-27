@@ -4552,13 +4552,16 @@ name = "pitwall-cli"
 version = "0.8.0"
 dependencies = [
  "clap",
+ "notify",
  "pitwall-client",
  "pitwall-core",
  "pitwall-daemon",
  "pitwall-peer",
  "pitwall-proto",
+ "pitwall-tile-host",
  "serde",
  "serde_json",
+ "wasmparser",
 ]
 
 [[package]]
