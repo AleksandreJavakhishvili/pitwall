@@ -56,8 +56,9 @@ pub const MAX_VERSIONS: usize = 500;
 pub const MAX_KEYS: usize = 8;
 /// The most categories one extension is in.
 pub const MAX_CATEGORIES: usize = 3;
-/// The most screenshots one extension shows (as a package holds).
-pub const MAX_SCREENS: usize = super::package::MAX_SCREENSHOTS;
+/// The most legacy `screens` one extension lists (a Pitwall before
+/// `media` refuses more).
+pub const MAX_SCREENS: usize = 6;
 /// The most permissions one extension lists.
 pub const MAX_PERMISSIONS: usize = 32;
 /// The most hosts one permission lists.
@@ -163,13 +164,71 @@ pub struct Listing {
     /// What its newest version asks for, with the reasons it gives.
     pub permissions: Vec<ListedPermission>,
     /// Its screenshots, relative to the index's base
-    /// (`screens/<id>/<sha256>.<png|webp>`).
+    /// (`screens/<id>/<sha256>.<png|webp>`): the light one of each, at
+    /// most 6, for a Pitwall that doesn't read `media`.
     #[serde(default)]
     pub screens: Vec<String>,
+    /// A few words its newest version's manifest says (`tagline`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tagline: Option<String>,
+    /// Its web page (the manifest's `homepage`, https).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    /// Its newest version's README.md, relative to the index's base
+    /// (`media/<id>/<sha256>.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readme: Option<String>,
+    /// Its icon file, screenshots (dark and light, captioned) and the
+    /// images its README shows, copied out of its newest package.
+    #[serde(default, skip_serializing_if = "ListedMedia::is_empty")]
+    pub media: ListedMedia,
     /// The author's public keys: every version is signed by one.
     pub keys: Vec<String>,
     /// Oldest first.
     pub versions: Vec<Release>,
+}
+
+/// A listing's media (`media/<id>/<sha256>.<ext>` paths, relative to the
+/// index's base; docs/spec/tile-sdk/marketplace.md §7.8).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedMedia {
+    /// Its icon file (png or webp).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screenshots: Vec<ListedShot>,
+    /// The images its README shows, by the path the README writes
+    /// (`media/flow.png`) → where the index has them.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub images: std::collections::BTreeMap<String, String>,
+}
+
+impl ListedMedia {
+    pub fn is_empty(&self) -> bool {
+        self.icon.is_none() && self.screenshots.is_empty() && self.images.is_empty()
+    }
+}
+
+/// One screenshot in the index: its light and dark files (the same when
+/// it has one) and its caption.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedShot {
+    pub light: String,
+    pub dark: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+}
+
+/// The most README images one listing carries.
+pub const MAX_MEDIA_IMAGES: usize = super::media::MAX_README_IMAGES;
+/// The largest README the index carries.
+pub const MAX_README_BYTES: u64 = super::package::MAX_TEXT_BYTES;
+
+/// Whether `path` is a media file of listing `id` of one of `exts`.
+fn is_media_path(path: &str, id: &str, exts: &[&str]) -> bool {
+    path.strip_prefix(&format!("media/{id}/")).and_then(|f| f.split_once('.')).is_some_and(|(h, e)| is_sha256(h) && exts.contains(&e))
 }
 
 /// A permission as Browse shows it.
@@ -715,6 +774,34 @@ fn check_listing(l: &Listing) -> Result<(), String> {
         let ok = s.strip_prefix(&format!("screens/{}/", l.id)).and_then(|f| f.split_once('.')).is_some_and(|(h, e)| is_sha256(h) && matches!(e, "png" | "webp"));
         if !ok {
             return Err(at(format!("screenshot {} isn't screens/{}/<sha256>.png or .webp", s.escape_debug(), l.id)));
+        }
+    }
+    if let Some(t) = &l.tagline {
+        text_ok("its tagline", t, super::MAX_TAGLINE).map_err(&at)?;
+    }
+    if let Some(h) = &l.homepage {
+        if !h.starts_with("https://") || h.len() > 300 || h.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err(at("its homepage isn't an https address".into()));
+        }
+    }
+    if l.readme.as_ref().is_some_and(|r| !is_media_path(r, &l.id, &["md"])) {
+        return Err(at(format!("its readme isn't media/{}/<sha256>.md", l.id)));
+    }
+    let m = &l.media;
+    if m.icon.as_ref().is_some_and(|i| !is_media_path(i, &l.id, &["png", "webp"])) {
+        return Err(at(format!("its icon isn't media/{}/<sha256>.png or .webp", l.id)));
+    }
+    if m.screenshots.len() > super::media::MAX_SCREENSHOTS || m.images.len() > MAX_MEDIA_IMAGES {
+        return Err(at("it has too many screenshots or images".into()));
+    }
+    for s in &m.screenshots {
+        if ![&s.light, &s.dark].iter().all(|p| is_media_path(p, &l.id, &["png", "webp"])) || s.caption.as_ref().is_some_and(|c| text_ok("a caption", c, super::media::MAX_CAPTION).is_err()) {
+            return Err(at("a screenshot isn't media/<id>/<sha256>.png or .webp with a short caption".into()));
+        }
+    }
+    for (k, v) in &m.images {
+        if !matches!(super::media::local_ref(k), super::media::Ref::Local(ref r) if r == k) || !is_media_path(v, &l.id, &["png", "webp", "jpg", "gif"]) {
+            return Err(at(format!("README image {} can't be listed", k.escape_debug())));
         }
     }
     if l.keys.is_empty() || l.keys.len() > MAX_KEYS {

@@ -85,17 +85,23 @@ pub const COMPONENT: [u8; 8] = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
 
 /// A tile package of `id` at `version` asking for `permissions` (the
 /// inside of a manifest's `"permissions": {…}`), holding `wasm` as its
-/// component, a readme, a licence, a changelog and a screenshot.
+/// component, a readme showing an image of its own and one from the
+/// network, a licence, a changelog, its own icon and a screenshot as a
+/// dark and light pair.
 pub fn tile_package(id: &str, version: &str, permissions: &str, wasm: &[u8]) -> Vec<u8> {
     let manifest = format!(
-        r#"{{"v": 2, "id": "{id}", "name": "{id} tile", "version": "{version}", "description": "A tile for tests", "icon": "check", "permissions": {{{permissions}}}, "contributes": {{"tiles": [{{"id": "main", "title": "Main", "wasm": "tile.wasm"}}]}}}}"#
+        r#"{{"v": 2, "id": "{id}", "name": "{id} tile", "version": "{version}", "description": "A tile for tests", "tagline": "Tests it", "icon": "assets/icon.png", "screenshots": [{{"path": "screenshots/main.png", "caption": "Its tile"}}], "permissions": {{{permissions}}}, "contributes": {{"tiles": [{{"id": "main", "title": "Main", "wasm": "tile.wasm"}}]}}}}"#
     );
+    let shade = version.len() as u8;
     let files = vec![
         ("CHANGELOG.md".to_string(), format!("# Changelog\n\n## {version}\n\n- Made for a test.\n\n## 0.0.1\n\n- Older.\n").into_bytes()),
         ("LICENSE".to_string(), b"MIT".to_vec()),
-        ("README.md".to_string(), format!("# {id}\n").into_bytes()),
+        ("README.md".to_string(), format!("# {id}\n\n![How it looks](media/flow.png)\n\n![A badge](https://img.shields.io/badge/x-y-green.png)\n").into_bytes()),
+        ("assets/icon.png".to_string(), super::png::solid(128, 128, [40, 120, 200, 255])),
         ("extension.json".to_string(), manifest.into_bytes()),
-        ("screenshots/main.png".to_string(), vec![137u8, 80, 78, 71, version.len() as u8]),
+        ("media/flow.png".to_string(), super::png::solid(320, 120, [90, 160, 90, 255])),
+        ("screenshots/main-dark.png".to_string(), super::png::solid(320, 200, [30, 30, 30 + shade, 255])),
+        ("screenshots/main-light.png".to_string(), super::png::solid(320, 200, [240, 240, 240 - shade, 255])),
         ("tile.wasm".to_string(), wasm.to_vec()),
     ];
     zip::write(&files)

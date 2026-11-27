@@ -357,6 +357,7 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
     } else {
         r.add(Level::Warn, "there is no README.md: say what it does and how to set it up");
     }
+    listing_media(folder, &m, &mut r);
     // A tile's own tests are Rust (`cargo test` with the harness); the
     // fixture is for adapters.
     let only_tiles = m.adapter.is_none() && m.service.is_none() && !m.contributes.tiles.is_empty();
@@ -371,6 +372,50 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
     }
     r.does = does(&m, path);
     r
+}
+
+/// Its listing: icon, screenshots, the images its README shows
+/// ([`super::media::files`]), and the fields its detail page shows.
+fn listing_media(folder: &Path, m: &Manifest, r: &mut Report) {
+    use super::media;
+    match media::files(folder, m) {
+        Ok(files) => {
+            if let Some(i) = &m.icon_file {
+                r.add(Level::Ok, format!("its icon {i} is a square image Pitwall shows on its card, in Browse and wherever its tiles are listed"));
+            } else if m.icon.is_none() {
+                r.add(Level::Warn, "it has no \"icon\": add one of Pitwall's icon names, or your own (a square PNG or WebP, 256 or 512 pixels, like \"assets/icon.png\")");
+            }
+            let shots = files.iter().filter(|f| f.starts_with("screenshots/")).cloned().collect::<Vec<_>>();
+            match media::screenshots(&shots, &m.screenshots) {
+                Ok(s) if s.is_empty() => r.add(Level::Warn, "it has no screenshots: put PNG or WebP files in screenshots/ (name-dark.png and name-light.png for each theme)"),
+                Ok(s) => {
+                    let pairs = s.iter().filter(|x| x.dark != x.light).count();
+                    r.add(Level::Ok, format!("{} screenshot{} ({pairs} with dark and light files)", s.len(), if s.len() == 1 { "" } else { "s" }));
+                }
+                Err(why) => r.add(Level::Fail, why),
+            }
+            let images = files.iter().filter(|f| !f.starts_with("screenshots/") && Some(f.as_str()) != m.icon_file.as_deref()).count();
+            if images > 0 {
+                r.add(Level::Ok, format!("its README shows {images} image{} from its folder", if images == 1 { "" } else { "s" }));
+            }
+            if let Ok(text) = std::fs::read_to_string(folder.join(super::package::README)) {
+                let remote = media::readme_refs(&text).into_iter().filter(|s| matches!(media::local_ref(s), media::Ref::Remote(_))).count();
+                if remote > 0 {
+                    r.add(Level::Warn, format!("its README shows {remote} image{} from the network: Pitwall never fetches them and shows a link instead (put them in media/ and link them relatively)", if remote == 1 { "" } else { "s" }));
+                }
+            }
+        }
+        Err(why) => r.add(Level::Fail, why),
+    }
+    if m.tagline.is_none() {
+        r.add(Level::Warn, format!("it has no \"tagline\": a few words (at most {}) for its card and Browse", super::MAX_TAGLINE));
+    }
+    if m.categories.is_empty() {
+        r.add(Level::Warn, format!("it has no \"categories\": the index's Browse filters by them ({})", super::index::CATEGORIES.iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", ")));
+    }
+    if m.license.is_none() {
+        r.add(Level::Warn, "it has no \"license\" (an SPDX id like MIT or Apache-2.0): its detail page shows it");
+    }
 }
 
 /// What `m` would run and set, in plain words, as Settings shows it.
@@ -1423,6 +1468,35 @@ mod tests {
         let r = check(&d, Some(""));
         assert!(r.passed(), "{}", r.text());
         assert_eq!(file_args(&["node".into(), "a.mjs".into(), "--x".into(), "lib/b".into(), "2.5".into()]), ["a.mjs", "lib/b", "2.5"]);
+    }
+
+    /// Its listing media is checked: the icon file, screenshots, README
+    /// images (a `..` one fails; one from the network is noted), and the
+    /// listing fields it lacks are noted.
+    #[test]
+    fn check_looks_at_its_listing_media() {
+        use crate::testing::png::solid;
+        let t = crate::testing::TempDir::new("check-media");
+        let d = folder(&t, "pics", r#"{"id": "pics", "name": "Pics", "version": "1.0.0", "icon": "assets/icon.png", "tagline": "Pictures", "categories": ["fun"], "license": "MIT"}"#);
+        std::fs::create_dir_all(d.join("assets")).unwrap();
+        std::fs::create_dir_all(d.join("screenshots")).unwrap();
+        std::fs::create_dir_all(d.join("media")).unwrap();
+        std::fs::write(d.join("assets/icon.png"), solid(256, 256, [1, 2, 3, 255])).unwrap();
+        std::fs::write(d.join("screenshots/main-dark.png"), solid(64, 40, [0, 0, 0, 255])).unwrap();
+        std::fs::write(d.join("screenshots/main-light.png"), solid(64, 40, [255, 255, 255, 255])).unwrap();
+        std::fs::write(d.join("media/a.png"), solid(64, 40, [9, 9, 9, 255])).unwrap();
+        std::fs::write(d.join("README.md"), "# Pics\n\n![A](media/a.png)\n\n![B](https://x.dev/b.png)\n").unwrap();
+        let text = check(&d, Some("")).text();
+        assert!(text.contains("ok    its icon assets/icon.png is a square image"), "{text}");
+        assert!(text.contains("1 screenshot (1 with dark and light files)"), "{text}");
+        assert!(text.contains("its README shows 1 image from its folder"), "{text}");
+        assert!(text.contains("note  its README shows 1 image from the network"), "{text}");
+        std::fs::write(d.join("README.md"), "# Pics\n\n![Up](../x.png)\n").unwrap();
+        let r = check(&d, Some(""));
+        assert!(!r.passed() && r.text().contains("goes out of the extension's folder"), "{}", r.text());
+        std::fs::write(d.join("README.md"), "# Pics\n").unwrap();
+        std::fs::write(d.join("assets/icon.png"), solid(256, 100, [1, 2, 3, 255])).unwrap();
+        assert!(check(&d, Some("")).text().contains("FAIL  assets/icon.png is 256×100: an icon is square"));
     }
 
     /// A `source` is described with the tag of this version's release; one

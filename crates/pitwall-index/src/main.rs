@@ -114,7 +114,7 @@ fn main() -> ExitCode {
             };
             match pitwall_index::build(&repo, &out, &key, &pitwall_index::Https, &now(), !no_run) {
                 Ok(w) => {
-                    println!("Built {} ({} extensions, {} new versions, {} new screenshots).", out.display(), w.extensions, w.new_versions.len(), w.screens);
+                    println!("Built {} ({} extensions, {} new versions, {} new screenshots and media files).", out.display(), w.extensions, w.new_versions.len(), w.screens);
                     ExitCode::SUCCESS
                 }
                 Err(p) => {

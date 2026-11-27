@@ -65,19 +65,39 @@ pub fn publish(cmd: &ExtensionCmd) -> Result<Output, Error> {
     let entry_path = format!("extensions/{}.toml", m.id);
     let author_path = format!("authors/{author}.toml");
     let new_author = repo::Author { handle: author.clone(), github: github.clone(), keys: vec![signer.public_key.clone()], contact: None };
+    // The manifest's categories and licence when the flags give none.
+    let categories = if categories.is_empty() { m.categories.clone() } else { categories.clone() };
+    let license = license.clone().or_else(|| m.license.clone());
     let new_entry = || -> Result<repo::Entry, Error> {
         if categories.is_empty() || categories.len() > index::MAX_CATEGORIES {
-            return Err(bad(format!("A new extension needs 1 to {} --category ({}).", index::MAX_CATEGORIES, index::CATEGORIES.map(|c| c.0).join(", "))));
+            return Err(bad(format!("A new extension needs 1 to {} categories: \"categories\" in its extension.json, or --category ({}).", index::MAX_CATEGORIES, index::CATEGORIES.map(|c| c.0).join(", "))));
         }
         if let Some(c) = categories.iter().find(|c| index::category_name(c).is_none()) {
             return Err(bad(format!("“{c}” isn't a category: {}.", index::CATEGORIES.map(|c| c.0).join(", "))));
         }
-        let license = license.clone().ok_or_else(|| bad("A new extension needs --license (SPDX: MIT, Apache-2.0…)."))?;
+        let license = license.clone().ok_or_else(|| bad("A new extension needs a licence: \"license\" in its extension.json, or --license (SPDX: MIT, Apache-2.0…)."))?;
         Ok(repo::new_entry(m, author, &repository, categories.clone(), &license, v.clone()))
     };
 
     let mut human = format!("{} {} (sha256 {}, signed by key {}):\n", m.name, version, opened.sha256, signer.key_id);
     let mut json = json!({ "id": m.id, "version": version, "sha256": opened.sha256, "url": url, "keyId": signer.key_id, "publicKey": signer.public_key });
+    // What the index's build copies out of the package for Browse.
+    let checked = repo::Checked { id: m.id.clone(), version: version.clone(), manifest: m.clone(), files: opened.files.clone(), size: opened.size, signer: signer.clone() };
+    let (_, readme, media, files) = repo::listing_media(&m.id, &checked).map_err(|why| bad(format!("The index couldn't list it: {why}.")))?;
+    let shown = format!(
+        "  Browse shows {}, {} screenshot{}, and {} README{}.\n",
+        if media.icon.is_some() { "its own icon" } else { "a Pitwall icon" },
+        media.screenshots.len(),
+        if media.screenshots.len() == 1 { "" } else { "s" },
+        if readme.is_some() { "its" } else { "no" },
+        match media.images.len() {
+            0 => String::new(),
+            1 => " with 1 image".into(),
+            n => format!(" with {n} images"),
+        }
+    );
+    human.push_str(&shown);
+    json["media"] = json!({ "icon": media.icon.is_some(), "screenshots": media.screenshots.len(), "readmeImages": media.images.len(), "bytes": files.iter().map(|(_, b)| b.len()).sum::<usize>() });
     let release = format!("Before the pull request, release both files on GitHub at:\n  {url}\n  {url}.minisig\n");
 
     if let Some(dir) = index_dir {
@@ -212,6 +232,9 @@ mod tests {
         let link = out.json["pullRequest"].as_str().unwrap();
         assert!(link.starts_with("https://github.com/pitwalls/pitwall-extensions/new/main?filename=extensions%2Fci-status.toml&value="), "{link}");
         assert!(out.human.contains("release both files on GitHub"));
+        // What the index copies out for Browse.
+        assert!(out.human.contains("Browse shows its own icon, 1 screenshot, and its README with 1 image."), "{}", out.human);
+        assert_eq!(out.json["media"]["readmeImages"], 1);
     }
 
     #[test]
