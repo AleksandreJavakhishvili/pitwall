@@ -63,7 +63,7 @@ tile and show content in it, and the pages below match.
 - [ ] Agent access, show-only part: the per-tile "Agents can use <name>" switch, Settings → Agents "Tile tools", the tools on the permission screen, calls in the tile's Activity ([11.5](agent-tools.md#115-permissions), [11.10](agent-tools.md#1110-records)). Done when turning either switch off removes the tools from a running agent's list
 - [x] Native building blocks: code view and diff view ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)); read-only, as frame elements (16.2 "As built")
 - [ ] `sql` with quotas and migrations; `net`; notifications and toasts; open a file, the editor or a web tile ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12))
-- [x] Agents' questions group: `agents.read`, `badges`, `asks` in the floating control, `queue.add` with its origin mark (#PR)
+- [x] Agents' questions group: `agents.read`, `badges`, `asks` in the floating control, `queue.add` with its origin mark (#124)
 - [ ] Toolbar items, opt-in and hideable ([3.9](ui.md#39-toolbar-items))
 - [ ] Permission screen changes for the new grants ([5](permissions.md))
 - [ ] Tile plus managed service documented and wired ([13.2](services.md#132-a-a-tile-plus-a-managed-service))
