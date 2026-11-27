@@ -14,7 +14,8 @@
 set -eu
 
 IDENTITY="${PITWALL_SIGN_IDENTITY:-Pitwall Local Signing}"
-SRC="${1:-${CARGO_TARGET_DIR:-$(cd "$(dirname "$0")/.." && pwd)/target}/package/Pitwall.app}"
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SRC="${1:-${CARGO_TARGET_DIR:-$ROOT/target}/package/Pitwall.app}"
 DEST=/Applications/Pitwall.app
 
 [ -d "$SRC" ] || { echo "no app bundle at $SRC (build with: scripts/package-app.sh --formats app)" >&2; exit 1; }
@@ -53,8 +54,10 @@ for bin in "$DEST"/Contents/MacOS/*; do
   codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier "dev.pitwall.app.${name#pitwall-}" "$bin"
 done
 # The app itself with its entitlements (tiles need executable memory).
-codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app --entitlements crates/pitwall-app/packaging/macos/entitlements.plist "$DEST"
+codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app --entitlements "$ROOT/crates/pitwall-app/packaging/macos/entitlements.plist" "$DEST"
 codesign --verify --deep --strict "$DEST"
+# Signed with them: without, macOS kills it as soon as a tile starts.
+sh "$ROOT/scripts/check-entitlements.sh" "$DEST"
 echo "installed and signed: $DEST"
 # Terminals still running a holder from inside an older bundle lose macOS
 # file access (Desktop, Full Disk Access); newer ones run a copy outside it.

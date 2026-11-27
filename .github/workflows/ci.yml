@@ -107,6 +107,13 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --no-fail-fast
 
+      # Tiles under the hardened runtime, signed as the app is: the
+      # entitlements file keeps the key that lets Wasmtime's compiled code
+      # run, and tiles start in a program signed with it (without the key
+      # the installed app crashed on every launch once a tile updated).
+      - name: Tiles under the hardened runtime
+        run: sh scripts/check-hardened-tiles.sh
+
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
