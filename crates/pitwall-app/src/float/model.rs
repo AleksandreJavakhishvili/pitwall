@@ -419,6 +419,65 @@ pub struct AskItem {
     /// Asked by the extension's tile (its id and title), not its inbox:
     /// answered to the tile, and "Open <title>" opens it.
     pub tile: Option<(String, String)>,
+    /// Not a question but Pitwall's approval of an agent's `read` or
+    /// `act` call of the extension's tile: answered through the approval
+    /// dialog's own path (`crate::approvals::answer`), its suggestions
+    /// the dialog's answers.
+    pub approval: Option<Approval>,
+}
+
+/// An approval a card answers (agent-tools.md §11.5): the request, what
+/// it shows under its question, what each suggestion answers, and the
+/// agent that asks (Open brings Pitwall forward on it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Approval {
+    pub id: String,
+    pub details: Vec<String>,
+    /// Each suggestion's answer: (allow, always).
+    pub answers: Vec<(bool, bool)>,
+    pub agent: Option<String>,
+}
+
+/// The approvals of tiles' `read` and `act` calls in `list` (the others
+/// are the dialog's alone) as cards, each named by its extension
+/// (`ext_of`: its name and icon): "<agent> wants to <what>.", the
+/// details, and Allow once, "Always for <agent>" when offered, Deny.
+pub fn approvals(list: &[pitwall_proto::ApprovalView], ext_of: &dyn Fn(&str) -> (String, String)) -> Vec<AskItem> {
+    use pitwall_core::extensions::protocol::Suggestion;
+    list.iter()
+        .filter_map(|a| {
+            let (ext, kind) = pitwall_proto::tile_tools::approval_extension(&a.action)?;
+            let (ext_name, icon) = ext_of(ext);
+            let mut options = vec![("Allow once".to_string(), (true, false))];
+            if let Some(always) = &a.always {
+                options.push((always.clone(), (true, true)));
+            }
+            options.push(("Deny".to_string(), (false, false)));
+            Some(AskItem {
+                ext: ext.to_string(),
+                ext_name,
+                icon,
+                conn: None,
+                thread: a.id.clone(),
+                title: if kind == "read" { "Approval to read".into() } else { "Approval to act".into() },
+                from: Some(a.requester.name.clone()),
+                ask: Ask {
+                    number: 0,
+                    question: format!("{} wants to {}.", a.requester.name, a.summary),
+                    multiple: false,
+                    open: true,
+                    suggestions: options.iter().map(|(label, _)| Suggestion { label: label.clone(), description: String::new() }).collect(),
+                    answer: None,
+                    withdrawn: None,
+                    blocking: true,
+                },
+                busy: false,
+                note: None,
+                tile: None,
+                approval: Some(Approval { id: a.id.clone(), details: a.details.clone(), answers: options.into_iter().map(|(_, a)| a).collect(), agent: a.requester.agent_id.clone() }),
+            })
+        })
+        .collect()
 }
 
 impl AskItem {
@@ -484,6 +543,7 @@ pub fn asks(inboxes: &[Inbox]) -> Vec<AskItem> {
                     busy: b.busy.contains(&th.id),
                     note: b.notes.get(&th.id).cloned(),
                     tile: None,
+                    approval: None,
                 });
             }
         }

@@ -241,7 +241,7 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
                 pitwall_proto::Requester { kind: pitwall_proto::RequesterKind::Agent, agent_id: Some(req.agent_id.clone()), name: req.agent_name.clone(), pid: None, process: None }
             };
             let a = pitwall_daemon::approvals::Ask {
-                action: format!("tile.{}", req.kind),
+                action: pitwall_proto::tile_tools::approval_action(&req.kind, &req.extension),
                 summary: ask.summary,
                 details: ask.details,
                 requester,
