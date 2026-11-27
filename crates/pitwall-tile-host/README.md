@@ -88,7 +88,10 @@ calls `set_content` for a repeat.
 `TileHandle` (every method only posts; false once the worker is gone):
 `send(ui::Event)`, `open_view(ViewSpec)`, `set_content(view, ui::Content)`,
 `close_view(view)`, `set_visible(bool)`, `set_theme(ui::ThemeInfo)`,
-`set_grants(Grants)`, `settings_changed()`, `save_state()`, `advance(Duration)`
+`set_grants(Grants)`, `settings_changed()`, `save_state()`, `rows(view, list,
+start, count)` (rows of the list, table or tree at key path `list` in the
+view's newest frame; answered after the batch's renders, so they match its
+revision; ignored for no such list), `advance(Duration)`
 (a virtual clock only), `stop()`
 (interrupts a running call within one epoch tick), `is_running()`, `join()`
 (blocking; not for the UI thread), `id()`. Dropping it stops the tile.
@@ -101,7 +104,8 @@ calls `set_content` for a repeat.
 | `Started { cached, took }` | instantiated, `init` ok |
 | `Frame(FrameUpdate { view, tile, frame: Arc<ui::Frame>, diff: Diff, took })` | a view's whole tree, already checked against the limits, with its keyed diff (`continues[i]`: the old node index whose state node `i` keeps; `changed`, `added`, `removed`). Unchanged renders aren't sent |
 | `Log(LogLine { level, message, at, from_host })` | the tile's Log: its `log` calls, stdout (info) and stderr (warn), and host notes (slow calls, dropped toasts) |
-| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`: apply with `cx.defer` |
+| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`, `PutImage { name, format, bytes }` (sniffed, within the limits; before the frames after it), `DropImage(name)`: apply with `cx.defer` |
+| `Rows(RowsUpdate { view, list, revision, start, rows, took })` | answer to `rows(..)`: the rows, checked (`components::check_rows`: ≤ 64 nodes of box, text, icon, button, image, context-menu; unique keys); rows that fail stop the tile (`FrameRefused`) |
 | `StateSaved(Vec<u8>)` | answer to `save_state()` |
 | `Stopped(StopReason)` | the last output: `Stopped` (by `stop()`), `Deadline { call, limit }`, `Crashed(_)` (trap, panic, memory limit), `FrameRefused(_)` (tree limits), `InitFailed(_)`, `LoadFailed(_)`. `Display` gives the user-facing words |
 
@@ -122,7 +126,9 @@ store; called on the worker thread). The agents' calls go through the
 table, called as that extension; `NoMethods` answers "unsupported"); the
 answer to a question goes back as an event, `handle.send(ui::Event::AskAnswered(..))`.
 
-`frame::check` and `frame::diff` are public for the test harness; `limits`
+`frame::check`, `frame::diff` and `frame::frame_bytes` are public for the
+test harness; `components` has the components' checks and helpers
+(`rows_of`, `list_at`, `key_paths`, `asset_path`, `image_format`); `limits`
 has every limit as a constant.
 
 ## Limits (runtime.md §2.5)
@@ -132,7 +138,10 @@ Deadlines are wall clock, checked on every 10 ms epoch tick: `init` 2 s,
 `save-state` 50 ms. Memory 64 MiB (grow failures trap). Frames: 20 000
 nodes, about 2 MiB, keys ≤ 128 bytes, a text field ≤ 1 MiB. 200 host calls
 a second; 32 timers, ≥ 100 ms; storage 10 MiB; 3 toasts a minute; content
-≤ 8 MiB. Over a frame limit or a deadline the tile stops with the reason.
+≤ 8 MiB. Components: ≤ 1 000 000 rows a list, rows 12–200 px, ≤ 256 rows a
+`rows` call (250 ms), a row ≤ 64 nodes, ≤ 64 columns, ≤ 1 000 tabs, options
+or menu items, Markdown ≤ 1 MiB, an image put ≤ 8 MiB (64 MiB a tile), an
+asset ≤ 16 MiB. Over a frame limit or a deadline the tile stops with the reason.
 
 ## Threading
 

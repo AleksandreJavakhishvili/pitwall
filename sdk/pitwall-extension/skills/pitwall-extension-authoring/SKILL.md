@@ -140,6 +140,26 @@ pitwall_extension::export!(App);
 - **Code and diff views** (read-only, Pitwall's own): `code_view(text).language("rust")`
   with `.mark(range, Mark::Added)`, `.reveal(line)`, `.on_line_click`, `.on_select`;
   `diff_view(old, new)` or `diff_view_unified(patch)`, `.inline()`. Give them a size.
+- **Components**, drawn by Pitwall (prefer them to hand-made ones):
+  - Long lists: `virtual_list("rows", count, cx.rows(|this, i, cx| row))`,
+    each row keyed by its item (`.id(item.id)`, no `/` in a key), small
+    (boxes, text, icons, buttons, images, a context menu), one
+    `.row_height`. `.on_select(cx.listener(|this, e: &Picked, cx| …))`
+    (`e.activate` for a double click or Enter), `.selected([key])`,
+    `.revision(n)` when the data has a version. Give its parent a height.
+  - `table("t", vec![column("name", "Name").sortable(), column("size",
+    "Size").width(90.0).align_end()], count, rows)`: a row's root holds one
+    child per column; `.sort(col, dir)`, `.on_sort`, `.on_column_resize`.
+  - `tree("t", visible_count, cx.rows(|this, i, _| tree_row(el).depth(d)
+    .branch(open)))`: flatten the open branches; `.on_toggle` (`Toggled`).
+  - `tabs("k", [tab("a", "A")])`, `select("k", [choice("s", "Small")])`
+    with `.selected` and `.on_select` (`&str` key).
+  - `menu_button("Actions", vec![menu_item("copy", "Copy").icon(Icon::Copy),
+    separator(), menu_item("del", "Delete").danger()])` and
+    `.context_menu(entries, listener)` on any element (rows too).
+  - `markdown(text)`: inert; `.on_link` (`LinkClick`), `.on_toggle` (a
+    task's line and state). `image_asset("assets/x.svg")`,
+    `image_data(name)` after `ui::put_image(name, &bytes)`; no network.
 - **Render quickly** (under 8 ms; the deadline is 250 ms): compute in
   listeners and timers, read state in `render`. `handle` calls have 1 s,
   `new` 2 s. A tile over a deadline is stopped and the user sees why.
@@ -181,7 +201,7 @@ the schema small and describe each field: agents read it.
   `Tile::on_event` gets `Event::SettingsChanged` (by default it renders
   again).
 - `ui`: `toast(text, Tone::Good)`, `open_view(tile)`, `scroll_to(view,
-  key_path)`.
+  key_path)`, `put_image(name, &bytes)`, `drop_image(name)`.
 - `log`: `debug`, `info`, `warn`, `error` (and `println!`), shown in the
   tile's Log and by `pitwall extension dev`.
 - Timers: `cx.after(Duration::from_secs(5), |this, cx| …)`,
@@ -240,6 +260,12 @@ keyboard; `press("n")` a bound key; `resize(view, w, h)`, `light()`;
 Canvases and blocks: `canvas(key)`, `click_region(label)`, `hover_region`,
 `wheel`, `pinch`, `drag_pointer`, `drag(from, to)`, `code_view(key)`,
 `click_line(key, Side::New, n)`, `select_code`.
+Components: `rows(list, start, count)` (each
+`Row` with its key, text, depth, expanded), `find_row`, `select_row`,
+`activate_row`, `expand_row`/`collapse_row`, `click_in_row`,
+`choose_row_menu_item`, `choose_menu_item(key_path, label)`,
+`select_option`, `select_tab`, `sort_by`, `resize_column`, `click_link`,
+`toggle_task` (each takes the component's key path, or its own key).
 
 ## Docs
 
