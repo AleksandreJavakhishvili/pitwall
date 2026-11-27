@@ -105,6 +105,7 @@ impl Tile for Services {
             .child(b(cx, "notify", "Notify", |t, _| t.status = said("notify", notify::send("Build failed", "api: 3 tests failed"))))
             .child(b(cx, "open-file", "Open a file", |t, _| t.status = said("file", show::file("/tmp/project/src/main.rs", Some(12)))))
             .child(b(cx, "open-web", "Open a page", |t, _| t.status = said("web", show::web("https://example.com/docs"))))
+            .child(b(cx, "view-file", "Show a file", |t, _| t.status = said("view", show::view("/tmp/project/src/lib.rs", Some(3)))))
             .child(b(cx, "badge", "Badge", |t, _| {
                 t.badge += 1;
                 toolbar::set_badge(toolbar::Badge::Count(t.badge), toolbar::Tone::Attention);

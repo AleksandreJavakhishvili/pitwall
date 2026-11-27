@@ -178,6 +178,17 @@ fn an_agent_draws_a_diagram_on_the_right_with_c4_show(cx: &mut TestAppContext) {
     until(cx, "the update", |cx| has("Price cache", cx));
     assert_eq!(at(cx), Some(Whereabouts::Next(Side::Right, "api".into())), "not moved");
 
+    // Its Changes, chosen in the bar as a click would; B goes back to Now.
+    let key = Surface::View("c4".into(), "main".into()).key();
+    let tile = cx.update(|cx| crate::main_screen::view_tile::get(&key, cx).and_then(|v| v.read(cx).tile().cloned())).unwrap();
+    assert!(cx.update(|cx| tile.read(cx).choose("bar/mode", "changes", cx)), "{:?}", shown(cx));
+    let chosen = |cx: &mut TestAppContext| cx.update(|cx| tile.read(cx).chosen("bar/mode"));
+    until(cx, "the changes", |cx| chosen(cx).as_deref() == Some("changes"));
+    assert!(!cx.update(|cx| tile.read(cx).choose("bar/mode", "nowhere", cx)), "no such option");
+    assert!(cx.update(|cx| tile.read(cx).press_key("b", cx)));
+    until(cx, "Now again", |cx| chosen(cx).as_deref() == Some("now"));
+    assert!(!cx.update(|cx| tile.read(cx).press_key("cmd-q", cx)), "not bound");
+
     // Bad Mermaid: an error with the line; the drawing stays.
     let (text, error) = call(&server, "c4__show", json!({ "mermaid": "flowchart LR\n  a[\"A\"]\n  a -->|calls b\n", "item": "containers" }), cx);
     assert!(error && text.contains("nothing was changed") && text.contains("line 3, column"), "{text}");

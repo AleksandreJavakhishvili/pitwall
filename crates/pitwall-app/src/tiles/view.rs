@@ -515,6 +515,40 @@ impl TileView {
         self.send(Event::Pointer(ui::PointerEvent { handler, kind, at, modifiers: ui::Modifiers::empty() }), cx)
     }
 
+    /// Choose option `key` of the segmented control, radio group or
+    /// breadcrumbs of node `path`, as a click on it does (tests and bench
+    /// commands: nothing is clicked on the screen). False when the node
+    /// has no such option or doesn't listen for its value.
+    pub fn choose(&self, path: &str, key: &str, cx: &App) -> bool {
+        let known = match self.node(path).map(|n| &n.element) {
+            Some(Element::Segmented(g) | Element::RadioGroup(g)) => !g.disabled && g.items.iter().any(|i| i.key == key && !i.disabled),
+            Some(Element::Breadcrumbs(c)) => c.iter().any(|c| c.key == key),
+            _ => false,
+        };
+        known && widgets::tell_value(self, path, key, cx)
+    }
+
+    /// The option chosen in the segmented control or radio group of node
+    /// `path` (tests and bench commands).
+    pub fn chosen(&self, path: &str) -> Option<String> {
+        match self.node(path).map(|n| &n.element) {
+            Some(Element::Segmented(g) | Element::RadioGroup(g)) => g.selected.clone(),
+            _ => None,
+        }
+    }
+
+    /// Press `keys` (as the tile bound them in its keymap: `b`, `cmd-s`),
+    /// as the keyboard does while the tile has focus and no text field
+    /// takes them (tests and bench commands: nothing is typed). False when
+    /// the frame doesn't bind them, or Pitwall keeps them.
+    pub fn press_key(&self, keys: &str, cx: &App) -> bool {
+        let Some(frame) = &self.frame else { return false };
+        match frame.keymap.iter().find(|b| b.keys == keys && !render::reserved(&b.keys)) {
+            Some(b) => self.send(Event::Key(ui::KeyEvent { handler: b.handler, keys: b.keys.clone() }), cx),
+            None => false,
+        }
+    }
+
     fn on_input(&mut self, path: &str, e: &InputEvent, cx: &mut Context<Self>) {
         match e {
             InputEvent::Changed => {
@@ -819,7 +853,9 @@ impl TileView {
                 .left_0()
                 .size_full();
                 let regions: Vec<AnyElement> = c.regions.iter().map(|r| self.region(&id, &path, c, r, st, cx)).collect();
-                d.debug_selector(move || sel.clone()).relative().overflow_hidden().child(paint).children(regions).into_any_element()
+                // A popover over it (a box's menu), anchored to a point.
+                let popovers: Vec<AnyElement> = self.kids[i].clone().into_iter().filter(|&k| matches!(frame.nodes[k].element, Element::Popover(_))).map(|k| self.build(k, inherit, window, t, cx)).collect();
+                d.debug_selector(move || sel.clone()).relative().overflow_hidden().child(paint).children(regions).children(popovers).into_any_element()
             }
             Element::CodeView(_) | Element::DiffView(_) => {
                 let Some(view) = st.and_then(|s| s.block.as_ref()).map(|b| b.view.clone()) else { return div().into_any_element() };

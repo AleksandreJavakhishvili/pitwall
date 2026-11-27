@@ -21,7 +21,7 @@ use crate::clock::Clock;
 use crate::data::{KvError, KvStore};
 use crate::limits::{HOST_CALLS_PER_SECOND, MAX_GET_MANY, MAX_LOG_LINE, MAX_TIMERS, MAX_TOAST, MIN_TIMER, TOASTS_PER_MINUTE};
 use crate::stdio::LogPipe;
-use crate::ui::{HostError, Tone};
+use crate::ui::{Font, HostError, Tone, Weight};
 use crate::net::Fetcher;
 use crate::services::no_service;
 use crate::sql::Db;
@@ -384,6 +384,16 @@ impl ui::Host for HostState {
         if self.count_call() && self.images.remove(&name).is_some() {
             self.pending.push(Pending::Ui(UiRequest::DropImage(name)));
         }
+    }
+
+    fn measure_text(&mut self, texts: Vec<String>, font: Font, size: f32, weight: Weight) -> Vec<f32> {
+        if !self.count_call() {
+            return Vec::new();
+        }
+        crate::measure::widths(&texts, font, size, weight).unwrap_or_else(|why| {
+            self.host_log(LogLevel::Warn, why);
+            Vec::new()
+        })
     }
 }
 

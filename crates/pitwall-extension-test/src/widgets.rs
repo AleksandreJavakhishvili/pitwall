@@ -74,7 +74,10 @@ pub(crate) fn describe(e: &Element, now_ms: i64) -> Option<String> {
         Element::Divider(o) => format!("divider{}", if *o == ui::Orientation::Vertical { " vertical" } else { "" }),
         Element::Breadcrumbs(c) => format!("breadcrumbs {}", c.iter().map(|c| c.label.as_str()).collect::<Vec<_>>().join(" / ")),
         Element::Toolbar => "toolbar".into(),
-        Element::Popover(_) => "popover".into(),
+        Element::Popover(p) => match &p.at {
+            Some(at) => format!("popover at ({}, {})", w::number(f64::from(at.x), None), w::number(f64::from(at.y), None)),
+            None => "popover".into(),
+        },
         Element::ConfirmSheet(s) => format!("confirm-sheet {:?} confirm={:?}{}{}", s.title, s.confirm, opt("text", &s.text), flag(s.danger, "danger")),
         Element::KeyValues(kv) => format!("key-values {}", kv.iter().map(|k| format!("{}={:?}", k.key, k.value)).collect::<Vec<_>>().join(" ")),
         Element::Avatar(a) => format!("avatar {:?} {}", a.name, w::initials(&a.name)),

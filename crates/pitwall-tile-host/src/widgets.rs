@@ -537,7 +537,7 @@ mod tests {
     fn splits_take_two_panes_and_popovers_an_anchor() {
         let f = |nodes| Frame { nodes, focus: None, keymap: vec![] };
         let split = || Element::Split(Split { orientation: crate::ui::Orientation::Horizontal, initial: 0.5, min_first: 100., min_second: 100. });
-        let pop = || Element::Popover(crate::ui::Popover { placement: crate::ui::Placement::Below, width: None });
+        let pop = || Element::Popover(crate::ui::Popover { placement: crate::ui::Placement::Below, width: None, at: None });
         assert_eq!(check_tree(&f(vec![node(None, "r", split()), node(Some(0), "a", Element::Box), node(Some(0), "b", Element::Box)])), Ok(()));
         assert_eq!(check_tree(&f(vec![node(None, "r", split()), node(Some(0), "a", Element::Box)])), Err((0, Problem::SplitPanes(1))));
         assert_eq!(check_tree(&f(vec![node(None, "r", pop())])), Err((0, Problem::LoosePopover)));

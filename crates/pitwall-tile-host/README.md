@@ -18,7 +18,7 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`, `agents`, `badges`, `asks`, `net`, `sql`, `notify`, `show`, `toolbar`, `service`, `agent-tools`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
 | `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node, `agents-changed`, `ask-answered`, `fetched`, `toolbar-clicked`, `service-changed`); views and content; `host-error` |
 | `guest.wit` | `guest` (export) | `init`, `render(view)`, `handle(event) -> bool`, `save-state` |
-| `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view` |
+| `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view`, `put-image`, `drop-image`, `measure-text` (widths in Pitwall's Inter and JetBrains Mono from tables `build.rs` makes of the app's font files, `measure.rs`; ≤ 1 000 texts, 64 KiB a call) |
 | `log.wit` | `log` | `debug`, `info`, `warn`, `error` |
 | `tasks.wit` | `tasks` | `timer(ms, repeat)`, `cancel` |
 | `storage.wit` | `storage` | key-value: `get`, `get-many` (≤ 1024 keys, one call), `set`, `delete`, `list`, `usage` (10 MiB) |
@@ -29,7 +29,7 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | `net.wit` | `net` | `fetch(request) -> request-id` (answer later as the `fetched` event), `cancel`; needs `net` and a host from the manifest (https; http only to loopback when listed), or the extension's own server; 8 at once, 8 MiB up, 32 MiB down, 30 s (≤ 120 s), ≤ 5 redirects re-checked; no cookies, proxy or credentials (`net::HttpFetcher`; `TileHost::set_fetcher` for a fake) |
 | `sql.wit` | `sql` | the extension's SQLite file (`<data>/extension-data/<id>/db.sqlite`): `execute`, `query` (≤ 10 000 rows, 8 MiB), `migrate(steps)` (`user_version`, a transaction per step), `begin`/`commit`/`rollback` (open past a call: rolled back), `usage`, `quota` (100 MiB, or the `sql` grant's size); no `ATTACH`, extensions or writing pragmas; stopped at the call's deadline |
 | `notify.wit` | `notify` | `send(title, body)`: needs `notify`; 3 a minute, the same words once in 10 minutes |
-| `show.wit` | `show` | `file(path, line)`, `web(url)`: need `show` |
+| `show.wit` | `show` | `file(path, line)` (the editor), `view(path, line)` (the tile's file viewer window, `UiRequest::ViewFile`), `web(url)`: need `show` |
 | `toolbar.wit` | `toolbar` | `set-badge`, `set-project-badge` (needs `projects.read`), `set-tooltip`, `set-shown` (≤ 1 in 5 s), `close-popover`; the popover is view `toolbar:popover` (`POPOVER_VIEW`) |
 | `service.wit` | `service` | `info`, `restart`, `open-card` for the extension's own server; `TileHandle::set_service` gives its state (the first after start isn't a change) |
 | `agent-tools.wit` | `agent-tools` | an agent's call answered: `reply(call, tool-output)` (text, JSON, item; or an error with problems), `user-edited(call)` |
@@ -165,7 +165,7 @@ Deadlines are wall clock, checked on every 10 ms epoch tick: `init` 2 s,
 nodes, about 2 MiB, keys ≤ 128 bytes, a text field ≤ 1 MiB. 200 host calls
 a second; 32 timers, ≥ 100 ms; storage 10 MiB; 3 toasts a minute; content
 ≤ 8 MiB. Components: ≤ 1 000 000 rows a list, rows 12–200 px, ≤ 256 rows a
-`rows` call (250 ms), a row ≤ 64 nodes, ≤ 64 columns, ≤ 1 000 tabs, options
+`rows` call (250 ms), a row ≤ 64 nodes (boxes, text, icons, buttons, images, a context menu, badges, avatars, relative times), ≤ 64 columns, ≤ 1 000 tabs, options
 or menu items, Markdown ≤ 1 MiB, an image put ≤ 8 MiB (64 MiB a tile), an
 asset ≤ 16 MiB. Over a frame limit or a deadline the tile stops with the reason.
 

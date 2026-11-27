@@ -43,5 +43,11 @@ url = "2.5"
 # version and nothing depends on a system library.
 rusqlite = { version = "0.37", features = ["bundled", "hooks", "limits"] }
 
+[build-dependencies]
+# Reads the app's Inter and JetBrains Mono files into advance-width tables
+# for `ui.measure-text` at build time (build.rs, src/measure.rs). MIT; in
+# the tree already. Never linked into Pitwall.
+rustybuzz = "0.20"
+
 [dev-dependencies]
 tempfile = "3"

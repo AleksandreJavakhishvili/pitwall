@@ -147,8 +147,30 @@ fn mark(m: &ui::LineMark) -> (std::ops::Range<usize>, LineMark) {
         ui::LineMarkKind::Added => LineMark::Added,
         ui::LineMarkKind::Changed => LineMark::Changed,
         ui::LineMarkKind::Deleted => LineMark::Deleted,
+        ui::LineMarkKind::Error => LineMark::Error,
+        ui::LineMarkKind::Warning => LineMark::Warning,
     };
     (m.lines.start as usize..(m.lines.end.max(m.lines.start)) as usize, kind)
+}
+
+/// The longest message of an error or warning mark drawn, in bytes.
+const MAX_NOTE: usize = 500;
+
+/// What the error and warning marks say, by their first line.
+fn notes(marks: &[ui::LineMark]) -> Vec<(usize, LineMark, gpui::SharedString)> {
+    marks
+        .iter()
+        .filter(|m| matches!(m.kind, ui::LineMarkKind::Error | ui::LineMarkKind::Warning))
+        .filter_map(|m| {
+            let text = m.message.as_deref()?.lines().next()?.trim();
+            let mut end = text.len().min(MAX_NOTE);
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            let text = if end < text.len() { format!("{}…", &text[..end]) } else { text.to_string() };
+            (!text.is_empty()).then(|| (m.lines.start as usize, mark(m).1, text.into()))
+        })
+        .collect()
 }
 
 fn side(s: Side) -> ui::DiffSide {
@@ -202,7 +224,11 @@ impl Block {
                 if c.marks != b.marks {
                     b.marks = c.marks.clone();
                     let marks = c.marks.iter().map(mark).collect();
-                    view.update(cx, |v, cx| v.set_line_marks(marks, cx));
+                    let notes = notes(&c.marks);
+                    view.update(cx, |v, cx| {
+                        v.set_line_marks(marks, cx);
+                        v.set_line_notes(notes, cx);
+                    });
                 }
                 if c.reveal != b.reveal {
                     b.reveal = c.reveal;

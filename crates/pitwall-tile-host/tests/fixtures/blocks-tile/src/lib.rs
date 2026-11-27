@@ -4,12 +4,15 @@
 //! - `diagram`: three boxes and their links on a canvas, with clickable
 //!   regions (a click selects a box and zooms to it), zoom and pan by
 //!   wheel, pinch and drag, zoom buttons, and box names to drag onto a
-//!   "Pinned" list.
+//!   "Pinned" list. A right-click on a box opens its menu under it (a
+//!   popover anchored to a point of the canvas), which says how wide
+//!   the box's name is (`ui.measure-text`).
 //! - `code`: a Rust file in the code view, with margin marks, line clicks
-//!   and the selection.
+//!   and the selection; Check adds an error and a warning mark.
 //! - `diff`: two versions of it in the diff view, side by side or inline,
 //!   and a unified diff.
 
+use pitwall_extension::events::MouseButton;
 use pitwall_extension::prelude::*;
 
 /// A box of the diagram: key, name, what it is, where.
@@ -46,6 +49,10 @@ struct Blocks {
     selection: String,
     inline: bool,
     unified: bool,
+    /// The box whose menu is open (a right-click).
+    menu: Option<&'static str>,
+    /// The code view shows its problems.
+    checked: bool,
 }
 
 impl Blocks {
@@ -94,15 +101,49 @@ impl Blocks {
             c = c.region(
                 Region::new(b.key, b.x, b.y, W, H, b.name)
                     .tooltip(format!("{}: {}", b.name, b.what))
-                    .on_click(cx.listener(move |t: &mut Blocks, _: &Click, cx| {
-                        t.selected = Some(key);
-                        t.zoom_to(key);
+                    .on_click(cx.listener(move |t: &mut Blocks, e: &Click, cx| {
+                        if e.button == MouseButton::Right {
+                            t.menu = Some(key);
+                        } else {
+                            t.selected = Some(key);
+                            t.zoom_to(key);
+                        }
                         cx.notify();
                     }))
                     .on_hover(cx.listener(move |t: &mut Blocks, h: &Hover, cx| {
                         t.hovered = if h.inside { Some(key) } else { None };
                         cx.notify();
                     })),
+            );
+        }
+        // A box's menu, under the box.
+        if let Some(b) = self.menu.and_then(|k| BOXES.iter().find(|b| b.key == k)) {
+            let (x, y) = self.viewport.to_view(b.x, b.y + H);
+            let wide = Label::new(b.name, 0., 0.).size(14.).semibold().width();
+            let key = b.key;
+            c = c.popover(
+                popover()
+                    .id("box-menu")
+                    .at(x, y)
+                    .width(220.)
+                    .on_dismiss(cx.listener(|t: &mut Blocks, _: &Dismissed, cx| {
+                        t.menu = None;
+                        cx.notify();
+                    }))
+                    .child(
+                        v_flex()
+                            .id("items")
+                            .p_1()
+                            .gap_0p5()
+                            .child(text(format!("{} · its name is {} px wide", b.name, wide.round())).id("about").text_xs().text_color(Token::Text3).px_2().py_1())
+                            .child(button("Pin").id("pin").small().on_click(cx.listener(move |t: &mut Blocks, _, cx| {
+                                if !t.pinned.iter().any(|p| p == key) {
+                                    t.pinned.push(key.to_string());
+                                }
+                                t.menu = None;
+                                cx.notify();
+                            }))),
+                    ),
             );
         }
         let c = c
@@ -176,7 +217,19 @@ impl Blocks {
         v_flex()
             .size_full()
             .bg(Token::Surface)
-            .child(h_flex().id("bar").px_2().py_1().border_b_1().border_color(Token::Line).child(text(status).id("status").text_sm().text_color(Token::Text2)))
+            .child(
+                h_flex()
+                    .id("bar")
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(Token::Line)
+                    .child(text(status).id("status").text_sm().text_color(Token::Text2).flex_1())
+                    .child(button(if self.checked { "Clear" } else { "Check" }).id("check").small().on_click(cx.listener(|t: &mut Blocks, _, cx| {
+                        t.checked = !t.checked;
+                        cx.notify();
+                    }))),
+            )
             .child(
                 code_view(NEW)
                     .id("code")
@@ -185,6 +238,7 @@ impl Blocks {
                     .mark(0..1, Mark::Added)
                     .mark(2..3, Mark::Changed)
                     .mark(3..3, Mark::Deleted)
+                    .when(self.checked, |c| c.mark_with(6..7, Mark::Error, "mismatched types: expected `&[Item]`, found `&[_; 0]`").mark_with(1..2, Mark::Warning, "function `total` is never used"))
                     .on_line_click(cx.listener(|t: &mut Blocks, l: &LineClick, cx| {
                         t.line = Some(l.line);
                         t.selection.clear();

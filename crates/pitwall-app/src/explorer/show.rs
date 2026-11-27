@@ -414,6 +414,51 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
     Ok(ViewerShown { agent_id: agent.to_string(), window: title, in_background: !in_front, place: ViewerPlace::Window, at: None, root, note })
 }
 
+/// The owner a tile's file viewer window is kept under (as an agent's
+/// is under the agent's id): one viewer per extension.
+pub fn tile_owner(ext: &str) -> String {
+    format!("tile:{ext}")
+}
+
+/// The folder a tile's viewer shows `file` in: the git repository it is
+/// in, else its own folder.
+pub fn tile_root(file: &Path) -> PathBuf {
+    let folder = file.parent().unwrap_or(file);
+    folder.ancestors().find(|d| d.join(".git").exists()).unwrap_or(folder).to_path_buf()
+}
+
+/// A tile shows the user `file` (`show.view`, granted `show`): in its
+/// extension's own file viewer window (`name`'s), rooted at
+/// [`tile_root`], opened behind the front window without the keyboard;
+/// a later call adds a tab (and roots it elsewhere when the file is
+/// elsewhere, unless it has unsaved edits).
+pub fn show_for_tile(ext: &str, name: &str, file: &Path, line: Option<u32>, cx: &mut App) -> Result<(), String> {
+    let root = tile_root(file);
+    let key = path_key(&root.to_string_lossy());
+    let owner = tile_owner(ext);
+    let title = super::window::title(name, &root_display(&key, cx));
+    let tab = relative_to(&root, file).unwrap_or_else(|| file.to_string_lossy().into_owned());
+    let at = target(line, None);
+    let handle = match crate::windows::viewer_window(&owner, cx) {
+        Some(h) => h,
+        None => super::window::open(&owner, &key, title.clone(), false, cx)?,
+    };
+    handle
+        .update(cx, |w, window, cx| {
+            let (now, old) = w.current();
+            let carry = (now != key.as_str()).then(|| replacing(old, name, &root, cx)).transpose()?;
+            let v = w.viewer_for(&key, &title, window, cx);
+            v.update(cx, |v, cx| {
+                if let Some(c) = &carry {
+                    v.restore(c, cx);
+                }
+                v.open(tab, at, cx);
+            });
+            Ok(())
+        })
+        .map_err(|_| "the file viewer window went away".to_string())?
+}
+
 /// `more` said after `note`.
 fn joined(note: Option<String>, more: String) -> Option<String> {
     Some(match note {
@@ -593,6 +638,15 @@ mod tests {
 
     fn req(folder: Option<String>, files: Vec<OpenedFile>) -> ViewerShow {
         ViewerShow { agent_id: "a1".into(), files, folder, root: None, place: None, of: None, note: None }
+    }
+
+    #[test]
+    fn a_tiles_viewer_shows_the_files_repository_else_its_folder() {
+        let d = Dirs::new("tile-root");
+        std::fs::create_dir_all(d.root.join("api/.git")).unwrap();
+        assert_eq!(tile_root(Path::new(&d.at("api/src/main.rs"))), d.root.join("api"));
+        assert_eq!(tile_root(Path::new(&d.at("elsewhere/docs/a.md"))), d.root.join("elsewhere/docs"));
+        assert_eq!(tile_owner("notes"), "tile:notes");
     }
 
     #[test]

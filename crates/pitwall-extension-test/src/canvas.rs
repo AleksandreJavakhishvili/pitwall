@@ -2,7 +2,7 @@
 //! the user does to them, sent as Pitwall sends it, and how the text
 //! snapshot shows them.
 
-use pitwall_tile_host::ui::{self, Canvas, CodeView, DiffSource, DiffView, Element, Event, Listen, Modifiers, MouseButton, Node, Point, PointerKind, Style};
+use pitwall_tile_host::ui::{self, Canvas, CodeView, DiffSource, DiffView, Element, Event, LineMarkKind, Listen, Modifiers, MouseButton, Node, Point, PointerKind, Style};
 
 use crate::{key_paths, Found, Session};
 
@@ -45,7 +45,19 @@ fn lang(l: &Option<String>) -> String {
 
 /// A code view in the text snapshot.
 pub(crate) fn describe_code(c: &CodeView) -> String {
-    format!("code-view{} lines={}{}", lang(&c.language), c.text.lines().count().max(1), if c.marks.is_empty() { String::new() } else { format!(" marks={}", c.marks.len()) })
+    let problems: String = c
+        .marks
+        .iter()
+        .filter_map(|m| {
+            let kind = match m.kind {
+                LineMarkKind::Error => "error",
+                LineMarkKind::Warning => "warning",
+                _ => return None,
+            };
+            Some(format!(" {kind}@{}{}", m.lines.start + 1, m.message.as_ref().map(|t| format!(" {t:?}")).unwrap_or_default()))
+        })
+        .collect();
+    format!("code-view{} lines={}{}{problems}", lang(&c.language), c.text.lines().count().max(1), if c.marks.is_empty() { String::new() } else { format!(" marks={}", c.marks.len()) })
 }
 
 /// A diff view in the text snapshot.
@@ -147,6 +159,17 @@ impl Session {
         let at = Session::region_centre(&canvas.node, &r);
         self.take_focus();
         self.send(Event::Click(ui::Click { handler, button: MouseButton::Left, modifiers: Modifiers::empty(), count: 1, at }));
+        self.settle()
+    }
+
+    /// Right-click the canvas region labelled `label` at its centre (a
+    /// box's menu, say).
+    pub fn right_click_region(&mut self, label: &str) -> &mut Self {
+        let (canvas, r) = self.region(label);
+        let Some(handler) = r.click else { panic!("the region “{label}” doesn't listen for clicks") };
+        let at = Session::region_centre(&canvas.node, &r);
+        self.take_focus();
+        self.send(Event::Click(ui::Click { handler, button: MouseButton::Right, modifiers: Modifiers::empty(), count: 1, at }));
         self.settle()
     }
 
