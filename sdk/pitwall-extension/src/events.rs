@@ -331,6 +331,15 @@ pub enum Event {
     /// ([`asks::set`](crate::asks::set)) in the floating control; reply
     /// with [`asks::reply`](crate::asks::reply).
     AskAnswered(crate::asks::Answer),
+    /// The extension's toolbar button was clicked (its action is `tile`
+    /// or `popover`), with the id of the project whose space the window
+    /// shows, if any.
+    ToolbarClicked {
+        /// The project, for a per-project item.
+        project: Option<String>,
+    },
+    /// The extension's own server changed state.
+    ServiceChanged(crate::service::Info),
 }
 
 /// A listener's event: what the SDK hands a closure made with

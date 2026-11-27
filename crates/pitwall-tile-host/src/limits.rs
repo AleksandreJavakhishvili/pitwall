@@ -104,3 +104,39 @@ pub const MAX_IMAGE_BYTES: usize = 8 << 20;
 pub const MAX_IMAGES_BYTES: usize = 64 << 20;
 /// An image file in the extension's folder.
 pub const MAX_ASSET_BYTES: u64 = 16 << 20;
+/// `net`: requests waiting at once.
+pub const MAX_FETCHES: usize = 8;
+/// `net`: a request's body.
+pub const MAX_REQUEST_BODY: usize = 8 << 20;
+/// `net`: an answer's body.
+pub const MAX_RESPONSE_BODY: usize = 32 << 20;
+/// `net`: how long a request may take unless it asks for less…
+pub const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+/// …or for more, up to this.
+pub const MAX_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
+/// `net`: redirects followed.
+pub const MAX_REDIRECTS: u32 = 5;
+
+/// `sql`: the database every extension gets, unless the `sql` permission
+/// grants more (MiB).
+pub const SQL_MIB: u64 = pitwall_core::extensions::TILE_SQL_MIB as u64;
+/// `sql`: rows one query returns.
+pub const MAX_SQL_ROWS: usize = 10_000;
+/// `sql`: bytes one query returns, and the longest text or blob.
+pub const MAX_SQL_BYTES: usize = 8 << 20;
+
+/// `notify`: notifications a minute.
+pub const NOTIFY_PER_MINUTE: usize = 3;
+/// `notify`: the same title and text again within this is shown once.
+pub const NOTIFY_SAME_WITHIN: Duration = Duration::from_secs(10 * 60);
+/// `notify`: a title's and a text's length (longer is cut).
+pub const MAX_NOTIFY_TITLE: usize = 80;
+pub const MAX_NOTIFY_BODY: usize = 200;
+
+/// `toolbar`: a tooltip's length (longer is cut).
+pub const MAX_TOOLBAR_TOOLTIP: usize = 80;
+/// `toolbar`: the least time between two `set-shown` changes.
+pub const TOOLBAR_SHOWN_EVERY: Duration = Duration::from_secs(5);
+/// `toolbar`: badge changes a second the app draws (newer ones replace
+/// the one waiting).
+pub const TOOLBAR_BADGES_PER_SECOND: u32 = 4;

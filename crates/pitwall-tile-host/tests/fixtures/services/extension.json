@@ -1,0 +1,34 @@
+{
+  "v": 2,
+  "id": "services",
+  "name": "Services",
+  "version": "0.1.0",
+  "icon": "server",
+  "description": "The tile host's test fixture for net, sql, notify, show, the toolbar and its own server",
+  "license": "Apache-2.0",
+  "settings": [
+    { "key": "listen", "type": "text", "label": "Listens on", "default": "127.0.0.1:8790" }
+  ],
+  "permissions": {
+    "net": { "reason": "To read items from the example API", "hosts": ["api.example.com"] },
+    "notify": "To say when a build fails",
+    "show": "To open the failing test's file",
+    "sql": { "reason": "To keep many notes", "mib": 200 }
+  },
+  "service": {
+    "label": "The example server",
+    "run": ["example-server", "--listen", "{setting:listen}"],
+    "ready": { "listen": "{setting:listen}" }
+  },
+  "contributes": {
+    "tiles": [
+      { "id": "main", "title": "Services", "icon": "server", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0" }
+    ],
+    "toolbar": {
+      "icon": "server",
+      "tooltip": "Services",
+      "badge": true,
+      "action": { "kind": "popover", "tile": "main", "size": { "w": 300, "h": 200 } }
+    }
+  }
+}

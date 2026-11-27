@@ -1,0 +1,70 @@
+package pitwall:tile@0.1.0;
+
+/// The extension's own SQLite database, run by Pitwall
+/// (platform-services.md §14.2). No permission: only this extension's
+/// data, in `<data>/extension-data/<id>/`, outside its folder, so updates
+/// and going back keep it. Every tile of the extension shares it.
+///
+/// At most 100 MiB unless the manifest asks for more with the `sql`
+/// permission (`{"reason": …, "mib": 500}`, at most 2 GiB, shown on the
+/// permission screen); over it, writes fail with `too-large`. A statement
+/// runs within the deadline of the call it is made in (`handle` 1 s, `init`
+/// 2 s): a longer one is stopped and fails with `busy`.
+///
+/// A transaction lasts at most one call into the tile: `begin`, then
+/// statements, then `commit` or `rollback`, all while handling one event;
+/// one still open when the call returns is rolled back, with a line in
+/// the Log. Answers hold at most 10 000 rows and 8 MiB.
+interface sql {
+  use types.{host-error};
+
+  /// A value in a row or a parameter, as SQLite keeps it.
+  variant value {
+    null,
+    integer(s64),
+    real(f64),
+    text(string),
+    blob(list<u8>),
+  }
+
+  /// A query's answer.
+  record rows {
+    /// The columns' names, in order.
+    columns: list<string>,
+    /// Each row's values, in the columns' order.
+    rows: list<list<value>>,
+  }
+
+  /// Run one statement with `params` bound to its `?` (or `?1`, `?2`…)
+  /// placeholders; the number of rows it changed. Errors: `invalid` with
+  /// SQLite's words for a statement that is wrong or breaks a constraint,
+  /// `too-large` over the quota, `busy` over the deadline.
+  execute: func(statement: string, params: list<value>) -> result<u64, host-error>;
+
+  /// Run one statement and return its rows.
+  query: func(statement: string, params: list<value>) -> result<rows, host-error>;
+
+  /// Bring the database's schema up to date: `steps` are the migrations
+  /// in order (each one or more statements; step 1 first). The database
+  /// keeps how many it ran (SQLite's `user_version`); the ones after that
+  /// run now, each in its own transaction. Returns the version now. A
+  /// step that fails is rolled back and stops the rest (`invalid`, with
+  /// its number). Fewer steps than the database has run is `invalid`: a
+  /// tile can't go back a schema.
+  migrate: func(steps: list<string>) -> result<u32, host-error>;
+
+  /// Start a transaction (`invalid` when one is open).
+  begin: func() -> result<_, host-error>;
+
+  /// Keep what the open transaction did.
+  commit: func() -> result<_, host-error>;
+
+  /// Undo what the open transaction did.
+  rollback: func() -> result<_, host-error>;
+
+  /// The bytes the database takes now.
+  usage: func() -> u64;
+
+  /// The most it may take, in bytes.
+  quota: func() -> u64;
+}

@@ -28,7 +28,10 @@ mod group;
 mod host;
 pub mod keys;
 pub mod limits;
+pub mod net;
 mod platform;
+mod services;
+pub mod sql;
 mod stdio;
 mod worker;
 
@@ -59,6 +62,8 @@ pub mod ui {
     /// A row of a virtual list, table or tree (`Row` is a badge's row).
     pub use crate::bindings::pitwall::tile::types::Row as ListRow;
     pub use crate::bindings::pitwall::tile::settings::SettingValue;
+    pub use crate::bindings::pitwall::tile::service::{ServiceInfo, State as ServiceState};
+    pub use crate::bindings::pitwall::tile::toolbar::{Badge as ToolbarBadge, BadgeTone};
     pub use crate::bindings::pitwall::tile::types::*;
 
     /// The appearance a tile starts with when the app gives none: dark,
@@ -71,6 +76,17 @@ pub mod ui {
 /// The permission for linear memory above the default
 /// ([`Grants::memory_limit`]).
 pub const MEMORY_PERMISSION: &str = "memory";
+/// The permission for `net`, with the manifest's hosts.
+pub const NET_PERMISSION: &str = "net";
+/// The permission for a database above the default size.
+pub const SQL_PERMISSION: &str = "sql";
+/// The permission for `notify`.
+pub const NOTIFY_PERMISSION: &str = "notify";
+/// The permission for `show`.
+pub const SHOW_PERMISSION: &str = "show";
+/// The view id of the toolbar popover (ui.md §3.9): a view of the tile
+/// the manifest's popover action names. Tile ids can't hold a `:`.
+pub const POPOVER_VIEW: &str = "toolbar:popover";
 
 /// The WIT worlds this host serves, newest first.
 pub const WORLDS: [&str; 1] = ["pitwall:tile@0.1.0"];
@@ -114,20 +130,55 @@ impl Secrets for NoSecrets {
 }
 
 /// The permissions the user granted an extension (permissions.md §5),
-/// which the host enforces: `memory` (linear memory up to the size the
-/// manifest asks for, instead of 64 MiB), `agents.read` and
-/// `agents.queue` (`agents`), `projects.read` (badges on project rows).
-/// An interface whose grant is missing returns `denied` (permissions.md
-/// §5.2).
+/// which the host enforces at each call: `agents.read` and
+/// `agents.queue` (`agents`), `projects.read` (badges on project rows,
+/// a toolbar's project badge), `net` (with the manifest's hosts),
+/// `notify` and `show`. An interface whose grant is missing returns
+/// `denied`, so the tile loads and degrades instead of failing
+/// (permissions.md §5.2). `memory` and `sql` raise limits to the sizes
+/// the manifest names (linear memory instead of 64 MiB, the database
+/// instead of 100 MiB). Besides, its own server's address
+/// ([`Grants::with_own_server`]), reachable without `net` (services.md
+/// §13.2).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Grants {
     granted: BTreeSet<String>,
+    hosts: Vec<pitwall_core::extensions::net::HostPattern>,
+    sql_mib: Option<u32>,
+    own_server: Option<std::net::SocketAddr>,
 }
 
 impl Grants {
-    /// These permissions, by name.
+    /// These permissions, by name (no `net` hosts: see
+    /// [`Grants::for_extension`]).
     pub fn new<I: IntoIterator<Item = S>, S: Into<String>>(granted: I) -> Grants {
-        Grants { granted: granted.into_iter().map(Into::into).collect() }
+        Grants { granted: granted.into_iter().map(Into::into).collect(), ..Grants::default() }
+    }
+
+    /// These permissions of extension `m`, with what its manifest names
+    /// for them: `net`'s hosts and `sql`'s size.
+    pub fn for_extension<I: IntoIterator<Item = S>, S: Into<String>>(m: &Manifest, granted: I) -> Grants {
+        Grants { hosts: m.net_hosts.clone(), sql_mib: m.sql_mib, ..Grants::new(granted) }
+    }
+
+    /// Its own server listens on `addr` (its `ready.listen`, with the
+    /// user's settings): its tiles may reach it over http without `net`.
+    pub fn with_own_server(self, addr: Option<std::net::SocketAddr>) -> Grants {
+        Grants { own_server: addr.filter(|a| a.ip().is_loopback()), ..self }
+    }
+
+    /// Where its tiles' requests may go.
+    pub fn reach(&self) -> net::Reach {
+        let hosts = if self.has(NET_PERMISSION) { self.hosts.clone() } else { vec![] };
+        net::Reach { hosts, own_server: self.own_server }
+    }
+
+    /// The most its database may take, in bytes.
+    pub fn sql_quota(&self) -> u64 {
+        match self.sql_mib {
+            Some(mib) if self.has(SQL_PERMISSION) => u64::from(mib) << 20,
+            _ => limits::SQL_MIB << 20,
+        }
     }
 
     /// Whether `permission` is granted.
@@ -381,6 +432,17 @@ pub enum UiRequest {
     PutImage { name: String, format: components::ImageFormat, bytes: Arc<[u8]> },
     /// `ui.drop-image`: forget the image put under this name.
     DropImage(String),
+    /// A system notification (`notify.send`, granted `notify`, within its
+    /// rate): labelled with the extension's name; a click opens its tile.
+    Notify { title: String, body: String },
+    /// Open `path` in the editor at `line` (`show.file`, granted `show`).
+    OpenFile { path: String, line: Option<u32> },
+    /// Open `url` in a new web tile (`show.web`, granted `show`).
+    OpenWeb { url: String },
+    /// A change to its toolbar button (ui.md §3.9).
+    Toolbar(ToolbarRequest),
+    /// Start its own server again (`service.restart`).
+    RestartService,
 }
 
 /// Rows of a virtual list, table or tree, as the tile returned them for
@@ -400,6 +462,22 @@ pub struct RowsUpdate {
     pub rows: Arc<Vec<ui::ListRow>>,
     /// How long `guest.rows` took.
     pub took: Duration,
+}
+
+/// A change a tile asks for on its toolbar button. The app keeps the
+/// newest of each kind, and draws badge changes at most
+/// [`limits::TOOLBAR_BADGES_PER_SECOND`] times a second.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolbarRequest {
+    /// The badge: everywhere (`project: None`), or in project `project`'s
+    /// space for a per-project item.
+    Badge { project: Option<String>, badge: ui::ToolbarBadge, tone: ui::BadgeTone },
+    /// The tooltip (at most 80 characters).
+    Tooltip(String),
+    /// Shown or hidden by the tile (never over the user's Hide).
+    Shown(bool),
+    /// Close the popover.
+    ClosePopover,
 }
 
 /// A new frame of a view.
@@ -483,6 +561,8 @@ pub(crate) struct Inner {
     pub engine: Engine,
     pub linker: Linker<host::HostState>,
     pub config: HostConfig,
+    /// Makes `net` requests ([`TileHost::set_fetcher`]).
+    pub fetcher: std::sync::RwLock<Arc<dyn net::Fetcher>>,
     _ticker: EpochTicker,
 }
 
@@ -498,7 +578,7 @@ impl TileHost {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(|e| LoadError::Host(format!("{e:#}")))?;
         bindings::Tile::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(|e| LoadError::Host(format!("{e:#}")))?;
         let ticker = EpochTicker::start(&engine).map_err(|e| LoadError::Host(e.to_string()))?;
-        Ok(TileHost { inner: Arc::new(Inner { engine, linker, config, _ticker: ticker }) })
+        Ok(TileHost { inner: Arc::new(Inner { engine, linker, config, fetcher: std::sync::RwLock::new(Arc::new(net::HttpFetcher)), _ticker: ticker }) })
     }
 
     /// [`Extension::load`].
@@ -570,6 +650,19 @@ impl TileHost {
             return Err(LoadError::UnknownTile(v.tile.clone()));
         }
         worker::spawn(self.clone(), ext.clone(), options, Box::new(sink))
+    }
+
+    /// Make tiles' `net` requests with `fetcher` from now on (tiles started
+    /// after this): the test harness's fake answers ([`net::FakeFetcher`]).
+    /// Pitwall's own, [`net::HttpFetcher`], is the default.
+    pub fn set_fetcher(&self, fetcher: Arc<dyn net::Fetcher>) {
+        if let Ok(mut f) = self.inner.fetcher.write() {
+            *f = fetcher;
+        }
+    }
+
+    pub(crate) fn fetcher(&self) -> Arc<dyn net::Fetcher> {
+        self.inner.fetcher.read().map(|f| f.clone()).unwrap_or_else(|_| Arc::new(net::HttpFetcher))
     }
 
     pub(crate) fn inner(&self) -> &Arc<Inner> {
