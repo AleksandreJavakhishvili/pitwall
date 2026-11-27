@@ -496,7 +496,8 @@ pub struct Built {
     pub index_json: Vec<u8>,
     /// `blocked.json`'s.
     pub blocked_json: Vec<u8>,
-    /// New screenshots: (path under `dist/v1/`, bytes).
+    /// New screenshots and media (READMEs, icons, images): (path under
+    /// `dist/v1/`, bytes).
     pub screens: Vec<(String, Vec<u8>)>,
     /// The packages downloaded and checked for new versions, for the
     /// tool's headless run.
@@ -673,13 +674,14 @@ pub fn build(repo: &Repo, previous: Option<&Index>, http: &dyn Http, now: &str) 
         };
         let listing = match (fresh, old) {
             (Some(c), _) => {
-                let mut shots = Vec::new();
-                for f in c.files.iter().filter(|f| f.name.starts_with("screenshots/")) {
-                    let ext = f.name.rsplit('.').next().unwrap_or("png").to_ascii_lowercase();
-                    let path = format!("screens/{id}/{}.{ext}", package::sha256(&f.bytes));
-                    screens.push((path.clone(), f.bytes.clone()));
-                    shots.push(path);
-                }
+                let (shots, readme, media, files) = match listing_media(id, &c) {
+                    Ok(m) => m,
+                    Err(why) => {
+                        problems.push(format!("{id} {}: {why}", c.version));
+                        continue;
+                    }
+                };
+                screens.extend(files);
                 Listing {
                     id: id.clone(),
                     name: c.manifest.name.clone(),
@@ -692,6 +694,10 @@ pub fn build(repo: &Repo, previous: Option<&Index>, http: &dyn Http, now: &str) 
                     repository: e.repository.clone(),
                     permissions: listed_permissions(&c.manifest),
                     screens: shots,
+                    tagline: c.manifest.tagline.clone(),
+                    homepage: c.manifest.homepage.clone(),
+                    readme,
+                    media,
                     keys: author.keys.clone(),
                     versions: releases,
                 }
@@ -712,6 +718,66 @@ pub fn build(repo: &Repo, previous: Option<&Index>, http: &dyn Http, now: &str) 
     super::parse_index(&index_json).map_err(|e| vec![e])?;
     super::parse_blocked(&blocked_json).map_err(|e| vec![e])?;
     Ok(Built { index, blocked, index_json, blocked_json, screens, checked: checked_all, sensitive })
+}
+
+/// What the index carries of package `c` for Browse: its legacy
+/// `screens` (light files, at most [`super::MAX_SCREENS`]), its README
+/// (`media/<id>/<sha256>.md`), its media (icon, screenshots with their
+/// dark and light files and captions, the README's images), and the
+/// files to write for them under `dist/v1/`, each named by its SHA-256.
+/// The package's checks already passed ([`package::open_bytes`]); the
+/// README's images that aren't in it are left out (shown as their alt
+/// text).
+#[allow(clippy::type_complexity)]
+pub fn listing_media(id: &str, c: &Checked) -> Result<(Vec<String>, Option<String>, super::ListedMedia, Vec<(String, Vec<u8>)>), String> {
+    use crate::extensions::media;
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut put = |dir: &str, ext: &str, bytes: &[u8]| -> String {
+        let path = format!("{dir}/{id}/{}.{ext}", package::sha256(bytes));
+        if !files.iter().any(|(p, _)| *p == path) {
+            files.push((path.clone(), bytes.to_vec()));
+        }
+        path
+    };
+    let file = |name: &str| c.files.iter().find(|f| f.name == name);
+    let ext_of = |name: &str| media::Kind::of_name(name).map(|k| k.ext()).unwrap_or("png");
+    let names: Vec<String> = c.files.iter().map(|f| f.name.clone()).collect();
+    let shots = media::screenshots(&names, &c.manifest.screenshots)?;
+    let mut legacy = Vec::new();
+    let mut listed = super::ListedMedia::default();
+    for s in &shots {
+        let (Some(l), Some(d)) = (file(&s.light), file(&s.dark)) else { continue };
+        let light = put("media", ext_of(&s.light), &l.bytes);
+        let dark = put("media", ext_of(&s.dark), &d.bytes);
+        if legacy.len() < super::MAX_SCREENS {
+            legacy.push(put("screens", ext_of(&s.light), &l.bytes));
+        }
+        listed.screenshots.push(super::ListedShot { light, dark, caption: s.caption.clone() });
+    }
+    if let Some(i) = c.manifest.icon_file.as_deref().and_then(file) {
+        media::check_icon(&i.name, &i.bytes)?;
+        listed.icon = Some(put("media", ext_of(&i.name), &i.bytes));
+    }
+    let mut readme = None;
+    if let Some(r) = file(package::README) {
+        if r.bytes.len() as u64 > super::MAX_README_BYTES {
+            return Err(format!("its README is larger than {}", package::size_words(super::MAX_README_BYTES)));
+        }
+        let text = String::from_utf8_lossy(&r.bytes).into_owned();
+        for src in media::readme_refs(&text) {
+            if let media::Ref::Local(rel) = media::local_ref(&src) {
+                if let Some(f) = file(&rel) {
+                    let kind = media::check_readme_image(&rel, &f.bytes)?;
+                    if listed.images.len() < super::MAX_MEDIA_IMAGES {
+                        let at = put("media", kind.ext(), &f.bytes);
+                        listed.images.insert(rel, at);
+                    }
+                }
+            }
+        }
+        readme = Some(put("media", "md", text.as_bytes()));
+    }
+    Ok((legacy, readme, listed, files))
 }
 
 /// The entry `pitwall extension publish` writes for a new extension.

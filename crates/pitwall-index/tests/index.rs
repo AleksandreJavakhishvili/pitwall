@@ -66,9 +66,15 @@ fn build_signs_what_pitwall_reads_and_review_makes_a_version_verified() {
     let out = f.dist();
     let w = pitwall_index::build(&f.root(), &out, &secret(&f.index_key, keys.path()), f.http.as_ref(), NOW, false).unwrap();
     assert_eq!(w.extensions, 1);
-    assert_eq!(w.screens, 1);
+    // The legacy screenshot, and its media: README, icon, dark and light
+    // screenshot and the README's image, at hashed paths under media/.
+    assert_eq!(w.screens, 6);
     let got = FixtureSource::dir(&out, &[f.index_key.signer()]).fetch().unwrap();
     let l = got.index.listing("ci-status").unwrap();
+    for p in l.readme.iter().chain(&l.media.icon).chain(l.media.images.values()).chain(l.media.screenshots.iter().flat_map(|s| [&s.light, &s.dark])) {
+        assert!(p.starts_with("media/ci-status/") && out.join(p).is_file(), "{p} is written");
+    }
+    assert!(std::fs::read_to_string(out.join(l.readme.as_ref().unwrap())).unwrap().contains("media/flow.png"));
     assert!(l.is_verified(l.release("1.0.0").unwrap(), &[f.reviewer.signer()]));
     // A second build downloads nothing it has.
     let before = f.http.requests().len();

@@ -6,7 +6,10 @@
 //! `extension.json`, its component `tile.wasm`, a `README.md`, and
 //! optionally a licence, a `CHANGELOG.md`, an agent skill
 //! (`agents/SKILL.md`), the input schemas its tiles name, `assets/`
-//! (svg, png, webp) and `screenshots/` (png, webp). [`pack`] makes one
+//! (svg, png, webp), `screenshots/` (png, webp), `media/` (the images its
+//! README shows: png, webp, jpeg, gif) and its icon file (a png or webp
+//! the manifest's `icon` names), each image checked by its contents
+//! ([`super::media`]). [`pack`] makes one
 //! from an author's folder, the same bytes every time for the same files.
 //!
 //! Its signature is a minisign signature of the whole file, beside it as
@@ -46,9 +49,10 @@ pub const MAX_BYTES: u64 = 50 << 20;
 pub const MAX_FILES: usize = super::preview::MAX_FILES;
 /// The largest component.
 pub const MAX_WASM_BYTES: u64 = super::preview::MAX_WASM_BYTES;
-/// The largest screenshot, and how many there may be.
-pub const MAX_SCREENSHOT_BYTES: u64 = 2 << 20;
-pub const MAX_SCREENSHOTS: usize = 6;
+/// The largest screenshot, and how many there may be (a dark and light
+/// pair counts once).
+pub const MAX_SCREENSHOT_BYTES: u64 = super::media::MAX_SCREENSHOT_BYTES;
+pub const MAX_SCREENSHOTS: usize = super::media::MAX_SCREENSHOTS;
 /// The largest agent skill (agent-tools.md §11.11).
 pub const MAX_SKILL_BYTES: u64 = 16 << 10;
 /// The largest text file (README, licence, changelog, schema) or asset.
@@ -66,7 +70,8 @@ pub const SKILL: &str = "agents/SKILL.md";
 pub const UNSIGNED_WARNING: &str = "Unsigned: nobody vouches for this file. Only install it if you trust whoever gave it to you.";
 
 /// The files a package holds at its top, besides the input schemas its
-/// tiles name, `agents/SKILL.md`, `assets/` and `screenshots/`.
+/// tiles name, its icon file, `agents/SKILL.md`, `assets/`,
+/// `screenshots/` and `media/`.
 const TOP: [&str; 8] = [MANIFEST, WASM, README, "CHANGELOG.md", "LICENSE", "LICENSE.md", "LICENSE.txt", "NOTICE"];
 
 /// The key a package is signed with: minisign's key id (as `minisign`
@@ -163,10 +168,11 @@ fn check_layout(files: &[(&str, u64)], m: &Manifest) -> Result<(), String> {
             return Err(format!("Its tiles name {s}, which isn't in it."));
         }
     }
-    let mut shots = 0;
+    let mut shots: Vec<String> = Vec::new();
     for (name, size) in files {
         let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
         let max = match *name {
+            n if Some(n) == m.icon_file.as_deref() => super::media::MAX_ICON_BYTES,
             WASM => MAX_WASM_BYTES,
             n if TOP.contains(&n) || schemas.contains(n) => MAX_TEXT_BYTES,
             SKILL => MAX_SKILL_BYTES,
@@ -176,22 +182,38 @@ fn check_layout(files: &[(&str, u64)], m: &Manifest) -> Result<(), String> {
                 _ => return Err(format!("{n}: a package's assets are svg, png or webp images.")),
             },
             n if n.starts_with("screenshots/") && n.matches('/').count() == 1 => {
-                shots += 1;
+                shots.push(n.to_string());
                 if !matches!(ext.as_str(), "png" | "webp") {
                     return Err(format!("{n}: screenshots are png or webp."));
                 }
                 MAX_SCREENSHOT_BYTES
             }
-            n => return Err(format!("{n} isn't a file a package holds: {MANIFEST}, {WASM}, {README}, a licence, CHANGELOG.md, {SKILL}, the input schemas its tiles name, assets/ and screenshots/.")),
+            n if n.starts_with("media/") => match ext.as_str() {
+                "png" | "webp" | "jpg" | "jpeg" | "gif" => super::media::MAX_README_IMAGE_BYTES,
+                _ => return Err(format!("{n}: media/ holds the images its README shows: png, webp, jpeg or gif.")),
+            },
+            n => return Err(format!("{n} isn't a file a package holds: {MANIFEST}, {WASM}, {README}, a licence, CHANGELOG.md, {SKILL}, the input schemas its tiles name, its icon, assets/, screenshots/ and media/.")),
         };
         if *size > max {
             return Err(format!("{name} is larger than {}.", size_words(max)));
         }
     }
-    if shots > MAX_SCREENSHOTS {
-        return Err(format!("It has more than {MAX_SCREENSHOTS} screenshots."));
+    super::media::check_shot_count(&shots)?;
+    if let Some(icon) = &m.icon_file {
+        if !files.iter().any(|(n, _)| n == icon) {
+            return Err(format!("Its icon {icon} isn't in it."));
+        }
     }
     Ok(())
+}
+
+/// `s` as a sentence: “it…” capitalised (a file name first stays as it
+/// is).
+fn capital(s: &str) -> String {
+    match s.strip_prefix("it") {
+        Some(rest) if rest.starts_with(' ') || rest.starts_with("s ") || rest.starts_with('’') || rest.starts_with('\'') => format!("It{rest}"),
+        _ => s.to_string(),
+    }
 }
 
 /// A size in words: "16 KiB", "2 MiB".
@@ -235,9 +257,11 @@ pub fn sha256(bytes: &[u8]) -> String {
 /// Package the extension of tiles in folder `dir`: its manifest and
 /// component (checked as a preview folder is: tiles only, a component),
 /// its readme, and what else a package may hold of what is there
-/// (licence, changelog, agent skill, input schemas, `assets/`,
-/// `screenshots/`). Everything else in the folder (sources, `target/`)
-/// stays out. The same files give the same bytes. Read back before it
+/// (licence, changelog, agent skill, input schemas, its icon file,
+/// `assets/`, `screenshots/`, `media/`), each image checked
+/// ([`super::media::files`]: a README image it can't show, or one outside
+/// those folders, is refused). Everything else in the folder (sources,
+/// `target/`) stays out. The same files give the same bytes. Read back before it
 /// is returned, so what it makes is what Pitwall installs.
 pub fn pack(dir: &Path) -> Result<Packed, String> {
     if !dir.is_dir() {
@@ -251,9 +275,14 @@ pub fn pack(dir: &Path) -> Result<Packed, String> {
             names.push(top);
         }
     }
-    for sub in ["assets", "screenshots"] {
+    for sub in ["assets", "screenshots", "media"] {
         if dir.join(sub).is_dir() {
             walk(dir, sub, &mut names)?;
+        }
+    }
+    for f in super::media::files(dir, &m).map_err(|why| format!("{}.", capital(&why)))? {
+        if !names.contains(&f) {
+            names.push(f);
         }
     }
     let mut files = Vec::new();
@@ -397,6 +426,8 @@ pub fn open_bytes(bytes: &[u8]) -> Result<(Manifest, Vec<zip::Entry>), String> {
     let sizes: Vec<(&str, u64)> = listed.iter().map(|l| (l.name.as_str(), l.size)).collect();
     check_layout(&sizes, &m)?;
     let files: Vec<zip::Entry> = listed.iter().map(|l| Ok(zip::Entry { name: l.name.clone(), bytes: zip::read(bytes, l)? })).collect::<Result<_, String>>()?;
+    let contents: Vec<(&str, &[u8])> = files.iter().map(|f| (f.name.as_str(), f.bytes.as_slice())).collect();
+    super::media::check_files(&contents, &m).map_err(|why| format!("{}.", capital(why.trim_end_matches('.'))))?;
     let wasm = files.iter().find(|f| f.name == WASM).map(|f| f.bytes.as_slice()).unwrap_or_default();
     super::preview::component_head(wasm, WASM)?;
     Ok((m, files))
@@ -697,7 +728,7 @@ mod tests {
         std::fs::write(d.join("input.schema.json"), "{}").unwrap();
         std::fs::write(d.join("assets/icons/wave.svg"), "<svg/>").unwrap();
         std::fs::write(d.join("assets/.DS_Store"), "junk").unwrap();
-        std::fs::write(d.join("screenshots/main.png"), [137u8, 80, 78, 71]).unwrap();
+        std::fs::write(d.join("screenshots/main.png"), super::super::media::png_header(1280, 800)).unwrap();
         std::fs::write(d.join("src/lib.rs"), "fn main() {}").unwrap();
         std::fs::write(d.join("target/release/x.wasm"), "x").unwrap();
         std::fs::write(d.join("Cargo.toml"), "[package]").unwrap();
@@ -711,6 +742,41 @@ mod tests {
             std::fs::write(signature_path(&path), s.sign(&p.bytes)).unwrap();
         }
         path
+    }
+
+    /// Its icon file, screenshots and the images its README shows from
+    /// its folder are packed, each checked; a README image outside the
+    /// folder (or not an image) is refused, one from the network isn't
+    /// packed.
+    #[test]
+    fn listing_media_is_packed_and_checked() {
+        use super::super::media::png_header;
+        let t = TempDir::new("pack-media");
+        let d = project(&t, "1.0.0", "");
+        let m = std::fs::read_to_string(d.join(MANIFEST)).unwrap().replacen(r#""name": "Hello","#, r#""name": "Hello", "icon": "icon.png", "tagline": "Says hello", "categories": ["fun"], "screenshots": [{"path": "screenshots/main.png", "caption": "The tile"}],"#, 1);
+        std::fs::write(d.join(MANIFEST), m).unwrap();
+        std::fs::write(d.join("icon.png"), png_header(256, 256)).unwrap();
+        std::fs::create_dir_all(d.join("media")).unwrap();
+        std::fs::write(d.join("media/flow.png"), png_header(900, 500)).unwrap();
+        std::fs::write(d.join("docs.png"), png_header(900, 500)).unwrap();
+        std::fs::write(d.join(README), "# Hello\n\n![Flow](media/flow.png)\n\n![Badge](https://img.shields.io/x.svg)\n").unwrap();
+        let p = pack(&d).unwrap();
+        let names: Vec<&str> = p.files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["LICENSE", "README.md", "assets/icons/wave.svg", "extension.json", "icon.png", "input.schema.json", "media/flow.png", "screenshots/main.png", "tile.wasm"]);
+        assert_eq!((p.manifest.icon_file.as_deref(), p.manifest.tagline.as_deref()), (Some("icon.png"), Some("Says hello")));
+        // `..` and an image outside the image folders are refused.
+        std::fs::write(d.join(README), "# Hello\n\n![Up](../secret.png)\n").unwrap();
+        assert!(pack(&d).unwrap_err().contains("goes out of the extension's folder"));
+        std::fs::write(d.join(README), "# Hello\n\n![Here](docs.png)\n").unwrap();
+        assert!(pack(&d).unwrap_err().contains("put the images it shows in media/"));
+        std::fs::write(d.join(README), "# Hello\n\n![Missing](media/none.png)\n").unwrap();
+        assert!(pack(&d).unwrap_err().contains("none.png isn't in its folder"));
+        std::fs::write(d.join(README), "# Hello\n").unwrap();
+        // An icon that isn't square, or an SVG in disguise.
+        std::fs::write(d.join("icon.png"), png_header(256, 128)).unwrap();
+        assert!(pack(&d).unwrap_err().contains("square"));
+        std::fs::write(d.join("icon.png"), "<svg/>").unwrap();
+        assert!(pack(&d).unwrap_err().contains("isn't a PNG or WebP"));
     }
 
     /// Packing takes what a package holds and nothing else, gives the same
@@ -769,10 +835,21 @@ mod tests {
         let adapter = manifest("1.0.0", "").replace(r#""version": "1.0.0","#, r#""version": "1.0.0", "adapter": {"command": ["node", "a.mjs"]},"#);
         let runs = zip::write(&[(MANIFEST.into(), adapter.into_bytes()), (WASM.into(), COMPONENT.to_vec()), (README.into(), b"#".to_vec()), ("input.schema.json".into(), b"{}".to_vec())]);
         assert!(open_bytes(&runs).unwrap_err().contains("runs programs"));
-        let screenshots: Vec<(String, Vec<u8>)> = (0..7).map(|i| (format!("screenshots/{i}.png"), vec![1])).collect();
+        let png = super::super::media::png_header(640, 400);
+        let screenshots: Vec<(String, Vec<u8>)> = (0..9).map(|i| (format!("screenshots/{i}.png"), png.clone())).collect();
         let mut many = vec![(MANIFEST.into(), manifest("1.0.0", "").into_bytes()), (WASM.into(), COMPONENT.to_vec()), (README.into(), b"#".to_vec()), ("input.schema.json".into(), b"{}".to_vec())];
         many.extend(screenshots);
-        assert!(open_bytes(&zip::write(&many)).unwrap_err().contains("more than 6 screenshots"));
+        assert!(open_bytes(&zip::write(&many)).unwrap_err().contains("more than 8 screenshots"));
+        // A dark and light pair counts once: 8 pairs are fine.
+        let pairs: Vec<(String, Vec<u8>)> = (0..8).flat_map(|i| [(format!("screenshots/{i}-dark.png"), png.clone()), (format!("screenshots/{i}-light.png"), png.clone())]).collect();
+        let mut ok = vec![(MANIFEST.into(), manifest("1.0.0", "").into_bytes()), (WASM.into(), COMPONENT.to_vec()), (README.into(), b"#".to_vec()), ("input.schema.json".into(), b"{}".to_vec())];
+        ok.extend(pairs);
+        assert!(open_bytes(&zip::write(&ok)).is_ok());
+        // Images are checked by what they hold, not their names.
+        assert!(open_bytes(&base(("screenshots/x.png", b"<svg onload=alert(1)/>"))).unwrap_err().contains("isn't a PNG or WebP"));
+        assert!(open_bytes(&base(("media/x.gif", &png))).unwrap_err().contains("aren't what its name says"));
+        assert!(open_bytes(&base(("media/x.svg", b"<svg/>"))).unwrap_err().contains("media/ holds"));
+        assert!(open_bytes(&base(("media/x.png", &png))).is_ok());
     }
 
     /// A signature by the key in its file passes and names the key; one

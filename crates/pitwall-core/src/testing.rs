@@ -11,6 +11,7 @@ pub mod contract;
 mod fake;
 pub mod index;
 pub mod npm;
+pub mod png;
 
 pub use fake::{FakeProvider, FakeTerm, FakeTermCtl, Launched};
 pub use npm::{npm_extension, LoopbackHttp, NpmRegistry, TarItem};

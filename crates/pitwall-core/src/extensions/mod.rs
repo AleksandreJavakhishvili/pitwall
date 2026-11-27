@@ -51,6 +51,7 @@ pub mod index;
 pub mod install;
 pub mod keys;
 pub mod log;
+pub mod media;
 pub mod net;
 pub mod npm;
 pub mod package;
@@ -153,8 +154,25 @@ pub struct Manifest {
     /// One of Pitwall's icon names (an app without it draws its own
     /// extension icon).
     pub icon: Option<String>,
+    /// Its own icon instead: a PNG or WebP in its folder (`assets/icon.png`;
+    /// the manifest's `icon` naming a file), checked when it is read
+    /// ([`media::check_icon`]); an app that can't show it draws `icon` or
+    /// its own extension icon.
+    pub icon_file: Option<String>,
     /// One line for Settings.
     pub description: Option<String>,
+    /// A few words for its card and Browse (shorter than `description`).
+    pub tagline: Option<String>,
+    /// The index's categories it is in (from [`index::CATEGORIES`]).
+    pub categories: Vec<String>,
+    /// Its web page (https).
+    pub homepage: Option<String>,
+    /// Its source repository (https).
+    pub repository: Option<String>,
+    /// Its licence, as an SPDX expression (`MIT`, `Apache-2.0`).
+    pub license: Option<String>,
+    /// Its screenshots' order and captions ([`media::screenshots`]).
+    pub screenshots: Vec<media::ShotDef>,
     /// What the user fills in for it in Settings.
     pub settings: Vec<SettingDef>,
     /// The process Pitwall starts while it is on.
@@ -418,7 +436,14 @@ impl Manifest {
             demo: false,
             docs: None,
             icon: None,
+            icon_file: None,
             description: None,
+            tagline: None,
+            categories: vec![],
+            homepage: None,
+            repository: None,
+            license: None,
+            screenshots: vec![],
             settings: vec![],
             adapter: None,
             agent_env: vec![],
@@ -893,14 +918,19 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     let id = opt_str(&obj, "id")?.ok_or("\"id\" is missing")?;
     check_id(id)?;
     let name = line("name", opt_str(&obj, "name")?.ok_or("\"name\" is missing")?, MAX_NAME)?;
-    let icon = match opt_str(&obj, "icon")? {
+    let (icon, icon_file) = match opt_str(&obj, "icon")? {
+        Some(i) if media::is_icon_file(i) => {
+            media::check_icon_path(i)?;
+            (None, Some(i.to_string()))
+        }
         Some(i) => {
             check_word("icon", i)?;
-            Some(i.to_string())
+            (Some(i.to_string()), None)
         }
-        None => None,
+        None => (None, None),
     };
     let description = opt_str(&obj, "description")?.map(|d| line("description", d, MAX_DESCRIPTION)).transpose()?;
+    let listing = parse_listing(&obj)?;
     let version = match opt_str(&obj, "version")? {
         Some(v) => {
             let ok = v.len() <= 32 && v.starts_with(|c: char| c.is_ascii_digit()) && v.chars().all(|c| c.is_ascii_alphanumeric() || ".-+".contains(c));
@@ -984,7 +1014,84 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
     }
     check_web_views(&contributes, &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib, net_hosts, net_setting_hosts, sql_mib })
+    let Listing { tagline, categories, homepage, repository, license, screenshots } = listing;
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, icon_file, description, tagline, categories, homepage, repository, license, screenshots, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib, net_hosts, net_setting_hosts, sql_mib })
+}
+
+/// The longest tagline.
+pub const MAX_TAGLINE: usize = 80;
+
+/// A manifest's listing fields (media.rs; any format).
+struct Listing {
+    tagline: Option<String>,
+    categories: Vec<String>,
+    homepage: Option<String>,
+    repository: Option<String>,
+    license: Option<String>,
+    screenshots: Vec<media::ShotDef>,
+}
+
+/// `tagline`, `categories`, `homepage`, `repository`, `license` and
+/// `screenshots`, checked.
+fn parse_listing(obj: &serde_json::Map<String, Value>) -> Result<Listing, String> {
+    let tagline = opt_str(obj, "tagline")?.map(|t| line("tagline", t, MAX_TAGLINE)).transpose()?;
+    let https = |key: &str| -> Result<Option<String>, String> {
+        match opt_str(obj, key)? {
+            Some(d) if d.starts_with("https://") && d.len() > 8 && d.len() <= 300 && !d.chars().any(|c| c.is_whitespace() || c.is_control()) => Ok(Some(d.to_string())),
+            Some(_) => Err(format!("\"{key}\" must be an https address of at most 300 characters")),
+            None => Ok(None),
+        }
+    };
+    let (homepage, repository) = (https("homepage")?, https("repository")?);
+    let license = match opt_str(obj, "license")? {
+        Some(l) if !l.trim().is_empty() && l.len() <= 100 && l.chars().all(|c| c.is_ascii_alphanumeric() || " .-+()".contains(c)) => Some(l.trim().to_string()),
+        Some(_) => return Err("\"license\" must be an SPDX licence expression, like MIT or Apache-2.0".into()),
+        None => None,
+    };
+    let categories = match obj.get("categories") {
+        None | Some(Value::Null) => vec![],
+        Some(Value::Array(list)) => {
+            let mut out: Vec<String> = Vec::new();
+            for c in list {
+                let c = c.as_str().ok_or("\"categories\" must be a list of category ids")?;
+                if index::category_name(c).is_none() {
+                    return Err(format!("“{}” isn't a category: use {}", c.escape_debug(), index::CATEGORIES.iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", ")));
+                }
+                if !out.iter().any(|o| o == c) {
+                    out.push(c.to_string());
+                }
+            }
+            if out.len() > index::MAX_CATEGORIES {
+                return Err(format!("\"categories\" lists more than {}", index::MAX_CATEGORIES));
+            }
+            out
+        }
+        Some(_) => return Err("\"categories\" must be a list of category ids".into()),
+    };
+    let screenshots = match obj.get("screenshots") {
+        None | Some(Value::Null) => vec![],
+        Some(Value::Array(list)) => {
+            if list.len() > media::MAX_SCREENSHOTS {
+                return Err(format!("\"screenshots\" lists more than {}", media::MAX_SCREENSHOTS));
+            }
+            let mut out = Vec::new();
+            for (i, v) in list.iter().enumerate() {
+                let (path, caption) = match v {
+                    Value::String(p) => (p.as_str(), None),
+                    Value::Object(o) => (opt_str(o, "path")?.ok_or(format!("\"screenshots\" {} needs a \"path\"", i + 1))?, opt_str(o, "caption")?.map(|c| line("caption", c, media::MAX_CAPTION)).transpose()?),
+                    _ => return Err("\"screenshots\" must be a list of {\"path\", \"caption\"}".into()),
+                };
+                let ok = path.starts_with("screenshots/") && path.matches('/').count() == 1 && package::check_name(path).is_ok() && matches!(media::Kind::of_name(path), Some(media::Kind::Png | media::Kind::Webp));
+                if !ok {
+                    return Err(format!("\"screenshots\": “{}” must be a PNG or WebP in screenshots/", path.escape_debug()));
+                }
+                out.push(media::ShotDef { path: path.to_string(), caption });
+            }
+            out
+        }
+        Some(_) => return Err("\"screenshots\" must be a list".into()),
+    };
+    Ok(Listing { tagline, categories, homepage, repository, license, screenshots })
 }
 
 /// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
@@ -2213,5 +2320,28 @@ mod tests {
         assert!(found[3].manifest.as_ref().unwrap_err().contains("named after its id"));
         assert_eq!(found[3].key(), "renamed");
         assert_eq!(found[4].key(), "zed");
+    }
+
+    /// The listing fields: an icon file instead of a name, a tagline,
+    /// categories from the fixed list, https addresses, a licence and
+    /// captioned screenshots.
+    #[test]
+    fn listing_fields_are_read_and_checked() {
+        let m = parse(r#"{"id": "x", "name": "X", "icon": "assets/icon.png", "tagline": " Quick notes ", "categories": ["notes", "docs", "notes"], "homepage": "https://x.dev", "repository": "https://github.com/me/x", "license": "MIT OR Apache-2.0", "screenshots": ["screenshots/a.png", {"path": "screenshots/b.webp", "caption": "Dark and light"}]}"#).unwrap();
+        assert_eq!((m.icon.as_deref(), m.icon_file.as_deref()), (None, Some("assets/icon.png")));
+        assert_eq!(m.tagline.as_deref(), Some("Quick notes"));
+        assert_eq!(m.categories, ["notes", "docs"]);
+        assert_eq!((m.homepage.as_deref(), m.license.as_deref()), (Some("https://x.dev"), Some("MIT OR Apache-2.0")));
+        assert_eq!(m.screenshots[1], media::ShotDef { path: "screenshots/b.webp".into(), caption: Some("Dark and light".into()) });
+        let err = |extra: &str| parse(&format!(r#"{{"id": "x", "name": "X", {extra}}}"#)).unwrap_err();
+        assert!(err(r#""icon": "icon.svg""#).contains("SVG"));
+        assert!(err(r#""icon": "../icon.png""#).contains("\"icon\""));
+        assert!(err(r#""categories": ["weather"]"#).contains("isn't a category"));
+        assert!(err(r#""categories": ["git", "ci", "docs", "fun"]"#).contains("more than 3"));
+        assert!(err(r#""homepage": "http://x.dev""#).contains("https"));
+        assert!(err(r#""license": "<b>MIT</b>""#).contains("SPDX"));
+        assert!(err(&format!(r#""tagline": "{}""#, "a".repeat(81))).contains("longer than 80"));
+        assert!(err(r#""screenshots": ["media/a.png"]"#).contains("in screenshots/"));
+        assert!(err(r#""screenshots": [{"path": "screenshots/a.gif"}]"#).contains("PNG or WebP"));
     }
 }

@@ -24,7 +24,24 @@ fn a_repository_builds_into_an_index_that_reads_back() {
     assert_eq!(l.versions[0].changelog.as_deref(), Some("- Made for a test."));
     assert_eq!(l.screens.len(), 1);
     assert!(l.screens[0].starts_with("screens/ci-status/"));
-    assert_eq!(b.screens.len(), 1);
+    // Its media: README, icon, the screenshot's dark and light files with
+    // its caption, the README's own image (the network's isn't copied).
+    assert_eq!(l.tagline.as_deref(), Some("Tests it"));
+    assert!(l.readme.as_deref().is_some_and(|r| r.starts_with("media/ci-status/") && r.ends_with(".md")));
+    assert!(l.media.icon.as_deref().is_some_and(|i| i.ends_with(".png")));
+    assert_eq!(l.media.screenshots.len(), 1);
+    let s = &l.media.screenshots[0];
+    assert_ne!(s.light, s.dark);
+    assert_eq!(s.caption.as_deref(), Some("Its tile"));
+    assert_eq!(l.media.images.keys().collect::<Vec<_>>(), ["media/flow.png"]);
+    // The files written: the legacy screen, README, icon, dark, light, image.
+    assert_eq!(b.screens.len(), 6);
+    let readme = b.screens.iter().find(|(p, _)| Some(p) == l.readme.as_ref()).unwrap();
+    assert!(String::from_utf8_lossy(&readme.1).contains("![How it looks](media/flow.png)"));
+    for (p, bytes) in &b.screens {
+        let hash = p.rsplit('/').next().unwrap().split('.').next().unwrap();
+        assert_eq!(hash, crate::extensions::package::sha256(bytes), "{p} is named by its hash");
+    }
     // Signed and read back as Pitwall reads it.
     let got = f.source().fetch().unwrap();
     assert_eq!(got.index, b.index);
