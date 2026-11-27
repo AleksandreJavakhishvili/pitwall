@@ -4619,6 +4619,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pitwall-extension-test"
+version = "0.1.0"
+dependencies = [
+ "pitwall-core",
+ "pitwall-tile-host",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "pitwall-hold"
 version = "0.8.0"
 dependencies = [
