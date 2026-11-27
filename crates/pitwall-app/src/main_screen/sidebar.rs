@@ -686,8 +686,11 @@ impl MainScreen {
         if !tiles.is_empty() {
             items.push(MenuItem::header("Tiles"));
             for t in tiles {
-                let (ext, tile) = (t.ext, t.tile);
+                let (ext, tile, folder) = (t.ext, t.tile, project.to_string());
                 items.push(MenuItem::new(t.icon, &t.label, move |this, window, cx| {
+                    // Opened for this project: its files are this one's.
+                    let tiles = crate::tiles::tiles(cx);
+                    tiles.update(cx, |t, cx| t.hint_project(&ext, &tile, &folder, cx));
                     this.open_view(&ext, &tile, None, window, cx)
                 }));
             }

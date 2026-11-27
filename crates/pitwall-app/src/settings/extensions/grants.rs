@@ -168,7 +168,14 @@ impl SettingsView {
     /// servers `net` may reach, each as written.
     pub(super) fn permission_words_of(ui: &Ui, m: &Manifest, name: &str, reason: &str) -> Div {
         let col = Self::permission_words(ui, name, reason);
-        let listed = permissions::listed(m, name);
+        let mut listed = permissions::listed(m, name);
+        // `files.*`: the project folders its tiles are open in now.
+        if name.starts_with("files.") {
+            let now = crate::tiles::scoped_folders(&m.id);
+            if !now.is_empty() {
+                listed = now;
+            }
+        }
         if listed.is_empty() {
             return col;
         }
@@ -530,7 +537,7 @@ impl SettingsView {
     /// The footer's Activity button: an extension with an adapter, or
     /// tiles agents may use (their calls).
     pub(super) fn activity_button(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if m.adapter.is_none() && !m.contributes.tiles.iter().any(|t| t.agents) {
+        if m.adapter.is_none() && !m.contributes.tiles.iter().any(|t| t.agents) && !m.permissions.iter().any(|p| p.name.starts_with("files.")) {
             return None;
         }
         let shown = self.exts.activity.contains(&m.id);
