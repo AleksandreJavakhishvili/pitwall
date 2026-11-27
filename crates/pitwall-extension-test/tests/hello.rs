@@ -114,3 +114,41 @@ fn a_hidden_tile_renders_once_shown() {
     t.show();
     assert!(t.find_text("Clicked 0 times").is_some());
 }
+
+/// Agents' calls (agent-tools.md §11.2–11.10): `hello__open` with content,
+/// the declared `show_message` tool with items per agent, an input that
+/// doesn't fit and a tile error that change nothing, an update in place,
+/// and the refusal of an item the user edited.
+#[test]
+fn agents_open_it_and_show_messages() {
+    use pitwall_extension_test::Called;
+    use serde_json::json;
+    let mut t = Harness::load(hello()).open("main");
+    // hello__open: the view's content, no reply of the tile's own.
+    assert_eq!(t.call("claude", None, None, json!({ "message": "hi" })), Called::Shown);
+    assert!(t.find_text(r#"Content: {"message":"hi"}"#).is_some(), "{}", t.text_snapshot());
+    // A declared tool: the tile's reply, its message shown.
+    let r = t.call("claude", Some("show_message"), Some("a"), json!({ "message": "first" }));
+    assert_eq!(r, Called::Replied { text: "Shown in Hello (1 messages)".into(), json: None, item: None });
+    assert!(t.find_text("claude: first").is_some(), "{}", t.text_snapshot());
+    // The same item again: replaced in place; another agent's item "a" is
+    // its own.
+    t.call("claude", Some("show_message"), Some("a"), json!({ "message": "second" }));
+    t.call("codex", Some("show_message"), Some("a"), json!({ "message": "mine" }));
+    assert!(t.find_text("claude: first").is_none() && t.find_text("claude: second").is_some() && t.find_text("codex: mine").is_some(), "{}", t.text_snapshot());
+    // Input that doesn't fit the schema never reaches the tile.
+    let before = t.text_snapshot();
+    let r = t.call("claude", Some("show_message"), Some("b"), json!({ "text": "x" }));
+    assert!(matches!(&r, Called::Refused(m) if m.contains("`message` is required")), "{r:?}");
+    // The tile's own problems: nothing changes either.
+    let r = t.call("claude", Some("show_message"), Some("b"), json!({ "message": "  " }));
+    assert_eq!(r, Called::Failed("Nothing was shown: the message is empty.\n`message` has no text".into()));
+    assert_eq!(t.text_snapshot(), before);
+    // The user edits them: replacing an edited item is refused, a new item
+    // is fine.
+    t.click_key("test/edit");
+    let r = t.call("claude", Some("show_message"), Some("a"), json!({ "message": "third" }));
+    assert!(matches!(&r, Called::Refused(m) if m.contains("The user changed “a”")), "{r:?}");
+    assert!(t.find_text("claude: second (edited)").is_some(), "{}", t.text_snapshot());
+    assert!(t.call("claude", Some("show_message"), Some("c"), json!({ "message": "new" })).is_ok());
+}

@@ -3,9 +3,15 @@
 //! greeting from `settings`, a text field, a timer, content from views, and
 //! test-only buttons (under the key `test`) that the host's tests click to
 //! hang, crash or overflow it (see `tests/host.rs`). Its `gallery` tile
-//! shows every component ([`gallery`]).
+//! shows every component ([`gallery`]). Agents open it with
+//! content (`hello__open`) and show messages in it with its declared
+//! `show_message` tool, one per agent's item.
+
+use std::collections::BTreeMap;
 
 use pitwall_extension::prelude::*;
+use pitwall_extension::tools;
+use pitwall_extension::tools::{Call, Problem, Reply, ToolError};
 
 mod gallery;
 
@@ -18,6 +24,31 @@ struct Hello {
     huge: bool,
     hoard: Vec<Vec<u8>>,
     gallery: gallery::Gallery,
+    /// Agents' messages by `<agent-id>/<item>`: (from whom, the text, the
+    /// call that showed it).
+    messages: BTreeMap<String, (String, String, u64)>,
+}
+
+/// `show_message`'s input (its schema is in extension.json).
+#[derive(serde::Deserialize)]
+struct Message {
+    message: String,
+}
+
+#[tools]
+impl Hello {
+    /// Show a message under the agent's item (the same item replaces it).
+    #[tool(kind = "present")]
+    fn show_message(&mut self, call: Call<Message>, cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
+        let text = call.input().message.trim().to_string();
+        if text.is_empty() {
+            return Err(ToolError::problems("Nothing was shown: the message is empty.", [Problem::new("`message` has no text")]));
+        }
+        let from = call.caller().agent_name.clone();
+        self.messages.insert(call.key(), (from, text, call.origin()));
+        cx.notify();
+        Ok(Reply::text(format!("Shown in Hello ({} messages)", self.messages.len())))
+    }
 }
 
 impl Tile for Hello {
@@ -61,6 +92,7 @@ impl Tile for Hello {
             .child(text(format!("Ticks: {}", self.ticks)).id("ticks").text_color(Token::Text3))
             .child(text(format!("Typed: {}", self.typed)).id("typed").text_color(Token::Text3))
             .child(text(format!("Content: {}", self.content)).id("content").text_color(Token::Text3))
+            .children(self.messages.iter().map(|(k, (from, m, _))| text(format!("{from}: {m}")).id(format!("message-{k}")).text_color(Token::Text)))
             .child(button("Click me").id("button").primary().icon(Icon::Plus).on_click(cx.listener(|t: &mut Hello, _, cx| {
                 t.clicks += 1;
                 if storage::set("clicks", t.clicks.to_le_bytes()).is_ok() {
@@ -117,6 +149,15 @@ fn tests(cx: &mut Cx<Hello>) -> AnyElement {
             loop {
                 t.hoard.push(vec![1u8; 1 << 20]);
             }
+        })))
+        .child(button("Edit").id("edit").small().on_click(cx.listener(|t: &mut Hello, _, cx| {
+            // The user edits every agent's message: Pitwall refuses to
+            // replace them from now on.
+            for (_, m, call) in t.messages.values_mut() {
+                m.push_str(" (edited)");
+                tools::user_edited(*call);
+            }
+            cx.notify();
         })))
         .child(button("Many").id("many").small().on_click(cx.listener(|_, _, _| {
             // Two keys in one host call.
