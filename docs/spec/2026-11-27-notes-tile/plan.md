@@ -40,7 +40,7 @@ that design. The step it blocks is named.
 - [ ] G4: `files.*` limited to `paths` in the manifest. Not blocking; without it v1 asks for the whole project
 - [ ] G2: the selection of an input. Not blocking; without it v1 sends the whole note or a section
 - [ ] G3: a file-change event. Not blocking v1
-- [ ] G6: a link event from `markdown`. Not blocking v1
+- [x] G6: a link event from `markdown`, and task boxes as `toggle` (#126)
 
 ## Step 0: preview on phase 1
 
@@ -70,7 +70,7 @@ holds, with a harness test for each, and the README below is published.
 - [ ] Project notes: list `*.md` in the notes folder, open, edit, new, rename, delete (FR-1–FR-9); harness tests against a temp project folder
 - [ ] No-grant state: the Project group explains and asks for `files.read`; private notes still work (FR-4); harness test with the grant refused
 - [ ] Changes on disk: reload on show, focus and open; the version check before each save with Reload, Keep mine, Save as a copy (FR-17, FR-18); harness test that changes the file between read and save
-- [ ] Preview with the `markdown` element, switched by a segmented control and a key (FR-11, FR-12); text snapshot test
+- [ ] Preview with the `markdown` element, switched by a segmented control and a key (FR-11, FR-12); text snapshot test. Preview, its tabs and ticking tasks there are in #126; the key is left
 - [ ] Send to agent: agent picker from `agent.list`, the note's project first; whole note, section in Preview, selection once G2 exists; 4 000-character check before the call (FR-13–FR-16); harness test with a fake method table that records `queue.add`
 - [ ] Open in editor through `viewer.open` for notes over the edit limit or on request (FR-10); harness test records the call
 - [ ] Private notes moved from `p/_/` to per-project keys once G5 exists, with a one-time migration; harness test
