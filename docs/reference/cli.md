@@ -1376,7 +1376,7 @@ pitwall extension log [OPTIONS] <ID>
 
 ### extension install
 
-Install one Pitwall ships, or (a folder: a path with a `/`) an extension of tiles from a folder on this computer, as a preview: copied, unsigned, never updated. It stays off. Asks the user.
+Install one Pitwall ships; a tile package (a .pwtile file, with its signature beside it as <file>.minisig), installed or, when it is installed already, updated to it; or (a folder: a path with a `/`) an extension of tiles from a folder on this computer, as a preview: copied, unsigned, never updated. A package's signature is checked before anything is unpacked; its key is trusted for the extension's updates from then on. It stays off. Asks the user.
 
 ```bash
 pitwall extension install [OPTIONS] <ID>
@@ -1384,7 +1384,44 @@ pitwall extension install [OPTIONS] <ID>
 
 | Argument | |
 |---|---|
-| `ID` | Its id, or the folder with its extension.json. |
+| `ID` | Its id, a .pwtile file, or the folder with its extension.json. |
+
+| Option | |
+|---|---|
+| `--unsigned` | A package without a signature may install (marked as a preview, as a folder is). |
+| `--new-key` | A package signed by another key than the installed version (or not signed while it was) may replace it; the new key is trusted from then on. Only when its author told you the key changed. |
+
+### extension pack
+
+Package a tile extension into a .pwtile file: its extension.json, tile.wasm, README.md, and if there a licence, CHANGELOG.md, agents/SKILL.md, the input schemas its tiles name, assets/ (svg, png, webp) and screenshots/ (png, webp). Nothing else of the folder (sources, target/). The component is checked first, as `check` does. The same files give the same file. Offline.
+
+```bash
+pitwall extension pack [OPTIONS] [FOLDER]
+```
+
+| Argument | |
+|---|---|
+| `FOLDER` (optional) | The tile project (default: this folder). Build it first (`pitwall extension dev --once`). |
+
+| Option | |
+|---|---|
+| `-o, --out <OUT>` | Where to write it (default: <id>-<version>.pwtile in the folder). |
+
+### extension sign
+
+Sign a .pwtile with your minisign key: writes <file>.minisig beside it, with your public key in its untrusted comment so Pitwall can check it without being given the key. Make a key once with `minisign -G` (or `rsign generate`); keep the secret key out of any repository. A password-protected key asks for its password, or reads it from PITWALL_SIGN_PASSWORD. Offline.
+
+```bash
+pitwall extension sign [OPTIONS] <FILE>
+```
+
+| Argument | |
+|---|---|
+| `FILE` | The package. |
+
+| Option | |
+|---|---|
+| `--key <KEY>` | Your minisign secret key (default: ~/.minisign/minisign.key). |
 
 ### extension on
 
