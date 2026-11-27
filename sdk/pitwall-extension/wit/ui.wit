@@ -26,4 +26,16 @@ interface ui {
   /// when one is already open; a `view-opened` event follows. An unknown
   /// id is ignored and noted in the Log.
   open-view: func(tile: string);
+
+  use types.{host-error};
+
+  /// Hand Pitwall an image's bytes (PNG, JPEG, GIF, WebP or SVG; at most
+  /// 8 MiB) under `name`, for `image` nodes with source `data(name)`.
+  /// Kept until replaced or dropped; at most 64 MiB for all a tile's
+  /// images. `invalid` when the bytes aren't one of those formats;
+  /// `too-large` over a limit.
+  put-image: func(name: string, bytes: list<u8>) -> result<_, host-error>;
+
+  /// Forget the image put under `name`.
+  drop-image: func(name: string);
 }

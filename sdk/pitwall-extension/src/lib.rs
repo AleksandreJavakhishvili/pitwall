@@ -63,6 +63,7 @@ extern crate self as pitwall_extension;
 pub mod bindings;
 pub mod blocks;
 pub mod canvas;
+pub mod components;
 pub mod element;
 pub mod events;
 mod group;
@@ -78,6 +79,8 @@ pub use group::{agents, asks, badges};
 pub use host::{log, settings, storage, ui, HostError, Tone};
 pub use style::{px, relative, rems, Align, Length, Styled, Token};
 pub use tile::{Content, ContentError, Cx, SavedState, Tile, Timer, ViewInfo};
+pub use components::{choice, column, image_asset, image_data, markdown, menu_button, menu_icon_button, menu_item, select, separator, tab, table, tabs, tree, tree_row, virtual_list, Column, IntoRow, MenuEntry, Rows, TreeRow};
+pub use events::{ColumnWidth, LinkClick, Picked, SortChange, SortDirection, Toggled};
 
 /// The WIT world this SDK builds tiles for, as a manifest's tile entry
 /// names it (`"world"`).
@@ -96,6 +99,8 @@ pub mod prelude {
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};
     pub use std::time::Duration;
+    pub use crate::components::{choice, column, image_asset, image_data, markdown, menu_button, menu_icon_button, menu_item, select, separator, tab, table, tabs, tree, tree_row, virtual_list, Column, MenuEntry, Rows, TreeRow};
+    pub use crate::events::{ColumnWidth, LinkClick, Picked, SortChange, SortDirection, Toggled};
 }
 
 /// Make `$tile` (a type implementing [`Tile`]) the component's tile: this
@@ -120,6 +125,9 @@ macro_rules! export {
             fn save_state() -> ::std::vec::Vec<u8> {
                 $crate::__private::save_state::<$tile>()
             }
+            fn rows(view: ::std::string::String, key_path: ::std::string::String, start: u32, count: u32) -> ::std::vec::Vec<$crate::__private::Row> {
+                $crate::__private::rows::<$tile>(view, key_path, start, count)
+            }
         }
 
         $crate::__private::bindings::__export_tile_glue!(__PitwallTile with_types_in $crate::__private::bindings);
@@ -132,6 +140,8 @@ pub mod __private {
     pub use crate::bindings;
     pub use crate::bindings::exports::pitwall::tile::guest::Guest;
     pub use crate::bindings::pitwall::tile::types::{Event as WitEvent, Frame, InitContext};
+    pub use crate::bindings::pitwall::tile::types::Row;
     pub use crate::tile::{handle, init, render, save_state};
+    pub use crate::tile::rows;
     pub use wit_bindgen;
 }

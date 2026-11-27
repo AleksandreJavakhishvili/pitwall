@@ -358,6 +358,11 @@ pub enum Fired {
     Drop(Dropped),
     LineClick(LineClick),
     CodeSelect(CodeSelection),
+    Pick(Picked),
+    Toggle(Toggled),
+    Link(LinkClick),
+    Sort(SortChange),
+    ColumnResized(ColumnWidth),
 }
 
 macro_rules! listener_event {
@@ -375,7 +380,18 @@ macro_rules! listener_event {
 
 listener_event!(Click, Fired::Click(c) => c);
 listener_event!(InputChange, Fired::Change(c) => c);
-listener_event!(str, Fired::Change(c) => c.value.as_str());
+
+impl ListenerEvent for str {
+    /// A text field's new value, or the key of the row, tab, option or
+    /// menu item picked.
+    fn pick(e: &Fired) -> Option<&Self> {
+        match e {
+            Fired::Change(c) => Some(c.value.as_str()),
+            Fired::Pick(p) => Some(p.key.as_str()),
+            _ => None,
+        }
+    }
+}
 listener_event!(Selection, Fired::Select(s) => s);
 listener_event!(Submit, Fired::Submit => &Submit);
 listener_event!(KeyPress, Fired::Key(k) => k);
@@ -393,3 +409,97 @@ listener_event!(CodeSelection, Fired::CodeSelect(s) => s);
 pub trait ChangeEvent: ListenerEvent {}
 impl ChangeEvent for str {}
 impl ChangeEvent for InputChange {}
+
+// ---- Components -------------------------------------------------------------
+
+/// A row, tab, option or menu item was picked: a row of a list, table or
+/// tree clicked or moved to with the keys, a tab or a select's option
+/// chosen, a menu item chosen. `on_select` takes this, or the key alone
+/// (`&str`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picked {
+    /// The item's key: the row's (its element's `id`, or its index), the
+    /// tab's, the option's or the menu item's.
+    pub key: String,
+    /// The row's index, or the item's place among its siblings (menu
+    /// separators not counted).
+    pub index: usize,
+    /// Keys held: ⌘/Ctrl or Shift to add to a selection.
+    pub modifiers: Modifiers,
+    /// The row was activated: a double click, or Enter. Open it.
+    pub activate: bool,
+}
+
+/// A tree's branch was opened or closed, or a Markdown task's box ticked
+/// or cleared (`on_toggle`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Toggled {
+    /// A tree: the row's key. Markdown: empty.
+    pub key: String,
+    /// A tree: the row's index. Markdown: the task's line in the text,
+    /// from 0.
+    pub index: usize,
+    /// Open (or ticked) now.
+    pub on: bool,
+}
+
+/// A link in Markdown was clicked (`on_link`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkClick {
+    /// The link's target, as written in the text.
+    pub url: String,
+    /// Keys held.
+    pub modifiers: Modifiers,
+}
+
+/// Which way a table is sorted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SortDirection {
+    /// Smallest first.
+    Ascending,
+    /// Largest first.
+    Descending,
+}
+
+impl SortDirection {
+    /// The other way.
+    pub fn flip(self) -> SortDirection {
+        match self {
+            SortDirection::Ascending => SortDirection::Descending,
+            SortDirection::Descending => SortDirection::Ascending,
+        }
+    }
+}
+
+/// A table's header was clicked to sort (`on_sort`): sort by `column`,
+/// `direction` (the other way when it was already sorted by it), then
+/// render.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortChange {
+    /// The column's key.
+    pub column: String,
+    /// The way asked for.
+    pub direction: SortDirection,
+}
+
+/// The user resized a table's column (`on_column_resize`), when the drag
+/// ended. Pitwall keeps the width while the column's own stays the same;
+/// keep it (in storage) to start with it next time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnWidth {
+    /// The column's key.
+    pub column: String,
+    /// Its width now, in logical pixels.
+    pub width: f32,
+}
+
+listener_event!(Picked, Fired::Pick(p) => p);
+listener_event!(Toggled, Fired::Toggle(t) => t);
+listener_event!(LinkClick, Fired::Link(l) => l);
+listener_event!(SortChange, Fired::Sort(s) => s);
+listener_event!(ColumnWidth, Fired::ColumnResized(c) => c);
+
+/// Events `on_select` takes: the whole [`Picked`], or its key (`&str`).
+pub trait PickEvent: ListenerEvent {}
+impl PickEvent for str {}
+impl PickEvent for Picked {}

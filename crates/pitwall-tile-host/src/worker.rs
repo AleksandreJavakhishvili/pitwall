@@ -39,6 +39,7 @@ enum Msg {
     SaveState,
     Advance(Duration),
     Stop,
+    Rows { view: String, list: String, start: u32, count: u32 },
 }
 
 /// A running tile, as the app holds it. Every method only posts a message
@@ -122,6 +123,15 @@ impl TileHandle {
         self.post(Msg::Advance(time))
     }
 
+    /// Ask for rows `start..start + count` of the virtual list, table or
+    /// tree at key path `list` in view `view` (at most
+    /// [`MAX_ROWS_PER_CALL`]); they arrive as [`TileOutput::Rows`], tagged
+    /// with the list's revision in the newest frame. Asked again before it
+    /// was answered, the same page is asked once.
+    pub fn rows(&self, view: &str, list: &str, start: u32, count: u32) -> bool {
+        self.post(Msg::Rows { view: view.to_string(), list: list.to_string(), start, count })
+    }
+
     /// Stop the tile now: a call that is running ends at the next epoch
     /// tick (about 10 ms), then `Stopped(Stopped)` arrives.
     pub fn stop(&self) {
@@ -182,6 +192,8 @@ struct Worker<'a> {
     batch: Instant,
     /// Reserved keys a frame bound, told in the Log once each.
     told_keys: HashSet<String>,
+    /// Rows the app asked for in this batch (view, list, start, count).
+    row_asks: Vec<(String, String, u32, u32)>,
 }
 
 struct View {
@@ -274,7 +286,7 @@ impl<'a> Worker<'a> {
             StopReason::Crashed(why) => StopReason::LoadFailed(why),
             other => other,
         })?;
-        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new() };
+        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new(), row_asks: Vec::new() };
         let cx = InitContext {
             extension: ext.id().to_string(),
             version: manifest.version.clone().unwrap_or_default(),
@@ -309,7 +321,11 @@ impl<'a> Worker<'a> {
     /// wait for messages or the next timer, handle them as one batch.
     fn run(&mut self) -> Result<(), StopReason> {
         loop {
+            // Images put during the calls go out before the frames that
+            // show them.
+            self.flush();
             self.render_dirty()?;
+            self.answer_rows()?;
             self.flush();
             if self.stopping() {
                 return Err(StopReason::Stopped);
@@ -395,7 +411,48 @@ impl<'a> Worker<'a> {
             }
             Msg::Advance(time) => self.advance(time),
             Msg::Stop => Err(StopReason::Stopped),
+            // Answered after the batch's renders, so the rows match the
+            // newest frame's revision.
+            Msg::Rows { view, list, start, count } => {
+                let ask = (view, list, start, count);
+                if !self.row_asks.contains(&ask) {
+                    self.row_asks.push(ask);
+                }
+                Ok(())
+            }
         }
+    }
+
+    fn answer_rows(&mut self) -> Result<(), StopReason> {
+        for (view, list, start, count) in std::mem::take(&mut self.row_asks) {
+            self.rows(view, list, start, count)?;
+        }
+        Ok(())
+    }
+
+    /// Rows of a list for the app: asked of the guest when the view's
+    /// newest frame has a list at that key path, checked, and sent tagged
+    /// with its revision. A list that went away is told nothing.
+    fn rows(&mut self, view: String, list: String, start: u32, count: u32) -> Result<(), StopReason> {
+        let Some(frame) = self.views.get(&view).and_then(|v| v.frame.clone()) else { return Ok(()) };
+        let Some(l) = crate::components::list_at(&frame, &list) else { return Ok(()) };
+        let revision = l.revision;
+        let count = count.min(MAX_ROWS_PER_CALL).min(l.count.saturating_sub(start));
+        if count == 0 {
+            return Ok(());
+        }
+        arm(&mut self.store, RENDER_DEADLINE);
+        let t = Instant::now();
+        let r = self.tile.pitwall_tile_guest().call_rows(&mut self.store, &view, &list, start, count);
+        let mut rows = r.map_err(|e| self.fail(&e, "rows", RENDER_DEADLINE))?;
+        let took = t.elapsed();
+        if took > RENDER_WARN {
+            self.store.data_mut().host_log(LogLevel::Warn, format!("{count} rows of “{list}” took {} ms (keep it under 8 ms)", took.as_millis()));
+        }
+        rows.truncate(count as usize);
+        crate::components::check_rows(&rows).map_err(|e| StopReason::FrameRefused(format!("the rows of “{list}”: {e}")))?;
+        (self.sink)(TileOutput::Rows(crate::RowsUpdate { view, list, revision, start, rows: Arc::new(rows), took }));
+        Ok(())
     }
 
     /// Move a virtual clock on by `time`, firing each timer due meanwhile

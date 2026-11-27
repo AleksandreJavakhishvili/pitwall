@@ -308,4 +308,18 @@ pub mod ui {
     pub fn open_view(tile: &str) {
         ui::open_view(tile);
     }
+
+    /// Hand Pitwall an image's bytes (PNG, JPEG, GIF, WebP or SVG; at most
+    /// 8 MiB) under `name`, for [`image_data`](crate::image_data). Kept
+    /// until put again or dropped; at most 64 MiB for all of a tile's
+    /// images. `Invalid` when the bytes aren't one of those formats,
+    /// `TooLarge` over a limit.
+    pub fn put_image(name: &str, bytes: &[u8]) -> Result<(), super::HostError> {
+        ui::put_image(name, bytes).map_err(Into::into)
+    }
+
+    /// Forget the image put under `name`.
+    pub fn drop_image(name: &str) {
+        ui::drop_image(name);
+    }
 }
