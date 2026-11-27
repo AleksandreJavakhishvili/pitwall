@@ -486,7 +486,9 @@ fn finish_add(job: gpui::Task<Result<(Offer, Option<Origin>), String>>, cx: &mut
 /// extension of tiles in folder `path`, checked as a package is (its
 /// manifest, sizes, files, component) and copied into a staging folder of
 /// Pitwall's off the UI thread; `done` gets what installing it would
-/// change, or why it can't be. The folder itself is never changed.
+/// change, or why it can't be. Its tiles are compiled and their imports
+/// checked then too, so one this Pitwall can't run is refused at once,
+/// saying why, not when it starts. The folder itself is never changed.
 pub fn prepare_from_folder(path: &std::path::Path, cx: &mut App, done: impl FnOnce(Result<Prepared, String>, &mut App) + 'static) {
     let Some(data) = dir(cx) else {
         let why: String = "Extensions need Pitwall's data folder.".into();
@@ -494,8 +496,15 @@ pub fn prepare_from_folder(path: &std::path::Path, cx: &mut App, done: impl FnOn
         return;
     };
     let path = path.to_path_buf();
+    let host = crate::tiles::checker(cx);
     let job = cx.background_executor().spawn(async move {
         let offer = pitwall_core::extensions::preview::stage(&path, &data)?;
+        if !offer.manifest.contributes.tiles.is_empty() {
+            if let Err(why) = host.and_then(|h| crate::tiles::check_folder(&h, &offer.folder)) {
+                let _ = std::fs::remove_dir_all(&offer.folder);
+                return Err(why);
+            }
+        }
         let origin = install::local(&data.join(&offer.manifest.id)).origin;
         Ok((offer, origin))
     });

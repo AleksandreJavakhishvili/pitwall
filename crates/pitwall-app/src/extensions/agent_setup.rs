@@ -1104,6 +1104,12 @@ impl ExtensionsBackend for AppExtensions {
     fn dev_check(&self, path: &str) -> Result<Option<Prepared>, ErrorBody> {
         let folder = dev_folder_of(path)?;
         let m = dev_manifest(&folder)?;
+        // Its tiles compiled and their imports checked here (this thread
+        // isn't the UI's), before anything is asked or replaced: one this
+        // Pitwall can't run is refused saying why, and a running one is
+        // left as it is.
+        let host = self.on_main(|cx| Ok(crate::tiles::checker(cx)))?.map_err(|why| err(code::OTHER, why))?;
+        crate::tiles::check_folder(&host, &folder).map_err(|why| err(code::BAD_PARAMS, why))?;
         self.on_main(move |cx| {
             let loaded = super::dev_folder(&m.id, cx).is_some_and(|p| p == folder);
             if loaded && crate::ui_state::get(cx).extension_on(&m.id) {
