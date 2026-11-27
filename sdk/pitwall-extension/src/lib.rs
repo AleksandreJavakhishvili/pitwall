@@ -150,6 +150,9 @@ macro_rules! export {
             fn rows(view: ::std::string::String, key_path: ::std::string::String, start: u32, count: u32) -> ::std::vec::Vec<$crate::__private::Row> {
                 $crate::__private::rows::<$tile>(view, key_path, start, count)
             }
+            fn tool(call: $crate::__private::ToolCall) -> ::core::option::Option<$crate::__private::ToolOutput> {
+                $crate::__private::tool::<$tile>(call)
+            }
         }
 
         $crate::__private::bindings::__export_tile_glue!(__PitwallTile with_types_in $crate::__private::bindings);
@@ -164,6 +167,7 @@ pub mod __private {
     pub use crate::bindings::pitwall::tile::types::{Event as WitEvent, Frame, InitContext};
     pub use crate::bindings::pitwall::tile::types::Row;
     pub use crate::tile::{handle, init, init_with, render, save_state};
-    pub use crate::tile::rows;
+    pub use crate::tile::{rows, tool};
+    pub use crate::bindings::pitwall::tile::agent_tools::{ToolCall, ToolOutput};
     pub use wit_bindgen;
 }

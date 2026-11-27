@@ -340,6 +340,16 @@ pub enum Event {
     },
     /// The extension's own server changed state.
     ServiceChanged(crate::service::Info),
+    /// The user pressed Undo on what an agent's call (its
+    /// [`Call::origin`](crate::tools::Call::origin)) put in the tile:
+    /// restore what was there before it. A tile that keeps what agents
+    /// show in [`Presented`](crate::tools::Presented) calls its
+    /// [`undo`](crate::tools::Presented::undo).
+    UndoPresent(u64),
+    /// A `read` or `act` call the tile answered later
+    /// ([`Reply::later`](crate::tools::Reply::later)) took too long and was
+    /// given up: stop working on it.
+    ToolCancelled(u64),
 }
 
 /// A listener's event: what the SDK hands a closure made with
