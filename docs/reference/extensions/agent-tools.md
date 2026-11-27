@@ -188,7 +188,9 @@ fn current_messages(&mut self, _call: Call<Empty>, _cx: &mut Cx<Self>) -> Result
 }
 ```
 
-- **The user approves, in Pitwall.** The approval dialog names the agent, its project, the tool and its arguments, with **Deny**, **Always for <agent>** and **Allow once**. A `read` asks until the user chooses "Always" for that agent; an `act` asks each time unless they did. "Always" is kept per extension, agent and tool, listed on the extension's card and in Settings → Agents, each with **Revoke**. A tile that holds `agents.queue` or `agents.start` gets no "Always" for its `act` tools: those ask every time. Unanswered in 2 minutes counts as a denial; a denied call changes nothing.
+- **The user approves, in Pitwall.** The approval dialog names the agent, its project, the tool and its arguments, with **Deny**, **Always for <agent>** and **Allow once**. When you aren't in Pitwall, the same request is a card in the floating control, with the same three answers; answered in one place, it goes from the other.
+
+  ![An act's approval in the floating control, dark](images/agent-tools/agent-tools-float-dark.png) ![The same card, light](images/agent-tools/agent-tools-float-light.png) A `read` asks until the user chooses "Always" for that agent; an `act` asks each time unless they did. "Always" is kept per extension, agent and tool, listed on the extension's card and in Settings → Agents, each with **Revoke**. A tile that holds `agents.queue` or `agents.start` gets no "Always" for its `act` tools: those ask every time. Unanswered in 2 minutes counts as a denial; a denied call changes nothing.
 - **The user's own calls.** From a plain Pitwall terminal (`pitwall extension run`), a `read` runs without asking; an `act` still asks, without "Always", so a script can't act behind their back. From outside Pitwall only `show` tools run.
 - **Answer later.** Return `Reply::later()` and reply with `tools::reply(call_id, …)` when the work is done (a request to a service, say). Past the time limit (`read` 10 seconds, `act` 2 minutes after the approval) the agent hears it timed out and your tile gets `Event::ToolCancelled(call)`.
 - **Without acting permissions.** During a `show`, `present` or `read` call the tile's acting permissions (`net`, its own server, `show`, `notify`, `agents.queue`, `agents.start`, `agents.focus`) are off; an `act` call has them all. So a tool's kind can't be a lie.
@@ -217,4 +219,29 @@ pitwall extension run hello current_messages --human
 echo '{"text":"hi"}' | pitwall extension call hello send_message --input -
 ```
 
-`run` prints the result's JSON (its text with `--human`); problems go to stderr. Exit status: 0 ok, 1 the tile answered with an error, 2 bad arguments, 3 refused or denied, 4 not available (Pitwall, the extension or the tile isn't there or on), 5 timed out. `--timeout <seconds>` may only shorten a tool's time. The palette lists "<Extension>: <title>" for each palette tool that needs no input, and runs it as yours, without asking.
+`run` prints the result's JSON (its text with `--human`); problems go to stderr. Exit status: 0 ok, 1 the tile answered with an error, 2 bad arguments, 3 refused or denied, 4 not available (Pitwall, the extension or the tile isn't there or on), 5 timed out. `--timeout <seconds>` may only shorten a tool's time.
+
+**In the palette** each palette tool is "<Extension>: <title>", run as yours, without asking. One that needs input reads "<Extension>: <title>…" and opens a small form first: a field per property of its input, labelled from the property's name, with its `description` under it and a red mark on required ones. Strings are text fields (`maxLength` kept), numbers and integers are checked as you run, booleans are a checkbox, and an `enum` is a row of choices (a dropdown past four). **Run** (↵) sends it; Esc or **Cancel** closes. A tool whose input has anything else (a nested object, an array) isn't in the palette.
+
+![The palette's form for Hello's "Send a message", dark](images/agent-tools/agent-tools-form-dark.png) ![The same form, light](images/agent-tools/agent-tools-form-light.png)
+
+## A skill for agents
+
+Tools say what a tile can do; a skill tells agents when to use them. Put one in your package as `agents/SKILL.md`:
+
+```markdown
+---
+name: hello
+description: Show short messages to the user in Pitwall's Hello tile.
+---
+When the user asks to see a message next to your terminal, call
+`hello__show_message` with an `item` id you reuse for later changes.
+Call `hello__send_message` only when the user asks you to send one.
+```
+
+- **Limits.** Text only, at most 16 KiB; `name` is your extension's id (or left out); it may name only your own tools (`<id>__…`). `pitwall extension check` says what is wrong.
+- **You choose the projects.** On the extension's card in Settings → Extensions, under **Skill for agents**, tick the projects whose agents get it. It is kept in Pitwall, never written into a project's tracked files.
+- **Agents get it with their rules.** Pitwall gives it to them the way it gives the skills in Settings → Rules & skills: through rulesync, into each agent's own folder (`.claude/skills/hello/` for Claude Code, `.agents/skills/hello/` for Codex, …), kept out of git. It starts with a line saying it is the Hello tile's. A new agent gets it when it starts; one already running shows "rules changed" until **Re-apply & restart**. Settings → Rules & skills lists it for each agent as "from Hello (a tile)".
+- **Off is off.** Turning the extension off, or its tile's "Agents can use <name>", or unticking a project, takes it away at the next apply.
+- **Agents without skills** (Gemini CLI, Aider) get its `description` in Pitwall's MCP server instructions instead.
+
