@@ -190,6 +190,15 @@ that project) or an agent id (needs `agents.read`). A tile can drag
 out only text. Dragging a tile itself is the host's (`TileDrag`
 [today]).
 
+**As built (phase 2, inside a tile).** `drag` and `drop` are two
+`style` cases added at the end of the variant (`drag(drag-source)`:
+kind, data at most 64 KiB, label; `drop-target(drop-target)`: the kinds
+it accepts and a handler), so the node record is unchanged. A drop sends
+`event.dropped` with the kind, the data and the position in the target.
+The host draws the drag as Pitwall's own chip, highlights a target that
+accepts what is over it, and refuses drops from another tile or view.
+Drags between tiles and from Pitwall's own lists are not built.
+
 ### 3.7 Canvas
 
 `draw` returns a list of ops in the canvas's own coordinates: `rect`
@@ -203,6 +212,27 @@ per frame. A tile that wants motion (a live graph) calls
 `ui.redraw` each frame; that counts against the frame budget and stops
 while hidden or with Reduce motion on, where it gets one draw per
 second.
+
+**As built (phase 2).** The canvas is a frame element, not a `draw`
+callback: `element.canvas` carries its ops, a transform and hit regions,
+and is redrawn with the frame (no `ui.redraw`; motion is a timer and a
+render). Ops: `rect` and `path` with an optional fill and an optional
+`stroke` (colour, width, dash list of at most 16), `text` with a size in
+pixels (not a token, so it zooms; Inter or JetBrains Mono, weight,
+start/centre/end, top/middle/bottom, a max width cut with an ellipsis),
+`clip-push`/`clip-pop`. Colours are `paint`: a token or `rgba`. Not built:
+`icon` and `image` ops. The transform (scale, dx, dy) applies to ops
+and regions, so a zoom is one number. Hit regions (key, rect, label,
+tooltip, click and hover handlers) are laid over the drawing; their
+label is the accessible name. Input: `pointer` events had positions
+already; `listen.wheel` adds `pointer-kind.wheel(delta)` and
+`pointer-kind.pinch(f32)`. A press that moves more than 4 px is not a
+region click. Limits: 20 000 ops, 5 000 regions. No text-measurement
+call: canvas text is Inter or JetBrains Mono at any size, widths scale
+linearly with size, and GPUI's text system is not reachable from the
+tile's worker or the harness, so a width table in the guest (as the C4
+tile has) is the measure; `max-width` guards the rest. The SDK's
+`Viewport` turns drag, wheel, ⌘-wheel and pinch into zoom and pan.
 
 
 
