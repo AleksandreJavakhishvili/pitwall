@@ -61,8 +61,11 @@ authoring skill for your coding agent.
   opened with content calls `on_content`, and `Content::parse::<MyInput>()`
   reads it with serde.
 - **Services**: `log`, `storage` (10 MiB key-value, with JSON helpers),
-  `settings` (and secrets), `ui` (toast, open a view, scroll to a node), and
-  timers (`cx.after`, `cx.every`).
+  `settings` (and secrets), `ui` (toast, open a view, scroll to a node),
+  timers (`cx.after`, `cx.every`), `sql` (SQLite with migrations), `toolbar`
+  (a button's badge and popover) and `service` (the extension's own
+  server); with a permission, `net` (`cx.fetch` to the manifest's hosts),
+  `notify` and `show` (a file or a web page).
 
 The design is in `docs/spec/tile-sdk/` in Pitwall's repository
 (authoring.md §4). Licensed Apache-2.0.

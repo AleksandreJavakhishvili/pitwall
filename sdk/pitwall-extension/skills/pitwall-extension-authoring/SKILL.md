@@ -58,13 +58,22 @@ done.
 - Every tile entry names the same `wasm` (one component per extension); each
   tile id is a view the component renders.
 - **Permissions**: every permission needs your reason, one line the user
-  reads before granting it. WIT 0.1 needs none for its own services;
-  `memory` (more than 64 MiB, at most 512), `agents.read` (list your
-  agents), `agents.queue` (put text in an agent's Next up) and
-  `projects.read` (badges on project rows) have an effect. Ask only for
-  what the tile uses.
+  reads before granting it. Ask only for what the tile uses:
+  - `agents.read` (list your agents), `agents.queue` (put text in an
+    agent's Next up), `projects.read` (badges on project rows), `notify`,
+    `show`: the reason alone;
+  - `net`: `{ "reason": "…", "hosts": ["api.example.com", "*.example.org"] }`
+    (https only; `http` only to this computer, when listed with its port);
+  - `memory` (more than 64 MiB, at most 512) and `sql` (more than 100 MiB,
+    at most 2048): `{ "reason": "…", "mib": 128 }`, granted with the
+    extension.
 - `"badges": true` and `"asks": true` in `contributes` let the tile put
   badges on sidebar rows and questions in the floating control.
+- **Toolbar button** (at most one): `"contributes": { "toolbar": { "icon":
+  "server", "tooltip": "Builds", "badge": true, "action": { "kind":
+  "popover", "tile": "main", "size": { "w": 320, "h": 400 } } } }`; `kind` is
+  also `tile`, `command` or `menu`. The user can hide it; an update never
+  shows it again.
 - Setting types: `text`, `url`, `number`, `bool`, `choice`, `secret` (kept
   in the system's secure store, read with `settings::secret`).
 
@@ -208,6 +217,17 @@ the schema small and describe each field: agents read it.
   `cx.every(..)`, `cx.cancel(timer)`. They pause while the tile is hidden.
 - State across a reload: `fn save_state(&self) -> Option<SavedState>` with
   `SavedState::json(&…)`, read back in `new` with `cx.restore::<T>()`.
+- `sql`: the extension's SQLite database (100 MiB). Run
+  `sql::migrate(&[..])` in `new`; `sql::execute(stmt, (a, b))`,
+  `sql::query(stmt, ())` → `Rows` (`row.get::<i64>("n")`),
+  `sql::transaction(|| …)` (one call long). No `ATTACH`, no writing
+  `PRAGMA`s.
+- `toolbar`: `set_badge(Badge::Count(n), Tone::Attention)`, `set_tooltip`,
+  `set_shown`, `close_popover()`; the popover is the view
+  `toolbar::POPOVER_VIEW`; a press is `Event::ToolbarClicked { project }`.
+- `service` (an extension with a `service` block): `service::info()`,
+  `service::url("/api/x")` for `cx.fetch` (no `net` needed), `restart()`,
+  `open_card()`; `Event::ServiceChanged(info)`.
 
 ## Agents, badges and questions (granted)
 
@@ -228,8 +248,19 @@ the schema small and describe each field: agents read it.
   `set_agents`, `queued()`, `badges()`, `asks()`, `answer(id, &[0])`,
   `answer_text`, `decline`, `reply(id)`.
 
-There is no network or file access in WIT 0.1, and never agents'
-terminals; don't try to reach them (no `std::fs`, no sockets): they fail.
+## Network, notifications and opening things (granted)
+
+- `net`: `cx.fetch(net::Request::get(url).header(..), |this, answer, cx|
+  …)?` (answer: `Result<Response, net::Error>`; `r.json::<T>()`,
+  `r.text()`); 8 at once, 30 s by default. Only the manifest's hosts.
+- `notify::send(title, body)`: 3 a minute, repeats within 10 minutes
+  dropped.
+- `show::file(path, Some(line))`, `show::web(url)`.
+
+Without the grant a call fails with `HostError::Denied` (`net::Error::
+Denied`); carry on and say what is missing. There is no file or program
+access, and never agents' terminals; don't try (no `std::fs`, no raw
+sockets): they fail.
 
 ## Tests
 
@@ -266,6 +297,13 @@ Components: `rows(list, start, count)` (each
 `choose_row_menu_item`, `choose_menu_item(key_path, label)`,
 `select_option`, `select_tab`, `sort_by`, `resize_column`, `click_link`,
 `toggle_task` (each takes the component's key path, or its own key).
+
+Services in tests: `Harness::grant("net")` (or `grant`/`revoke` while it
+runs), `respond(url, status, body)` and `respond_error` (nothing leaves the
+test), `requests()`, `notifications()`, `ui_requests()` (files and pages
+opened), `toolbar()`, `click_toolbar(None)`, `click_in_popover("close")`,
+`Harness::own_server("127.0.0.1:8790")`, `set_service(info)`,
+`database()` (the SQLite file, in the test's temporary folder).
 
 ## Docs
 
