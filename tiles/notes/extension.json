@@ -5,9 +5,14 @@
   "version": "0.1.0",
   "pitwall": ">=0.8.0",
   "icon": "page-right",
-  "description": "Private plain-text notes beside your agents, saved as you type",
+  "description": "Plain-text notes beside your agents, in your project or private, saved as you type",
   "license": "Apache-2.0",
+  "settings": [
+    { "key": "folder", "type": "text", "label": "Notes folder", "hint": "Where project notes are kept, from the project's folder.", "default": "notes" }
+  ],
   "permissions": {
+    "files.read": "To list and read notes in the projects you choose",
+    "files.write": "To save notes in the notes/ folder of the projects you choose",
     "agents.read": "To list the agents you can send a note to",
     "agents.queue": "To put a note in an agent's Next up, waiting for your Send"
   },
