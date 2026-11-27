@@ -222,6 +222,10 @@ pub fn show(req: &TileShow, cx: &mut App) -> Result<Result<Placed, TileShown>, E
     // The content first: the view opens with it (or gets it, if open).
     let (tx, rx) = mpsc::channel();
     let (ext, tile) = (m.id.clone(), def.id.clone());
+    // Opened for the calling agent's project (when its space has none).
+    if let Some(folder) = req.project.as_deref().filter(|p| !p.is_empty()) {
+        tiles.update(cx, |t, cx| t.hint_project(&ext, &tile, folder, cx));
+    }
     if let Err(why) = tiles.update(cx, |t, cx| t.deliver(&ext, &tile, id, content, tx, cx)) {
         record(&m.id, &tool_name, req, Some(why.clone()), cx);
         return Err(ErrorBody::new(code::OTHER, format!("{} can't show it now: {why}", def.title)));
