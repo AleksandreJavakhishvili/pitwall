@@ -268,6 +268,7 @@ box
       button \"\" #back label=\"All notes\" [click]
       text \"web: login flickers\"
       text \"Editing…\"
+      tabs [*Edit, Preview] #mode [select]
       button \"\" #trash label=\"Delete note\" [click]
     box #n2
       input placeholder=\"Title on the first line, then anything\" text=\"web: login flickers\\non reload\" multiline focused #text [change, submit]
@@ -297,4 +298,19 @@ box
         button \"\" #delete label=\"Delete note\" [click]
 ";
     assert_eq!(tile.text_snapshot(), list);
+}
+
+#[test]
+fn preview_draws_the_note_and_ticks_its_tasks() {
+    let mut tile = notes();
+    write(&mut tile, "Plan\n- [ ] one\n- [x] two");
+    tile.select_tab("editor/head/mode", "Preview");
+    let snap = tile.text_snapshot();
+    assert!(snap.contains("markdown \"Plan\" #markdown [toggle]"), "{snap}");
+    assert!(tile.find_key("editor/n1/text").is_none(), "no editor in Preview");
+    // Its box ticked: the text changes and is saved at once.
+    tile.toggle_task("editor/p1/markdown", 1);
+    assert_eq!(stored_text(&tile, 1).as_deref(), Some("Plan\n- [x] one\n- [x] two"));
+    tile.select_tab("editor/head/mode", "Edit");
+    assert_eq!(tile.field_text("editor/n1/text"), "Plan\n- [x] one\n- [x] two");
 }
