@@ -1,4 +1,4 @@
-Status: design, not built. A seed tile of the [Tile SDK](../tile-sdk/README.md)
+Status: step 0 (the preview) built in `tiles/notes/` (#119); v1 and v2 are design. A seed tile of the [Tile SDK](../tile-sdk/README.md)
 ([10.1](../tile-sdk/README.md#101-seed-tiles-first-party-public-sdk-only)).
 Architecture in [hla.md](hla.md), progress in [plan.md](plan.md).
 
@@ -235,6 +235,30 @@ design; [plan.md](plan.md#sdk-requests) tracks the requests.
 | G5b | `files` grants are per project picked, and `pick-project` returns a task; how a granted folder (`/projects/<n>`) maps to Pitwall's project, and to `agents.read`'s agents of that project, is not stated | Send to agent lists the note's project's agents | Grants and agents name projects by the same id | v1 |
 | G6 | The `markdown` element sends no events: no link clicks, no checkbox toggles | Nice in Preview; not needed in v1 | A `link-clicked(url)` event; relative links to other notes open them | Not v1 |
 | G7 | Whether a host call started at `visibility(false)` (the last save) finishes before the tile is suspended is not stated ([2.3](../tile-sdk/runtime.md#23-lifecycle)) | FR-6 saves when hidden | Calls in flight at suspension complete; `save-state` (FR-7) is the fallback | v1 |
+
+G1, G1b and G1c were settled by WIT 0.1 (#111) and measured in step 0
+(#119): the `input` record has `multiline`, `rows`, the node's font and
+text size, and a host-owned value with a revision; ⌘⏎ submits a focused
+multi-line field instead of maximising the tile ([3.5](../tile-sdk/ui.md#35-keyboard-and-focus));
+Notes uses it to save and go back to the list. A 256 KiB note takes about
+3 ms a change round trip (event, handle, render) in the harness on an
+Apple-silicon Mac, release tile; the value isn't repeated in frames.
+
+Found while building step 0 (#119), most painful first:
+
+| # | Gap | Why Notes needs it | Proposal (open) | Blocks |
+|---|---|---|---|---|
+| G8 | Phase 1 has no `TileView` in the layout and no folder install yet ([tile-sdk plan](../tile-sdk/plan.md)), so the tile can't be seen or used in Pitwall. Unverified with it: how a multi-line `input` sized by `size_full`/`flex_1` lays out (WIT says `rows` applies "when its node has no height style"), its border and padding inside an editor pane, and the named icons below | "Looks native" is only checked against tokens and the outline; step 0's definition of done needs a folder install on three systems | Build both; then check Notes in Dark and Light at 300 and 700 px wide | Step 0 done |
+| G9 | The harness can't send focus, resize or theme events, restart with the same data but no saved state, or read a text field's current text (its `Node`/`Element` types aren't re-exported, and `text_snapshot` omits an input's text, `multiline` and the frame's focus). Timers run on the wall clock, not a virtual one | Save on focus loss (FR-6) and the side-by-side layout (a `resize` over 560 px) have no test; "restart keeps notes" can only be tested through `reload`, which also restores state; each save test waits 1.4 s | `Session::focus(bool)`, `resize(view, w, h)`, `set_theme`, `restart()` (same data, no state), `field_text(key)`; inputs' text and flags in the snapshot; a virtual clock with `advance(d)` | Step 0 tests of FR-6 on blur |
+| G10 | No blur (or focus) event for one text field: `focus(bool)` is the whole tile's | FR-6 saves "when the note loses focus"; moving from the note to the search field inside the tile doesn't count, so Notes saves on leaving a note, on the tile's focus loss and on the timer | An `on_blur` listener on `input` (a `blur(handler)` event), or `focus-changed(key-path)` for the view | Not blocking (the timer saves within 1 s) |
+| G11 | `storage` reads one key per host call, and a tile may make 200 host calls a second | Each note is a key; a tile with more than about 190 notes can't read them in `new`. Notes reads 150 a second, so the list fills over several seconds | `storage.get-many(keys)` or `list-values(prefix)` as one call (bounded by bytes), or a separate, larger budget for storage reads | v1 with many notes |
+| G12 | Icons by name have no list: `Icon::Named` takes any string, and the SDK's own `Icon::Search` names `search`, which Pitwall's icon set (`kit/icons.rs`) doesn't have; no `Back`/chevron variant. A manifest's `icon` isn't checked either | Back (`back`), search, and the tile's icon (`page-right`) are guesses until G8 | The SDK's `Icon` enum generated from the app's set; `check` and the harness warn on an unknown name | Not blocking |
+| G13 | Which keys a tile can bind is undocumented: Pitwall's reserved set isn't listed or checked (`check` can't see a runtime keymap), and whether a binding without a modifier fires while a text field in the tile has focus isn't stated | Notes binds only ⌘N; no `/` to search, no Esc to go back (Esc leaves a maximised tile) | The reserved list in the SDK docs; a Log warning when a frame binds a reserved key; "bindings without ⌘/Ctrl/Alt don't fire while a text field has focus" | Not blocking |
+| G14 | `cx.focus(key_path)` takes the full key path, so the tile must know every ancestor's key; its doc says "keys from the root down" while `ui::scroll_to` says "without the root's" (the harness confirms: without) | New note focuses its field: `editor/n<id>/text`, which breaks if the layout moves | `Input::focus()` (or `.autofocus()`) on the element itself; the docs agree on the root | Not blocking |
+| G15 | A button's look and size are one choice: `.small()` and `.danger()`/`.primary()` replace each other | Keep, Discard and Delete sit in a 36 px bar at full size; there is no small danger button | Size apart from look (`.small()` combines with any kind) | Not blocking |
+| G16 | `pitwall extension new --sdk <checkout>` writes the checkout's absolute paths into `Cargo.toml`, and copies the authoring skill into `.agents/` and `.claude/` | A tile inside Pitwall's repository needs relative paths (hand-edited) and no copies of the skill (they'd drift; removed) | Relative paths when the project is inside the checkout; no skill copies there (AGENTS.md points to `sdk/…/SKILL.md`) | Not blocking |
+| G17 | Whether `std::time` (wall and monotonic clocks) works in a tile isn't documented; the skill only says there are no files or sockets. It works (WASI 0.2 clocks are linked) | "Newest change first", "5 min" and the save debounce use the clocks | State in the skill and `lib.rs` docs which WASI interfaces a tile has: clocks, random, stdout/stderr | Not blocking |
+| G18 | Small SDK awkwardness: `Div` isn't in the prelude (a helper returning part of a tree needs `use pitwall_extension::Div`); no show-on-hover style, so row actions (Delete on a list row) can't appear on hover without a round trip per pointer move | A Delete on each row would be quicker than open, then Delete | `Div` (and `Button`, `Input`, `Text`) in the prelude; a `group_hover`-style `visible_on_parent_hover` | Not blocking |
 
 Also noted: the SDK design names the crate `pitwall-extension`, but its
 examples import `pitwall_tile::…` ([4.2](../tile-sdk/authoring.md#42-a-diagram-tile-as-an-author-writes-it)).

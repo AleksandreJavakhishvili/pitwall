@@ -11,7 +11,8 @@ The Tile SDK's own phases are tracked in
 [tile-sdk/plan.md](../tile-sdk/plan.md). This plan only says which of
 them each step waits for, and it doesn't tick their items.
 
-**Status:** not started. Waits for SDK phase 1.
+**Status:** step 0 built (#119) on SDK phase 1; not yet seen in Pitwall,
+which waits for `TileView` and folder install (G8).
 
 ## SDK requests
 
@@ -20,8 +21,19 @@ design records a decision on it (in its section or in
 [README §10.3](../tile-sdk/README.md#103-decisions)), made by whoever owns
 that design. The step it blocks is named.
 
-- [ ] G1, G1b: the `input` element's record (multi-line, rows, font, who owns the value) and which of ⌘⏎ or submit wins in a tile. Blocks step 0
-- [ ] G1c: input value size is measured in the phase 1 work, with a number recorded for a 256 KiB note. Blocks step 0's FR-10 limit
+- [x] G1, G1b: the `input` element's record (multi-line, rows, font, who owns the value) and which of ⌘⏎ or submit wins in a tile. Blocks step 0 (#111: WIT 0.1's `input` and [ui.md §3.5](../tile-sdk/ui.md#35-keyboard-and-focus): a focused multi-line field submits on ⌘⏎)
+- [x] G1c: input value size is measured in the phase 1 work, with a number recorded for a 256 KiB note. Blocks step 0's FR-10 limit (#119: about 3 ms a change round trip in the harness, release tile, Apple-silicon Mac; the value isn't repeated in frames)
+- [ ] G8: `TileView` and folder install, then the `input` layout (`size_full` vs `rows`), icons and look checked in Pitwall. Blocks step 0's done
+- [ ] G9: the harness sends focus, resize and theme, restarts without state, reads a field's text, and has a virtual clock. Blocks tests of save on focus loss and of the side-by-side layout
+- [ ] G10: a blur event for one text field. Not blocking; the 1 s timer covers it
+- [ ] G11: reading many storage keys in one call. Blocks v1 with more than about 190 notes loading in one second
+- [ ] G12: the icon set listed in the SDK and checked. Not blocking
+- [ ] G13: the reserved keys listed and checked; when bindings fire while a field has focus. Not blocking
+- [ ] G14: focus a field from the element, not by its full key path. Not blocking
+- [ ] G15: button size apart from its look. Not blocking
+- [ ] G16: `extension new --sdk` writes relative paths and no skill copies inside Pitwall's checkout. Not blocking
+- [ ] G17: which WASI interfaces (clocks, random) a tile has, documented. Not blocking
+- [ ] G18: `Div` and the other builders in the prelude; a show-on-hover style. Not blocking
 - [ ] G4b: `files` gains remove, rename and create-folder, or the design states that the WASI route under `/projects/<n>` does them under the same grants and path checks. Blocks v1
 - [ ] G5, G5b: a tile learns its space's project, and grants and agents name projects by the same id. Blocks v1's per-project lists and agent picker
 - [ ] G7: what happens to host calls in flight at suspension. Blocks v1's save on hide
@@ -36,14 +48,16 @@ Waits for SDK phase 1 (WIT 0.1, `storage`, `tasks`, folder install).
 Done when the preview installs from a folder on macOS, Linux and Windows,
 and an SDK-preview author other than its writer has used it for a day.
 
-- [ ] `tiles/notes/` scaffolded with `pitwall extension new`, its own Cargo project, not a workspace member; `pitwall extension check` passes
-- [ ] CI job: builds `tiles/notes` for `wasm32-wasip2`, runs its harness tests and `check`, on every pull request that touches `tiles/` or `sdk/`
-- [ ] CI dependency check: fails when `tiles/notes` depends on any `pitwall-*` crate other than `pitwall-extension` (and `pitwall-extension-test` as a dev-dependency) or on a path under `crates/`; a test branch that adds `pitwall-core` fails it
-- [ ] Private notes: new, edit, delete, list by last change, title from the first line, kept in `storage` under `p/_/…`; harness test: create, edit, restart the tile, the text is there
-- [ ] Multi-line editing with the kit's input (per G1); harness test types three lines and reads them back
-- [ ] Autosave about 1 s after typing stops and on `visibility(false)`; unsaved text kept through `save-state`; harness tests for both, with the virtual clock
-- [ ] Filter field over titles and text; harness test
-- [ ] Each SDK gap found while building is added to [frd.md §7](frd.md#7-sdk-gaps) and the list above, in the same pull request
+- [x] `tiles/notes/` scaffolded with `pitwall extension new`, its own Cargo project, not a workspace member; `pitwall extension check` passes (#119: from `--template list`; paths made relative and the skill copies dropped, G16)
+- [x] CI job: builds `tiles/notes` for `wasm32-wasip2`, runs its harness tests and `check`, on every pull request that touches `tiles/` or `sdk/` (#119: `tile-notes`, gated like `tile-c4`; verified locally, since CI runs only on pull requests into `main`)
+- [x] CI dependency check: fails when `tiles/notes` depends on any `pitwall-*` crate other than `pitwall-extension` (and `pitwall-extension-test` as a dev-dependency) or on a path under `crates/`; a test branch that adds `pitwall-core` fails it (#119: `tiles/notes/scripts/check-deps.sh`; also keeps the harness's own crates out of what `tile.wasm` is built from; checked locally with `pitwall-core` as a dependency and a dev-dependency, and the harness as a normal dependency)
+- [x] Private notes: new, edit, delete, list by last change, title from the first line, kept in `storage` under `p/_/…`; harness test: create, edit, restart the tile, the text is there (#119: "restart" is the harness's `reload`, which also restores state, G9; empty notes are dropped when left; delete asks inline)
+- [x] Multi-line editing with the kit's input (per G1); harness test types three lines and reads them back (#119: read back from storage and the list, since the harness can't read a field's text, G9; ⌘⏎ saves and goes back to the list)
+- [x] Autosave about 1 s after typing stops and on `visibility(false)`; unsaved text kept through `save-state`; harness tests for both, with the virtual clock (#119: on the wall clock, the harness has no virtual one, G9; also saves on leaving a note and on the tile's focus loss, untested, G9, G10)
+- [x] Filter field over titles and text; harness test (#119: every word must appear, case-insensitive)
+- [x] Opened with a draft note (`input.schema.json`, `{ "title"?, "text" }`): unsaved and marked until Keep, Discard drops it, new content replaces it in place; harness tests (#119; moved here from v1's agent draft, since phase 1 already delivers content to `on_content`)
+- [x] Each SDK gap found while building is added to [frd.md §7](frd.md#7-sdk-gaps) and the list above, in the same pull request (#119: G8–G18)
+- [ ] Seen in Pitwall, installed from its folder, in Dark and Light, narrow (one pane) and wide (list and note side by side); fixed where it doesn't look like Pitwall's own tiles. Waits for G8
 
 ## v1: project notes, preview, send
 
