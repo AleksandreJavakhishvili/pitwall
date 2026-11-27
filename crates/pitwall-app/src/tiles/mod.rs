@@ -170,6 +170,22 @@ pub fn try_tiles(cx: &App) -> Option<Entity<Tiles>> {
     cx.try_global::<Handle>().map(|h| h.0.clone())
 }
 
+/// The tile runtime, to check a folder with ([`check_folder`]) before it
+/// is installed or loaded.
+pub fn checker(cx: &mut App) -> Result<TileHost, String> {
+    tiles(cx).update(cx, |t, cx| t.host(cx))
+}
+
+/// Whether the tiles in folder `dir` can run in this Pitwall: its
+/// component loads, compiles and imports only what this Pitwall provides
+/// (what starting it checks, said before it is installed or loaded). Why
+/// not, as a sentence. Blocks while it compiles (kept in the compile
+/// cache): call it off the UI thread.
+pub fn check_folder(host: &TileHost, dir: &std::path::Path) -> Result<(), String> {
+    let ext = host.load(dir).map_err(|e| format!("Its tiles can't run in this Pitwall: {e}."))?;
+    host.compile(&ext).map(|_| ()).map_err(|e| format!("Its tiles can't run in this Pitwall: {e}."))
+}
+
 /// Whether `m` has tiles drawn by its component.
 pub fn has_tiles(m: &Manifest) -> bool {
     !m.contributes.tiles.is_empty()
