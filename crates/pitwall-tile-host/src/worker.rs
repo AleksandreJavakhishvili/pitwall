@@ -450,9 +450,13 @@ impl<'a> Worker<'a> {
             Msg::Service(info) => {
                 let s = self.store.data_mut();
                 if !s.has_service || s.service == info {
+                    s.service_known = true;
                     return Ok(());
                 }
                 s.service = info.clone();
+                if !std::mem::replace(&mut s.service_known, true) {
+                    return Ok(());
+                }
                 self.handle(Event::ServiceChanged(info))
             }
         }
