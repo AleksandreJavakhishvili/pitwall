@@ -159,6 +159,12 @@ jobs:
       - name: cargo test (peers)
         run: cargo test -p pitwall-peer
 
+      # The tile runtime (docs/spec/tile-sdk/): Wasmtime's traps, epoch
+      # deadlines, the compile cache and tiles' data folders on Windows.
+      # The hello tile is committed prebuilt, so no wasm target is needed.
+      - name: cargo test (tile host)
+        run: cargo test -p pitwall-tile-host
+
       # ---- not yet ported: informational until their fixtures run on Windows.
       # TODO(windows): port the POSIX-shell fixtures, then move each suite up
       # into the required steps and delete its continue-on-error.
