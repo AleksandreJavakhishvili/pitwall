@@ -5,6 +5,24 @@ Part of the [Tile SDK and marketplace](README.md) design. Tools a tile offers to
 ## 11. Tools for agents
 
 ### 11.1 Why and what
+**Extensions provide their own agent tools, and Pitwall registers them
+with every agent automatically.** The author declares tools in the
+extension ([11.3](#113-declaring-tools)); Pitwall lists them in the MCP
+server it already gives the agents it starts ([11.4](#114-how-agents-reach-them));
+agents see them as `<extension-id>__<tool>` (for example `c4__show`).
+The user configures nothing in any agent. Opening a tile is the first
+such tool: every tile gets a host-provided `<extension-id>__open`
+without code from the author, and an author may add show tools with
+typed input (Mermaid source, a draft note, any tile's own payload).
+Both arrive in phase 2; the other kinds follow in phase 3
+([11.2](#112-four-kinds), decision [9](#1113-decisions)).
+
+The owner's words (2026-11-27): "the whole point of extensions and
+tiles is that they can open stuff from agents too, apart from your
+own". So every tile can be opened by an agent, placed next to that
+agent's terminal exactly like `show_files` and `show_web` place their
+tiles today ([11.8](#118-where-the-tile-opens)).
+
 A tile is most useful to an agent as a place to put things for the
 user: a diagram, a table of results, a chart, a draft. The user looks,
 edits, and the agent continues from what the user did. Agents already
@@ -18,12 +36,36 @@ capability agents don't natively have ([extension-api.md](../extension-api.md),
 "Fixed constraints" [today]).
 
 ### 11.2 Four kinds
-| Kind | What it does | Who decides | Example (Diagrams) |
-|---|---|---|---|
-| `show` | Opens or focuses the tile. Returns only what opened and where | Allowed by default | `open` |
-| `present` | Puts content into the tile or changes content an agent put there: only what the tile shows changes | Allowed by default | `show_diagram` (Mermaid in, a diagram on screen) |
-| `read` | Returns what the tile has now, including the user's edits | The user, once per tile | `current_diagram` |
-| `act` | Has effects outside the tile: network, files, other services | The user, each call (approval dialog) | `export_svg` |
+| Kind | What it does | Who decides | Example (Diagrams) | Phase |
+|---|---|---|---|---|
+| `show` | Opens or focuses the tile. Returns only what opened and where | Allowed by default | `open` (host-provided for every tile) | 2 |
+| `present` | Puts content into the tile or changes content an agent put there: only what the tile shows changes | Allowed by default | `show_diagram` (Mermaid in, a diagram on screen) | 2 (show-only core); Undo, append and `from_file` in 3 |
+| `read` | Returns what the tile has now, including the user's edits | The user, once per tile | `current_diagram` | 3 |
+| `act` | Has effects outside the tile: network, files, other services | The user, each call (approval dialog) | `export_svg` | 3 |
+
+**Show-only tools** are `show` and `present`: they only change what the
+tile displays, change nothing outside it, return nothing but what
+opened, where, and problems found in the agent's own input, and never
+ask for approval. They come in phase 2 (decision [9](#1113-decisions)).
+In phase 2 a `present` call may create or replace only the calling
+agent's own items, and is refused on an item the user has edited since
+("The user changed this diagram; show it under a new item id"), because
+Undo and `read`, which make overwriting the user's edits safe, come in
+phase 3 ([11.6](#116-presented-content-ids-marks-undo)).
+
+**Why `read` stays in phase 3, for permission reasons.** A `read`
+returns the tile's data, including the user's own edits, to an agent
+that has its own network and file tools. That data leaving the sandbox
+is what the "ask once per tile" permission ([11.5](#115-permissions))
+guards, and that permission needs the agent-access section of the
+permission screen and the approval path's "Allow agents to read" option,
+both phase 3 work. A show-only reply carries no tile data: the SDK's
+show-only reply type holds a short text (≤ 4 KiB) and problems with
+line and column, which by contract describe only the agent's input. A
+tile could still put its own data in that text; Pitwall can't prove
+otherwise, so the cap keeps it small and Verified review
+([7.3](marketplace.md#73-verified)) reads every show-only tool's reply. `act` stays in
+phase 3 because it needs the approval dialog.
 
 The kind is declared by the author and checked by Pitwall where it
 can: a `show` or `present` call runs with the tile's `net`, `files.*`,
@@ -37,9 +79,35 @@ anything it may do on its own (timers, its own storage).
 In the manifest, under each tile, generated from the code by
 `pitwall extension pack` ([4.1](authoring.md#41-shape)):
 ```json
+"input": "open-input.schema.json",
 "tools": [{ "name": "show_diagram", "kind": "present",
             "description": "…", "input": { "type": "object", … }, "output": { … } }]
 ```
+
+**The host-provided open.** Every tile can be opened by an agent with no
+code from the author: Pitwall offers `<extension-id>__open` for each
+extension that has tiles (kind `show`, with a `tile` argument when the
+extension has more than one). It takes the content the tile already
+declares in WIT 0.1: the tile entry's `"input"`, a JSON schema file in
+the package, whose description is what agents read
+([runtime 2.3](runtime.md#23-lifecycle)). Without `"input"`, open takes
+no content and shows the tile as it was. It doesn't count toward the 16
+tools. An author who wants no agent to open a tile says
+`"agents": false` on the tile entry.
+
+**Show-only calls arrive as view content.** A host-provided open and a
+declared `show` or `present` call reach the guest through the view
+events WIT 0.1 already has ([3.4](ui.md#34-events)): `view-opened`
+when the call opens a view, `view-content` when it goes to a view that
+is open. The `item` is the content's `id`, so a later call with the
+same item is a `view-content` for the view showing it, which updates it
+in place. Phase 2 adds fields to the `content` record (an addition in
+a 0.x world): `call` (the call id, also the origin id), `tool` (`none`
+for the host-provided open) and `caller`. The tile may answer with
+`reply(call, out)` within the time limit, to return problems in the
+input; if it doesn't, Pitwall answers with what opened and where once
+`handle` returns. `read` and `act` calls (phase 3) arrive through the
+`tool` export below, since they return data or wait for effects.
 - `name`: `[a-z0-9_]`, ≤ 32 characters, unique in the extension.
 - `description`: ≤ 1 000 characters, what an agent reads to choose it.
   Pitwall puts "<Extension name> (a Pitwall tile):" before it.
@@ -70,6 +138,12 @@ interface agent-tools {
     input: string,             // JSON, already validated against the schema
     view: option<view-id>,
   }
+  // Phase 2: a show-only call arrives as `view-opened` or `view-content`
+  // (types.wit, WIT 0.1), whose `content` record gains:
+  //   call: option<u64>,        // the call id, also the origin id
+  //   tool: option<string>,     // none: the host-provided open
+  //   caller: option<caller>,   // none: the user opened it
+  // `content.id` is the agent's item id; `content.json` its input.
   record problem { line: option<u32>, column: option<u32>, message: string }
   record tool-ok { text: string, json: option<string>, item: option<string> }
   record tool-error { message: string, problems: list<problem> }
@@ -84,7 +158,11 @@ interface agent-tools {
 The guest's `tool` export ([3.2](runtime.md#32-the-guests-exports)) answers at once or returns `none` and
 calls `reply` later (an `act` that waits on the network). Calls to the
 same tile are delivered one at a time on its worker, in order, like
-events.
+events. Phase 2 ships the part of this interface that show-only calls
+use (`caller`, the new `content` fields, `problem`, `tool-output`,
+`reply`); phase 3
+adds `tool-call`, `input-part` and the `tool` export, as additions to
+the 0.x world.
 
 ### 11.4 How agents reach them
 - **MCP.** `pitwall mcp` [today] is a proxy: it asks the running
@@ -94,12 +172,35 @@ events.
   or off, installing, updating or revoking agent access changes the
   list, and agents re-read it the way they already do after a Pitwall
   update.
+- **Which agents get them: every agent Pitwall starts with its MCP
+  server.** Pitwall already adds that server to each agent kind in the
+  kind's own launch-time way, without editing the user's config files
+  [today: [agents reference, Showing files](../../reference/agents.md#showing-files):
+  `claude-config`, `codex-config`, `copilot-config`, `qwen-config`,
+  `amp-config`, `opencode-env`, or `mcp_file` when the user asked]. Tile
+  tools ride on the same server, so Claude Code, Codex and the others
+  get them with no setup. Kinds where Pitwall can only reach the agent
+  through a shell rule (no MCP) get no tile tools in phase 2; from phase
+  3 they can use `pitwall extension call`.
+- **Allowed without asking, where the agent asks per tool.** Show-only
+  tile tools carry `readOnlyHint: true`, as `show_web` does, so Codex
+  doesn't ask for them [today's annotation]. Kinds that take an allow
+  list at launch (Claude Code's `--settings`, Qwen's `--allowed-tools`)
+  get the show-only tile tools' names added beside `show_files` and the
+  rest; `read` and `act` tools are never added, so the agent's own
+  prompt stays a second check. A tile installed while an agent runs
+  reaches it through `notifications/tools/list_changed`; whether Claude
+  Code then asks once for the new tool until the next launch is
+  *unverified* (phase 2 checks it, and a server-wide allow entry such as
+  `mcp__pitwall` is the fallback if each agent supports it).
 - **Names.** The canonical name is `tile.<extension-id>.<tool>`. In
   MCP it is spelled `<extension-id>__<tool>` with `.` in the id turned
-  into `-` (for example `diagrams__show_diagram`), ≤ 64 characters,
+  into `-` (for example `diagrams__show_diagram`, and the host-provided
+  `diagrams__open`), ≤ 64 characters,
   because some agents accept only letters, digits, `_` and `-` in tool
-  names (*unverified across all agents Pitwall starts; phase 3 checks
-  each*). Pitwall's own tools keep their names (`show_web`, …).
+  names (*unverified across all agents Pitwall starts; phase 2 checks
+  each*). Claude Code shows them as `mcp__pitwall__<extension-id>__<tool>`.
+  Pitwall's own tools keep their names (`show_web`, …).
 - **CLI.** `pitwall extension tools [<id>]` lists them;
   `pitwall extension call <id> <tool> --json '{…}'` (or `--json -` from
   stdin) calls one, through the same daemon method (`tile.call`) as
@@ -148,6 +249,11 @@ separate from the tile's own permissions:
 - An update that adds a tool, or changes a tool's kind to a stronger
   one, says so in its review; a new `read` or `act` tool starts not
   allowed.
+- **In phase 2** the section shows only its first line ("Open it · Put
+  diagrams in it — allowed") and the switch, the per-tile switch and
+  Settings → Agents' "Tile tools" exist, and the permission screen
+  lists the tile's show-only tools. The `read` and `act` lines, the ask-once
+  grant and the approval dialog for tiles come in phase 3.
 
 ### 11.6 Presented content: ids, marks, Undo
 - Every `present` call carries an optional `item` id chosen by the
@@ -166,6 +272,11 @@ separate from the tile's own permissions:
   `Presented<T>` must handle `undo-present` itself; `pitwall extension check`
   warns when a `present` tool exists and the tile never handles it.
 - The tile reports user edits to agents only through `read`.
+- **Phase 2** has the item ids, the per-agent rule and the host's mark;
+  Undo, `Presented<T>`'s restore and the `undo-present` event come in
+  phase 3. Until then an item the user edited can't be replaced by a
+  show call ([11.2](#112-four-kinds)), and the user can close any
+  item an agent showed.
 
 ### 11.7 Size, time, streaming, errors
 | | Limit |
@@ -176,6 +287,9 @@ separate from the tile's own permissions:
 | Output | 256 KiB of text or JSON; more is cut and the result says `truncated`; a `read` tool should take a range or cursor in its input |
 | Time | `show` and `present` 10 s, `read` 10 s, `act` 120 s (after the user's approval). Past it the agent gets a plain error and the tile `tool-cancelled` |
 | Rate | 10 calls in 10 s per agent per tile; more get "busy, try again in a few seconds" |
+
+Phase 2 has the inline input, output, time and rate limits for
+show-only calls; `from_file` and `append` come with phase 3.
 
 Errors are words the agent can act on. A tile's `tool-error` becomes an
 MCP result with `isError: true`, its message first, then each problem
@@ -188,11 +302,20 @@ Diagrams").
 ### 11.8 Where the tile opens
 - Beside the calling agent's terminal, right of it by default, in the
   Pitwall window showing that agent, exactly as `show_web` places a web
-  tile [today: `ViewerPlace`]. A `where` argument takes the same words
-  (`right`, `left`, `above`, `below`, `replace`, `window`) and is added
-  to every tile tool's schema by Pitwall.
-- A later call goes to the same tile wherever the user moved it.
-- `present` opens the tile when it isn't shown; `read` and `act` don't.
+  tile [today: `ViewerPlace`]. The host knows which agent called: the
+  daemon resolves the caller from the connecting process
+  ([11.4](#114-how-agents-reach-them)), never from what the agent says.
+- Pitwall adds `where` and `of` to every show-only tool's schema, with
+  the same words and meaning as `show_web`'s: `where` is `right`,
+  `left`, `above`, `below`, `replace` (in that terminal's place; the
+  terminal keeps running) or `window`; `of` names another agent in the
+  same space whose terminal it goes next to. The tile never sees them.
+- A later call from the same agent goes to the tile view it opened
+  before, wherever the user moved it (or popped it out), unless `where`
+  names a place; naming one moves it there. A later call with the same
+  `item` updates that item in place; a new `item` adds one.
+- `show` and `present` open the tile when it isn't shown (instantiating
+  a dropped one, [2.3](runtime.md#23-lifecycle)); `read` and `act` don't.
 - Never takes the keyboard from a terminal and never brings Pitwall to
   the front [today's rule for show tools].
 
@@ -350,7 +473,8 @@ tools in phase 3.
 1. **Should `present` really be allowed by default?** It can fill a
    tile with misleading content. Decided (owner, 2026-11-26): yes: it only changes a
    sandboxed tile, is marked with the agent and undoable, and asking
-   each time would kill the main use.
+   each time would kill the main use. In phase 2, before Undo exists,
+   it may only replace the agent's own unedited items (decision 9).
 2. **Agents of peers** (another computer's Pitwall). Decided (owner, 2026-11-26): no in
    this plan, matching read-only peers.
 3. **One tool per tile vs. many.** Long tool lists cost agents context.
@@ -372,3 +496,25 @@ tools in phase 3.
    only today). Decided (owner, 2026-11-26): keep that until a seed tile needs
    unattended runs; then a per-command "may run from outside Pitwall"
    grant that still can't cover `act`.
+9. **Extensions provide their own agent tools, registered with every
+   agent by Pitwall; show-only tools first.** Decided (owner,
+   2026-11-27): "the whole point of extensions and tiles is that they
+   can open stuff from agents too, apart from your own". Every tile can
+   be opened by an agent through the host-provided `<extension-id>__open`,
+   and an author may declare show tools with typed input; Pitwall lists
+   them in its MCP server, so every agent it starts with that server
+   sees them with no setup, and places the tile next to the calling
+   agent like `show_web` ([11.8](#118-where-the-tile-opens)). Show-only
+   tools (`show`, and `present` limited to the agent's own unedited
+   items) move from phase 3 into phase 2: they change nothing outside
+   the tile, return no tile data and need no approval. `read`, `act`,
+   approvals, Undo, `from_file`, `append`, the skill, commands and the
+   CLI's `tools`, `call` and `run` stay in phase 3; `read` because the
+   data it returns needs the ask-once grant ([11.2](#112-four-kinds)).
+   The C4 diagram tile's `c4__show` is the first user.
+10. **One host-provided open per extension, not one `show_tile` tool for
+    all.** Decided (owner, 2026-11-27): `<extension-id>__open` reads to an
+    agent as that extension's own tool, takes the tile's declared input
+    schema directly (a single `show_tile` would need an untyped `input`
+    checked per tile), and costs one tool per extension with tiles, which
+    decision 3's limit and filter already cover.

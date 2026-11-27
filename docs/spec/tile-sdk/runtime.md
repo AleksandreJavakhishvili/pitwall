@@ -75,7 +75,7 @@ OS-specific (for example a guard-page setting), it goes in
 stateDiagram-v2
   [*] --> Installed: install / update (files only)
   Installed --> Compiled: turned on → compile or load cache
-  Compiled --> Running: a tile opens → instantiate, init
+  Compiled --> Running: a tile opens (user or agent) → instantiate, init
   Running --> Suspended: no tile shows it for 60 s
   Suspended --> Running: shown again (events resume)
   Suspended --> Dropped: hidden 10 min / memory pressure → save-state
@@ -89,6 +89,13 @@ stateDiagram-v2
   hash against the install marker, and loads the compiled form from
   the cache or compiles it (on the worker, never the main thread). The
   tile shows "Preparing…" while it compiles.
+- **Opened by an agent.** Any tile can be opened by an agent through
+  the host-provided `<extension-id>__open` or a show tool the tile
+  declares ([11.3](agent-tools.md#113-declaring-tools), phase 2). Pitwall
+  places the view next to that agent's terminal (or where `where` and
+  `of` say), moves a suspended or dropped tile back to Running as if the
+  user had shown it, and then delivers the call as `view-opened` or
+  `view-content`, with the agent's input as the content (below). A later call goes to the same view.
 - **Instantiate.** When a tile first shows it, or an agent calls one
   of its tools ([section 11](agent-tools.md#11-tools-for-agents)): a new `Store` with the
   limits, the linker with only the interfaces the tile may use (others
@@ -372,8 +379,9 @@ interface guest {
   draw: func(view: view-id, canvas: string, at: size) -> list<draw-op>;
   /// State to keep across a drop or a dev reload (≤ 1 MiB).
   save-state: func() -> list<u8>;
-  /// A tool an agent called (section 11). `none`: the tile answers later
-  /// with agent-tools.reply.
+  /// A `read` or `act` tool an agent called (section 11, phase 3). `none`:
+  /// the tile answers later with agent-tools.reply. Show-only calls come
+  /// as view content instead (`view-opened`, `view-content`; phase 2).
   tool: func(call: tool-call) -> option<tool-output>;
 }
 ```
