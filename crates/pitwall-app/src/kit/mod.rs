@@ -25,6 +25,7 @@ pub mod controls;
 pub mod dialog;
 pub mod divider;
 pub mod edit;
+pub mod feedback;
 pub mod file_icons;
 pub mod fresh;
 pub mod fonts;

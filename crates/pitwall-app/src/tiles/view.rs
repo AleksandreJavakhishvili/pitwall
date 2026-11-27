@@ -36,6 +36,8 @@ use crate::theme::{theme, Theme};
 
 mod comp;
 pub use comp::Comps;
+mod charts;
+mod widgets;
 
 /// How often a field's typing reaches the tile at most.
 const CHANGE_EVERY: Duration = Duration::from_millis(50);
@@ -73,6 +75,8 @@ struct NodeState {
     block: Option<super::blocks::Block>,
     /// A component's own (a list's scroll, a select open…).
     comp: Option<comp::Comp>,
+    /// A form control's, split's or copy button's own (ui.md §3.10).
+    widget: Option<widgets::WidgetState>,
 }
 
 pub struct TileView {
@@ -102,6 +106,8 @@ pub struct TileView {
     shown: bool,
     /// Its menus: which node opens which, the one open.
     ui: comp::ViewUi,
+    /// When it draws again for its relative times.
+    tick: Rc<Cell<Option<Instant>>>,
     _subs: Vec<Subscription>,
 }
 
@@ -180,6 +186,7 @@ impl TileView {
             scroll_want: None,
             shown: false,
             ui: Default::default(),
+            tick: Rc::new(Cell::new(None)),
             _subs: subs,
         };
         me.sync(cx);
@@ -292,7 +299,7 @@ impl TileView {
             let mut st = old.remove(path).unwrap_or_default();
             match &node.element {
                 Element::Input(inp) => {
-                    self.field(&mut st, path, inp, cx);
+                    self.field(&mut st, path, inp, false, cx);
                     // A multi-line field given a height (or room to grow)
                     // fills it; else it is its rows tall.
                     let fill = inp.multiline && node.style.iter().any(|s| matches!(s, ui::Style::Height(_) | ui::Style::Grow(_)));
@@ -300,6 +307,7 @@ impl TileView {
                         f.input.update(cx, |i, cx| i.set_fill(fill, cx));
                     }
                 }
+                Element::SearchField(sf) => self.field(&mut st, path, &widgets::search_input(sf), true, cx),
                 _ => st.field = None,
             }
             match &node.element {
@@ -310,9 +318,11 @@ impl TileView {
             }
             super::blocks::Block::sync(&mut st.block, path, &node.element, cx);
             self.sync_comp(&mut st, node, path, cx);
-            // Buttons are focusable whatever the node says; fields have
-            // their own.
-            if (node.focusable || matches!(node.element, Element::Button(_))) && st.focus.is_none() && !matches!(node.element, Element::Input(_)) {
+            self.sync_widget(&mut st, node, path, cx);
+            // Buttons are focusable whatever the node says, and the
+            // components that take focus; fields have their own.
+            let own = pitwall_tile_host::widgets::focusable(&node.element, handler(node, Listen::Click).is_some());
+            if (node.focusable || own || matches!(node.element, Element::Button(_))) && st.focus.is_none() && !matches!(node.element, Element::Input(_) | Element::SearchField(_) | Element::NumberField(_)) {
                 st.focus = Some(cx.focus_handle().tab_stop(true));
             }
             nodes.insert(path.clone(), st);
@@ -328,7 +338,7 @@ impl TileView {
     }
 
     /// Make or update the field of input node `path`.
-    fn field(&mut self, st: &mut NodeState, path: &str, inp: &ui::Input, cx: &mut Context<Self>) {
+    fn field(&mut self, st: &mut NodeState, path: &str, inp: &ui::Input, bare: bool, cx: &mut Context<Self>) {
         let rows = inp.rows.unwrap_or(3).max(1) as usize;
         if st.field.as_ref().is_some_and(|f| f.multiline != inp.multiline) {
             st.field = None;
@@ -337,6 +347,7 @@ impl TileView {
             let (value, placeholder, multiline) = (inp.value.clone().unwrap_or_default(), inp.placeholder.clone().unwrap_or_default(), inp.multiline);
             let input = cx.new(|cx| {
                 let t = TextInput::new(cx, &value, &placeholder);
+                let t = if bare { t.bare() } else { t };
                 if multiline {
                     t.multiline(rows)
                 } else {
@@ -395,6 +406,7 @@ impl TileView {
                     Element::Input(inp) if !inp.disabled => st.field.as_ref().map(|f| f.input.read(cx).focus_handle(cx)),
                     Element::Input(_) => None,
                     Element::Button(b) if b.disabled => None,
+                    e if widgets::is_widget(e) => self.widget_focus(st, &frame.nodes[i], cx),
                     _ => st.focus.clone(),
                 }?;
                 Some((self.paths[i].clone(), h))
@@ -599,6 +611,13 @@ impl TileView {
             }
             return;
         }
+        // The components' keys (a confirm sheet's Enter, a slider's
+        // arrows, a checkbox's Space…), before typing: a number field
+        // steps on Up and Down.
+        if plain && !ks.modifiers.shift && self.widget_key(&ks.key, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         // A field gets plain keys (typing "j" is typing).
         let typing = self.nodes.values().filter_map(|s| s.field.as_ref()).any(|f| f.input.read(cx).is_focused(window));
         if typing && plain {
@@ -786,6 +805,8 @@ impl TileView {
                     .children(children)
                     .into_any_element()
             }
+            // Form controls, feedback, layout, data display, charts.
+            e if widgets::is_widget(e) => self.build_widget(i, node, &path, inherit, window, t, cx),
             // Lists, tables, trees, tabs, selects, menus, Markdown, images.
             _ => self.build_comp(i, node, &path, inherit, window, t, cx),
         }
@@ -954,6 +975,7 @@ impl TileView {
             let own = st.focus.as_ref().is_some_and(|h| h.is_focused(window));
             (field || own).then(|| path.clone())
         })
+        .or_else(|| self.number_focused(window, cx))
     }
 
     /// What the tile shows while it can't draw: starting, stopped, off.
@@ -1177,6 +1199,7 @@ impl Render for TileView {
             Some((id, agent)) => root.child(self.origin_chip(&id, &agent, &t, cx)),
             None => root,
         };
-        root.children(menu).into_any_element()
+        let sheet = self.sheet_overlay(&t, cx);
+        root.children(sheet).children(menu).into_any_element()
     }
 }

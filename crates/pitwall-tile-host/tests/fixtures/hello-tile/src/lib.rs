@@ -76,7 +76,7 @@ impl Tile for Hello {
         if view == "gallery" {
             if let Some(name) = self.alone.get(view).cloned() {
                 let demo = self.widgets.demo(&name, cx);
-                return div().id("alone").p(px(16.0)).bg(Token::Surface).child(div().id(name).child(demo)).into_any();
+                return div().id("alone").p(px(16.0)).bg(Token::Surface).child(div().id(name).self_align(pitwall_extension::Align::Start).child(demo)).into_any();
             }
             let mut g = std::mem::take(&mut self.gallery);
             let el = g.render(&self.widgets, cx);
