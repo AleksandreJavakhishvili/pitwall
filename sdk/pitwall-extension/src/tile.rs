@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::bindings::pitwall::tile::{tasks, types as wit};
 use crate::element::{AnyElement, Axis, ButtonKind, Handler, IntoElement, Kind, Listen};
-use crate::events::{Click, Event, Fired, Hover, InputChange, KeyPress, ListenerEvent, Pointer, PointerKind, ScrollPosition, Selection, Theme};
+use crate::events::{Click, CodeSelection, Dropped, Event, Fired, Hover, InputChange, KeyPress, LineClick, ListenerEvent, Pointer, PointerKind, ScrollPosition, Selection, TextPos, Theme};
 use crate::host::log;
 
 /// A tile: its state, how it draws each view, and what it does when the
@@ -210,6 +210,9 @@ struct Entry<T> {
 enum Slot {
     Node(String, Listen),
     Key(String),
+    /// A canvas region's click (`Listen::Click`) or hover, by the canvas's
+    /// key path and the region's key.
+    Region(String, String, Listen),
 }
 
 /// What the SDK knows of a text field's value.
@@ -488,9 +491,10 @@ impl<T: 'static> Cx<T> {
 
     fn walk(&mut self, b: &mut Build, el: AnyElement, parent: Option<u32>, path: String, key: String) {
         let index = b.nodes.len() as u32;
-        let AnyElement { key: _, kind, style, listeners, focusable, tooltip, label, children } = el;
+        let AnyElement { key: _, kind, style, listeners, focusable, tooltip, label, children, dnd } = el;
         let mut on = Vec::new();
         let mut has_change = false;
+        let mut style = style.wit();
         for (listen, slot, generation) in listeners {
             let id = self.intern(&b.view, Slot::Node(path.clone(), listen), &mut b.fresh);
             let callback = self.callback(slot, generation);
@@ -501,6 +505,13 @@ impl<T: 'static> Cx<T> {
             if let Some(on_wit) = listen.wit() {
                 on.push(wit::Listener { on: on_wit, handler: id });
             }
+            if listen == Listen::Drop {
+                let accepts = dnd.as_ref().map(|d| d.accepts.clone()).unwrap_or_default();
+                style.push(wit::Style::DropTarget(wit::DropTarget { accepts, handler: id }));
+            }
+        }
+        if let Some((kind, data, label)) = dnd.and_then(|d| d.drag) {
+            style.push(wit::Style::Drag(wit::DragSource { kind, data, label }));
         }
         let element = match kind {
             Kind::Box => wit::Element::Box,
@@ -547,8 +558,27 @@ impl<T: 'static> Cx<T> {
                     disabled: spec.disabled,
                 })
             }
+            Kind::Canvas(spec) => {
+                let spec = *spec;
+                let mut regions = Vec::with_capacity(spec.regions.len());
+                for r in spec.regions {
+                    let mut handler = |listen: Listen, h: Option<(u32, u64)>, cx: &mut Self| {
+                        let (slot, generation) = h?;
+                        let id = cx.intern(&b.view, Slot::Region(path.clone(), r.key.clone(), listen), &mut b.fresh);
+                        let callback = cx.callback(slot, generation);
+                        cx.handlers.insert(id, Entry { callback, input: None });
+                        Some(id)
+                    };
+                    let click = handler(Listen::Click, r.click, self);
+                    let hover = handler(Listen::Hover, r.hover, self);
+                    regions.push(wit::HitRegion { key: clean_key(&r.key), rect: r.rect, label: r.label, tooltip: r.tooltip, click, hover });
+                }
+                wit::Element::Canvas(wit::Canvas { ops: spec.ops, transform: spec.transform, regions })
+            }
+            Kind::Code(spec) => wit::Element::CodeView(spec.0),
+            Kind::Diff(spec) => wit::Element::DiffView(spec.0),
         };
-        b.nodes.push(wit::Node { parent, key, element, style: style.wit(), on, focusable, tooltip, label });
+        b.nodes.push(wit::Node { parent, key, element, style, on, focusable, tooltip, label });
         let mut used: HashSet<String> = HashSet::new();
         for (i, child) in children.into_iter().enumerate() {
             let mut key = clean_key(child.key.as_deref().unwrap_or(&i.to_string()));
@@ -667,7 +697,9 @@ impl Listen {
             Listen::Scroll => wit::Listen::Scroll,
             Listen::Hover => wit::Listen::Hover,
             Listen::Pointer => wit::Listen::Pointer,
-            Listen::Focus | Listen::Blur => return None,
+            Listen::Wheel => wit::Listen::Wheel,
+            Listen::LineClick => wit::Listen::LineClick,
+            Listen::Focus | Listen::Blur | Listen::Drop => return None,
         })
     }
 }
@@ -760,10 +792,19 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
                     wit::PointerKind::Down(b) => PointerKind::Down(b.into()),
                     wit::PointerKind::Up(b) => PointerKind::Up(b.into()),
                     wit::PointerKind::Move => PointerKind::Move,
+                    wit::PointerKind::Wheel(d) => PointerKind::Wheel { dx: d.x, dy: d.y },
+                    wit::PointerKind::Pinch(f) => PointerKind::Pinch(f),
                 };
                 cx.fire(tile, None, p.handler, Fired::Pointer(Pointer { kind, at: p.at.into(), modifiers: mods(p.modifiers) }));
             }
             wit::Event::Timer(id) => cx.fire_timer(tile, id),
+            wit::Event::Dropped(d) => cx.fire(tile, None, d.handler, Fired::Drop(Dropped { kind: d.kind, data: d.data, at: d.at.into() })),
+            wit::Event::LineClicked(l) => cx.fire(tile, None, l.handler, Fired::LineClick(LineClick { side: l.side.into(), line: l.line as usize })),
+            wit::Event::CodeSelected(s) => {
+                let pos = |p: wit::TextPos| TextPos { line: p.line as usize, column: p.column as usize };
+                let sel = CodeSelection { side: s.side.into(), start: pos(s.start), end: pos(s.end), text: s.text };
+                cx.fire(tile, None, s.handler, Fired::CodeSelect(sel));
+            }
             wit::Event::ViewOpened(v) => {
                 let info = ViewInfo { id: v.view.clone(), tile: v.tile, content: v.content.map(Content::from) };
                 cx.views.insert(v.view, info.clone());

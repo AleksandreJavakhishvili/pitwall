@@ -65,5 +65,16 @@ pub const TOASTS_PER_MINUTE: usize = 3;
 /// What stdout and stderr keep between two calls (more is dropped).
 pub const MAX_STDIO_BYTES: usize = 64 << 10;
 
+/// Draw ops in one canvas (ui.md §3.7).
+pub const MAX_CANVAS_OPS: usize = 20_000;
+/// Clickable regions in one canvas.
+pub const MAX_CANVAS_REGIONS: usize = 5_000;
+/// Lengths in a dash pattern.
+pub const MAX_DASH: usize = 16;
+/// A code view's text, or each side of a diff view (or its unified diff).
+pub const MAX_CODE_BYTES: usize = 1 << 20;
+/// A drag's data.
+pub const MAX_DRAG_DATA: usize = 64 << 10;
+
 /// A component file.
 pub const MAX_WASM_BYTES: u64 = 20 << 20;

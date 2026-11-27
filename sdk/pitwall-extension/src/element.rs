@@ -16,7 +16,7 @@
 
 use std::marker::PhantomData;
 
-use crate::events::{Blur, ChangeEvent, Click, Focused, Hover, Pointer, ScrollPosition, Selection, Submit};
+use crate::events::{Blur, ChangeEvent, Click, Dropped, Focused, Hover, Pointer, ScrollPosition, Selection, Submit};
 use crate::style::{StyleSet, Styled};
 
 /// A function of the tile that an element calls when the user acts, made
@@ -61,6 +61,9 @@ pub(crate) enum Listen {
     Pointer,
     Focus,
     Blur,
+    Wheel,
+    LineClick,
+    Drop,
 }
 
 /// One of Pitwall's icons, drawn in the node's text colour: the whole set
@@ -270,6 +273,9 @@ pub(crate) enum Kind {
     Button { label: String, kind: ButtonKind, small: bool, icon: Option<Icon>, disabled: bool },
     Icon(Icon),
     Input(InputSpec),
+    Canvas(Box<crate::canvas::CanvasSpec>),
+    Code(Box<crate::blocks::CodeSpec>),
+    Diff(Box<crate::blocks::DiffSpec>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -293,14 +299,29 @@ pub struct AnyElement {
     pub(crate) tooltip: Option<String>,
     pub(crate) label: Option<String>,
     pub(crate) children: Vec<AnyElement>,
+    /// Dragging and dropping inside the view.
+    pub(crate) dnd: Option<Box<Dnd>>,
+}
+
+/// A node's drag source and drop target.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Dnd {
+    /// Kind, data, label.
+    pub drag: Option<(String, String, String)>,
+    /// The kinds it accepts (its handler is the `Drop` listener).
+    pub accepts: Vec<String>,
 }
 
 impl AnyElement {
     fn new(kind: Kind) -> AnyElement {
-        AnyElement { key: None, kind, style: StyleSet::default(), listeners: Vec::new(), focusable: false, tooltip: None, label: None, children: Vec::new() }
+        AnyElement { key: None, kind, style: StyleSet::default(), listeners: Vec::new(), focusable: false, tooltip: None, label: None, children: Vec::new(), dnd: None }
     }
 
-    fn listen<E: ?Sized>(&mut self, on: Listen, h: Handler<E>) {
+    pub(crate) fn new_kind(kind: Kind) -> AnyElement {
+        AnyElement::new(kind)
+    }
+
+    pub(crate) fn listen<E: ?Sized>(&mut self, on: Listen, h: Handler<E>) {
         self.listeners.retain(|(l, _, _)| *l != on);
         self.listeners.push((on, h.slot, h.generation));
     }
@@ -420,6 +441,42 @@ pub trait Interactive: Sized {
         self
     }
 
+    /// Call `handler` when the wheel or a trackpad scrolls over it, or the
+    /// user pinches: [`Pointer`] events with
+    /// [`PointerKind::Wheel`](crate::events::PointerKind::Wheel) and
+    /// [`PointerKind::Pinch`](crate::events::PointerKind::Pinch), for
+    /// zooming and panning a [`canvas`](crate::canvas()). A node with it
+    /// takes the wheel, so a scroll container around it doesn't scroll.
+    fn on_wheel(mut self, handler: Handler<Pointer>) -> Self {
+        self.node().listen(Listen::Wheel, handler);
+        self
+    }
+
+    /// The user can drag it onto a node of the same view whose
+    /// [`on_drop`](Interactive::on_drop) accepts `kind` (a name of your
+    /// own, like `"card"`). The target gets `data` (an id, JSON; at most
+    /// 64 KiB); Pitwall draws a chip with `label` under the pointer while
+    /// dragging. Give a dragged node a key of its own with
+    /// [`id`](Interactive::id).
+    fn draggable(mut self, kind: impl Into<String>, data: impl Into<String>, label: impl Into<String>) -> Self {
+        self.node().dnd.get_or_insert_with(Default::default).drag = Some((kind.into(), data.into(), label.into()));
+        self
+    }
+
+    /// Drags of the `accepts` kinds can be dropped on it: `handler` gets a
+    /// [`Dropped`] with the dragged node's data. Pitwall marks it while an
+    /// accepted drag is over it.
+    fn on_drop<I, S>(mut self, accepts: I, handler: Handler<Dropped>) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let node = self.node();
+        node.dnd.get_or_insert_with(Default::default).accepts = accepts.into_iter().map(Into::into).collect();
+        node.listen(Listen::Drop, handler);
+        self
+    }
+
     /// Apply `then` when `condition` holds.
     fn when(self, condition: bool, then: impl FnOnce(Self) -> Self) -> Self {
         if condition {
@@ -478,6 +535,7 @@ macro_rules! builder {
         }
     };
 }
+pub(crate) use builder;
 
 /// A box: a flex container (a column unless told otherwise), the usual
 /// root. Made by [`div`], [`h_flex`] and [`v_flex`].

@@ -59,6 +59,8 @@ extern crate self as pitwall_extension;
 
 #[doc(hidden)]
 pub mod bindings;
+pub mod blocks;
+pub mod canvas;
 pub mod element;
 pub mod events;
 mod host;
@@ -66,6 +68,8 @@ pub mod style;
 mod tile;
 
 pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
+pub use blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView};
+pub use canvas::{canvas, Canvas, Viewport};
 pub use events::{Blur, Event, Focused};
 pub use host::{log, settings, storage, ui, HostError, Tone};
 pub use style::{px, relative, rems, Align, Length, Styled, Token};
@@ -78,7 +82,9 @@ pub const WORLD: &str = "pitwall:tile@0.1.0";
 /// Everything a tile usually needs: `use pitwall_extension::prelude::*;`.
 pub mod prelude {
     pub use crate::element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
-    pub use crate::events::{Blur, Click, Event, Focused, InputChange, KeyPress, Submit, Theme, ThemeMode};
+    pub use crate::blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView, Mark};
+    pub use crate::canvas::{canvas, Canvas, Label, Paint, Region, Shape, Viewport};
+    pub use crate::events::{Blur, Click, CodeSelection, Dropped, Event, Focused, Hover, InputChange, KeyPress, LineClick, Pointer, PointerKind, Side, Submit, Theme, ThemeMode};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};
