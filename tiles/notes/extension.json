@@ -14,7 +14,8 @@
     "files.read": "To list and read notes in the projects you choose",
     "files.write": "To save notes in the notes/ folder of the projects you choose",
     "agents.read": "To list the agents you can send a note to",
-    "agents.queue": "To put a note in an agent's Next up, waiting for your Send"
+    "agents.queue": "To put a note in an agent's Next up, waiting for your Send",
+    "show": "To open a project note in Pitwall's editor"
   },
   "contributes": {
     "tiles": [
