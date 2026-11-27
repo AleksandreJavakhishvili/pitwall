@@ -15,6 +15,9 @@ use crate::agents::tests::agent;
 /// The platform's Maximise key (⌘⏎ on macOS, Ctrl+Shift+Enter elsewhere).
 const MAXIMISE: &str = if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-shift-enter" };
 
+/// The platform's Find key (⌘F on macOS, Ctrl+F elsewhere).
+const FIND: &str = if cfg!(target_os = "macos") { "cmd-f" } else { "ctrl-f" };
+
 fn main_view(cx: &mut TestAppContext) -> gpui::WindowHandle<crate::ui::MainView> {
     cx.update(|cx| crate::windows::main_window(crate::windows::MAIN, cx).unwrap())
 }
@@ -430,7 +433,7 @@ fn command_enter_maximises_settings_and_extensions_from_a_field_too(cx: &mut Tes
     keys(cx, MAXIMISE);
     assert!(!maximized(Content::Settings, cx));
     // Its search field (⌘F) has the keys: ⌘⏎ still maximises.
-    keys(cx, "cmd-f");
+    keys(cx, FIND);
     assert!(keys_in(cx).contains("PwTextInput"), "the search has the keys: {}", keys_in(cx));
     keys(cx, MAXIMISE);
     assert!(maximized(Content::Settings, cx), "from a field");
@@ -446,7 +449,7 @@ fn command_enter_maximises_settings_and_extensions_from_a_field_too(cx: &mut Tes
     assert!(maximized(Content::Extensions, cx), "the Extensions tile");
     keys(cx, MAXIMISE);
     assert!(!maximized(Content::Extensions, cx));
-    keys(cx, "cmd-f");
+    keys(cx, FIND);
     assert!(keys_in(cx).contains("PwTextInput"), "its search has the keys: {}", keys_in(cx));
     keys(cx, MAXIMISE);
     assert!(maximized(Content::Extensions, cx), "from its search");
