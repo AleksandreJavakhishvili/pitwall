@@ -242,8 +242,12 @@ fn an_index_signed_by_another_key_is_refused() {
     c.keys = vec![Signing::new().signer()];
     let s = HttpsSource::new(f.http.clone(), c, f.dir.path().join("cache"));
     assert!(s.fetch().unwrap_err().contains("isn't by a key Pitwall trusts"));
-    // The official index has no key yet: never read.
+    // The official index has no key yet: never fetched.
     assert!(IndexConfig::official().keys.is_empty());
+    let before = f.http.requests().len();
+    let none = HttpsSource::new(f.http.clone(), IndexConfig { keys: vec![], ..f.config() }, f.dir.path().join("cache3"));
+    assert!(none.fetch().unwrap_err().contains("No index key"));
+    assert_eq!(f.http.requests().len(), before);
 }
 
 #[test]

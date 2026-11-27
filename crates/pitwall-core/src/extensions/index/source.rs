@@ -100,6 +100,9 @@ impl<H: IndexHttp> HttpsSource<H> {
     /// File `name` of the index, fresh when it can be, checked; `date`
     /// reads its `generated` so an older one than the cache's is refused.
     fn file(&self, name: &str, max: u64, date: &dyn Fn(&[u8]) -> Option<String>) -> Result<(Vec<u8>, Origin), String> {
+        if self.config.keys.is_empty() {
+            return Err("No index key is set in this Pitwall, so the index can't be checked: not fetched.".into());
+        }
         let cached = self.cached(name, max);
         let fallback = |why: String| -> Result<(Vec<u8>, Origin), String> {
             match &cached {
@@ -127,9 +130,6 @@ impl<H: IndexHttp> HttpsSource<H> {
             Ok(Answer::NotModified) => String::new(),
             Err(e) => return fallback(get_words(e)),
         };
-        if self.config.keys.is_empty() {
-            return fallback("No index key is set in this Pitwall, so the index can't be checked.".into());
-        }
         if let Err(why) = verify_by(&bytes, &sig, &self.config.keys) {
             return fallback(format!("The {name} Pitwall got didn't check: {why} Kept the copy it had."));
         }
