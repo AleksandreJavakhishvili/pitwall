@@ -4,7 +4,7 @@ An extension adds to Pitwall. Its main part is usually a tile: a view of its own
 
 An extension can also give your agents tools of its own, and Pitwall registers them with every agent it starts through its MCP server, with no setup on your part. The first is opening the tile: any agent can open your tile next to itself with content in it ("draw me this diagram and show it on the right"), the way it already opens files and web pages in Pitwall with `show_files` and `show_web`. See [Agent tools](agent-tools.md).
 
-**Preview.** The Tile SDK is being built. These pages describe extensions and tiles as they are designed for the SDK preview; names and details can change until version 1.0 of the tile world (WIT 1.0), when the Preview label comes off.
+**Preview.** The Tile SDK is being built. These pages describe what the SDK preview has today, and mark what is still coming; names and details can change until version 1.0 of the tile world (WIT 1.0), when the Preview label comes off.
 
 ## Extensions and tiles
 
@@ -32,19 +32,26 @@ There is one kind of extension: one package, one manifest, one install, one perm
 
 ## The SDK preview
 
-The first preview is for authors who want to build tiles early:
+The first preview is for authors who want to build tiles early. It has today:
 
-- `pitwall extension new` scaffolds a tile project, `pitwall extension dev` builds it on every save and reloads it in the running Pitwall, and `pitwall extension check` checks it.
-- A tile can be shared before packages exist: Pitwall installs an unsigned folder (or one served over HTTPS) from Settings → Extensions or with `pitwall extension install`, shows the permission screen, and marks it "Unsigned, preview". Preview installs don't update.
-- Tiles run on macOS, Linux and Windows.
+- The `pitwall-extension` crate to write a tile with, and Pitwall's tile runtime with its sandbox and limits.
+- `pitwall extension new` scaffolds a tile project from a template, `pitwall extension dev` builds and checks it on every save, `pitwall extension check` checks it, and `pitwall extension test` runs its tests in Pitwall's own tile runtime.
+- An authoring skill for coding agents, and the docs as one `llms.txt` file ([For coding agents](for-agents.md)).
+- The runtime runs on macOS, Linux and Windows.
+
+Coming in this preview:
+
+- Tiles in Pitwall's layout, and `pitwall extension dev` loading the tile into the running Pitwall and reloading it after each build.
+- Sharing a tile before packages exist: Pitwall installs an unsigned folder (or one served over HTTPS) from Settings → Extensions or with `pitwall extension install`, shows the permission screen, and marks it "Unsigned, preview". Preview installs don't update.
 
 Agent tools that open a tile with content come in phase 2 of the SDK, and the other kinds of tools (reading back what a tile shows, acting outside it) in phase 3. Signed packages, updates and a marketplace to browse come in later releases.
 
 ## In this section
 
-- [Quick start](quick-start.md): from `pitwall extension new` to a tile running in Pitwall.
-- [Tiles and UI components](ui.md): the elements a tile is built from.
-- [Agent tools](agent-tools.md): tools a tile gives your agents.
+- [Quick start](quick-start.md): from `pitwall extension new` to a tile that builds, passes its checks and runs its tests.
+- [Tiles and UI components](ui.md): the elements a tile is built from, styles, events and keys.
+- [Agent tools](agent-tools.md): tools a tile gives your agents (phases 2 and 3).
 - [Permissions](permissions.md): what each grant means.
 - [Platform services](platform-services.md): what Pitwall gives every tile.
 - [WIT reference 0.1](wit.md): the tile world's interfaces, generated from the WIT.
+- [For coding agents](for-agents.md): the authoring skill and `llms.txt`.
