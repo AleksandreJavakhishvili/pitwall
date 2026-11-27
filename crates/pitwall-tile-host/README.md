@@ -15,7 +15,7 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 
 | File | Interface | What |
 |---|---|---|
-| `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`, `agents`, `badges`, `asks`, `net`, `sql`, `notify`, `show`, `toolbar`, `service`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
+| `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`, `agents`, `badges`, `asks`, `net`, `sql`, `notify`, `show`, `toolbar`, `service`, `agent-tools`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
 | `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node, `agents-changed`, `ask-answered`, `fetched`, `toolbar-clicked`, `service-changed`); views and content; `host-error` |
 | `guest.wit` | `guest` (export) | `init`, `render(view)`, `handle(event) -> bool`, `save-state` |
 | `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view` |
@@ -32,6 +32,7 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | `show.wit` | `show` | `file(path, line)`, `web(url)`: need `show` |
 | `toolbar.wit` | `toolbar` | `set-badge`, `set-project-badge` (needs `projects.read`), `set-tooltip`, `set-shown` (≤ 1 in 5 s), `close-popover`; the popover is view `toolbar:popover` (`POPOVER_VIEW`) |
 | `service.wit` | `service` | `info`, `restart`, `open-card` for the extension's own server; `TileHandle::set_service` gives its state (the first after start isn't a change) |
+| `agent-tools.wit` | `agent-tools` | an agent's call answered: `reply(call, tool-output)` (text, JSON, item; or an error with problems), `user-edited(call)` |
 
 A guest is written with the SDK, `sdk/pitwall-extension` (its `wit/` is a
 copy of this one; `tests/sdk_wit.rs` keeps them equal), and built with
@@ -113,6 +114,8 @@ revision; ignored for no such list), `advance(Duration)`
 | `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`, `PutImage { name, format, bytes }` (sniffed, within the limits; before the frames after it), `DropImage(name)`, `Notify { title, body }`, `OpenFile { path, line }`, `OpenWeb { url }`, `Toolbar(ToolbarRequest)`, `RestartService`: apply with `cx.defer` |
 | `Rows(RowsUpdate { view, list, revision, start, rows, took })` | answer to `rows(..)`: the rows, checked (`components::check_rows`: ≤ 64 nodes of box, text, icon, button, image, context-menu; unique keys); rows that fail stop the tile (`FrameRefused`) |
 | `StateSaved(Vec<u8>)` | answer to `save_state()` |
+| `Answered { call, answer }` | an agent's call delivered as view content (`content.call`) ended: `Answer::Reply(tool-output)`, `Handled` (no reply: the caller says where it opened) or `NotDelivered(why)` |
+| `UserEdited(call)` | the user edited what call `call` showed: `agent::ShowCalls::user_edited` |
 | `Stopped(StopReason)` | the last output: `Stopped` (by `stop()`), `Deadline { call, limit }`, `Crashed(_)` (trap, panic, memory limit), `FrameRefused(_)` (tree limits), `InitFailed(_)`, `LoadFailed(_)`. `Display` gives the user-facing words |
 
 `ui` re-exports the WIT types (`Frame`, `Node`, `Element`, `Style`, `Token`,
@@ -140,6 +143,12 @@ answer to a question goes back as an event, `handle.send(ui::Event::AskAnswered(
 test harness; `components` has the components' checks and helpers
 (`rows_of`, `list_at`, `key_paths`, `asset_path`, `image_format`); `limits`
 has every limit as a constant.
+
+`agent` (agent-tools.md §11.6–11.7): `ShowCalls` gives each agent's call an
+id and its `Content` (`call`, `tool`, `caller`, the item as the id),
+refuses an item the user edited, more than 10 calls in 10 s per agent and
+tile, and input over 1 MiB; `capped` keeps a reply within 4 KiB of text and
+256 KiB of JSON. The app keeps one per extension; so does the harness.
 
 ## Limits (runtime.md §2.5)
 

@@ -249,7 +249,7 @@ fn views_open_with_content_and_take_updates() {
     let t = tempfile::tempdir().unwrap();
     let run = start(&host(t.path()), StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
-    let content = |json: &str| ui::Content { id: Some("note-1".into()), json: Some(json.into()), bytes: None };
+    let content = |json: &str| ui::Content { id: Some("note-1".into()), json: Some(json.into()), bytes: None, call: None, tool: None, caller: None };
     assert!(run.handle.open_view(ViewSpec { id: "agent-1".into(), tile: "second".into(), content: Some(content(r#"{"message":"first"}"#)) }));
     let f = run.frame_with("agent-1", r#"Content: {"message":"first"}"#);
     assert_eq!(f.tile, "second");
