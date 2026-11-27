@@ -262,7 +262,13 @@ separate from the tile's own permissions:
   user chooses Always; an `act` asks each time unless they did; no Always
   for `act` tools of tiles that hold `agents.queue` or `agents.start`
   (decision 5; `git.remote` doesn't exist yet). The approval shows in
-  Pitwall's windows; a card in the floating control is still to come.
+  Pitwall's windows and, while the user is elsewhere, as a card in the
+  floating control (the inbox questions' card: "<agent> wants to …", the
+  details, and Allow once / "Always for <agent>" / Deny as its chips,
+  1–3 on the keyboard). Both follow the daemon's pending list, so one
+  answered in either place closes in the other. The approval's `action`
+  is `tile.<kind>:<extension>`, which is how the control tells a tile's
+  request from the dialog's other ones (those stay in the dialog only).
 
 ### 11.6 Presented content: ids, marks, Undo
 - Every `present` call carries an optional `item` id chosen by the
@@ -399,6 +405,21 @@ library as a read-only entry of a new source kind, `ext:<id>`
   Gemini CLI or Aider [today]) get the skill's one-line `description`
   only, through the MCP server instructions ([11.4](#114-how-agents-reach-them)).
 
+**As built in phase 4:** the skill is not a library entry: the app keeps
+each extension's skill that is on, whose tools agents may use (Tile
+tools on, a tile's switch on) and that the user gave to projects
+(`ExtensionPrefs.skillProjects`, ticks under "Skill for agents" on the
+card) in `<data>/run/ext-skills/<id>/SKILL.md` with an `index.json` of
+its projects (`rules::ext_skills`), like the built-in show-files rule.
+Applying an agent's rules stages the skills of its project as skills of
+its own (also with no set assigned), so rulesync generates them into its
+folder, excluded from git; the fingerprint covers them, so a change (an
+update, a project unticked, the extension or the switch off) makes the
+agents' rules stale and the next apply adds or removes it. Settings →
+Rules & skills lists it per agent as "from <Name> (a tile)" (`from:
+"extension"`). Not yet: the install screen's project picker (the card
+only) and the text's diff in an update's review.
+
 **Limits.** Text only: one `SKILL.md`, ≤ 16 KiB, no other files (no
 scripts, no references), no per-tool sections that run anything
 (`pitwall extension check` refuses them). Its `name` is forced to the
@@ -443,6 +464,14 @@ trust level ("Runs a program on your computer").
   "Diagrams: Export diagram as SVG", with no keys [today's rule].
 - Same kinds, schemas, limits and grants as tools ([11.2](#112-four-kinds)–[11.7](#117-size-time-streaming-errors)): a
   command is a tool with another caller.
+- **As built in phase 4:** a palette tool with required input reads
+  "<Extension>: <title>…" and opens a form made from its schema
+  (`tiles::form`): a field per top-level property, labelled from its
+  name, its `description` under it, a red mark when required; text
+  fields (`maxLength` kept), numbers and integers checked on Run, a
+  checkbox for booleans, a segmented control for an `enum` of up to four
+  (a dropdown past that). Run sends it as the user's own; a schema with
+  anything else gets no palette entry.
 
 **Running.**
 ```
