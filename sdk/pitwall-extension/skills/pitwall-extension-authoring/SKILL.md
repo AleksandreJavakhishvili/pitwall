@@ -21,6 +21,8 @@ draws pixels and can't reach files, the network or other programs (WIT
 | `pitwall extension check .` | Offline: the manifest, the component's world and imports, limits, input schema, permission reasons. Exit status 1 when something fails |
 | `cargo test` | The tests in `tests/`: they build `tile.wasm` and run it in Pitwall's own tile runtime |
 | `pitwall extension new <id> --template blank\|list\|form` | A new project like this one |
+| `pitwall extension pack` | Offline: `<id>-<version>.pwtile` from the built project (manifest, `tile.wasm`, README, input schemas, assets; never sources). The same files always give the same bytes |
+| `pitwall extension sign <file>` | Offline: `<file>.minisig` with the user's minisign key. Only the user signs: never create, read or commit a secret key |
 
 Run `pitwall extension check .` and `cargo test` before you say a change is
 done.
