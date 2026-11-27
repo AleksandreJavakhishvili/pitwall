@@ -21,13 +21,16 @@ use crate::kit::{BtnKind, Tone};
 /// "Install from file…": the file picked, then what installing it
 /// changes, or why it can't be.
 pub(in crate::settings) struct AddFile {
-    path: Option<std::path::PathBuf>,
+    pub(super) path: Option<std::path::PathBuf>,
     busy: bool,
     note: Option<String>,
     pub(super) prepared: Option<Prepared>,
     /// "Trust the new key" ticked (a package signed by another key than
     /// the installed version, or unsigned while it was signed).
     new_key: bool,
+    /// Downloaded from this extensions index (`owner/name`): recorded in
+    /// its install marker, so its updates come from there.
+    pub(super) index: Option<String>,
 }
 
 /// A text button, found by its id in tests too.
@@ -211,7 +214,7 @@ impl SettingsView {
         if let Some(p) = self.exts.add_file.take().and_then(|a| a.prepared) {
             catalog::discard(&p, cx);
         }
-        self.exts.add_file = Some(AddFile { path: None, busy: true, note: None, prepared: None, new_key: false });
+        self.exts.add_file = Some(AddFile { path: None, busy: true, note: None, prepared: None, new_key: false, index: None });
         cx.notify();
         let picked = crate::platform::files::pick_file(cx, "Install extension");
         cx.spawn(async move |this, cx| {
@@ -231,10 +234,16 @@ impl SettingsView {
     /// aside: its trust screen, or why it can't be installed. (Also what
     /// bench commands and tests call: no file picker.)
     pub fn look_at_package(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        self.look_at_package_from(path, None, cx);
+    }
+
+    /// [`Self::look_at_package`] for a package downloaded from extensions
+    /// index `index` (`owner/name`; `None`: a file the user picked).
+    pub(super) fn look_at_package_from(&mut self, path: std::path::PathBuf, index: Option<String>, cx: &mut Context<Self>) {
         if let Some(p) = self.exts.add_file.take().and_then(|a| a.prepared) {
             catalog::discard(&p, cx);
         }
-        self.exts.add_file = Some(AddFile { path: Some(path.clone()), busy: true, note: None, prepared: None, new_key: false });
+        self.exts.add_file = Some(AddFile { path: Some(path.clone()), busy: true, note: None, prepared: None, new_key: false, index });
         cx.notify();
         let me = cx.entity().downgrade();
         let not_package = path.extension().is_none_or(|e| !e.eq_ignore_ascii_case(package::EXTENSION));
@@ -253,12 +262,17 @@ impl SettingsView {
                 match res.take() {
                     // One that can't go in whatever the user says (older,
                     // the same file) is refused now, saying why.
-                    Some(Ok(p)) => match catalog::package_refusal(&p, package::Accept { unsigned: true, new_key: true }, cx) {
+                    Some(Ok(mut p)) => match catalog::package_refusal(&p, package::Accept { unsigned: true, new_key: true }, cx) {
                         Some(why) => {
                             add.note = Some(why);
                             catalog::discard(&p, cx);
                         }
-                        None => add.prepared = Some(p),
+                        None => {
+                            if let pitwall_core::extensions::install::Origin::Package { index, .. } = &mut p.offer.origin {
+                                index.clone_from(&add.index);
+                            }
+                            add.prepared = Some(p)
+                        }
                     },
                     Some(Err(why)) => add.note = Some(why),
                     None => {}

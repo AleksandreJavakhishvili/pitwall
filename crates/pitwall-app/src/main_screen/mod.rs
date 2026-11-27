@@ -22,6 +22,7 @@ pub mod view_tile;
 pub mod settings_tile;
 pub mod device_tile;
 pub mod editor_tile;
+pub mod extensions_tile;
 pub mod device_auto;
 mod commands;
 #[doc(hidden)]

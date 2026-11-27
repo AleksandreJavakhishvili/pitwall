@@ -74,6 +74,7 @@ pub fn init(cx: &mut App, engine: Option<Shared>, root: Option<PathBuf>) {
         cx.set_global(ExtraSections::default());
     }
     cx.bind_keys(view::bindings());
+    cx.bind_keys(extensions::page::bindings());
     backend::outside(cx);
     watch::start(cx);
     crate::palette::registry::register(cx, |_, _| page_commands());
@@ -252,7 +253,13 @@ impl Layer {
         }
         self.about = false;
         if self.settings.is_none() {
-            let view = cx.new(|cx| SettingsView::new(self.store.is_some(), cx));
+            let view = cx.new(|cx| {
+                let mut v = SettingsView::new(self.store.is_some(), cx);
+                // Extensions at full size are in their own tile.
+                v.compact_exts = true;
+                v.sized = true;
+                v
+            });
             let sub = cx.subscribe(&view, |this, _, e: &SettingsEvent, cx| match e {
                 SettingsEvent::Close => this.close(cx),
                 SettingsEvent::ScanAgain => {
@@ -426,7 +433,9 @@ impl Render for Layer {
                     self.settings_focus.clone(),
                     std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
                         let (t, close) = (crate::kit::pop::theme(cx), close.clone());
-                        crate::kit::Modal::new("settings", view::WIDTH, move |window, cx| close(window, cx))
+                        let vp = window.viewport_size();
+                        let (w, _) = s.read(cx).dialog_size((f32::from(vp.width), f32::from(vp.height)), cx);
+                        crate::kit::Modal::new("settings", w, move |window, cx| close(window, cx))
                             .render_in(window, cx, &t, s.clone())
                     }),
                 ),
@@ -446,7 +455,9 @@ impl Render for Layer {
             return root.child(crate::kit::modal::backdrop(id, focus, on_close, window, cx, build));
         }
         if let Some(s) = self.settings.clone() {
-            let modal = self.modal("settings", view::WIDTH, s.into_any_element(), cx);
+            let vp = window.viewport_size();
+            let (w, _) = s.read(cx).dialog_size((f32::from(vp.width), f32::from(vp.height)), cx);
+            let modal = self.modal("settings", w, s.into_any_element(), cx);
             return root.child(modal);
         }
         if self.about {

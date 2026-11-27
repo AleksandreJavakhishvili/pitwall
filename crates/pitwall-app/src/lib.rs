@@ -161,6 +161,8 @@ pub fn run() {
             extensions::start(root.as_deref(), engine.clone(), api, cx);
             extensions::actions::seal_steps(cx);
             extensions::catalog::watch_updates(cx);
+            // The index's block list, daily (marketplace.md §7.6).
+            extensions::index::start_daily_check(cx);
         }
         windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine.clone(), root);

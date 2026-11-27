@@ -303,6 +303,10 @@ pub struct UiState {
     /// the next start; `crate::editor`).
     #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
     pub editor_window: bool,
+    /// The Extensions tile is in a window of its own (opened in one again
+    /// at the next start; `main_screen::extensions_tile`).
+    #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
+    pub extensions_window: bool,
     /// The text editor's open files and settings (`crate::editor`).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "EditorPrefs::is_empty")]
     pub editor: EditorPrefs,
@@ -388,6 +392,7 @@ impl Default for UiState {
             settings_window: false,
             device_windows: Vec::new(),
             editor_window: false,
+            extensions_window: false,
             editor: EditorPrefs::default(),
             docked_files: BTreeMap::new(),
             files_windows: BTreeMap::new(),
@@ -675,6 +680,7 @@ impl UiState {
             Surface::Settings => self.settings_window,
             Surface::Device(d) => self.device_windows.contains(d),
             Surface::Editor => self.editor_window,
+            Surface::Extensions => self.extensions_window,
         }
     }
 
@@ -686,6 +692,10 @@ impl UiState {
         }
         if *s == Surface::Editor {
             self.editor_window = on;
+            return self;
+        }
+        if *s == Surface::Extensions {
+            self.extensions_window = on;
             return self;
         }
         if let Surface::Device(d) = s {
@@ -703,7 +713,7 @@ impl UiState {
                     e.view_windows.push(v.clone());
                 }
             }
-            Surface::Settings | Surface::Device(_) | Surface::Editor => {}
+            Surface::Settings | Surface::Device(_) | Surface::Editor | Surface::Extensions => {}
         })
     }
 

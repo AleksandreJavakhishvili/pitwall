@@ -21,6 +21,7 @@ pub mod catalog;
 pub mod connections;
 pub mod hub;
 pub mod https;
+pub mod index;
 pub mod safe_update;
 pub mod service;
 pub mod stale;

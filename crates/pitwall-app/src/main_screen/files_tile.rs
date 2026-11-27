@@ -196,6 +196,7 @@ impl MainScreen {
             Content::Settings => ("Settings", "s"),
             Content::Device(_) => ("The device", "s"),
             Content::Editor => ("The editor", "s"),
+            Content::Extensions => ("Extensions", ""),
         };
         // In a tile's place: what leaves it, said plainly.
         if let FilesSpot::Replace(pane) = spot {
