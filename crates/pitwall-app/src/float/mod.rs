@@ -803,6 +803,38 @@ pub(crate) struct InFront(pub bool);
 #[cfg(test)]
 impl Global for InFront {}
 
+/// The control's window, when it is up (tests).
+#[cfg(test)]
+pub(crate) fn window_of(cx: &App) -> Option<gpui::AnyWindowHandle> {
+    cx.try_global::<Float>().and_then(|f| f.window).map(Into::into)
+}
+
+/// The control drawn in a window of its own at the size it asks for, as
+/// a bench instance's preview is (screenshots: a test window keeps the
+/// size it was opened at).
+#[cfg(test)]
+pub(crate) struct Preview(Entity<FloatView>);
+
+#[cfg(test)]
+impl Preview {
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Preview {
+        let v = cx.new(|cx| {
+            let mut v = FloatView::new(window, cx);
+            v.preview = true;
+            v
+        });
+        Preview(v)
+    }
+}
+
+#[cfg(test)]
+impl Render for Preview {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (w, h) = cx.global::<Float>().size;
+        div().size_full().bg(cx.global::<Theme>().bg).child(div().w(px(w)).h(px(h)).child(self.0.clone()))
+    }
+}
+
 fn in_front(cx: &App) -> bool {
     #[cfg(test)]
     if let Some(f) = cx.try_global::<InFront>() {

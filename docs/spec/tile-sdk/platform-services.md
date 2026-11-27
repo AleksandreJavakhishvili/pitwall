@@ -32,11 +32,11 @@ tile needs it.
 | Notifications and toasts | `pitwall` (notify), `ui.toast` | `notify` for notifications | on when asked for, ≤ 3 a minute [today] |
 | Open a file at a line, the editor, a web tile | `pitwall` (`viewer.open`, `web.open`) | `show` | off [today] |
 | Timers | `tasks` ([3.8](runtime.md#38-host-apis)) | none | on; paused while hidden |
-| Agents and their status | `pitwall` (`agent.list`, `agent.status`, `events.subscribe`) | `agents.read` | on when asked for [today] |
+| Agents and their status | `agents` (`list`, the `agents-changed` event) [built: a typed interface over the daemon's `agent.list`] | `agents.read` | on when asked for [today] |
 | A toolbar item with a badge ([3.9](ui.md#39-toolbar-items)) | `toolbar` [new] | none; the install screen lists "Adds a button to the toolbar"; per-project badges need `projects.read` | on when the manifest has `toolbar` |
-| Badges and row notes on sidebar rows | `contrib.badges` [new for tiles] | none for rows named by `matchAgents`; `agents.read` for an agent by id, `projects.read` for a project [today's rules] | on when the manifest says `"badges": true` |
-| Questions in the floating control | `asks` [new for tiles] | none (its own questions) | on when the manifest says `"asks": true` |
-| An answer or instruction into an agent's Next up | `pitwall` (`queue.add`) | `agents.queue` | off; items marked "From <name>" and waiting for Send [today], shown in the agent's queue: the "N queued" chip on its terminal tile and the popover it opens (Send now, Remove, Auto-send) |
+| Badges and row notes on sidebar rows | `badges` (`set`) [built] | `agents.read` for an agent by id, `projects.read` for a project [today's rules]; rows by `matchAgents` name are not offered to tiles | on when the manifest says `"badges": true` |
+| Questions in the floating control | `asks` [built] | none (its own questions) | on when the manifest says `"asks": true` |
+| An answer or instruction into an agent's Next up | `agents` (`queue-add`) [built: the daemon's `queue.add`] | `agents.queue` | off; items marked "From <name>" and waiting for Send [today], shown in the agent's queue: the "N queued" chip on its terminal tile and the popover it opens (Send now, Remove, Auto-send) |
 
 **The agents' questions group: why it is in the minimum.** All four
 exist for today's extensions; tiles get the same host code with the
@@ -62,26 +62,41 @@ With these, an inbox-style tile (questions from a service or from
 agents, answered in the tile or the floating control, an answer sent to
 an agent's Next up) is a v0.x target.
 
+**As built** (WIT 0.1, extended in place; `crates/pitwall-tile-host/wit/`
+`agents.wit`, `badges.wit`, `asks.wit`). Typed interfaces, not a general
+`pitwall` method call: each is one daemon method or one message the
+adapter path already has, called as the extension (same grants, limits
+and Activity, marked "tile"), so a tile can't reach methods outside the
+group.
+
 ```wit
+interface agents {
+  enum agent-state { working, blocked, idle, done, stopped, unknown }
+  record agent { id: string, name: string, kind: string, kind-name: string,
+    project: string, branch: option<string>, state: agent-state,
+    waiting-on-you: bool, queued: u32 }
+  %list: func() -> result<list<agent>, host-error>;          // agents.read
+  queue-add: func(agent: string, text: string) -> result<_, host-error>;  // agents.queue; ≤ 4 000
+}
+interface badges {
+  variant row { agent(string), project(string) }   // by id (agents.read) or folder (projects.read)
+  record badge { row: row, count: option<u32>, note: option<string>, tone: tone,
+    tooltip: option<string>, open: option<string> }   // open: one of its tiles
+  set: func(badges: list<badge>) -> result<_, host-error>;   // the whole set, ≤ 500
+}
 interface asks {
   record suggestion { label: string, description: option<string> }
-  record ask {
-    id: string,                 // the tile's own, stable while open
-    from: option<string>,       // an agent by matchAgents name, or by id with agents.read
-    title: string,              // ≤ 200
-    question: string,           // ≤ 2 000, Markdown drawn inertly
-    suggestions: list<suggestion>,   // ≤ 8
-    multiple: bool,
-    blocking: bool,             // holds an agent up: shown first, "Waiting on you"
-  }
-  /// The whole set of open questions, each time (≤ 50; the control shows
-  /// the first 6, as it does for an inbox).
-  set: func(open: list<ask>);
-  /// After an `ask-answered` event: accepted, or refused with a note the card shows.
-  result: func(id: string, refused: option<string>);
+  record ask { id: string, %from: option<string>,   // an agent by id, with agents.read
+    title: string, question: string, suggestions: list<suggestion>,
+    multiple: bool, blocking: bool }
+  set: func(open: list<ask>) -> result<_, host-error>;       // the whole set, ≤ 50
+  reply: func(id: string, refused: option<string>);           // `result` is a WIT keyword
 }
 ```
-The tile gets `ask-answered(id, picks, text, declined)` as an event.
+The tile gets `ask-answered(ask-answer { id, picks, text, declined })`
+and `agents-changed` (coalesced; only with `agents.read`) as events.
+`queue-add` returns at once (no task): the daemon's checks are
+synchronous.
 Pitwall keeps the last set while the tile is suspended or dropped ([2.3](runtime.md#23-lifecycle)),
 so questions stay in the control; an answer to a dropped tile
 instantiates it first. "Open in inbox" on the card becomes "Open
