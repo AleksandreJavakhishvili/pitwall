@@ -38,13 +38,13 @@ on macOS, Linux and Windows, and the Preview docs describe exactly that.
 - [x] Platform services `tasks`, `storage`, `settings` ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)) (#111: host side in `pitwall-tile-host`; storage and settings under `<data>/extension-data/<id>/`; the Settings form is the app's)
 - [x] Host runtime: worker thread per tile, limits with wall-clock deadlines, stop, compile cache, Log lines, frames with diff, grants ([2](runtime.md)) (#111: `pitwall-tile-host`, API in its README)
 - [ ] `TileView` in the layout, drawing the host's frames and routing events ([2](runtime.md))
-- [ ] SDK crate `pitwall-extension` (guest side) and `pitwall-extension-test` harness core ([4](authoring.md))
-- [ ] `pitwall extension new`, `dev`, `check` for components ([9.1](authoring.md#91-commands-pitwall-extension-))
+- [x] SDK crate `pitwall-extension` (guest side) and `pitwall-extension-test` harness core ([4](authoring.md)) (#116: `sdk/pitwall-extension`, outside the workspace, with a copy of the WIT kept equal by a test; `crates/pitwall-extension-test`; the hello fixture is written with the SDK)
+- [x] `pitwall extension new`, `dev`, `check` for components ([9.1](authoring.md#91-commands-pitwall-extension-)) (#116: `new --template blank|list|form`, `dev` asks the app with `extension.devReload {path}` (the app's side is `TileView`'s), `check` reads the component, `test` runs `cargo test`; templates built and tested in CI's Tile SDK job)
 - [ ] Unsigned install from a folder or URL: Settings → Extensions and `pitwall extension install`, permission screen, "Unsigned, preview" warning ([6.3](packaging.md#63-install))
 - [x] Host tests run on macOS, Linux and Windows in CI (#111)
 - [x] Lean Wasmtime in the release build (#111): no `cache` feature, Wasmtime's and Cranelift's crates at `opt-level = "s"` ([10.3](README.md#103-decisions) item 19)
 - [ ] A 2–3 MB tile compiles in under 1 s on a 4-core CI runner ([10.3](README.md#103-decisions) item 19)
-- [ ] Authoring skill and generated `llms.txt` ([9.5](authoring.md#95-docs-for-authors-agents))
+- [x] Authoring skill and generated `llms.txt` ([9.5](authoring.md#95-docs-for-authors-agents)) (skill #116: `sdk/pitwall-extension/skills/`, written by `new` with AGENTS.md; `llms.txt` #109)
 - [x] Docs pipeline: pages from Markdown, examples from source, a link check ([9.6](authoring.md#96-website-docs)) (#109)
 - [ ] Website docs, marked Preview: Extensions sidebar group, overview, Quick start (`new`, `dev`, share a preview tile), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and skill download
 - [ ] First outside author has built a tile with the preview
