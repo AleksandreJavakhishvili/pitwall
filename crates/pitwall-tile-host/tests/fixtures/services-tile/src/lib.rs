@@ -2,8 +2,9 @@
 //! (platform-services.md §14.2), written with the guest SDK. Each button
 //! (under the key `do`) calls one service and shows what came back in the
 //! text keyed `status`; the database's notes are counted in `notes`. The
-//! toolbar popover (`toolbar:popover`) has a Close button. The host's
-//! tests (`tests/services.rs`) and the harness's click these by key.
+//! toolbar popover (`toolbar:popover`) has a Close button. The harness's
+//! tests (crates/pitwall-extension-test/tests/services.rs) click these by
+//! key.
 
 use pitwall_extension::prelude::*;
 use pitwall_extension::{net, notify, service, show, sql, toolbar};
