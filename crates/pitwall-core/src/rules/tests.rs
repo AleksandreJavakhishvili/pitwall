@@ -1251,3 +1251,79 @@ fn real_rulesync_two_file_import_roundtrip() {
     assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), claude);
     assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), agents);
 }
+
+/// An extension's skill given to a project reaches its agents' skills
+/// with their rules (also with no set assigned), shows in what they get,
+/// and taking it away (extension off, project taken off) makes their rules
+/// stale, so the next apply removes it. Agents rulesync has no skills for
+/// don't get it.
+#[test]
+fn an_extensions_skill_rides_with_its_projects_agents_rules() {
+    let f = fixture();
+    let c = ctx(&f, "claudecode");
+    let project = f.repo.to_string_lossy().into_owned();
+    let skill = |projects: Vec<String>| ext_skills::ExtSkill {
+        id: "diagrams".into(),
+        name: "Diagrams".into(),
+        description: "Show flowcharts.".into(),
+        text: "---\nname: diagrams\ndescription: \"Show flowcharts.\"\n---\nCall `diagrams__show`.\n".into(),
+        projects,
+    };
+    // Nothing given: nothing assigned, nothing stale.
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c));
+    ext_skills::sync(&f.dirs, &[skill(vec!["/elsewhere".into()])]);
+    assert!(ext_skills::for_project(&f.dirs, &project).is_empty());
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c), "another project's");
+    ext_skills::sync(&f.dirs, &[skill(vec![format!("{project}/")])]);
+    let file = f.dirs.ext_skills().join("diagrams").join("SKILL.md");
+    assert!(std::fs::read_to_string(&file).unwrap().contains("diagrams__show"));
+    let inputs = inputs_for(&f.dirs, &read(&f.dirs), &c, "claudecode");
+    assert_eq!(inputs.skills, vec![apply::StagedSkill { name: "diagrams".into(), dir: f.dirs.ext_skills().join("diagrams") }]);
+    assert!(stale(&f.dirs, &read(&f.dirs), &c), "a new skill to apply, with no set assigned");
+    let rec = |c: &AgentCtx| assigned(&f.dirs, &read(&f.dirs), c, None);
+    assert!(rec(&c));
+    // Gemini CLI and Aider: rules only (the MCP server gives them its description).
+    let gemini = AgentCtx { target: None, ..c.clone() };
+    assert!(!rec(&gemini) && ext_for(&f.dirs, &gemini).is_empty());
+    // Applied (as if rulesync had run): in step until it changes or goes.
+    let inputs = inputs_for(&f.dirs, &read(&f.dirs), &c, "claudecode");
+    let fp = apply::fingerprint(&inputs, "claudecode");
+    update(&f.dirs, |s| {
+        let e = s.agents.entry("agent-1".into()).or_default();
+        e.fingerprint = Some(fp.clone());
+        e.files = vec![GenFile { path: ".claude/skills/diagrams/SKILL.md".into(), hash: "x".into() }];
+        Ok(())
+    })
+    .unwrap();
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c));
+    let mut changed = skill(vec![project.clone()]);
+    changed.text.push_str("More.\n");
+    ext_skills::sync(&f.dirs, &[changed]);
+    assert!(stale(&f.dirs, &read(&f.dirs), &c), "an update changed its text");
+    ext_skills::sync(&f.dirs, &[]);
+    assert!(!f.dirs.ext_skills().exists());
+    assert!(stale(&f.dirs, &read(&f.dirs), &c), "turned off: the next apply removes it");
+    // Nothing else assigned: that apply only cleans up.
+    let res = apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    assert!(res.generated.is_empty() && res.log.contains("No rule set assigned"), "{res:?}");
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c));
+}
+
+/// Through rulesync: an extension's skill lands in the agent's folder as
+/// its own skill, kept out of git, and goes once it is taken away.
+#[test]
+fn an_extensions_skill_is_generated_into_the_agents_folder_and_removed() {
+    let p = Proj::new("ext-skill");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    let c = main_ctx(&p);
+    let text = "---\nname: diagrams\ndescription: \"Show flowcharts.\"\ntargets: [\"*\"]\n---\nThis skill comes from the Diagrams tile installed in Pitwall; it describes that tile's tools.\n";
+    ext_skills::sync(&p.dirs, &[ext_skills::ExtSkill { id: "diagrams".into(), name: "Diagrams".into(), description: "Show flowcharts.".into(), text: text.into(), projects: vec![p.path()] }]);
+    let res = apply_with(&p.dirs, Some(&runner), &LocalExec, &c, true).unwrap();
+    assert!(res.generated.contains(&".claude/skills/diagrams/SKILL.md".to_string()), "{res:?}");
+    assert_eq!(std::fs::read_to_string(p.repo.join(".claude/skills/diagrams/SKILL.md")).unwrap(), text);
+    assert_eq!(sh(&p.repo, &["status", "--porcelain"]), "", "kept out of git");
+    ext_skills::sync(&p.dirs, &[]);
+    assert!(stale(&p.dirs, &read(&p.dirs), &c));
+    apply_with(&p.dirs, Some(&runner), &LocalExec, &c, true).unwrap();
+    assert!(!p.repo.join(".claude/skills/diagrams/SKILL.md").exists());
+}

@@ -50,6 +50,19 @@ pub fn parse(id: &str, text: &str) -> Result<Skill, String> {
     Ok(Skill { name: id.to_string(), description, body: body.trim_start_matches('\n').to_string() })
 }
 
+impl Skill {
+    /// The `SKILL.md` agents get (through rulesync, `rules::ext_skills`):
+    /// its name forced to the extension's id, for every agent, and a
+    /// first line saying it is the tile's, from extension `ext_name`.
+    pub fn for_agents(&self, ext_name: &str) -> String {
+        let quoted = serde_json::to_string(&self.description).unwrap_or_default();
+        format!(
+            "---\nname: {}\ndescription: {quoted}\ntargets: [\"*\"]\n---\nThis skill comes from the {ext_name} tile installed in Pitwall; it describes that tile's tools.\n\n{}",
+            self.name, self.body
+        )
+    }
+}
+
 /// Extension `id`'s skill in folder `dir`: `None` when it has none.
 pub fn read(dir: &Path, id: &str) -> Option<Result<Skill, String>> {
     let text = std::fs::read_to_string(dir.join(FILE)).ok()?;
@@ -71,5 +84,16 @@ mod tests {
         assert!(parse("diagrams", &format!("{ok}{}", "x".repeat(MAX))).unwrap_err().contains("16 KiB"));
         // No name: it gets the extension's.
         assert_eq!(parse("diagrams", &ok.replace("name: diagrams\n", "")).unwrap().name, "diagrams");
+    }
+
+    #[test]
+    fn agents_get_it_named_after_the_extension_and_marked_as_the_tiles() {
+        let s = parse("diagrams", "---\ndescription: Show \"flowcharts\".\n---\nCall `diagrams__show`.\n").unwrap();
+        let text = s.for_agents("Diagrams");
+        assert!(text.starts_with("---\nname: diagrams\ndescription: \"Show \\\"flowcharts\\\".\"\ntargets: [\"*\"]\n---\n"), "{text}");
+        assert!(text.contains("This skill comes from the Diagrams tile installed in Pitwall; it describes that tile's tools.\n\nCall `diagrams__show`."), "{text}");
+        // What agents get reads back as the same skill.
+        let plain = parse("diagrams", "---\ndescription: Show flowcharts.\n---\nBody\n").unwrap();
+        assert_eq!(parse("diagrams", &plain.for_agents("Diagrams")).unwrap().description, "Show flowcharts.");
     }
 }
