@@ -238,8 +238,19 @@ pub fn own() -> McpTools {
 /// (`web`), Settings (`settings`) and devices (`device`) on or off, its
 /// instructions and their stamp.
 pub fn served(files: bool, web: bool, settings: bool, device: bool) -> McpTools {
-    let tools = tools_for(files, web, settings, device);
-    let instructions = instructions(files, web, settings, device);
+    served_with(files, web, settings, device, &[])
+}
+
+/// [`served`], with the extensions' tile tools the running Pitwall offers
+/// now ([`crate::tile_tools`]) after its own, and a line per extension in
+/// the instructions.
+pub fn served_with(files: bool, web: bool, settings: bool, device: bool, tiles: &[crate::tile_tools::TileTool]) -> McpTools {
+    let mut tools = tools_for(files, web, settings, device);
+    if let Value::Array(list) = &mut tools {
+        list.extend(tiles.iter().map(crate::tile_tools::mcp_tool));
+    }
+    let mut instructions = instructions(files, web, settings, device);
+    instructions.push_str(&crate::tile_tools::instructions(tiles));
     McpTools { stamp: stamp(&tools, &instructions), tools, instructions }
 }
 
