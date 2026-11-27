@@ -309,6 +309,48 @@ jobs:
       - name: Dependency check
         run: sh tiles/c4/scripts/check-deps.sh
 
+  tile-notes:
+    name: Notes tile (wasm build + harness tests + check + dependency check)
+    # The Notes seed tile is its own Cargo workspace (tiles/notes/, outside the
+    # root one), made with `pitwall extension new`, and may use no Pitwall
+    # crate but pitwall-extension (pitwall-extension-test for its tests)
+    # (docs/spec/2026-11-27-notes-tile/hla.md §1). Its tests build tile.wasm
+    # and run it in Pitwall's tile runtime; `check` is the workspace's CLI.
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    # As the Tile SDK job: pitwall-cli builds there without extra packages.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pinned toolchain, plus the tile's target (not in rust-toolchain.toml).
+      - run: rustup toolchain install && rustup target add wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            tiles/notes -> target
+            . -> target
+
+      - name: cargo build (wasm32-wasip2)
+        run: cargo build --manifest-path tiles/notes/Cargo.toml --target wasm32-wasip2 --release
+
+      - name: cargo clippy (wasm32-wasip2 and native, with the tests)
+        run: |
+          cargo clippy --manifest-path tiles/notes/Cargo.toml --target wasm32-wasip2 -- -D warnings
+          cargo clippy --manifest-path tiles/notes/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test (harness tests in the tile runtime)
+        run: cargo test --manifest-path tiles/notes/Cargo.toml
+
+      - name: pitwall extension check
+        run: cargo run -p pitwall-cli -- extension check tiles/notes -H
+
+      - name: Dependency check
+        run: sh tiles/notes/scripts/check-deps.sh
+
   web:
     # The React UI is the website's live demo (src/README.md): type-check,
     # build and unit-test it, then build the site that embeds it.
