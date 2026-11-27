@@ -123,7 +123,7 @@ fn a_tile_loads_renders_and_handles_a_click() {
     let t = tempfile::tempdir().unwrap();
     let host = host(t.path());
     let ext = host.load(&fixture()).unwrap();
-    assert_eq!((ext.id(), ext.tiles().len()), ("hello", 2));
+    assert_eq!((ext.id(), ext.tiles().len()), ("hello", 3));
     assert!(!host.is_compiled(&ext));
     let run = start(&host, StartOptions::view("main"));
     run.next("Preparing", |o| matches!(o, TileOutput::Preparing).then_some(()));

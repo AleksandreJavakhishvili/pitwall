@@ -2,9 +2,12 @@
 //! with the guest SDK (`pitwall-extension`). A counter kept in `storage`, a
 //! greeting from `settings`, a text field, a timer, content from views, and
 //! test-only buttons (under the key `test`) that the host's tests click to
-//! hang, crash or overflow it (see `tests/host.rs`).
+//! hang, crash or overflow it (see `tests/host.rs`). Its `gallery` tile
+//! shows every component ([`gallery`]).
 
 use pitwall_extension::prelude::*;
+
+mod gallery;
 
 #[derive(Default)]
 struct Hello {
@@ -14,6 +17,7 @@ struct Hello {
     content: String,
     huge: bool,
     hoard: Vec<Vec<u8>>,
+    gallery: gallery::Gallery,
 }
 
 impl Tile for Hello {
@@ -23,12 +27,21 @@ impl Tile for Hello {
             _ => 0,
         };
         log::info(format!("hello {} {} starts with {clicks} clicks", cx.extension(), cx.version()));
+        if let Err(e) = ui::put_image("dot", gallery::DOT_PNG) {
+            log::warn(format!("put-image: {e}"));
+        }
         Hello { clicks, ..Hello::default() }
     }
 
     fn render(&mut self, view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
         if self.huge {
             return huge();
+        }
+        if view == "gallery" {
+            let mut g = std::mem::take(&mut self.gallery);
+            let el = g.render(cx);
+            self.gallery = g;
+            return el;
         }
         let greeting = settings::text("greeting").unwrap_or_else(|| "Hello".to_string());
         // A key of the tile's and one Pitwall keeps (dropped by the host).
