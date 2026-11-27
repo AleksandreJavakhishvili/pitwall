@@ -83,7 +83,7 @@ pub fn plan(
     // prompt each time (Claude Code's own permission rules, merged with
     // the user's).
     let allow: Vec<String> = match claude_mcp {
-        Some(_) => pitwall_proto::show::TOOLS.iter().map(|t| format!("mcp__{}__{t}", pitwall_proto::show::MCP_SERVER)).collect(),
+        Some(m) => pitwall_proto::show::TOOLS.iter().copied().chain(m.tools.iter().map(String::as_str)).map(|t| format!("mcp__{}__{t}", pitwall_proto::show::MCP_SERVER)).collect(),
         None => vec![],
     };
     if hook.is_some() || !allow.is_empty() {
@@ -119,7 +119,7 @@ fn text(v: &impl serde::Serialize) -> String {
 /// the environment.
 pub fn mcp_flags(mode: McpMode, m: &McpWiring) -> Vec<String> {
     let name = pitwall_proto::show::MCP_SERVER;
-    let tools = || pitwall_proto::show::TOOLS.iter().map(|t| format!("mcp__{name}__{t}"));
+    let tools = || pitwall_proto::show::TOOLS.iter().copied().chain(m.tools.iter().map(String::as_str)).map(|t| format!("mcp__{name}__{t}"));
     match mode {
         // `type: local` and all its tools (Copilot's file format), and the
         // server's tools allowed: they only show the user files.
@@ -319,7 +319,7 @@ mod tests {
     }
 
     fn mcp() -> McpWiring {
-        McpWiring { command: "/Apps/Pit wall/pitwall-cli".into(), args: vec!["mcp".into()] }
+        McpWiring { command: "/Apps/Pit wall/pitwall-cli".into(), args: vec!["mcp".into()], tools: Vec::new() }
     }
 
     /// The server goes in each kind's documented way, or not at all.
@@ -372,6 +372,13 @@ mod tests {
             p.command_line,
             r#"qwen --mcp-config '{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web --allowed-tools mcp__pitwall__show_settings --allowed-tools mcp__pitwall__show_device"#
         );
+        // Extensions' show-only tile tools: allowed beside Pitwall's own
+        // where a kind takes an allow list (Claude Code, Qwen Code).
+        let tiles = McpWiring { tools: vec!["hello__open".into(), "hello__show_message".into()], ..mcp() };
+        let p = plan(&claude(), None, false, "", Some(&tiles), None);
+        assert!(p.command_line.contains(r#""mcp__pitwall__show_device","mcp__pitwall__hello__open","mcp__pitwall__hello__show_message"]"#), "{}", p.command_line);
+        let p = plan(&kind(include_str!("../../agents/qwen.toml")), None, false, "x", Some(&tiles), None);
+        assert!(p.command_line.ends_with("--allowed-tools mcp__pitwall__show_device --allowed-tools mcp__pitwall__hello__open --allowed-tools mcp__pitwall__hello__show_message"), "{}", p.command_line);
         // Amp: a plain map of servers, before `threads continue <id>`.
         let p = plan(&kind(include_str!("../../agents/amp.toml")), Some("T-1"), true, "x", Some(&m), None);
         assert_eq!(p.command_line, r#"amp --mcp-config '{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}' threads continue T-1"#);
