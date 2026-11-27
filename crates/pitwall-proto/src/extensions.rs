@@ -446,6 +446,19 @@ pub enum ExtOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         default: Option<String>,
     },
+    /// Install or update an extension of tiles from the package file
+    /// `path` (`.pwtile`, its signature beside it as `.minisig`;
+    /// docs/spec/tile-sdk/packaging.md §6.3). `unsigned`: one without a
+    /// signature may install (as a preview); `newKey`: one signed by
+    /// another key than the installed version (or not signed while it
+    /// was) may replace it. The id is the manifest's.
+    InstallPackage {
+        path: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        unsigned: bool,
+        #[serde(default, rename = "newKey", skip_serializing_if = "std::ops::Not::not")]
+        new_key: bool,
+    },
 }
 
 impl ExtOp {
@@ -462,7 +475,7 @@ impl ExtOp {
             ExtOp::FirstRun => "first-run".into(),
             ExtOp::Set { .. } => "set".into(),
             ExtOp::ConnectionAdd { .. } => "connection add".into(),
-            ExtOp::InstallFolder { .. } => "install".into(),
+            ExtOp::InstallFolder { .. } | ExtOp::InstallPackage { .. } => "install".into(),
             ExtOp::ConnectionRename { .. } => "connection rename".into(),
             ExtOp::ConnectionRemove { .. } => "connection remove".into(),
         }
