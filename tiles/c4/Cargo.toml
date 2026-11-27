@@ -63,3 +63,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# The harness tests run the tile in Wasmtime: an unoptimised Wasmtime
+# and Cranelift are too slow for them on a small CI runner.
+[profile.dev.package."*"]
+opt-level = 2
