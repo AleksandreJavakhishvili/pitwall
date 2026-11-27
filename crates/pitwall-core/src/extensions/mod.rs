@@ -31,6 +31,14 @@
 //! `panels` (sections in the right panel, which was removed) is still
 //! read, so an older manifest installs, and never drawn.
 //!
+//! Format 2 also contributes `tiles` (docs/spec/tile-sdk/): tiles drawn
+//! from what the extension's own WebAssembly component renders, run by
+//! `pitwall-tile-host` in a sandbox. A tile names its component (`wasm`, a
+//! file in the extension's folder) and the WIT world it was built for
+//! (`world`). Tiles need no adapter. The `memory` permission may be an
+//! object with its size (`{"reason": …, "mib": 256}`): linear memory above
+//! the 64 MiB every tile gets.
+//!
 //! Format 2 may also declare a `service` ([`service`]): one long-running
 //! program on this computer (a server its agents need) that Pitwall keeps
 //! running while the extension is on, once the user confirmed its exact
@@ -66,7 +74,7 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 6] = ["inbox", "views", "commands", "badges", "notifications", "webViews"];
+pub const CONTRIBUTES: [&str; 7] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles"];
 
 /// A contribution an older Pitwall drew and this one no longer does: read
 /// and never drawn, so a manifest that has it still installs (its check
@@ -84,6 +92,14 @@ pub const MAX_COMMANDS: usize = 20;
 pub const MAX_WEB_VIEWS: usize = 5;
 /// The longest view or command title.
 pub const MAX_TITLE: usize = 40;
+/// The most tiles a manifest contributes.
+pub const MAX_TILES: usize = 10;
+/// The longest path of a tile's component in the extension's folder.
+pub const MAX_WASM_PATH: usize = 100;
+/// Linear memory every tile gets, and the most the `memory` permission
+/// may ask for (MiB; docs/spec/tile-sdk/runtime.md §2.5).
+pub const TILE_MEMORY_MIB: u32 = 64;
+pub const MAX_TILE_MEMORY_MIB: u32 = 512;
 
 /// The longest id, icon name and name.
 pub const MAX_ID: usize = 40;
@@ -141,6 +157,10 @@ pub struct Manifest {
     /// Format 2: how its updates go ([`update`]): which part goes first
     /// and whether agents started before keep working.
     pub update: update::Policy,
+    /// Format 2: the linear memory its tiles ask for with the `memory`
+    /// permission (MiB, above [`TILE_MEMORY_MIB`], at most
+    /// [`MAX_TILE_MEMORY_MIB`]); used only once granted.
+    pub memory_mib: Option<u32>,
 }
 
 /// A permission a manifest asks for, and why, in the extension's words.
@@ -168,6 +188,24 @@ pub struct Contributes {
     /// It names `panels` (right-panel sections, which this Pitwall no
     /// longer has): never drawn; its check says so.
     pub retired_panels: bool,
+    /// Tiles drawn from what its WebAssembly component renders
+    /// (docs/spec/tile-sdk/).
+    pub tiles: Vec<TileDef>,
+}
+
+/// A tile a manifest declares: its id (the view its component renders),
+/// title, icon, component and the WIT world that component was built for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TileDef {
+    pub id: String,
+    pub title: String,
+    pub icon: Option<String>,
+    /// The component: a relative, `/`-separated path in the extension's
+    /// folder ending in `.wasm` (no `.` or `..` parts).
+    pub wasm: String,
+    /// The world it was built for, like `pitwall:tile@0.1.0`; `None`: the
+    /// newest the host serves.
+    pub world: Option<String>,
 }
 
 /// A web view a manifest declares: a page in a web tile. Its address is
@@ -229,6 +267,7 @@ impl Contributes {
         if self.notifications {
             out.push("notifications (a few a minute at most)".to_string());
         }
+        out.extend(self.tiles.iter().map(|t| format!("a tile “{}” ({}), drawn from its own code, run in a sandbox", t.title, t.id)));
         out.extend(self.web_views.iter().map(|w| match &w.url {
             Some(u) => format!("a web page “{}” ({}) in a tile: {u}, with a browser store of its own", w.title, w.id),
             None => format!("a web page “{}” ({}) in a tile, at an address its adapter gives, with a browser store of its own", w.title, w.id),
@@ -239,6 +278,11 @@ impl Contributes {
     /// Web view `id`, when it declares one.
     pub fn web_view(&self, id: &str) -> Option<&WebViewDef> {
         self.web_views.iter().find(|w| w.id == id)
+    }
+
+    /// Tile `id`, when it declares one.
+    pub fn tile(&self, id: &str) -> Option<&TileDef> {
+        self.tiles.iter().find(|t| t.id == id)
     }
 
     /// View `id`, when it declares one.
@@ -305,6 +349,7 @@ impl Manifest {
             contributes: Contributes::default(),
             service: None,
             update: update::Policy::default(),
+            memory_mib: None,
         }
     }
 
@@ -800,6 +845,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     // Format 1 ignores these keys, as it always has (a Pitwall reading
     // only format 1 never saw them); `check` says so.
     let (permissions, contributes) = if format >= 2 { (parse_permissions(obj.get("permissions"))?, parse_contributes(obj.get("contributes"))?) } else { (vec![], Contributes::default()) };
+    let memory_mib = if format >= 2 { parse_memory(obj.get("permissions"))? } else { None };
     let service = match obj.get("service") {
         Some(v) if format >= 2 && !v.is_null() => Some(service::parse(v, &settings, &actions)?),
         _ => None,
@@ -818,7 +864,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
     }
     check_web_views(&contributes, &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update })
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib })
 }
 
 /// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
@@ -841,9 +887,10 @@ fn parse_pitwall(v: Option<&Value>, ours: &str) -> Result<Option<String>, String
 /// The most permissions a manifest asks for.
 pub const MAX_PERMISSIONS: usize = 16;
 
-/// `permissions`: name → reason (one line, at most 200 characters). A name
-/// this Pitwall doesn't know is kept: shown as not available, never
-/// granted.
+/// `permissions`: name → reason (one line, at most 200 characters), or an
+/// object with the reason and the permission's parameters (`memory`'s
+/// `mib`: [`parse_memory`]). A name this Pitwall doesn't know is kept:
+/// shown as not available, never granted.
 fn parse_permissions(v: Option<&Value>) -> Result<Vec<PermissionAsk>, String> {
     let o = match v {
         None | Some(Value::Null) => return Ok(vec![]),
@@ -859,11 +906,31 @@ fn parse_permissions(v: Option<&Value>) -> Result<Vec<PermissionAsk>, String> {
         if !ok {
             return Err(format!("permission “{name}” must be lower-case words with dots, like agents.read"));
         }
-        let Value::String(reason) = reason else { return Err(format!("permission “{name}” needs your reason, a string")) };
+        let reason = match reason {
+            Value::String(r) => r,
+            Value::Object(o) => match o.get("reason") {
+                Some(Value::String(r)) => r,
+                _ => return Err(format!("permission “{name}” needs your reason, a string (\"reason\" in its object)")),
+            },
+            _ => return Err(format!("permission “{name}” needs your reason, a string")),
+        };
         let reason = line(&format!("permissions.{name}"), reason, 200)?;
         out.push(PermissionAsk { name: name.clone(), reason });
     }
     Ok(out)
+}
+
+/// The `memory` permission's size, when it is an object with `mib`: more
+/// than [`TILE_MEMORY_MIB`], at most [`MAX_TILE_MEMORY_MIB`].
+fn parse_memory(v: Option<&Value>) -> Result<Option<u32>, String> {
+    let Some(Value::Object(o)) = v.and_then(|p| p.get("memory")) else { return Ok(None) };
+    match o.get("mib") {
+        None | Some(Value::Null) => Err("permission “memory” needs \"mib\": the linear memory its tiles need, in MiB".into()),
+        Some(n) => match n.as_u64() {
+            Some(n) if n > u64::from(TILE_MEMORY_MIB) && n <= u64::from(MAX_TILE_MEMORY_MIB) => Ok(Some(n as u32)),
+            _ => Err(format!("permission “memory”: \"mib\" must be a whole number above {TILE_MEMORY_MIB} (what every tile gets) and at most {MAX_TILE_MEMORY_MIB}")),
+        },
+    }
 }
 
 /// `contributes`: what it adds. A kind this Pitwall doesn't draw is
@@ -888,16 +955,17 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             "commands" => c.commands = parse_commands(val)?,
             retired if RETIRED_CONTRIBUTIONS.contains(&retired) => c.retired_panels = true,
             "webViews" => c.web_views = parse_web_views(val)?,
+            "tiles" => c.tiles = parse_tiles(val)?,
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
             other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
         }
     }
-    // Views and web views are named in the same lines: one id each among
-    // them.
+    // Views, web views and tiles are named in the same lines (and the
+    // layout's keys): one id each among them.
     let mut ids: Vec<&str> = Vec::new();
-    for id in c.views.iter().map(|v| v.id.as_str()).chain(c.web_views.iter().map(|w| w.id.as_str())) {
+    for id in c.views.iter().map(|v| v.id.as_str()).chain(c.web_views.iter().map(|w| w.id.as_str())).chain(c.tiles.iter().map(|t| t.id.as_str())) {
         if ids.contains(&id) {
-            return Err(format!("“{id}” names a view or a web view twice: they share their ids"));
+            return Err(format!("“{id}” names a view, a web view or a tile twice: they share their ids"));
         }
         ids.push(id);
     }
@@ -918,6 +986,53 @@ fn id_title_icon<'a>(what: &str, n: usize, o: &'a serde_json::Map<String, Value>
         None => None,
     };
     Ok((id, title, icon))
+}
+
+/// `contributes.tiles`: at most [`MAX_TILES`], each with an id, a title,
+/// maybe an icon, its component (`wasm`) and maybe its `world`.
+fn parse_tiles(v: &Value) -> Result<Vec<TileDef>, String> {
+    let Value::Array(list) = v else { return Err("\"contributes.tiles\" must be a list".into()) };
+    if list.len() > MAX_TILES {
+        return Err(format!("\"contributes.tiles\" has more than {MAX_TILES}"));
+    }
+    let mut out: Vec<TileDef> = Vec::new();
+    for (i, item) in list.iter().enumerate() {
+        let Value::Object(o) = item else { return Err(format!("\"contributes.tiles\" {} must be an object", i + 1)) };
+        let (id, title, icon) = id_title_icon("tiles", i + 1, o)?;
+        if out.iter().any(|t| t.id == id) {
+            return Err(format!("tile “{id}” is there twice"));
+        }
+        let wasm = opt_str(o, "wasm")?.ok_or(format!("tile “{id}” needs \"wasm\": its component, like tile.wasm"))?;
+        check_wasm_path(wasm).map_err(|e| format!("tile “{id}”: {e}"))?;
+        let world = match opt_str(o, "world")? {
+            None => None,
+            Some(w) => {
+                let ok = w.strip_prefix("pitwall:tile@").is_some_and(|v| {
+                    let parts: Vec<&str> = v.split('.').collect();
+                    parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()))
+                });
+                if !ok {
+                    return Err(format!("tile “{id}”: \"world\" “{w}” must be like pitwall:tile@0.1.0"));
+                }
+                Some(w.to_string())
+            }
+        };
+        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world });
+    }
+    Ok(out)
+}
+
+/// Why `path` can't name a tile's component: relative, `/`-separated, no
+/// `.` or `..` parts, letters, digits and `._-`, ending in `.wasm`.
+pub fn check_wasm_path(path: &str) -> Result<(), String> {
+    let ok = path.len() <= MAX_WASM_PATH
+        && path.ends_with(".wasm")
+        && path.split('/').all(|p| !p.is_empty() && p != "." && p != ".." && p.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)));
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("\"wasm\" “{path}” must be a .wasm file in the extension's folder, like tile.wasm (at most {MAX_WASM_PATH} characters)"))
+    }
 }
 
 /// `contributes.webViews`: at most [`MAX_WEB_VIEWS`] pages, each with an
@@ -1660,6 +1775,35 @@ mod tests {
         assert!(parse(fixed).is_ok(), "a fixed page needs no adapter");
     }
 
+    /// Tiles (docs/spec/tile-sdk/): no adapter needed, a component path in
+    /// the folder, a world named like `pitwall:tile@0.1.0`, ids shared with
+    /// views; `memory` as an object with its size.
+    #[test]
+    fn tiles_are_read_and_checked() {
+        let m = |extra: &str| format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{{extra}}}}}"#);
+        let ok = parse(&m(r#""tiles": [{"id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0"}, {"id": "other", "title": "Other", "wasm": "build/other.wasm"}]"#)).unwrap();
+        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()) });
+        assert_eq!(ok.contributes.tile("other").map(|t| t.world.clone()), Some(None));
+        assert!(ok.contributes.lines().iter().any(|l| l.contains("a tile “Hello” (main)")));
+        let err = |extra: &str| parse(&m(extra)).unwrap_err();
+        for bad in ["../tile.wasm", "/abs/tile.wasm", "tile.js", "a//b.wasm", "./tile.wasm", "a b.wasm"] {
+            assert!(err(&format!(r#""tiles": [{{"id": "t", "title": "T", "wasm": "{bad}"}}]"#)).contains("tile “t”"), "{bad}");
+        }
+        assert!(err(r#""tiles": [{"id": "t", "title": "T"}]"#).contains("needs \"wasm\""));
+        assert!(err(r#""tiles": [{"id": "t", "title": "T", "wasm": "t.wasm", "world": "pitwall:tile@1"}]"#).contains("like pitwall:tile@0.1.0"));
+        assert!(err(r#""tiles": [{"id": "t", "title": "T", "wasm": "t.wasm"}, {"id": "t", "title": "U", "wasm": "u.wasm"}]"#).contains("twice"));
+        assert!(err(r#""views": [{"id": "t", "title": "T"}], "tiles": [{"id": "t", "title": "T", "wasm": "t.wasm"}]"#).contains("share their ids"));
+        // `memory`: a reason and a size above the default, at most 512 MiB.
+        let mem = |p: &str| parse(&format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "permissions": {{"memory": {p}}}}}"#));
+        let ok = mem(r#"{"reason": "Large diagrams", "mib": 256}"#).unwrap();
+        assert_eq!((ok.memory_mib, ok.permissions[0].reason.as_str()), (Some(256), "Large diagrams"));
+        assert_eq!(mem(r#""Plain reason""#).unwrap().memory_mib, None);
+        assert!(mem(r#"{"reason": "x", "mib": 1024}"#).unwrap_err().contains("at most 512"));
+        assert!(mem(r#"{"reason": "x", "mib": 32}"#).unwrap_err().contains("above 64"));
+        assert!(mem(r#"{"reason": "x"}"#).unwrap_err().contains("needs \"mib\""));
+        assert!(mem(r#"{"mib": 128}"#).unwrap_err().contains("needs your reason"));
+    }
+
     /// Format 2: the Pitwall it needs (an older one refuses it, saying
     /// which), its permissions with reasons, what it contributes (a kind
     /// this Pitwall doesn't draw is refused, saying so).
@@ -1678,7 +1822,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews)"));
+        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));
