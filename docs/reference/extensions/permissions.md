@@ -97,7 +97,7 @@ In `extension.json`, a permission's value is its reason, or an object with the r
 
 - `memory`: its size in MiB, more than 64 and at most 512: `"memory": { "reason": "To hold large diagrams", "mib": 128 }`.
 - `sql`: its size in MiB, more than 100 and at most 2048: `"sql": { "reason": "To keep a year of builds", "mib": 500 }`.
-- `net`: the hosts, at most 32: `"net": { "reason": "To read your builds", "hosts": ["ci.example.com"] }`.
+- `net`: the hosts, at most 32: `"net": { "reason": "To read your builds", "hosts": ["ci.example.com"] }`. A host the user sets is named by its `url` setting, `"{setting:server}"` ([Platform services](platform-services.md)).
 - `notify`, `show`, `files.read` and `files.write`: the reason alone.
 
 In the tile, `cx.is_granted("memory")` and `cx.granted()` say what the user granted. When it changes, the tile hears `Event::GrantsChanged`, and by default it renders again. A call that needs a permission the tile wasn't granted fails with `HostError::Denied`; the tile should carry on without it and say what is missing.

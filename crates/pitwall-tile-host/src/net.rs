@@ -211,7 +211,13 @@ fn read(resp: ureq::Response) -> Result<Response, FetchError> {
 pub struct FakeFetcher {
     answers: std::sync::Mutex<Vec<(String, Result<Response, FetchError>)>>,
     seen: std::sync::Mutex<Vec<Outgoing>>,
+    server: std::sync::Mutex<Option<Serve>>,
 }
+
+/// A fake server for [`FakeFetcher::serve`]: called with each request no
+/// fixed answer matches; it answers with `done`, now or later (a long
+/// poll held until the fake has news), from any thread.
+pub type Serve = Arc<dyn Fn(Outgoing, Done) + Send + Sync>;
 
 impl FakeFetcher {
     pub fn new() -> Arc<FakeFetcher> {
@@ -241,16 +247,32 @@ impl FakeFetcher {
     pub fn requests(&self) -> Vec<Outgoing> {
         self.seen.lock().map(|s| s.clone()).unwrap_or_default()
     }
+
+    /// Answer the requests no fixed answer matches with `server` (a fake
+    /// of the service the tile talks to) instead of a 404.
+    pub fn serve(&self, server: Serve) {
+        if let Ok(mut s) = self.server.lock() {
+            *s = Some(server);
+        }
+    }
 }
 
 impl Fetcher for FakeFetcher {
     fn fetch(&self, request: Outgoing, _reach: Reach, done: Done) {
         let url = request.url.to_string();
         if let Ok(mut s) = self.seen.lock() {
-            s.push(request);
+            s.push(request.clone());
         }
         let a = self.answers.lock().ok().and_then(|l| l.iter().find(|(u, _)| url::Url::parse(u).is_ok_and(|p| p.as_str() == url)).map(|(_, a)| a.clone()));
-        done(a.unwrap_or_else(|| Ok(Response { status: 404, headers: vec![], body: b"not found".to_vec(), url })));
+        if let Some(a) = a {
+            return done(a);
+        }
+        // Cloned out, so the fake may take its time without the lock.
+        let server = self.server.lock().ok().and_then(|s| s.clone());
+        match server {
+            Some(serve) => serve(request, done),
+            None => done(Ok(Response { status: 404, headers: vec![], body: b"not found".to_vec(), url })),
+        }
     }
 }
 

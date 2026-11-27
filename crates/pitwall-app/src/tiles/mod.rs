@@ -377,11 +377,13 @@ pub fn theme_info(cx: &App) -> ui::ThemeInfo {
 
 /// What extension `m` is granted, as the host enforces it: the
 /// permissions the user granted that tiles use (`memory`, `net` with its
-/// hosts, `notify`, `show`, `sql` with its size), and its own server's
-/// address, which it may reach without `net`.
+/// hosts, those of its `{setting:KEY}` addresses as the user set them,
+/// `notify`, `show`, `sql` with its size), and its own server's address,
+/// which it may reach without `net`.
 pub fn grants_of(m: &Manifest, cx: &App) -> Grants {
     let decisions = crate::ui_state::get(cx).extension(&m.id).grants;
-    Grants::for_extension(m, permissions::effective(m, &decisions)).with_own_server(own_server(m, cx))
+    let values = crate::extensions::connections::settings_values(&m.id, cx);
+    Grants::for_extension(m, permissions::effective(m, &decisions)).with_settings(m, &values).with_own_server(own_server(m, cx))
 }
 
 /// Where extension `m`'s own server listens (its `ready.listen`, as the
@@ -1003,6 +1005,11 @@ impl Tiles {
     pub fn write_setting(&mut self, id: &str, key: &str, value: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
         let host = self.host(cx)?;
         host.extension_data(id).set_setting(key, value).map_err(|e| format!("Can't save it: {e}"))?;
+        // Where it may reach can follow a setting (a `{setting:KEY}` host
+        // of `net`, its server's address): its grants again, first.
+        if let Some(m) = crate::extensions::manifest_of(id, cx) {
+            self.grants_changed(id, grants_of(&m, cx));
+        }
         self.settings_changed(id);
         Ok(())
     }

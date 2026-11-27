@@ -67,6 +67,8 @@ done.
     `show`: the reason alone;
   - `net`: `{ "reason": "…", "hosts": ["api.example.com", "*.example.org"] }`
     (https only; `http` only to this computer, when listed with its port);
+    `"{setting:server}"` is the host of the `url` setting `server`, for a
+    server the user sets (it follows the setting);
   - `memory` (more than 64 MiB, at most 512) and `sql` (more than 100 MiB,
     at most 2048): `{ "reason": "…", "mib": 128 }`, granted with the
     extension.
