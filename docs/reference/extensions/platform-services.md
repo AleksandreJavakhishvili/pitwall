@@ -1,8 +1,8 @@
 # Platform services
 
-**Preview.** What Pitwall gives every tile, so authors don't build it themselves. In WIT 0.1 these are timers (`tasks`), a key-value store (`storage`), settings and secrets (`settings`), the Log (`log`) and requests about the tile's own views (`ui`). None of them needs a permission: each reaches only the tile's own things.
+**Preview.** What Pitwall gives every tile, so authors don't build it themselves. In WIT 0.1 these are timers (`tasks`), a key-value store (`storage`), settings and secrets (`settings`), the Log (`log`) and requests about the tile's own views (`ui`), which need no permission because each reaches only the tile's own things; and the agents' questions group: your agents and their Next up (`agents`), badges on sidebar rows (`badges`) and questions in the floating control (`asks`) ([below](#agents-badges-and-questions)).
 
-Pitwall adds a service only when a tile can't reasonably do without one. Phase 2 adds a SQLite database run by Pitwall, network access to named hosts, notifications, opening a file or a web page, and your agents and their Next up, each with the permission it needs ([what comes later](#what-comes-later)).
+Pitwall adds a service only when a tile can't reasonably do without one. Phase 2 adds a SQLite database run by Pitwall, network access to named hosts, notifications and opening a file or a web page, each with the permission it needs ([what comes later](#what-comes-later)).
 
 ## Errors
 
@@ -140,6 +140,61 @@ The `form` template saves a note and says so in a toast:
 
 In tests, `toasts()` lists the toasts and `ui_requests()` the other requests.
 
+## Agents, badges and questions
+
+The agents' questions group: what an inbox-style tile needs to show questions from a service or from agents, have them answered in the floating control, and send an answer to an agent. The same rules as extensions' adapters have: the same permissions, limits and Activity.
+
+### Agents
+
+With the `agents.read` permission, `agents::list()` gives every agent Pitwall shows, in the sidebar's order: its `id`, `name`, `kind` and `kind_name` ("Claude Code"), `project` (its folder), `branch`, `state` (`Working`, `Blocked`, `Idle`, `Done`, `Stopped`, `Unknown`), `waiting_on_you` (it is blocked on an approval or a question) and `queued` (items in its Next up). When that changes, the tile hears `Event::AgentsChanged` and reads them again; changes close together arrive as one.
+
+With `agents.queue`, `agents::queue_add(agent_id, text)` puts text in an agent's Next up, marked "From <extension name>" on its "N queued" chip and in the popover it opens. It waits for the user's Send: Auto-send sends it only when the user lets the extension send without asking, in its card. At most 4 000 characters (`TooLarge`); at most 3 of the extension's items wait in one agent's Next up, and one is queued per agent every 10 seconds (`Busy`, with the reason in the Log).
+
+```rust
+let waiting: Vec<Agent> = agents::list()?.into_iter().filter(|a| a.waiting_on_you).collect();
+agents::queue_add(&waiting[0].id, "Rebase on main and run the tests")?;
+```
+
+The agents' terminals are never readable, at any grant.
+
+### Badges
+
+With `"badges": true` in `contributes`, `badges::set(&[…])` puts a count or a few words on sidebar rows, beside Pitwall's own waiting badges: on an agent's row by its id (needs `agents.read`) or on a project's row by its folder (needs `projects.read`). The whole set each time; `&[]` clears them.
+
+```rust
+badges::set(&[Badge::count(Row::Agent(agent.id.clone()), 2).tone(Tone::Bad).tooltip("2 failing runs").open("main")])?;
+```
+
+A count is at most 9999, a note (`Badge::note`) at most 16 characters, a tooltip (shown after the extension's name) at most 120. `open` names one of the extension's tiles, opened by a click. At most 500 badges, and at most four sets a second are shown (the newest waits for its turn). A badge on a row the tile may not name is dropped and noted once in its Log. They go when the extension is turned off or its last tile closes.
+
+### Questions
+
+With `"asks": true` in `contributes`, `asks::set(&[…])` shows the tile's open questions in the floating control, after agents' own prompts, as an inbox's are: a card with who asks, the question, the suggestions, a field for the user's own words, Send, Decline and "Open <tile>". A blocking question comes first, marked "Waiting on you". The whole set each time; at most 50.
+
+```rust
+asks::set(&[Ask::new("deploy-42", "Deploy api to staging?")
+    .title("Release 0.9")
+    .from_agent(agent.id.clone())       // shown by its name; needs agents.read
+    .suggest_with("Deploy", "Ship 0.9 to staging now")
+    .suggest("Not now")
+    .blocking()])?;
+```
+
+An answer arrives as `Event::AskAnswered(Answer { id, picks, text, declined })`, `picks` by place from 0. Reply with `asks::reply(id, None)` when it was taken, then send a set without the question; or with `asks::reply(id, Some("why"))` to refuse it: the card says "Not sent: why" and the user can answer again. Until the reply, the card says "Sending…".
+
+A title is at most 200 characters, a question 2 000, a suggestion's label 80 and its description 200, and an ask has at most 8 suggestions; longer text is cut. Pitwall keeps the questions while the tile is hidden or let go to save memory, and an answer to a tile that was let go starts it again first.
+
+### In tests
+
+The harness has a fake Pitwall side: `Harness::agent(agent("a1", "web"))` (or `waiting_agent`) adds an agent, `set_agents(…)` changes them and sends `AgentsChanged`, `queued()` lists what the tile queued, `badges()` and `asks()` give its newest sets, `answer(id, &[0])`, `answer_text(id, "…")` and `decline(id)` answer, and `reply(id)` says what the tile replied.
+
+```rust
+let mut t = Harness::build(env!("CARGO_MANIFEST_DIR")).grant("agents.read").agent(waiting_agent("a2", "api")).open("main");
+assert_eq!(t.asks()[0].from.as_deref(), Some("a2"));
+t.answer("deploy", &[0]);
+assert_eq!(t.reply("deploy"), Some(None));
+```
+
 ## Not provided
 
 - **Files, the network and programs.** WIT 0.1 has none. `std::fs` and sockets fail; keep data in `storage`. Network access and files come as permissions ([Permissions](permissions.md#what-comes-later)).
@@ -154,6 +209,5 @@ In tests, `toasts()` lists the toasts and `ui_requests()` the other requests.
 | 2 | `sql`: a SQLite database run by Pitwall, with migrations, 100 MiB |
 | 2 | `net`: HTTPS to the hosts the manifest names, with the `net` permission |
 | 2 | Notifications, and opening a file at a line, the editor or a web page |
-| 2 | Your agents and their status (`agents.read`), badges on sidebar rows, questions in the floating control, and adding to an agent's Next up (`agents.queue`) |
 | 2 | A toolbar item with a badge, which the user can hide |
 | On demand | Files and git in your projects, file pickers, the clipboard, starting agents, and more, each when a tile needs it |
