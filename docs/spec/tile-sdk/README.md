@@ -309,14 +309,22 @@ Built in their own repositories (or `tiles/` in this repo, outside the
 crates), released and listed like anyone's, so every gap they hit is a
 gap in the SDK.
 
+Notes and C4 diagrams are the first two seed tiles. C4 diagrams is the
+flagship: it shows the C4 diagrams agents write in a project's
+Markdown, next to the agents, and later lets agents change them. It
+absorbs the generic Diagrams tile, including its role as the tile that
+exercises agent tools of all four kinds. Specs:
+[C4 diagrams](../2026-11-27-c4-tile/frd.md) and
+[Notes](../2026-11-27-notes-tile/).
+
 | Tile | Exercises | Needs |
 |---|---|---|
-| Notes | input, Markdown, storage, files | `files.read/write` (a `notes/` folder) |
+| C4 diagrams (flagship; [spec](../2026-11-27-c4-tile/frd.md)) | canvas, tree, file watching; v2: agent tools of all four kinds ([4.2](authoring.md#42-a-diagram-tile-as-an-author-writes-it) is the pattern), SVG export | `files.read` with `watch` for v1 (after phase 2); `files.write` for v2 (phase 3) |
+| Notes ([spec](../2026-11-27-notes-tile/)) | input, Markdown, storage, files | `files.read/write` (a `notes/` folder) |
 | CI and pull requests | net, secrets, virtual list, agents, Next up, notifications | `net`, `agents.read`, `agents.queue`, `notify` |
 | API client | inputs, tabs, code view, `net.ask`, storage | `net.ask` |
 | Git client | tree, table, diff in code view, keyboard, drag | `git.read/write/remote`, `files.read` |
 | Database browser | table with 100k rows (virtual), code view for SQL, canvas for a schema | `files.read` (SQLite in the guest); Postgres needs [10.3](#103-decisions), item 3 |
-| Diagrams | canvas, drag, agent tools of all four kinds ([4.2](authoring.md#42-a-diagram-tile-as-an-author-writes-it)) | `files.write` for export only |
 | Review and source control (proof tile, a port of the built-in one; [16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) | code view, diff view, lists, comments, Next up, git operations | `agents.read`, `worktrees.read`, `git.read/write`, `files.read`, `agents.queue` |
 
 ### 10.2 Order of work
