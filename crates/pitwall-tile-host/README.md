@@ -16,7 +16,7 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | File | Interface | What |
 |---|---|---|
 | `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
-| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node); views and content; `host-error` |
+| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`, `canvas` (ops, transform, hit regions), `code-view`, `diff-view`; drag and drop styles; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node); views and content; `host-error` |
 | `guest.wit` | `guest` (export) | `init`, `render(view)`, `handle(event) -> bool`, `save-state` |
 | `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view` |
 | `log.wit` | `log` | `debug`, `info`, `warn`, `error` |

@@ -1,0 +1,16 @@
+{
+  "v": 2,
+  "id": "blocks",
+  "name": "Blocks",
+  "version": "0.1.0",
+  "icon": "grid",
+  "description": "The test fixture for canvases, drag and drop, and the code and diff views",
+  "license": "Apache-2.0",
+  "contributes": {
+    "tiles": [
+      { "id": "diagram", "title": "Diagram", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0" },
+      { "id": "code", "title": "Code", "icon": "file", "wasm": "tile.wasm" },
+      { "id": "diff", "title": "Diff", "icon": "review", "wasm": "tile.wasm" }
+    ]
+  }
+}

@@ -339,6 +339,13 @@ interface types {
     /// no clicks. Keyboard users reach it as usual (show it while the row
     /// has focus if it matters).
     visible-on-group-hover(string),
+    /// The user can drag this node to a node of the same view with a
+    /// `drop-target` that accepts its kind. Pitwall draws the drag: a
+    /// chip with the source's label under the pointer.
+    drag(drag-source),
+    /// Drags of the kinds it accepts can be dropped here; Pitwall marks it
+    /// while one is over it and sends `dropped` with its handler.
+    drop-target(drop-target),
   }
 
   /// A button's look, as Pitwall's own buttons.
@@ -477,6 +484,15 @@ interface types {
     scroll(scroll),
     /// A text field.
     input(input),
+    /// A drawing: shapes, lines and text the tile places itself, with
+    /// clickable regions over them. Give it a size (width and height, or
+    /// grow).
+    canvas(canvas),
+    /// Pitwall's read-only code view, with the text the tile gives:
+    /// highlighting, line numbers, selection and copy, Find.
+    code-view(code-view),
+    /// Pitwall's diff view of two versions of a text, as Review draws it.
+    diff-view(diff-view),
   }
 
   /// The events a node can ask for, each with the handler it should
@@ -499,6 +515,13 @@ interface types {
     /// Pointer presses, releases and moves over the node, with their
     /// position (for drawing and dragging inside a node).
     pointer,
+    /// The wheel or trackpad scrolled, or a pinch, over the node: sent as
+    /// `pointer` events with the `wheel` and `pinch` kinds, carrying the
+    /// `wheel` listener's handler. A node listening for it takes the
+    /// wheel, so a scroll container around it doesn't scroll.
+    wheel,
+    /// A click on a line number of a code or diff view.
+    line-click,
   }
 
   /// An event a node asks for, and the handler it should carry.
@@ -625,6 +648,13 @@ interface types {
     up(mouse-button),
     /// The pointer moved (coalesced: the newest position).
     move,
+    /// The wheel or a trackpad scrolled by this many pixels (positive `y`:
+    /// the content moves up, as scrolling down; positive `x`: scrolling
+    /// right). For a node with a `wheel` listener.
+    wheel(delta),
+    /// A trackpad pinch: zoom by this fraction (0.1: 10 % larger; -0.1:
+    /// smaller), around `at`. For a node with a `wheel` listener.
+    pinch(f32),
   }
 
   /// A pointer event over a node with a `pointer` listener. While a button
@@ -823,6 +853,14 @@ interface types {
     view-content(view-content),
     /// A view was closed; it is no longer rendered.
     view-closed(view-id),
+    /// A drag was dropped on a node with a `drop-target`.
+    dropped(drop-event),
+    /// A line number of a code or diff view with a `line-click` listener
+    /// was clicked.
+    line-clicked(line-click),
+    /// The selection in a code or diff view with a `select` listener
+    /// changed (coalesced: the newest, at most one every 100 ms).
+    code-selected(code-selection),
   }
 
   /// What the tile gets when it starts.
@@ -839,5 +877,354 @@ interface types {
     /// (to save memory while hidden, or for a reload during development);
     /// `none` on a fresh start.
     state: option<list<u8>>,
+  }
+
+  /// An amount moved, in logical pixels.
+  record delta {
+    /// Rightwards.
+    x: f32,
+    /// Downwards.
+    y: f32,
+  }
+
+  /// What a node can be dragged as, inside its view.
+  record drag-source {
+    /// A kind of the tile's own (`"card"`, `"column"`): drop targets name
+    /// the kinds they accept.
+    kind: string,
+    /// What the drop target gets back (an item's id, JSON). At most 64 KiB.
+    data: string,
+    /// Shown in the chip under the pointer while dragging.
+    label: string,
+  }
+
+  /// A place drags can be dropped on.
+  record drop-target {
+    /// The kinds of drag it takes (`drag-source.kind`).
+    accepts: list<string>,
+    /// The handler `dropped` carries.
+    handler: handler,
+  }
+
+  /// A drag dropped on a drop target.
+  record drop-event {
+    /// The target's handler.
+    handler: handler,
+    /// The dragged node's kind.
+    kind: string,
+    /// The dragged node's data.
+    data: string,
+    /// Where it was dropped, from the target's top-left corner.
+    at: point,
+  }
+
+  /// A colour in a canvas: one of the theme's tokens (best: the drawing
+  /// follows light and dark and the user's theme), or a fixed colour.
+  variant paint {
+    /// A theme colour.
+    token(token),
+    /// A fixed colour, `0xRRGGBBAA`. The same in both themes.
+    rgba(u32),
+  }
+
+  /// A rectangle, in logical pixels.
+  record rect {
+    /// Its left edge.
+    x: f32,
+    /// Its top edge.
+    y: f32,
+    /// Its width.
+    width: f32,
+    /// Its height.
+    height: f32,
+  }
+
+  /// How a line is drawn.
+  record stroke {
+    /// Its colour.
+    color: paint,
+    /// Its width, in logical pixels (scaled with the canvas's transform).
+    width: f32,
+    /// A dash pattern: lengths drawn and left out, in turn (`[4, 3]`);
+    /// empty for a solid line. At most 16 lengths.
+    dash: list<f32>,
+  }
+
+  /// A rectangle drawn in a canvas.
+  record draw-rect {
+    /// Where.
+    rect: rect,
+    /// Its fill, if any.
+    fill: option<paint>,
+    /// Its outline, if any.
+    stroke: option<stroke>,
+    /// Its corner radius, in logical pixels.
+    radius: f32,
+  }
+
+  /// A quadratic curve's step.
+  record quad-to {
+    /// The control point.
+    control: point,
+    /// Where it ends.
+    to: point,
+  }
+
+  /// A cubic curve's step.
+  record cubic-to {
+    /// The first control point.
+    control1: point,
+    /// The second control point.
+    control2: point,
+    /// Where it ends.
+    to: point,
+  }
+
+  /// One step of a path.
+  variant path-step {
+    /// Start a new piece here.
+    move-to(point),
+    /// A straight line to here.
+    line-to(point),
+    /// A quadratic curve.
+    quad-to(quad-to),
+    /// A cubic curve.
+    cubic-to(cubic-to),
+    /// A line back to the piece's start.
+    close,
+  }
+
+  /// A path drawn in a canvas: lines and curves, filled or stroked.
+  record draw-path {
+    /// Its steps, starting with `move-to`.
+    steps: list<path-step>,
+    /// Its fill, if any.
+    fill: option<paint>,
+    /// Its line, if any.
+    stroke: option<stroke>,
+  }
+
+  /// Where text lies across its point.
+  enum text-align {
+    /// It starts at the point.
+    start,
+    /// It is centred on the point.
+    center,
+    /// It ends at the point.
+    end,
+  }
+
+  /// Where text lies up and down from its point.
+  enum text-baseline {
+    /// Its line's top is at the point.
+    top,
+    /// Its line's middle is at the point.
+    middle,
+    /// Its line's bottom is at the point.
+    bottom,
+  }
+
+  /// One line of text drawn in a canvas, shaped by Pitwall in its fonts.
+  record draw-text {
+    /// The text (one line: line breaks are drawn as spaces).
+    text: string,
+    /// Where, as `align` and `baseline` say.
+    at: point,
+    /// Its size in logical pixels (scaled with the canvas's transform).
+    /// Pitwall's body text is 13; its other sizes 11, 12, 16 and 20.
+    size: f32,
+    /// Its colour.
+    color: paint,
+    /// Its font.
+    font: font,
+    /// Its weight.
+    weight: weight,
+    /// Across the point.
+    align: text-align,
+    /// Up and down from the point.
+    baseline: text-baseline,
+    /// The widest it may be, in the canvas's coordinates: longer text is
+    /// cut with an ellipsis.
+    max-width: option<f32>,
+  }
+
+  /// One thing a canvas draws, in order (later on top).
+  variant draw-op {
+    /// A rectangle.
+    rect(draw-rect),
+    /// A path.
+    path(draw-path),
+    /// Text.
+    text(draw-text),
+    /// Draw only inside this rectangle until the matching `clip-pop`.
+    clip-push(rect),
+    /// End the newest `clip-push`.
+    clip-pop,
+  }
+
+  /// How a canvas's coordinates map to its node: a point (x, y) is drawn
+  /// at (x × scale + dx, y × scale + dy) from the node's top-left corner.
+  /// Ops and regions are given in the canvas's coordinates; events come in
+  /// the node's.
+  record transform {
+    /// The zoom (1.0: as given).
+    scale: f32,
+    /// Moved right by this.
+    dx: f32,
+    /// Moved down by this.
+    dy: f32,
+  }
+
+  /// A clickable area of a canvas, over what it draws: a box of a diagram.
+  /// Screen readers read its label (accessible structure inside a canvas).
+  record hit-region {
+    /// Stable among the canvas's regions, at most 128 bytes.
+    key: string,
+    /// Where, in the canvas's coordinates.
+    rect: rect,
+    /// Its accessible name, and its tooltip unless it has one.
+    label: string,
+    /// Text shown when the pointer rests on it.
+    tooltip: option<string>,
+    /// Sent as a `click` event (its `at` from the canvas node's corner).
+    click: option<handler>,
+    /// Sent as a `hover` event when the pointer enters or leaves it.
+    hover: option<handler>,
+  }
+
+  /// A drawing. At most 20 000 ops and 5 000 regions.
+  record canvas {
+    /// What it draws, in order.
+    ops: list<draw-op>,
+    /// How its coordinates map to the node (zoom and pan).
+    transform: transform,
+    /// Its clickable areas; where they overlap, the last one listed wins.
+    regions: list<hit-region>,
+  }
+
+  /// A range of lines, 0-based (`start` ≤ `end`, `end` exclusive).
+  record line-range {
+    /// The first line.
+    start: u32,
+    /// The line after the last.
+    end: u32,
+  }
+
+  /// What a line mark says, drawn in the margin as Pitwall's editor marks
+  /// changes since the last commit.
+  enum line-mark-kind {
+    /// Added lines (a green bar).
+    added,
+    /// Changed lines (a blue bar).
+    changed,
+    /// Lines were deleted before `start` (a red mark between lines).
+    deleted,
+  }
+
+  /// A mark in a code view's margin.
+  record line-mark {
+    /// Which lines.
+    lines: line-range,
+    /// What it says.
+    kind: line-mark-kind,
+  }
+
+  /// Pitwall's read-only code view, showing the tile's text. The text is
+  /// sent in each frame (at most 1 MiB); a frame with the same text and
+  /// language keeps the user's scroll position and selection.
+  record code-view {
+    /// The text.
+    text: string,
+    /// Its language, for highlighting: a name (`rust`, `typescript`,
+    /// `python`, `markdown`, …) or a file name (`main.rs`); `none` or an
+    /// unknown one: plain text.
+    language: option<string>,
+    /// Marks in the margin.
+    marks: list<line-mark>,
+    /// Scroll this line (0-based) into the middle and put the cursor on
+    /// it, when it differs from the last frame's.
+    reveal: option<u32>,
+  }
+
+  /// Which version of a diff.
+  enum diff-side {
+    /// The original (left, or the removed lines).
+    old,
+    /// The changed version (right, or the added lines). A code view's
+    /// lines are this side.
+    new,
+  }
+
+  /// How a diff is laid out.
+  enum diff-layout {
+    /// Old on the left, new on the right.
+    side-by-side,
+    /// One column, removed lines above added ones.
+    inline,
+  }
+
+  /// Both versions of a text.
+  record diff-texts {
+    /// The original.
+    old: string,
+    /// The changed version.
+    new: string,
+  }
+
+  /// What a diff view compares.
+  variant diff-source {
+    /// Two whole texts (each at most 1 MiB): unchanged runs fold.
+    texts(diff-texts),
+    /// A unified diff of one file (`git diff` output: `@@` hunks, `+`,
+    /// `-` and context lines; header lines are skipped), at most 1 MiB.
+    /// Lines keep their numbers from the hunk headers; what the diff
+    /// doesn't show is folded.
+    unified(string),
+  }
+
+  /// Pitwall's diff view, as Review draws a file's changes: line and
+  /// character changes, folded unchanged runs.
+  record diff-view {
+    /// What it compares.
+    source: diff-source,
+    /// The language, as `code-view.language` takes it.
+    language: option<string>,
+    /// Side by side or inline.
+    layout: diff-layout,
+    /// Scroll this line of the new version (0-based) into the middle, when
+    /// it differs from the last frame's.
+    reveal: option<u32>,
+  }
+
+  /// A line number of a code or diff view was clicked.
+  record line-click {
+    /// The handler of the view's `line-click` listener.
+    handler: handler,
+    /// Which version's line (`new` in a code view).
+    side: diff-side,
+    /// The line, 0-based.
+    line: u32,
+  }
+
+  /// A place in a code or diff view's text.
+  record text-pos {
+    /// The line, 0-based.
+    line: u32,
+    /// The column, in UTF-8 bytes from the line's start.
+    column: u32,
+  }
+
+  /// The selection in a code or diff view.
+  record code-selection {
+    /// The handler of the view's `select` listener.
+    handler: handler,
+    /// Which version it is in (`new` in a code view).
+    side: diff-side,
+    /// Where it starts (the earlier end).
+    start: text-pos,
+    /// Where it ends; equal to `start` for a bare cursor.
+    end: text-pos,
+    /// The selected text, cut at 64 KiB.
+    text: string,
   }
 }

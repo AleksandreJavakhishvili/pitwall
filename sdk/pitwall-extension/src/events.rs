@@ -138,7 +138,8 @@ pub struct Hover {
 }
 
 /// What the pointer did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum PointerKind {
     /// A button went down.
     Down(MouseButton),
@@ -146,6 +147,81 @@ pub enum PointerKind {
     Up(MouseButton),
     /// The pointer moved (coalesced: the newest position).
     Move,
+    /// The wheel or a trackpad scrolled by this many pixels (positive `dy`:
+    /// scrolling down, positive `dx`: scrolling right). Only for
+    /// [`on_wheel`](crate::Interactive::on_wheel).
+    Wheel {
+        /// Rightwards.
+        dx: f32,
+        /// Downwards.
+        dy: f32,
+    },
+    /// A trackpad pinch: zoom by this fraction around `at` (0.1: 10 %
+    /// larger; -0.1: smaller). Only for
+    /// [`on_wheel`](crate::Interactive::on_wheel).
+    Pinch(f32),
+}
+
+/// A drag dropped on a node with [`on_drop`](crate::Interactive::on_drop).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dropped {
+    /// The dragged node's kind (one the target accepts).
+    pub kind: String,
+    /// The dragged node's data, as [`draggable`](crate::Interactive::draggable) gave it.
+    pub data: String,
+    /// Where it was dropped, from the target's top-left corner.
+    pub at: Point,
+}
+
+/// Which version of a diff. A code view's lines are [`Side::New`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Side {
+    /// The original (left, or the removed lines).
+    Old,
+    /// The changed version (right, or the added lines).
+    New,
+}
+
+impl From<wit::DiffSide> for Side {
+    fn from(s: wit::DiffSide) -> Side {
+        match s {
+            wit::DiffSide::Old => Side::Old,
+            wit::DiffSide::New => Side::New,
+        }
+    }
+}
+
+/// A line number of a [`code_view`](crate::code_view) or
+/// [`diff_view`](crate::diff_view) was clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineClick {
+    /// Which version's line.
+    pub side: Side,
+    /// The line, 0-based.
+    pub line: usize,
+}
+
+/// A place in a code or diff view's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct TextPos {
+    /// The line, 0-based.
+    pub line: usize,
+    /// The column, in UTF-8 bytes from the line's start.
+    pub column: usize,
+}
+
+/// The selection in a code or diff view changed (at most one every
+/// 100 ms while the user drags).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSelection {
+    /// Which version it is in.
+    pub side: Side,
+    /// Where it starts (the earlier end).
+    pub start: TextPos,
+    /// Where it ends; equal to `start` for a bare cursor.
+    pub end: TextPos,
+    /// The selected text, cut at 64 KiB.
+    pub text: String,
 }
 
 /// A press, release or move over a node with an `on_pointer` listener.
@@ -270,6 +346,9 @@ pub enum Fired {
     Pointer(Pointer),
     Focus,
     Blur,
+    Drop(Dropped),
+    LineClick(LineClick),
+    CodeSelect(CodeSelection),
 }
 
 macro_rules! listener_event {
@@ -296,6 +375,9 @@ listener_event!(Hover, Fired::Hover(h) => h);
 listener_event!(Pointer, Fired::Pointer(p) => p);
 listener_event!(Focused, Fired::Focus => &Focused);
 listener_event!(Blur, Fired::Blur => &Blur);
+listener_event!(Dropped, Fired::Drop(d) => d);
+listener_event!(LineClick, Fired::LineClick(l) => l);
+listener_event!(CodeSelection, Fired::CodeSelect(s) => s);
 
 /// Events a text field's `on_change` takes: its new value as `&str`, or
 /// the whole [`InputChange`].

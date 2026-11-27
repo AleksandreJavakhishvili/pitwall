@@ -35,6 +35,8 @@
 //! without ⌘/Ctrl/Alt doesn't fire while a field has focus, and Pitwall's
 //! reserved keys are dropped from the keymap, as in Pitwall.
 
+mod canvas;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -48,6 +50,9 @@ use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, Ho
 /// A frame's types, as the tile sent them (for checks the helpers don't
 /// cover): a [`Frame`] is a list of [`Node`]s, each an [`Element`].
 pub use pitwall_tile_host::ui::{Density, Element, Frame, Input, Listen, Node, ThemeInfo, ThemeMode, Tone};
+/// A canvas's, a code view's and a diff view's types, as the tile sent
+/// them ([`Session::canvas`], [`Session::code_view`]).
+pub use pitwall_tile_host::ui::{Canvas, CodeView, DiffSide as Side, DiffView, DrawOp, HitRegion, Paint, PointerKind, Token};
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 
 /// The Rust target tiles are built for.
@@ -671,6 +676,9 @@ impl Session {
                 Element::Button(b) => format!("button {:?}{}", b.label, if b.disabled { " disabled" } else { "" }),
                 Element::Icon(ui::Icon::Named(name)) => format!("icon {name}"),
                 Element::Scroll(_) => "scroll".to_string(),
+                Element::Canvas(c) => canvas::describe(c),
+                Element::CodeView(c) => canvas::describe_code(c),
+                Element::DiffView(d) => canvas::describe_diff(d),
                 Element::Input(input) => {
                     let text = self.texts.get(&(view.to_string(), paths[i].clone())).filter(|t| !t.is_empty());
                     format!(
@@ -694,11 +702,17 @@ impl Session {
                     Listen::Scroll => "scroll",
                     Listen::Hover => "hover",
                     Listen::Pointer => "pointer",
+                    Listen::Wheel => "wheel",
+                    Listen::LineClick => "line-click",
                 })
                 .collect();
             let on = if on.is_empty() { String::new() } else { format!(" [{}]", on.join(", ")) };
             let label = n.label.as_ref().map(|l| format!(" label={l:?}")).unwrap_or_default();
-            out.push_str(&format!("{}{what}{key}{label}{on}\n", "  ".repeat(depth[i])));
+            let dnd = canvas::describe_dnd(n);
+            out.push_str(&format!("{}{what}{key}{label}{dnd}{on}\n", "  ".repeat(depth[i])));
+            if let Element::Canvas(c) = &n.element {
+                out.push_str(&canvas::describe_regions(c, depth[i] + 1));
+            }
         }
         out
     }

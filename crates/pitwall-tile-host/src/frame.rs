@@ -51,6 +51,8 @@ pub enum Invalid {
     LongKey(usize),
     /// Node `i` is a text field whose value is over [`MAX_INPUT_BYTES`].
     LongInput(usize),
+    /// Node `i`'s canvas, code view, diff view or drag is over a limit.
+    Block(usize, crate::blocks::Problem),
 }
 
 impl std::fmt::Display for Invalid {
@@ -62,6 +64,7 @@ impl std::fmt::Display for Invalid {
             Invalid::DuplicateKey(i) => write!(f, "node {i}'s key is used twice under one parent"),
             Invalid::LongKey(i) => write!(f, "node {i}'s key is longer than {MAX_KEY_BYTES} bytes"),
             Invalid::LongInput(i) => write!(f, "node {i}'s text field holds more than {} KiB", MAX_INPUT_BYTES / 1024),
+            Invalid::Block(i, p) => write!(f, "node {i} {p}"),
         }
     }
 }
@@ -94,6 +97,7 @@ pub fn check(frame: &Frame) -> Result<(), Invalid> {
                 return Err(Invalid::LongInput(i));
             }
         }
+        crate::blocks::check(n).map_err(|p| Invalid::Block(i, p))?;
         bytes += node_bytes(n);
         if bytes > MAX_FRAME_BYTES {
             return Err(Invalid::TooLarge(bytes));
@@ -114,7 +118,8 @@ fn node_bytes(n: &Node) -> usize {
         Element::Icon(i) => icon(i),
         Element::Scroll(_) => 4,
         Element::Input(i) => i.value.as_ref().map_or(0, String::len) + i.placeholder.as_ref().map_or(0, String::len) + 32,
-    };
+        _ => 0,
+    } + crate::blocks::bytes(n);
     48 + n.key.len()
         + element
         + n.style.len() * 24
