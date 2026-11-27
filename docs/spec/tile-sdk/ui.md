@@ -148,7 +148,12 @@ differs from the sketch above in these ways:
   JPEG, GIF, WebP or SVG. Never from the network.
 - Not in this cut: `checkbox`, `toggle`, `radio`, `chip`, `status`,
   `spinner`, `divider`, `split`, `icon-button` as elements (the SDK
-  builds buttons), `code`, `canvas` and drag (another phase 2 item).
+  builds buttons; form controls and the rest come in their own phase 2
+  change). `code`, `canvas` and drag are the native blocks
+  ([native-blocks.md](native-blocks.md)).
+- **Keyboard.** Lists, tables and trees take Up, Down, Home, End, Page
+  Up, Page Down and Enter, and a tree ← and →; tabs, selects and menus
+  are pointer-only for now (Esc closes a menu).
 
 What the tile can't do: set fonts other than Pitwall's UI and mono
 faces, set colours outside a canvas, draw outside its bounds, open
