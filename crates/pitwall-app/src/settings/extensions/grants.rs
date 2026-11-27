@@ -423,7 +423,7 @@ impl SettingsView {
             let mut names = vec![pitwall_proto::tile_tools::mcp_name(&m.id, None)];
             names.extend(t.tools.iter().map(|d| pitwall_proto::tile_tools::mcp_name(&m.id, Some(&d.name))));
             let detail = if on {
-                format!("Agents can open {} next to their terminal and show you things in it. They get nothing of it back and can’t replace what you edited.", t.title)
+                format!("Agents can open {} next to their terminal and show you things in it, marked with their name; Undo takes a change back.", t.title)
             } else {
                 "Off: agents don’t get its tools.".to_string()
             };
@@ -442,6 +442,7 @@ impl SettingsView {
                             .gap(px(2.))
                             .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.t.text).child(format!("Agents can use {}", t.title)))
                             .child(crate::kit::hint(detail, &ui.t))
+                            .children(on.then(|| tool_lines(&t, &ui.t)).into_iter().flatten())
                             .child(crate::kit::mono_text(names.join("  "), &ui.t).text_color(ui.t.text_3)),
                     )
                     .child(
@@ -455,6 +456,30 @@ impl SettingsView {
                         ),
                     ),
             );
+        }
+        // "Always for <agent>" grants, each revocable.
+        let kept = crate::ui_state::get(cx).extension(&m.id).tool_grants.clone();
+        if !kept.is_empty() {
+            col = col.child(crate::kit::label("Allowed without asking", ui.t.text_3, 11.));
+            for g in kept {
+                let (ext, agent, tool) = (m.id.clone(), g.agent.clone(), g.tool.clone());
+                let who = if g.name.is_empty() { g.agent.clone() } else { g.name.clone() };
+                col = col.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .child(div().flex_1().min_w_0().text_size(px(12.5)).text_color(ui.t.text_2).child(format!("{who} may call {} without asking", g.tool)))
+                        .child(
+                            btn(format!("extension-revoke-{}-{}-{}", m.id, g.agent, g.tool), "Revoke", BtnKind::GhostSm, false, ui)
+                                .tooltip(crate::kit::tooltip("Ask again next time"))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    crate::tiles::agents::revoke(&ext, &agent, Some(&tool), cx);
+                                    cx.notify();
+                                })),
+                        ),
+                );
+            }
         }
         Some(col)
     }
@@ -708,4 +733,21 @@ pub(super) fn preview_warning(id: &str, ui: &Ui) -> Div {
         .bg(ui.t.amber.opacity(0.08))
         .child(div().flex_none().mt(px(1.)).child(crate::kit::icon("alert", 12., ui.t.amber)))
         .child(div().flex_1().min_w_0().text_size(px(12.)).line_height(gpui::relative(1.4)).text_color(ui.t.text_2).child(pitwall_core::extensions::preview::WARNING))
+}
+
+/// What agents may do with tile `t` beyond showing (agent-tools.md
+/// §11.5): a line for its `read` tools and one for its `act` tools.
+fn tool_lines(t: &pitwall_core::extensions::TileDef, th: &crate::theme::Theme) -> Vec<Div> {
+    use pitwall_core::extensions::tools::ToolKind;
+    let names = |k: ToolKind| t.tools.iter().filter(|d| d.kind == k).map(|d| d.name.clone()).collect::<Vec<_>>();
+    let mut out = Vec::new();
+    let reads = names(ToolKind::Read);
+    if !reads.is_empty() {
+        out.push(crate::kit::hint(format!("Read what it has, with your edits ({}): asks you first, or “Always” for an agent.", reads.join(", ")), th));
+    }
+    let acts = names(ToolKind::Act);
+    if !acts.is_empty() {
+        out.push(crate::kit::hint(format!("Do things outside it ({}): asks you each time, or “Always” for an agent.", acts.join(", ")), th));
+    }
+    out
 }

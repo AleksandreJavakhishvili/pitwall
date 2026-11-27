@@ -216,6 +216,67 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
         Ok(shown)
     }
 
+    /// A `read` or `act` call: checked on the main thread, the user asked
+    /// here (the dialog, or its card in the floating control) when they
+    /// haven't allowed it always, then given to the tile and its answer
+    /// waited for here, at most its kind's time; recorded.
+    fn run_tile(&self, req: &pitwall_proto::tile_tools::TileRun) -> Result<pitwall_proto::tile_tools::TileRan, ErrorBody> {
+        use pitwall_proto::tile_tools::TileRan;
+        let r = req.clone();
+        let (ask, approvals) = self.on_main(move |cx| Ok((crate::tiles::agents::check_run(&r, cx), crate::approvals::approvals(cx))))?;
+        let ask = ask?;
+        let done = |ran: TileRan, call: Option<u64>| {
+            let (r, out) = (req.clone(), ran.clone());
+            let _ = self.on_main(move |cx| {
+                crate::tiles::agents::ran(&r, call, &out, cx);
+                Ok(())
+            });
+            Ok(ran)
+        };
+        if let Some(ask) = ask {
+            let Some(approvals) = approvals else { return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't ask the user")) };
+            let requester = if req.by_user {
+                pitwall_proto::Requester { kind: pitwall_proto::RequesterKind::Outside, agent_id: None, name: "Your terminal".into(), pid: None, process: None }
+            } else {
+                pitwall_proto::Requester { kind: pitwall_proto::RequesterKind::Agent, agent_id: Some(req.agent_id.clone()), name: req.agent_name.clone(), pid: None, process: None }
+            };
+            let a = pitwall_daemon::approvals::Ask {
+                action: format!("tile.{}", req.kind),
+                summary: ask.summary,
+                details: ask.details,
+                requester,
+                caller_key: format!("agent:{}", req.agent_id),
+                risk: if req.kind == "read" { pitwall_proto::Risk::Low } else { pitwall_proto::Risk::High },
+            };
+            let (decision, always) = match ask.always {
+                Some(label) => approvals.ask_always(a, label),
+                None => (approvals.ask(a), false),
+            };
+            let tool = pitwall_proto::tile_tools::mcp_name(&req.extension, Some(&req.tool));
+            match decision {
+                pitwall_daemon::approvals::Decision::Allowed | pitwall_daemon::approvals::Decision::Remembered => {}
+                pitwall_daemon::approvals::Decision::Denied => return done(TileRan { text: format!("The user denied {tool}. Nothing was done."), refused: true, ..Default::default() }, None),
+                pitwall_daemon::approvals::Decision::TimedOut => return done(TileRan { text: format!("Nobody answered the request to run {tool} in time. Nothing was done."), refused: true, ..Default::default() }, None),
+            }
+            if always {
+                let r = req.clone();
+                let _ = self.on_main(move |cx| {
+                    crate::tiles::agents::grant(&r.extension, &r.agent_id, &r.agent_name, &r.tool, cx);
+                    Ok(())
+                });
+            }
+        }
+        let r = req.clone();
+        let running = match self.on_main(move |cx| crate::tiles::agents::start_run(&r, cx)) {
+            Ok(running) => running,
+            Err(e) => return done(TileRan { text: format!("{} Nothing was done.", e.message.trim_end_matches('.')), ..Default::default() }, None),
+        };
+        let within = if req.kind == "read" { pitwall_tile_host::agent::READ_TIME } else { pitwall_tile_host::agent::ACT_TIME };
+        let within = req.timeout_ms.map_or(within, |ms| within.min(std::time::Duration::from_millis(ms)));
+        let ran = crate::tiles::agents::wait_run(&running, within).unwrap_or_else(|| TileRan { text: format!("{} didn't answer within {} seconds; it was told to stop.", pitwall_proto::tile_tools::mcp_name(&req.extension, Some(&req.tool)), within.as_secs()), timed_out: true, ..Default::default() });
+        done(ran, Some(running.call))
+    }
+
     fn mirrored(&self, id: &str) -> Option<String> {
         let id = id.to_string();
         self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()
