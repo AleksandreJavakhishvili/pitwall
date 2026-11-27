@@ -1309,7 +1309,8 @@ pitwall extension new [OPTIONS] <FOLDER>
 | `--view` | A view tile, a palette command and sidebar notes (format 2, protocol 2) instead of an inbox. |
 | `--service` | An inbox and a small local server Pitwall keeps running while it is on: the extension's service (format 2, protocol 1). |
 | `--template <TEMPLATE>` | A tile (a Rust WebAssembly component) from this template: blank (a counter), list (a checklist an agent can open with items), form (a form with a setting, opened with a draft). |
-| `--sdk <CHECKOUT>` | With --template: take the SDK from this checkout of Pitwall's repository (path dependencies) instead of its git URL. |
+| `--sdk <CHECKOUT>` | With --template: take the SDK from this checkout of Pitwall's repository (path dependencies; relative when the new folder is inside the checkout) instead of its git URL. |
+| `--no-skill` | With --template: don't copy the authoring skill into .agents/ and .claude/; AGENTS.md points to the SDK's own copy instead (for a tile kept inside Pitwall's repository, where copies would drift). |
 
 ```bash
 pitwall extension new ~/code/my-inbox --name "My inbox"

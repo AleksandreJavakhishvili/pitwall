@@ -22,7 +22,7 @@ pub fn run(cmd: &ExtensionCmd) -> Result<(Output, bool), Error> {
         ExtensionCmd::Check { folder } => report(crate::tile::check(folder)),
         ExtensionCmd::Test { folder } if is_tile_project(folder) => report(crate::tile::test(folder)),
         ExtensionCmd::Test { folder } => report(check::test(folder, None)),
-        ExtensionCmd::New { folder, name, template: Some(t), sdk, .. } => new_tile(folder, name.as_deref(), *t, sdk.as_deref())?,
+        ExtensionCmd::New { folder, name, template: Some(t), sdk, no_skill, .. } => new_tile(folder, name.as_deref(), *t, sdk.as_deref(), !*no_skill)?,
         ExtensionCmd::New { folder, name, protocol, view, service, .. } => {
             let shape = match (view, service) {
                 (_, true) => starter::Shape::Service,
@@ -50,9 +50,9 @@ fn is_tile_project(folder: &std::path::Path) -> bool {
 }
 
 /// `pitwall extension new <folder> --template …`.
-fn new_tile(folder: &std::path::Path, name: Option<&str>, t: crate::args::TileTemplate, sdk: Option<&std::path::Path>) -> Result<(Output, bool), Error> {
+fn new_tile(folder: &std::path::Path, name: Option<&str>, t: crate::args::TileTemplate, sdk: Option<&std::path::Path>, skill: bool) -> Result<(Output, bool), Error> {
     use crate::tile;
-    let files = tile::new_project(folder, name, t, sdk).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
+    let files = tile::new_project(folder, name, t, sdk, skill).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
     let m = pitwall_core::extensions::read_in_place(folder).map_err(|e| Error::Server(ErrorBody::new("failed", e)))?;
     let shown = folder.display();
     let target = tile::target_installed(folder.parent().unwrap_or(folder));
@@ -193,7 +193,7 @@ mod tests {
     fn new_then_check_and_test() {
         let t = pitwall_core::testing::TempDir::new("cli-ext");
         let folder = t.path().join("hello-ext");
-        let (o, ok) = run(&ExtensionCmd::New { folder: folder.clone(), name: Some("Hello".into()), protocol: 1, view: false, service: false, template: None, sdk: None }).unwrap();
+        let (o, ok) = run(&ExtensionCmd::New { folder: folder.clone(), name: Some("Hello".into()), protocol: 1, view: false, service: false, template: None, sdk: None, no_skill: false }).unwrap();
         assert!(ok);
         assert_eq!((o.json["id"].as_str(), o.json["name"].as_str()), (Some("hello-ext"), Some("Hello")));
         assert!(o.human.contains("pitwall extension check"));
@@ -204,7 +204,7 @@ mod tests {
         let (o, ok) = run(&ExtensionCmd::Test { folder: folder.clone() }).unwrap();
         assert!(ok, "{}", o.human);
         // Made again on the same folder: refused, as bad arguments.
-        let Err(Error::Server(e)) = run(&ExtensionCmd::New { folder, name: None, protocol: 1, view: false, service: false, template: None, sdk: None }) else { panic!("made twice") };
+        let Err(Error::Server(e)) = run(&ExtensionCmd::New { folder, name: None, protocol: 1, view: false, service: false, template: None, sdk: None, no_skill: false }) else { panic!("made twice") };
         assert_eq!(e.code, code::BAD_PARAMS);
         // A folder that isn't an extension fails, with exit status 1.
         let (o, ok) = run(&ExtensionCmd::Check { folder: t.path().join("nope") }).unwrap();

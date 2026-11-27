@@ -98,11 +98,37 @@ fn quoted(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_default()
 }
 
+/// `path` made absolute with its links resolved, though it (or its
+/// parents) may not exist yet.
+fn resolved(path: &Path) -> PathBuf {
+    if let Ok(p) = path.canonicalize() {
+        return p;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => resolved(parent).join(name),
+        _ => std::env::current_dir().map(|d| d.join(path)).unwrap_or_else(|_| path.to_path_buf()),
+    }
+}
+
+/// `to` as a path from folder `from`, when both are inside `repo`
+/// (`../../sdk/pitwall-extension`); else `to` itself.
+fn from_folder(from: &Path, to: &Path, repo: &Path) -> String {
+    match (from.strip_prefix(repo), to.strip_prefix(repo)) {
+        (Ok(f), Ok(t)) => {
+            let up = "../".repeat(f.components().count());
+            format!("{up}{}", t.to_string_lossy().replace('\\', "/"))
+        }
+        _ => to.to_string_lossy().into_owned(),
+    }
+}
+
 /// Write a tile project from template `t` into `folder` (absent or empty;
 /// its name is the extension's id). `sdk`: a checkout of Pitwall's
 /// repository to take the SDK and the harness from (instead of the git
-/// URL). The files written.
-pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+/// URL), by relative paths when `folder` is inside it. `skill`: copy the
+/// authoring skill into `.agents/` and `.claude/` (else AGENTS.md points
+/// to the SDK's). The files written.
+pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Option<&Path>, skill: bool) -> Result<Vec<PathBuf>, String> {
     let id = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     extensions::check_id(&id).map_err(|e| format!("the folder's name is the extension's id, and {e}: name the folder like my-tile"))?;
     let name = match name {
@@ -118,8 +144,10 @@ pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Opti
             return Err(format!("{} isn't empty: pick a new folder", folder.display()));
         }
     }
-    let (sdk_dep, harness_dep) = match sdk {
-        None => (format!("pitwall-extension = {{ git = \"{REPO}\" }}"), format!("pitwall-extension-test = {{ git = \"{REPO}\" }}")),
+    let at = resolved(folder);
+    let skill_in_sdk = format!("sdk/pitwall-extension/{SKILL_PATH}");
+    let (sdk_dep, harness_dep, skill_at) = match sdk {
+        None => (format!("pitwall-extension = {{ git = \"{REPO}\" }}"), format!("pitwall-extension-test = {{ git = \"{REPO}\" }}"), None),
         Some(repo) => {
             let repo = repo.canonicalize().map_err(|e| format!("--sdk {}: {e}", repo.display()))?;
             let sdk = repo.join("sdk/pitwall-extension");
@@ -127,8 +155,24 @@ pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Opti
             if !sdk.join("Cargo.toml").is_file() || !harness.join("Cargo.toml").is_file() {
                 return Err(format!("--sdk {}: not a checkout of Pitwall's repository (no sdk/pitwall-extension or crates/pitwall-extension-test)", repo.display()));
             }
-            (format!("pitwall-extension = {{ path = {} }}", quoted(&sdk.to_string_lossy())), format!("pitwall-extension-test = {{ path = {} }}", quoted(&harness.to_string_lossy())))
+            let skill_file = from_folder(&at, &repo.join(&skill_in_sdk), &repo);
+            (format!("pitwall-extension = {{ path = {} }}", quoted(&from_folder(&at, &sdk, &repo))), format!("pitwall-extension-test = {{ path = {} }}", quoted(&from_folder(&at, &harness, &repo))), Some(skill_file))
         }
+    };
+    let (skill_note, skill_row) = if skill {
+        (
+            "Before changing it, read the authoring skill:\n`.agents/skills/pitwall-extension-authoring/SKILL.md` (the same file is in\n`.claude/skills/`). It covers the manifest, the SDK, testing and the\ncommands.".to_string(),
+            "| `AGENTS.md`, `.agents/skills/`, `.claude/skills/` | The authoring skill, for the coding agent working here |\n".to_string(),
+        )
+    } else {
+        let at = match skill_at {
+            Some(path) => format!("`{path}`"),
+            None => format!("`{skill_in_sdk}` in {REPO}"),
+        };
+        (
+            format!("Before changing it, read the authoring skill, the SDK's own copy:\n{at}. It covers the manifest, the SDK, testing and the commands."),
+            "| `AGENTS.md` | Where the authoring skill is, for the coding agent working here |\n".to_string(),
+        )
     };
     let f = files_of(t);
     let name_str = quoted(&name);
@@ -144,6 +188,8 @@ pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Opti
             .replace("{{harness_dep}}", &harness_dep)
             .replace("{{about}}", f.about)
             .replace("{{files}}", files_rows)
+            .replace("{{skill_note}}", &skill_note)
+            .replace("{{skill_row}}", &skill_row)
     };
     let mut out: Vec<(String, String)> = vec![
         ("Cargo.toml".into(), fill(CARGO)),
@@ -153,9 +199,11 @@ pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Opti
         ("README.md".into(), fill(README)),
         ("AGENTS.md".into(), fill(AGENTS)),
         (".gitignore".into(), GITIGNORE.to_string()),
-        (format!(".agents/{SKILL_PATH}"), SKILL.to_string()),
-        (format!(".claude/{SKILL_PATH}"), SKILL.to_string()),
     ];
+    if skill {
+        out.push((format!(".agents/{SKILL_PATH}"), SKILL.to_string()));
+        out.push((format!(".claude/{SKILL_PATH}"), SKILL.to_string()));
+    }
     if let Some(s) = f.schema {
         out.push(("input.schema.json".into(), fill(s)));
     }
@@ -383,11 +431,28 @@ pub fn check(path: &Path) -> Report {
     };
     let mut r = extensions::check::check(folder, None);
     let Ok(m) = extensions::read_in_place(folder) else { return r };
+    check_icons(&m, &mut r);
     if m.contributes.tiles.is_empty() {
         return r;
     }
     check_tiles(folder, &m, &mut r);
     r
+}
+
+/// The manifest's icons (its own, its tiles', views' and web views') are
+/// Pitwall's: an unknown name draws the extension icon instead.
+fn check_icons(m: &Manifest, r: &mut Report) {
+    let c = &m.contributes;
+    let named = std::iter::once(("the extension", m.icon.as_deref()))
+        .chain(c.tiles.iter().map(|t| ("a tile", t.icon.as_deref())))
+        .chain(c.views.iter().map(|v| ("a view", v.icon.as_deref())))
+        .chain(c.web_views.iter().map(|w| ("a web view", w.icon.as_deref())));
+    for (what, icon) in named {
+        let Some(icon) = icon else { continue };
+        if !extensions::ICON_NAMES.contains(&icon) {
+            add(r, Level::Warn, format!("{what}'s icon “{icon}” isn't one of Pitwall's, so it shows the extension icon: use one of {}", extensions::ICON_NAMES.join(", ")));
+        }
+    }
 }
 
 fn check_tiles(folder: &Path, m: &Manifest, r: &mut Report) {
@@ -690,7 +755,7 @@ mod tests {
         let t = pitwall_core::testing::TempDir::new("cli-tile-templates");
         for tpl in [TileTemplate::Blank, TileTemplate::List, TileTemplate::Form] {
             let dir = t.path().join(format!("tpl-{}", template_name(tpl)));
-            new_project(&dir, None, tpl, Some(&repo)).unwrap();
+            new_project(&dir, None, tpl, Some(&repo), true).unwrap();
             // This checkout's compiler, and one build folder for all.
             std::fs::write(dir.join("rust-toolchain.toml"), format!("[toolchain]\nchannel = {channel}\ntargets = [\"{TARGET}\"]\n")).unwrap();
             std::fs::create_dir_all(dir.join(".cargo")).unwrap();
@@ -723,7 +788,7 @@ mod tests {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for tpl in [TileTemplate::Blank, TileTemplate::List, TileTemplate::Form] {
             let dir = t.path().join(format!("my-{}", template_name(tpl)));
-            let files = new_project(&dir, Some("My \"quoted\" tile"), tpl, Some(&repo)).unwrap();
+            let files = new_project(&dir, Some("My \"quoted\" tile"), tpl, Some(&repo), true).unwrap();
             assert!(files.iter().any(|f| f.ends_with(".claude/skills/pitwall-extension-authoring/SKILL.md")));
             assert!(files.iter().any(|f| f.ends_with(".agents/skills/pitwall-extension-authoring/SKILL.md")));
             let m = extensions::read_in_place(&dir).unwrap();
@@ -744,10 +809,50 @@ mod tests {
         }
         // With no checkout given: the git URL.
         let dir = t.path().join("from-git");
-        new_project(&dir, None, TileTemplate::Blank, None).unwrap();
+        new_project(&dir, None, TileTemplate::Blank, None, true).unwrap();
         let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains(&format!("pitwall-extension = {{ git = \"{REPO}\" }}")));
-        assert!(new_project(&dir, None, TileTemplate::Blank, None).unwrap_err().contains("isn't empty"));
-        assert!(new_project(&t.path().join("Bad_Id"), None, TileTemplate::Blank, None).is_err());
+        assert!(new_project(&dir, None, TileTemplate::Blank, None, true).unwrap_err().contains("isn't empty"));
+        assert!(new_project(&t.path().join("Bad_Id"), None, TileTemplate::Blank, None, true).is_err());
+    }
+
+    /// A tile made inside the checkout it takes the SDK from names it by
+    /// relative paths; without the skill copies, AGENTS.md points to the
+    /// SDK's skill.
+    #[test]
+    fn inside_the_checkout_paths_are_relative_and_the_skill_isnt_copied() {
+        let t = pitwall_core::testing::TempDir::new("cli-tile-inside");
+        let repo = t.path().join("pitwall");
+        std::fs::create_dir_all(repo.join("sdk/pitwall-extension")).unwrap();
+        std::fs::create_dir_all(repo.join("crates/pitwall-extension-test")).unwrap();
+        std::fs::write(repo.join("sdk/pitwall-extension/Cargo.toml"), "").unwrap();
+        std::fs::write(repo.join("crates/pitwall-extension-test/Cargo.toml"), "").unwrap();
+        let dir = repo.join("tiles/my-notes");
+        let files = new_project(&dir, None, TileTemplate::Blank, Some(&repo), false).unwrap();
+        assert!(!files.iter().any(|f| f.to_string_lossy().contains("skills")), "{files:?}");
+        let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("pitwall-extension = { path = \"../../sdk/pitwall-extension\" }"), "{cargo}");
+        assert!(cargo.contains("pitwall-extension-test = { path = \"../../crates/pitwall-extension-test\" }"), "{cargo}");
+        let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        assert!(agents.contains("`../../sdk/pitwall-extension/skills/pitwall-extension-authoring/SKILL.md`"), "{agents}");
+        let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+        assert!(!readme.contains(".claude/skills") && !readme.contains("{{"), "{readme}");
+        // Outside the checkout: absolute paths, as before.
+        let out = t.path().join("elsewhere/my-tile");
+        new_project(&out, None, TileTemplate::Blank, Some(&repo), true).unwrap();
+        let cargo = std::fs::read_to_string(out.join("Cargo.toml")).unwrap();
+        assert!(!cargo.contains("../"), "{cargo}");
+    }
+
+    /// Icons a manifest names must be Pitwall's.
+    #[test]
+    fn unknown_icons_are_warned_about() {
+        let t = pitwall_core::testing::TempDir::new("cli-tile-icons");
+        let dir = t.path().join("icons");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(MANIFEST), r#"{"v": 2, "id": "icons", "name": "Icons", "version": "0.1.0", "icon": "rocket", "contributes": {"tiles": [{"id": "main", "title": "Main", "icon": "page-right", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0"}]}}"#).unwrap();
+        let text = check(&dir).text();
+        assert!(text.contains("the extension's icon “rocket” isn't one of Pitwall's"), "{text}");
+        assert!(!text.contains("“page-right” isn't"), "{text}");
     }
 }
