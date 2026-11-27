@@ -49,6 +49,7 @@ pub mod activity;
 pub mod check;
 pub mod install;
 pub mod log;
+pub mod net;
 pub mod npm;
 pub mod permissions;
 pub mod plan;
@@ -58,6 +59,7 @@ pub mod protocol;
 pub mod service;
 pub mod source;
 pub mod starter;
+pub mod toolbar;
 pub mod update;
 pub mod view;
 
@@ -76,7 +78,7 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 8] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks"];
+pub const CONTRIBUTES: [&str; 9] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks", "toolbar"];
 
 /// A contribution an older Pitwall drew and this one no longer does: read
 /// and never drawn, so a manifest that has it still installs (its check
@@ -102,6 +104,11 @@ pub const MAX_WASM_PATH: usize = 100;
 /// may ask for (MiB; docs/spec/tile-sdk/runtime.md §2.5).
 pub const TILE_MEMORY_MIB: u32 = 64;
 pub const MAX_TILE_MEMORY_MIB: u32 = 512;
+/// The database every extension's tiles get (`sql`), and the most the
+/// `sql` permission may ask for (MiB; docs/spec/tile-sdk/
+/// platform-services.md §14.2).
+pub const TILE_SQL_MIB: u32 = 100;
+pub const MAX_TILE_SQL_MIB: u32 = 2048;
 
 /// Pitwall's icons by name: what a manifest's `icon` and a tile's icons
 /// may name (the app draws these; the SDK's `Icon` enum lists the same;
@@ -173,6 +180,13 @@ pub struct Manifest {
     /// permission (MiB, above [`TILE_MEMORY_MIB`], at most
     /// [`MAX_TILE_MEMORY_MIB`]); used only once granted.
     pub memory_mib: Option<u32>,
+    /// Format 2: the hosts its tiles may reach with the `net` permission
+    /// ([`net`]), as the manifest lists them; used only once granted.
+    pub net_hosts: Vec<net::HostPattern>,
+    /// Format 2: the size its tiles' database may grow to with the `sql`
+    /// permission (MiB, above [`TILE_SQL_MIB`], at most
+    /// [`MAX_TILE_SQL_MIB`]).
+    pub sql_mib: Option<u32>,
 }
 
 /// A permission a manifest asks for, and why, in the extension's words.
@@ -206,6 +220,8 @@ pub struct Contributes {
     /// Questions its tiles ask in the floating control
     /// (docs/spec/tile-sdk/platform-services.md §14.2).
     pub asks: bool,
+    /// A button in Pitwall's top bar ([`toolbar`]; at most one).
+    pub toolbar: Option<toolbar::ToolbarDef>,
 }
 
 /// A tile a manifest declares: its id (the view its component renders),
@@ -290,6 +306,12 @@ impl Contributes {
             out.push("notifications (a few a minute at most)".to_string());
         }
         out.extend(self.tiles.iter().map(|t| format!("a tile “{}” ({}), drawn from its own code, run in a sandbox", t.title, t.id)));
+        if let Some(t) = &self.toolbar {
+            out.push(format!("a button in the toolbar (“{}”){}", t.tooltip, if t.visible_by_default { "" } else { ", hidden until you show it" }));
+            if t.badge {
+                out.push("a badge on that button, so its tiles run while you aren't looking at them".to_string());
+            }
+        }
         out.extend(self.web_views.iter().map(|w| match &w.url {
             Some(u) => format!("a web page “{}” ({}) in a tile: {u}, with a browser store of its own", w.title, w.id),
             None => format!("a web page “{}” ({}) in a tile, at an address its adapter gives, with a browser store of its own", w.title, w.id),
@@ -372,6 +394,8 @@ impl Manifest {
             service: None,
             update: update::Policy::default(),
             memory_mib: None,
+            net_hosts: vec![],
+            sql_mib: None,
         }
     }
 
@@ -868,6 +892,8 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     // only format 1 never saw them); `check` says so.
     let (permissions, contributes) = if format >= 2 { (parse_permissions(obj.get("permissions"))?, parse_contributes(obj.get("contributes"))?) } else { (vec![], Contributes::default()) };
     let memory_mib = if format >= 2 { parse_memory(obj.get("permissions"))? } else { None };
+    let net_hosts = if format >= 2 { parse_net(obj.get("permissions"))? } else { vec![] };
+    let sql_mib = if format >= 2 { parse_sql(obj.get("permissions"))? } else { None };
     let service = match obj.get("service") {
         Some(v) if format >= 2 && !v.is_null() => Some(service::parse(v, &settings, &actions)?),
         _ => None,
@@ -891,7 +917,7 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
         return Err("\"contributes.notifications\" needs the \"notify\" permission, with your reason for it".into());
     }
     check_web_views(&contributes, &settings)?;
-    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib })
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions, source, format, pitwall: min_pitwall, permissions, contributes, service, update, memory_mib, net_hosts, sql_mib })
 }
 
 /// `pitwall`: `>=X.Y.Z`; `Err` when this Pitwall (`ours`) is older.
@@ -960,6 +986,35 @@ fn parse_memory(v: Option<&Value>) -> Result<Option<u32>, String> {
     }
 }
 
+/// The `net` permission's hosts: it must be an object with `hosts`
+/// ([`net::parse_hosts`]).
+fn parse_net(v: Option<&Value>) -> Result<Vec<net::HostPattern>, String> {
+    match v.and_then(|p| p.get(permissions::NET)) {
+        None => Ok(vec![]),
+        Some(Value::Object(o)) => match o.get("hosts") {
+            Some(Value::Array(list)) => {
+                let names = list.iter().map(|h| h.as_str().ok_or("permission “net”: \"hosts\" must be host names (strings)".to_string())).collect::<Result<Vec<_>, _>>()?;
+                net::parse_hosts(&names)
+            }
+            _ => Err("permission “net” needs \"hosts\": the host names its tiles connect to, like [\"api.github.com\"]".into()),
+        },
+        Some(_) => Err("permission “net” must be an object with your reason and its \"hosts\" ({\"reason\": …, \"hosts\": [\"api.github.com\"]})".into()),
+    }
+}
+
+/// The `sql` permission's size, when it is an object with `mib`: more
+/// than [`TILE_SQL_MIB`], at most [`MAX_TILE_SQL_MIB`].
+fn parse_sql(v: Option<&Value>) -> Result<Option<u32>, String> {
+    match v.and_then(|p| p.get(permissions::SQL)) {
+        None => Ok(None),
+        Some(Value::Object(o)) => match o.get("mib").and_then(Value::as_u64) {
+            Some(n) if n > u64::from(TILE_SQL_MIB) && n <= u64::from(MAX_TILE_SQL_MIB) => Ok(Some(n as u32)),
+            _ => Err(format!("permission “sql”: \"mib\" must be a whole number above {TILE_SQL_MIB} (what every extension's database gets) and at most {MAX_TILE_SQL_MIB}")),
+        },
+        Some(_) => Err(format!("permission “sql” must be an object with your reason and \"mib\", the size its database needs above {TILE_SQL_MIB} MiB")),
+    }
+}
+
 /// `contributes`: what it adds. A kind this Pitwall doesn't draw is
 /// refused, saying so, rather than dropped without a word.
 fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
@@ -969,6 +1024,7 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
         Some(_) => return Err("\"contributes\" must be an object".into()),
     };
     let mut c = Contributes::default();
+    let mut toolbar = None;
     let switch = |k: &str, val: &Value| match val {
         Value::Bool(b) => Ok(*b),
         _ => Err(format!("\"contributes.{k}\" must be true or false")),
@@ -984,6 +1040,8 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             "webViews" => c.web_views = parse_web_views(val)?,
             "tiles" => c.tiles = parse_tiles(val)?,
             "asks" => c.asks = switch(k, val)?,
+            // Checked once the tiles and commands it names are read.
+            "toolbar" => toolbar = Some(val),
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
             other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
         }
@@ -996,6 +1054,9 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             return Err(format!("“{id}” names a view, a web view or a tile twice: they share their ids"));
         }
         ids.push(id);
+    }
+    if let Some(v) = toolbar.filter(|v| !v.is_null()) {
+        c.toolbar = Some(toolbar::parse(v, &c)?);
     }
     Ok(c)
 }
@@ -1843,6 +1904,23 @@ mod tests {
         assert!(mem(r#"{"reason": "x", "mib": 32}"#).unwrap_err().contains("above 64"));
         assert!(mem(r#"{"reason": "x"}"#).unwrap_err().contains("needs \"mib\""));
         assert!(mem(r#"{"mib": 128}"#).unwrap_err().contains("needs your reason"));
+        // `net`: a reason and its hosts; `sql`: a size above 100 MiB.
+        let with = |p: &str| parse(&format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "permissions": {{{p}}}, "contributes": {{"tiles": [{{"id": "t", "title": "T", "wasm": "t.wasm"}}]}}}}"#));
+        let ok = with(r#""net": {"reason": "To read CI runs", "hosts": ["api.github.com", "*.example.com"]}, "sql": {"reason": "Many runs", "mib": 500}"#).unwrap();
+        assert_eq!(ok.net_hosts.iter().map(|h| h.written()).collect::<Vec<_>>(), ["api.github.com", "*.example.com"]);
+        assert_eq!((ok.sql_mib, permissions::amount(&ok, permissions::SQL).as_deref()), (Some(500), Some("500 MiB")));
+        assert_eq!(permissions::listed(&ok, permissions::NET), ["api.github.com", "*.example.com"]);
+        assert!(with(r#""net": "To read CI runs""#).unwrap_err().contains("must be an object"));
+        assert!(with(r#""net": {"reason": "x"}"#).unwrap_err().contains("needs \"hosts\""));
+        assert!(with(r#""net": {"reason": "x", "hosts": ["10.1.2.3"]}"#).unwrap_err().contains("IP address"));
+        assert!(with(r#""sql": {"reason": "x", "mib": 50}"#).unwrap_err().contains("above 100"));
+        assert!(with(r#""sql": {"reason": "x", "mib": 4096}"#).unwrap_err().contains("at most 2048"));
+        // `toolbar`: one item, checked against its tiles.
+        let tb = |t: &str| parse(&format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{"toolbar": {t}, "tiles": [{{"id": "t", "title": "T", "wasm": "t.wasm"}}]}}}}"#));
+        let m = tb(r#"{"icon": "inbox", "tooltip": "Inbox", "badge": true, "action": {"kind": "popover", "tile": "t"}}"#).unwrap();
+        assert!(m.contributes.toolbar.as_ref().is_some_and(|t| t.badge));
+        assert!(m.contributes.lines().iter().any(|l| l == "a button in the toolbar (“Inbox”)"));
+        assert!(tb(r#"{"icon": "inbox", "tooltip": "Inbox", "action": {"kind": "tile", "tile": "x"}}"#).unwrap_err().contains("doesn't declare"));
     }
 
     /// Format 2: the Pitwall it needs (an older one refuses it, saying
@@ -1863,7 +1941,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks)"));
+        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks, toolbar)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));
