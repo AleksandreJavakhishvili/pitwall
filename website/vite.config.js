@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, COMMUNITY_URL, NEW_LABEL } from "./site.config.js";
-import { renderPage, docsNavHtml, watchedFiles, llmsTxt, EXTENSION_PAGES, ROOT } from "./scripts/pages.mjs";
+import { renderPage, docsNavHtml, watchedFiles, llmsTxt, writeChildPages, EXTENSION_PAGES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
@@ -60,7 +60,9 @@ function markdownPages() {
       server.watcher.add([...watched]);
       for (const event of ["change", "add", "unlink"])
         server.watcher.on(event, (file) => {
-          if (isWatched(file)) server.ws.send({ type: "full-reload" });
+          if (!isWatched(file)) return;
+          writeChildPages(); // a split page may have gained or lost a section
+          server.ws.send({ type: "full-reload" });
         });
       server.middlewares.use("/sdk/llms.txt", (_req, res) => {
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -73,7 +75,7 @@ function markdownPages() {
         html = html.replace("<!-- docs-nav -->", () => docsNavHtml(ctx.path));
         if (!html.includes("<!-- markdown:")) return html;
         const appVersion = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
-        return html.replace(/<!-- markdown:([\w-]+) -->/g, (_, name) => {
+        return html.replace(/<!-- markdown:([\w/-]+) -->/g, (_, name) => {
           try {
             return renderPage(name, { repoUrl: REPO_URL, appVersion, onFiles: watch });
           } catch (e) {
@@ -215,6 +217,9 @@ export default defineConfig({
         howitworks: resolve(import.meta.dirname, "docs/how-it-works/index.html"),
         // The Extensions pages, one per EXTENSION_PAGES entry in scripts/pages.mjs.
         ...Object.fromEntries(EXTENSION_PAGES.map(([name, , path]) => [name, resolve(import.meta.dirname, `.${path}index.html`)])),
+        // The child pages of split pages (one per CLI command), generated from the
+        // parent's page each time the config loads (SPLIT in scripts/pages.mjs).
+        ...writeChildPages(),
         changelog: resolve(import.meta.dirname, "changelog/index.html"),
         roadmap: resolve(import.meta.dirname, "roadmap/index.html"),
         notfound: resolve(import.meta.dirname, "404.html"),
