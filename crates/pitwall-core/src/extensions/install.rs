@@ -42,6 +42,11 @@ pub enum Origin {
     /// A version of an npm package: the package, its registry, the version
     /// and the tarball's integrity (`sha512-…`) the registry gave.
     Npm { package: String, registry: String, version: String, integrity: String },
+    /// An unsigned folder of a tile extension, copied in as it was
+    /// (docs/spec/tile-sdk/packaging.md §6.3, "Before packages: a preview
+    /// folder"): `path`, where it was copied from. Developer preview:
+    /// never updated (installing a newer folder replaces it).
+    Folder { path: String },
 }
 
 impl Origin {
@@ -69,6 +74,7 @@ impl Origin {
             (Origin::Bundled, Origin::Bundled) => true,
             (Origin::Git { url: a, dir: da, .. }, Origin::Git { url: b, dir: db, .. }) => same_repo(a, b) && da == db,
             (Origin::Npm { package: a, registry: ra, .. }, Origin::Npm { package: b, registry: rb, .. }) => a == b && same_registry(ra, rb),
+            (Origin::Folder { path: a }, Origin::Folder { path: b }) => a == b,
             _ => false,
         }
     }
@@ -93,7 +99,14 @@ impl Origin {
                 format!("{}{at}, tag {tag}, commit {}", repo_name(url), super::source::short(commit))
             }
             Origin::Npm { package, registry, version, integrity } => format!("{}, version {version}, {}", npm_name(package, registry), super::npm::short(integrity)),
+            Origin::Folder { path } => format!("Unsigned preview, copied from {}", crate::paths::tildify(path)),
         }
+    }
+
+    /// An unsigned preview folder: marked so wherever it shows, never
+    /// updated.
+    pub fn is_preview(&self) -> bool {
+        matches!(self, Origin::Folder { .. })
     }
 
     /// Where it comes from, without the release: "with this Pitwall",
@@ -103,6 +116,7 @@ impl Origin {
             Origin::Bundled => "with this Pitwall".into(),
             Origin::Git { url, .. } => repo_name(url),
             Origin::Npm { package, registry, .. } => npm_name(package, registry),
+            Origin::Folder { path } => crate::paths::tildify(path),
         }
     }
 }
@@ -409,6 +423,9 @@ pub fn origin(dir: &Path) -> Option<Origin> {
 }
 
 fn marker_origin(m: &Value) -> Origin {
+    if let Some(path) = m["source"]["folder"].as_str() {
+        return Origin::Folder { path: path.to_string() };
+    }
     if let (Some(package), Some(version), Some(integrity)) = (m["source"]["npm"].as_str(), m["version"].as_str(), m["integrity"].as_str()) {
         let registry = m["source"]["registry"].as_str().unwrap_or(super::NPM_REGISTRY);
         return Origin::Npm { package: package.to_string(), registry: registry.to_string(), version: version.to_string(), integrity: integrity.to_string() };
@@ -606,7 +623,7 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
     let usable = match &offer.origin {
         Origin::Bundled => read(&offer.folder, id).map(|_| ()).map_err(|e| format!("The bundled copy can't be used: {e}")),
         // A fetched folder isn't named after its id.
-        Origin::Git { .. } | Origin::Npm { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
+        Origin::Git { .. } | Origin::Npm { .. } | Origin::Folder { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
             Ok(m) if m.id == *id => Ok(()),
             Ok(m) => Err(format!("The fetched copy is “{}”, not “{id}”", m.id)),
             Err(e) => Err(format!("The fetched copy can't be used: {e}")),
@@ -621,6 +638,7 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
             Origin::Git { url, dir, tag, commit } => json!({ "version": offer.manifest.version, "digest": d, "source": { "git": url, "dir": dir }, "tag": tag, "commit": commit }),
             // The package's version, which its manifest's must equal.
             Origin::Npm { package, registry, version, integrity } => json!({ "version": version, "digest": d, "source": { "npm": package, "registry": registry }, "integrity": integrity }),
+            Origin::Folder { path } => json!({ "version": offer.manifest.version, "digest": d, "source": { "folder": path }, "trust": "preview" }),
         };
         std::fs::write(staged.join(MARKER), format!("{marker:#}\n")).map_err(|e| e.to_string())
     });
@@ -650,7 +668,7 @@ fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
     for entry in std::fs::read_dir(from).map_err(|e| e.to_string())?.flatten() {
         let name = entry.file_name();
