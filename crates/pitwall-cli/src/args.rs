@@ -327,6 +327,45 @@ pub enum ExtensionCmd {
     /// Asks the user.
     #[command(subcommand)]
     Connection(ConnectionCmd),
+    /// The tools its tiles give agents (all extensions' without an id):
+    /// name, kind (show, present, read, act), what it does, its input.
+    Tools { id: Option<String> },
+    /// The tools its tiles offer the command line (`"expose"`), with
+    /// their arguments: what `run` takes.
+    Commands { id: Option<String> },
+    /// Call one of its tiles' tools with a JSON input; the result as MCP
+    /// gives it to agents. Who calls is who runs this: an agent in its
+    /// terminal, or you in a plain Pitwall terminal (read runs, act asks
+    /// you in Pitwall); outside Pitwall only show tools.
+    Call {
+        id: String,
+        /// The tool's name (`current_messages`, or `hello__current_messages`).
+        tool: String,
+        /// The input as JSON text, or `-` to read it from stdin.
+        #[arg(long, default_value = "{}")]
+        input: String,
+        /// Give up sooner than the tool's own time (seconds; never longer).
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Run one of its tiles' commands: `--<property> <value>` for each
+    /// input property after `--`, or `--json <text|->` for the whole
+    /// input. Prints the result's JSON (its text with --human). Exit
+    /// status: 1 the tile answered with an error, 3 refused or denied, 4
+    /// not available, 5 timed out.
+    Run {
+        id: String,
+        command: String,
+        /// The whole input as JSON text, or `-` for stdin.
+        #[arg(long)]
+        json: Option<String>,
+        /// Give up sooner than the tool's own time (seconds; never longer).
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// The input's properties: `-- --item a --text "hi"`.
+        #[arg(last = true)]
+        props: Vec<String>,
+    },
 }
 
 impl Command {

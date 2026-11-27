@@ -204,7 +204,7 @@ impl<'a> Proxy<'a> {
     pub fn call(&self, params: &Value) -> (Value, Option<Value>) {
         let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-        match self.up.call(&McpCall { name: name.clone(), arguments: arguments.clone(), agent: self.agent.clone() }) {
+        match self.up.call(&McpCall { name: name.clone(), arguments: arguments.clone(), agent: self.agent.clone(), cli: false, timeout_ms: None }) {
             Ok(c) => {
                 let told = self.check(&c.stamp);
                 (c.result, told)
