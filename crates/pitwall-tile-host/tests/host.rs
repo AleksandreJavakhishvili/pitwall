@@ -1,8 +1,12 @@
 //! The tile host end to end, with the committed hello tile
 //! (tests/fixtures/hello/, rebuilt by tests/fixtures/build-hello-tile.sh):
 //! load, render, events, storage, settings, views with content, limits and
-//! stops. Each test has its own data folder in a temporary directory.
+//! stops. Each test has its own data folder in a temporary directory. The
+//! tile is written with the guest SDK, which numbers handlers itself: the
+//! tests click a node by its key, with the handler of the newest frame.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -19,6 +23,8 @@ fn fixture() -> PathBuf {
 struct Run {
     handle: TileHandle,
     rx: Receiver<TileOutput>,
+    /// The newest frame of each view seen so far.
+    frames: RefCell<HashMap<String, FrameUpdate>>,
 }
 
 fn start(host: &TileHost, options: StartOptions) -> Run {
@@ -29,7 +35,7 @@ fn start(host: &TileHost, options: StartOptions) -> Run {
             let _ = tx.send(o);
         })
         .expect("starts");
-    Run { handle, rx }
+    Run { handle, rx, frames: RefCell::default() }
 }
 
 fn host(data: &Path) -> TileHost {
@@ -48,6 +54,9 @@ impl Run {
             let left = until.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left) {
                 Ok(o) => {
+                    if let TileOutput::Frame(f) = &o {
+                        self.frames.borrow_mut().insert(f.view.clone(), f.clone());
+                    }
                     if let Some(t) = pick(&o) {
                         return t;
                     }
@@ -82,7 +91,18 @@ impl Run {
         })
     }
 
-    fn click(&self, handler: u32) {
+    /// The handler of the `on` listener of the node keyed `key` in
+    /// `view`'s newest frame.
+    fn handler(&self, view: &str, key: &str, on: ui::Listen) -> u32 {
+        let frames = self.frames.borrow();
+        let f = frames.get(view).unwrap_or_else(|| panic!("no frame of {view} yet"));
+        let node = f.frame.nodes.iter().find(|n| n.key == key).unwrap_or_else(|| panic!("no node “{key}” in {view}"));
+        node.on.iter().find(|l| l.on == on).map(|l| l.handler).unwrap_or_else(|| panic!("“{key}” has no {on:?} listener"))
+    }
+
+    /// Click the node keyed `key` in the main view.
+    fn click(&self, key: &str) {
+        let handler = self.handler("main", key, ui::Listen::Click);
         assert!(self.handle.send(Event::Click(ui::Click { handler, button: MouseButton::Left, modifiers: Modifiers::empty(), count: 1, at: Point { x: 4.0, y: 4.0 } })));
     }
 }
@@ -117,7 +137,7 @@ fn a_tile_loads_renders_and_handles_a_click() {
     assert_eq!(first.tile, "main");
     assert!(texts(&first).iter().any(|t| t == "Hello from a tile (main)"), "the setting's default: {:?}", texts(&first));
     assert_eq!((first.diff.added, first.diff.removed), (first.frame.nodes.len(), 0));
-    run.click(1);
+    run.click("button");
     let second = run.frame_with("main", "Clicked 1 times");
     assert_eq!(second.diff.continues.iter().filter(|c| c.is_none()).count(), 0, "same key paths");
     assert_eq!(second.diff.changed.len(), 1, "only the count changed");
@@ -135,8 +155,8 @@ fn storage_persists_across_starts() {
     let host = host(t.path());
     let run = start(&host, StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
-    run.click(1);
-    run.click(1);
+    run.click("button");
+    run.click("button");
     run.frame_with("main", "Clicked 2 times");
     run.handle.stop();
     run.stopped();
@@ -178,18 +198,19 @@ fn text_input_timers_logs_and_toasts() {
     let t = tempfile::tempdir().unwrap();
     let run = start(&host(t.path()), StartOptions::view("main"));
     run.frame_with("main", "Typed: ");
-    let change = |value: &str, revision| Event::InputChanged(ui::InputChange { handler: 10, value: value.into(), revision, selection: ui::TextRange { start: 0, end: 0 } });
+    let handler = run.handler("main", "field", ui::Listen::Change);
+    let change = |value: &str, revision| Event::InputChanged(ui::InputChange { handler, value: value.into(), revision, selection: ui::TextRange { start: 0, end: 0 } });
     // A burst of changes to one field is handled as its newest.
     run.handle.send(change("a", 1));
     run.handle.send(change("ab", 2));
     run.handle.send(change("abc", 3));
     run.frame_with("main", "Typed: abc");
-    run.click(4);
+    run.click("print");
     assert_eq!(run.log_line("hello from stdout").level, LogLevel::Info);
     assert_eq!(run.log_line("hello from stderr").level, LogLevel::Warn);
-    run.click(5);
+    run.click("timer");
     run.frame_with("main", "Ticks: 1");
-    run.click(6);
+    run.click("toast");
     let toast = run.next("a toast", |o| match o {
         TileOutput::Ui(r @ UiRequest::Toast { .. }) => Some(r.clone()),
         _ => None,
@@ -212,7 +233,7 @@ fn views_open_with_content_and_take_updates() {
     run.handle.open_view(ViewSpec { id: "agent-1".into(), tile: "second".into(), content: Some(content(r#"{"message":"third"}"#)) });
     run.frame_with("agent-1", r#"Content: {"message":"third"}"#);
     run.handle.close_view("agent-1");
-    run.click(1);
+    run.click("button");
     let f = run.frame_with("main", "Clicked 1 times");
     assert_eq!(f.view, "main");
 }
@@ -222,14 +243,21 @@ fn a_hidden_tile_renders_once_shown_and_saves_its_state() {
     let t = tempfile::tempdir().unwrap();
     let run = start(&host(t.path()), StartOptions { visible: false, grants: Grants::new(["memory"]), ..StartOptions::view("main") });
     run.next("Started", |o| matches!(o, TileOutput::Started { .. }).then_some(()));
-    run.click(1);
-    assert!(run.handle.save_state());
-    let state = run.next("saved state", |o| match o {
-        TileOutput::StateSaved(b) => Some(b.clone()),
-        TileOutput::Frame(_) => panic!("a hidden tile rendered"),
-        _ => None,
-    });
-    assert_eq!(state, 1u32.to_le_bytes());
+    let saved = |run: &Run| {
+        assert!(run.handle.save_state());
+        run.next("saved state", |o| match o {
+            TileOutput::StateSaved(b) => Some(b.clone()),
+            TileOutput::Frame(_) => panic!("a hidden tile rendered"),
+            _ => None,
+        })
+    };
+    assert_eq!(saved(&run), 0u32.to_le_bytes());
+    run.handle.set_visible(true);
+    run.frame_with("main", "Clicked 0 times");
+    // Hidden again: a click is handled, but nothing renders until shown.
+    run.handle.set_visible(false);
+    run.click("button");
+    assert_eq!(saved(&run), 1u32.to_le_bytes());
     run.handle.set_visible(true);
     run.frame_with("main", "Clicked 1 times");
 }
@@ -240,7 +268,7 @@ fn a_call_past_its_deadline_stops_the_tile() {
     let run = start(&host(t.path()), StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
     let at = Instant::now();
-    run.click(2);
+    run.click("spin");
     let r = run.stopped();
     let took = at.elapsed();
     assert_eq!(r, StopReason::Deadline { call: "handle", limit: Duration::from_secs(1) });
@@ -254,7 +282,7 @@ fn stop_ends_a_running_call_at_once() {
     let t = tempfile::tempdir().unwrap();
     let run = start(&host(t.path()), StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
-    run.click(2);
+    run.click("spin");
     let at = Instant::now();
     run.handle.stop();
     assert_eq!(run.stopped(), StopReason::Stopped);
@@ -266,7 +294,7 @@ fn a_frame_over_the_tree_limit_is_refused() {
     let t = tempfile::tempdir().unwrap();
     let run = start(&host(t.path()), StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
-    run.click(3);
+    run.click("huge");
     match run.stopped() {
         StopReason::FrameRefused(why) => assert!(why.contains("20001 nodes"), "{why}"),
         other => panic!("{other:?}"),
@@ -279,11 +307,11 @@ fn a_panic_or_runaway_memory_ends_only_the_tile() {
     let host = host(t.path());
     let run = start(&host, StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
-    run.click(7);
+    run.click("panic");
     assert!(matches!(run.stopped(), StopReason::Crashed(_)));
     let run = start(&host, StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
-    run.click(8);
+    run.click("grow");
     assert!(matches!(run.stopped(), StopReason::Crashed(_)), "a grow past 64 MiB traps");
 }
 

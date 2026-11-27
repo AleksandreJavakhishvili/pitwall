@@ -141,9 +141,9 @@ name = "hello-tile"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "pitwall-extension",
  "regex",
  "serde_json",
- "wit-bindgen",
 ]
 
 [[package]]
@@ -243,6 +243,15 @@ name = "pin-project-lite"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
+
+[[package]]
+name = "pitwall-extension"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wit-bindgen",
+]
 
 [[package]]
 name = "prettyplease"

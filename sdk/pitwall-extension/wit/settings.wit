@@ -1,0 +1,36 @@
+package pitwall:tile@0.1.0;
+
+/// The tile's settings (platform-services.md §14.2). No permission: only
+/// the extension's own settings. The manifest declares them (`settings`:
+/// key, type, label, default); Pitwall draws the form in Settings, keeps
+/// the values and sends `settings-changed` when the user changes them.
+interface settings {
+  use types.{host-error};
+
+  /// A setting's value.
+  variant setting-value {
+    /// A `text`, `url` or `choice` setting (a choice gives its value, not
+    /// its label).
+    text(string),
+    /// A `number` setting.
+    number(f64),
+    /// A `bool` setting (a switch).
+    flag(bool),
+  }
+
+  /// The value of setting `key`: what the user set, else the manifest's
+  /// default; `none` when it has neither, or when `key` isn't one of the
+  /// manifest's settings. A `secret` setting is never returned here: use
+  /// `secret`.
+  get: func(key: string) -> option<setting-value>;
+
+  /// The value of `secret` setting `key`, from the system's secure store:
+  /// `none` when the user hasn't set it. `host-error.invalid` when `key`
+  /// isn't one of the manifest's secret settings. Keep it in memory only:
+  /// never store it, log it or show it.
+  secret: func(key: string) -> result<option<string>, host-error>;
+
+  /// Open the extension's card in Settings, where the user sets these
+  /// (for a "Set up" button when a required setting is missing).
+  open: func();
+}
