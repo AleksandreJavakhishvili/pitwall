@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use gpui::{px, size, AnyWindowHandle, AppContext, Entity, HeadlessAppContext};
 use pitwall_core::testing::TempDir;
 use pitwall_proto::settings::Page;
+use pitwall_proto::tile_tools::TileShow;
 use pitwall_tile_host::agent::{Caller, ShowCall};
 
 use crate::extensions::catalog;
@@ -83,14 +84,15 @@ fn agents_shots() {
     let call = |cx: &mut HeadlessAppContext, ext: &str, tool: Option<&str>, item: &str, input: serde_json::Value| {
         let (tx, rx) = std::sync::mpsc::channel();
         let (ext, tool, item) = (ext.to_string(), tool.map(String::from), item.to_string());
-        cx.update(|cx| {
+        let req = TileShow { agent_id: "api".into(), agent_name: "api".into(), extension: ext.clone(), tile: "main".into(), tool: tool.clone(), item: Some(item.clone()), input: Some(input.to_string()), ..Default::default() };
+        let id = cx.update(|cx| {
             let tiles = super::tiles(cx);
             tiles.update(cx, |t, cx| {
                 let c = ShowCall { tool, tile: "main".into(), item: Some(item), input: Some(input.to_string()), caller: Caller { agent_id: "api".into(), agent_name: "api".into(), project: None } };
                 let (id, content) = t.calls(&ext).begin(&c, Instant::now()).unwrap();
                 t.deliver(&ext, "main", id, content, tx, cx).unwrap();
-                t.set_origin(&ext, "main", ("api".into(), "api".into()), cx);
-            });
+                id
+            })
         });
         let end = Instant::now() + WAIT;
         while rx.try_recv().is_err() {
@@ -98,6 +100,8 @@ fn agents_shots() {
             cx.run_until_parked();
             std::thread::sleep(Duration::from_millis(20));
         }
+        // Recorded in its Activity, the view marked.
+        cx.update(|cx| super::agents::finished(&ext, "main", id, &req, &Ok(()), cx));
     };
     let open = |cx: &mut HeadlessAppContext, key: &str, w: f32, h: f32| {
         let vt = std::rc::Rc::new(std::cell::RefCell::new(None));
@@ -147,8 +151,31 @@ fn agents_shots() {
     let settings: Entity<SettingsView> = sv.borrow().clone().unwrap();
     cx.update(|cx| settings.update(cx, |v, cx| v.debug_activity("hello", true, cx)));
     cx.run_until_parked();
+    let _ = cx.update_window(shell.into(), |_, window, _| window.refresh());
+    cx.run_until_parked();
+    // Down to its Agents part and Activity.
+    let down = |cx: &mut HeadlessAppContext, dy: f32| {
+        cx.update(|cx| settings.read(cx).scroll_by(px(dy)));
+        let _ = cx.update_window(shell.into(), |_, window, _| window.refresh());
+        cx.run_until_parked();
+    };
+    down(&mut cx, card_dy());
     shot(&mut cx, shell.into(), "card");
     cx.update(|cx| crate::settings::data::set_page(cx, Page::Agents));
     cx.run_until_parked();
+    let _ = cx.update_window(shell.into(), |_, window, _| window.refresh());
+    cx.run_until_parked();
+    down(&mut cx, agents_dy());
     shot(&mut cx, shell.into(), "settings-agents");
+}
+
+/// How far the Extensions page is scrolled for the card's Agents part
+/// (`PITWALL_SHOTS_CARD_DY` to adjust).
+fn card_dy() -> f32 {
+    std::env::var("PITWALL_SHOTS_CARD_DY").ok().and_then(|v| v.parse().ok()).unwrap_or(640.)
+}
+
+/// How far Settings → Agents is scrolled for "Agents can use tiles".
+fn agents_dy() -> f32 {
+    std::env::var("PITWALL_SHOTS_AGENTS_DY").ok().and_then(|v| v.parse().ok()).unwrap_or(600.)
 }
