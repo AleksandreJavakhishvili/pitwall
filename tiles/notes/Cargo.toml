@@ -1,0 +1,41 @@
+# The Notes seed tile (docs/spec/2026-11-27-notes-tile/), made with
+# `pitwall extension new --template list`. Its own workspace, not a member
+# of the root one: the app's `cargo test --workspace` never builds it, and
+# it may depend on no Pitwall crate but the public `pitwall-extension`
+# (and `pitwall-extension-test`, dev only). CI checks that with
+# scripts/check-deps.sh (hla.md §1).
+[package]
+name = "notes-tile"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pitwall's Notes tile: private plain-text notes beside the agents."
+publish = false
+
+[lib]
+# A WebAssembly component: `pitwall extension dev` (or `cargo build
+# --release --target wasm32-wasip2`) builds it, and Pitwall runs the copy
+# beside extension.json, tile.wasm.
+crate-type = ["cdylib"]
+
+[dependencies]
+# The SDK. Until it is on crates.io it comes from this repository (later:
+# pitwall-extension = "0.1").
+pitwall-extension = { path = "../../sdk/pitwall-extension" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Runs the built tile.wasm in Pitwall's own tile runtime (tests/).
+pitwall-extension-test = { path = "../../crates/pitwall-extension-test" }
+serde_json = "1"
+
+# Small and quick to load: Pitwall compiles the component on first start.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# A project of its own, even inside another Cargo workspace's folder.
+[workspace]
