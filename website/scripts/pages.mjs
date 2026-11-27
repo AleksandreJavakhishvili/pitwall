@@ -24,6 +24,7 @@ export const EXTENSION_PAGES = [
   ["extensions", "README.md", "/docs/extensions/", "Overview"],
   ["extensions-quick-start", "quick-start.md", "/docs/extensions/quick-start/", "Quick start"],
   ["extensions-ui", "ui.md", "/docs/extensions/ui/", "Tiles and UI components"],
+  ["extensions-agent-tools", "agent-tools.md", "/docs/extensions/agent-tools/", "Agent tools"],
   ["extensions-permissions", "permissions.md", "/docs/extensions/permissions/", "Permissions"],
   ["extensions-platform-services", "platform-services.md", "/docs/extensions/platform-services/", "Platform services"],
   ["extensions-wit", "wit.md", "/docs/extensions/wit/", "WIT reference 0.1"],
