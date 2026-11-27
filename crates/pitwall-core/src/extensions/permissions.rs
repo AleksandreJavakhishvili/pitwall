@@ -204,9 +204,35 @@ pub fn kept(m: &Manifest, decisions: &Decisions) -> Decisions {
     decisions.iter().filter(|(n, _)| m.permissions.iter().any(|p| p.name == **n)).map(|(n, d)| (n.clone(), *d)).collect()
 }
 
+/// `decisions` after an update from `old` to `new` (docs/spec/tile-sdk/
+/// packaging.md §6.4): [`kept`], and a grant whose permission now asks
+/// for more forgotten, so it is asked again before it is used: `net`
+/// listing a host it didn't.
+pub fn after_update(old: &Manifest, new: &Manifest, decisions: &Decisions) -> Decisions {
+    let mut out = kept(new, decisions);
+    let was: Vec<String> = old.net_hosts.iter().map(|h| h.written()).collect();
+    if new.net_hosts.iter().any(|h| !was.contains(&h.written())) {
+        out.remove(NET);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An update that adds a `net` host asks again; one that keeps them
+    /// keeps the grant.
+    #[test]
+    fn a_new_host_is_asked_again() {
+        let net = |hosts: &str| crate::extensions::parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "permissions": {{"net": {{"reason": "Its API", "hosts": [{hosts}]}}}}, "contributes": {{"tiles": [{{"id": "m", "title": "M", "wasm": "t.wasm"}}]}}}}"#)).unwrap();
+        let mut d = Decisions::new();
+        d.insert(NET.into(), Decision { granted: true, at: 1 });
+        let (a, ab) = (net(r#""api.example.com""#), net(r#""api.example.com", "evil.example.net""#));
+        assert!(after_update(&a, &a, &d).contains_key(NET));
+        assert!(after_update(&ab, &a, &d).contains_key(NET), "fewer hosts: kept");
+        assert!(!after_update(&a, &ab, &d).contains_key(NET), "a new host: asked again");
+    }
     use crate::extensions::{PermissionAsk, Manifest};
 
     fn asking(names: &[&str]) -> Manifest {

@@ -7,8 +7,9 @@ description = "Pitwall's logic: the Engine (agents, status, queue, tasks), kinds
 [features]
 # Test doubles (`testing::{RecordingSink, ManualClock, MemStore, FakeExec,
 # FakeProvider}`) and the provider contract suite (`testing::contract`) for
-# hosts' and providers' tests.
-testing = []
+# hosts' and providers' tests; throwaway minisign keys that sign tile
+# packages (`testing::Signing`).
+testing = ["dep:minisign"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -30,8 +31,17 @@ similar = "2"
 sha2 = "0.10"
 flate2 = "1"
 base64 = "0.22"
+# Tile packages' signatures (extensions::package, docs/spec/tile-sdk/
+# packaging.md §6.2): minisign verification only; MIT, no dependencies of
+# its own. Signing is the CLI's; here only for tests (`testing`).
+minisign-verify = "0.3"
+minisign = { version = "0.10", optional = true }
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
+
+[dev-dependencies]
+# Throwaway keys that sign packages in tests (MIT).
+minisign = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 # An adapter's process group stopped as one (platform/group.rs); already in
