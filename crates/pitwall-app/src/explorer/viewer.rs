@@ -1489,7 +1489,7 @@ impl Viewer {
                     }
                     cx.notify();
                 }
-                CodeViewEvent::Comment { .. } => {}
+                CodeViewEvent::Comment { .. } | CodeViewEvent::LineClicked { .. } => {}
             }));
             d.code = Some(fc);
         }
