@@ -101,6 +101,19 @@ by messages (S20); Raycast built native views from a serialised React
 tree (S13). Pitwall's design is closest to Raycast's, with wasm in
 place of Node and Pitwall's kit in place of AppKit.
 
+WIT 0.1 (`crates/pitwall-tile-host/wit/`) is the first published cut of
+this: elements `box`, `text`, `button`, `icon`, `scroll` and `input`; the
+style list above; listeners click, change, select, submit, scroll,
+hover and pointer; no drag, drop or `origin` yet (records gain fields in
+a later 0.x world). Pointer events (`click`, `hover`, `pointer`) carry the
+position in the node, in logical pixels, and the modifiers;
+`pointer-kind` is a variant (`down`, `up`, `move`) so wheel and pinch
+can be added as cases later without breaking tiles. Views get
+`view-opened`, `view-content` and `view-closed` events with optional
+content (JSON text or bytes and a content id). Its `input` is host-owned: a frame names the text only to
+replace it, and `input-changed` carries the selection
+([runtime.md 2.4](runtime.md#24-threading-with-gpui)).
+
 What the tile can't do: set fonts other than Pitwall's UI and mono
 faces, set colours outside a canvas, draw outside its bounds, open
 overlays outside its tile (menus, tooltips and popovers are anchored
@@ -113,7 +126,7 @@ open/close motion are the host's (and follow Reduce motion).
 variant event {
   click(click),                 // handler, button, modifiers, count
   input-changed(input-change),  // handler, value, revision
-  submit(handler),              // Enter / ⌘⏎ in an input
+  submit(handler),              // Enter (one line) / ⌘⏎ (multi-line) in an input
   key(key-event),               // a binding from the keymap fired
   select(selection),            // list/table/tree/tabs/select: key or index
   toggle-row(tree-toggle),
@@ -141,6 +154,10 @@ older frame that no longer exists is dropped by the SDK.
   Pitwall's own bindings always win: the palette, ⌘⏎, ⌘W, space
   switching, ⌘1–9, Esc to leave a maximised tile. The reserved set is
   listed in the SDK docs and checked by `pitwall extension check`.
+  One exception, as in Pitwall's own text fields [today: the kit's
+  multi-line `TextInput`]: while a multi-line `input` has focus, ⌘⏎
+  (Ctrl+Enter off macOS) submits it instead of maximising the tile.
+  Enter submits a one-line field; a tile can't bind ⌘⏎ in its keymap.
 - A tile declares its keys in `keymap` (for example `j`, `k`, `enter`,
   `cmd-r`, `/`). The host turns them into a GPUI key context named
   `tile:<id>` with those bindings; a fired binding becomes a `key`
