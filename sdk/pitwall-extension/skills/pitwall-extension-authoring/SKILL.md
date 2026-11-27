@@ -381,11 +381,21 @@ impl MyTile {
 - `notify::send(title, body)`: 3 a minute, repeats within 10 minutes
   dropped.
 - `show::file(path, Some(line))` (editor), `show::view(path, Some(line))` (file viewer), `show::web(url)`.
+- `files` (`files.read`; `files.write` to change, off by default): only
+  the project the view is open in, `files::Root::project(view)`, and the
+  extension's own folder `Root::Data` (no permission, 100 MiB).
+  `files::project(view)` (name, folder), `read_text`, `stat`,
+  `list(&root, "docs", true)`, `watch(&root, "docs")` →
+  `Event::FilesChanged { watch, paths }`, `write_text`, `create`
+  (`Exists`), `make_folder`, `rename`, `delete` (to the Trash).
+  Relative paths only; `..`, links out, `.git` and changes to
+  `.pitwall.json` are refused; 8 MiB a file, 8 watches.
+  `Event::ProjectChanged(view)`: the view moved; read again.
 
 Without the grant a call fails with `HostError::Denied` (`net::Error::
-Denied`); carry on and say what is missing. There is no file or program
-access, and never agents' terminals; don't try (no `std::fs`, no raw
-sockets): they fail.
+Denied`); carry on and say what is missing. There is no file access
+outside `files` and no program access, and never agents' terminals;
+don't try (no `std::fs`, no raw sockets): they fail.
 
 ## Tests
 
@@ -436,6 +446,10 @@ Services in tests: `Harness::grant("net")` (or `grant`/`revoke` while it
 runs), `respond(url, status, body)` and `respond_error` (nothing leaves the
 test), `requests()`, `notifications()`, `ui_requests()` (files and pages
 opened), `toolbar()`, `click_toolbar(None)`, `click_in_popover("close")`,
+`Harness::project("shop").project_file("docs/a.md", "# A")` (the view
+opens in that project; `write_project_file`, `remove_project_file`,
+`rename_project_file`, `project_file`, `trashed()`, `watches()`,
+`move_to_project`, `activity()`),
 `Harness::own_server("127.0.0.1:8790")`, `set_service(info)`,
 `database()` (the SQLite file, in the test's temporary folder).
 

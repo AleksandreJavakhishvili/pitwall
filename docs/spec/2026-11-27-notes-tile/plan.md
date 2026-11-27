@@ -13,8 +13,9 @@ them each step waits for, and it doesn't tick their items.
 
 **Status:** step 0 built (#119) on SDK phase 1, its SDK gaps G8–G18
 closed and seen in Pitwall headless on macOS (#121). v1's Preview,
-Send and its permissions built (#131); project notes wait for `files.*`
-and G5.
+Send and its permissions built (#131); project notes as files, changes
+on disk and open in the editor built on `files` (#PRNUM); per-project
+private notes left.
 
 ## SDK requests
 
@@ -36,12 +37,12 @@ that design. The step it blocks is named.
 - [x] G16: `extension new --sdk` writes relative paths and no skill copies inside Pitwall's checkout. Not blocking (#121: relative inside the checkout; `--no-skill`)
 - [x] G17: which WASI interfaces (clocks, random) a tile has, documented. Not blocking (#121)
 - [x] G18: `Div` and the other builders in the prelude; a show-on-hover style. Not blocking (#121: `group` and `visible_on_group_hover`; Notes shows a Delete on a row on hover)
-- [ ] G4b: `files` gains remove, rename and create-folder, or the design states that the WASI route under `/projects/<n>` does them under the same grants and path checks. Blocks v1
-- [ ] G5, G5b: a tile learns its space's project, and grants and agents name projects by the same id. Blocks v1's per-project lists and agent picker
+- [x] G4b: `files` gains remove, rename and create-folder, or the design states that the WASI route under `/projects/<n>` does them under the same grants and path checks. Blocks v1 (#PRNUM: `files::delete` to the Trash, `rename`, `make_folder`; no WASI route)
+- [x] G5, G5b: a tile learns its space's project, and grants and agents name projects by the same id. Blocks v1's per-project lists and agent picker (#PRNUM: `files::project(view)` gives its folder and name, the folder agents' `project` names; `project-changed` when it moves)
 - [ ] G7: what happens to host calls in flight at suspension. Blocks v1's save on hide
 - [ ] G4: `files.*` limited to `paths` in the manifest. Not blocking; without it v1 asks for the whole project
 - [x] G2: the selection of an input. Not blocking; without it v1 sends the whole note or a section (#135: in WIT 0.1 already, `input-changed` and `input-selected` carry it; the harness selects with `select_text`)
-- [ ] G3: a file-change event. Not blocking v1
+- [x] G3: a file-change event. Not blocking v1 (#PRNUM: `files::watch` and `Event::FilesChanged`)
 - [x] G6: a link event from `markdown`, and task boxes as `toggle` (#126)
 
 ## Step 0: preview on phase 1
@@ -68,15 +69,15 @@ Waits for SDK phase 2 and the on-demand `files.read/write` service
 step triggers. Done when every FR in [frd.md §5](frd.md#5-functional-requirements)
 holds, with a harness test for each, and the README below is published.
 
-- [ ] LLD `notes-files-lld.md` in this folder: file naming from titles, the notes folder setting, versions and the conflict flow of [hla.md §4.1](hla.md#41-saving-a-project-note-pseudocode), private keys per project; reviewed in its pull request
-- [ ] Project notes: list `*.md` in the notes folder, open, edit, new, rename, delete (FR-1–FR-9); harness tests against a temp project folder
-- [ ] No-grant state: the Project group explains and asks for `files.read`; private notes still work (FR-4); harness test with the grant refused
-- [ ] Changes on disk: reload on show, focus and open; the version check before each save with Reload, Keep mine, Save as a copy (FR-17, FR-18); harness test that changes the file between read and save
+- [x] LLD `notes-files-lld.md` in this folder: file naming from titles, the notes folder setting, versions and the conflict flow of [hla.md §4.1](hla.md#41-saving-a-project-note-pseudocode), private keys per project; reviewed in its pull request (#PRNUM: private keys per project left, §7)
+- [x] Project notes: list `*.md` in the notes folder, open, edit, new, rename, delete (FR-1–FR-9); harness tests against a temp project folder (#PRNUM: `notes` folder setting; a new note in a project with `files.write` is a file named from its title; Rename to the title; Delete to the Trash; read only without `files.write`)
+- [x] No-grant state: the Project group explains and asks for `files.read`; private notes still work (FR-4); harness test with the grant refused (#PRNUM)
+- [x] Changes on disk: reload on show, focus and open; the version check before each save with Reload, Keep mine, Save as a copy (FR-17, FR-18); harness test that changes the file between read and save (#PRNUM: also live, with a watch on the notes folder (G3); Deleted on disk offers Save again or Discard)
 - [x] Preview with the `markdown` element, switched by a segmented control and a key (FR-11, FR-12); text snapshot test. Preview, its tabs and ticking tasks there are in #126; the key is left (#131: ⌘/, which isn't reserved and works while the field has focus; saves before Preview)
-- [ ] Send to agent: agent picker from `agent.list`, the note's project first; whole note, section in Preview, selection once G2 exists; 4 000-character check before the call (FR-13–FR-16); harness test with a fake method table that records `queue.add` (#131: a picker in a popover from the note's bar, Pitwall's plain terminals left out; the whole note or one section under a heading, chosen in the picker in Edit and Preview alike; the 4 000-character check; Busy, Denied, gone agents shown in the picker. #135: the selection, first when there is one, shown in the picker. Still open: the note's project first waits for G5)
-- [ ] Open in editor through `viewer.open` for notes over the edit limit or on request (FR-10); harness test records the call (`show.view` and `show.file` exist, #135; waits for project notes, `files.*`, since private notes are no files)
+- [x] Send to agent: agent picker from `agent.list`, the note's project first; whole note, section in Preview, selection once G2 exists; 4 000-character check before the call (FR-13–FR-16); harness test with a fake method table that records `queue.add` (#131: a picker in a popover from the note's bar, Pitwall's plain terminals left out; the whole note or one section under a heading, chosen in the picker in Edit and Preview alike; the 4 000-character check; Busy, Denied, gone agents shown in the picker. #135: the selection, first when there is one, shown in the picker. Still open: the note's project first waits for G5; #PRNUM: the note's project's agents first)
+- [x] Open in editor through `viewer.open` for notes over the edit limit or on request (FR-10); harness test records the call (`show.view` and `show.file` exist, #135; waits for project notes, `files.*`, since private notes are no files; #PRNUM: `show.file` for a project note, on request; the over-the-limit switch to Preview only is left)
 - [ ] Private notes moved from `p/_/` to per-project keys once G5 exists, with a one-time migration; harness test
-- [ ] Manifest permissions and reasons as in [frd.md §5.6](frd.md#56-permissions-as-the-user-sees-them); `check` passes; each permission refused in turn leaves the tile working, tested (#131: `agents.read`, `agents.queue`; harness tests with neither and with only `agents.read`. `files.*` come with project notes)
+- [x] Manifest permissions and reasons as in [frd.md §5.6](frd.md#56-permissions-as-the-user-sees-them); `check` passes; each permission refused in turn leaves the tile working, tested (#131: `agents.read`, `agents.queue`; harness tests with neither and with only `agents.read`. `files.*` come with project notes; #PRNUM: `files.read`, `files.write`, `show`; tested without `files.read` and without `files.write`)
 - [x] `tiles/notes/README.md` with what it does, each permission and why, and screenshots in Dark and Light (#131: the Send picker, dark and light, from `notes_send_shots`)
 - [ ] Docs examples: marked regions in the source (`// docs:start …`) for `input`, `markdown`, `storage` and `files`, used by the Tiles and UI components and Platform services pages ([9.6](../tile-sdk/authoring.md#96-website-docs))
 - [ ] Used daily by the owner for a week with three or more agents running; the problems found are fixed or listed here

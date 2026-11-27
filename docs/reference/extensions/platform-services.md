@@ -1,6 +1,6 @@
 # Platform services
 
-**Preview.** What Pitwall gives every tile, so authors don't build it themselves. Without a permission, each reaching only the tile's own things: timers (`tasks`), a key-value store (`storage`), settings and secrets (`settings`), the Log (`log`), requests about the tile's own views (`ui`), a SQLite database (`sql`), a toolbar button (`toolbar`) and the extension's own server (`service`). With a permission: the network, to the hosts the manifest names (`net`), notifications (`notify`), opening a file or a web page (`show`), and the agents' questions group: your agents and their Next up (`agents`), badges on sidebar rows (`badges`) and questions in the floating control (`asks`) ([below](#agents-badges-and-questions)).
+**Preview.** What Pitwall gives every tile, so authors don't build it themselves. Without a permission, each reaching only the tile's own things: timers (`tasks`), a key-value store (`storage`), settings and secrets (`settings`), the Log (`log`), requests about the tile's own views (`ui`), a SQLite database (`sql`), a toolbar button (`toolbar`) and the extension's own server (`service`). With a permission: the network, to the hosts the manifest names (`net`), notifications (`notify`), opening a file or a web page (`show`), the files of the project a view is open in (`files`), and the agents' questions group: your agents and their Next up (`agents`), badges on sidebar rows (`badges`) and questions in the floating control (`asks`) ([below](#agents-badges-and-questions)).
 
 Pitwall adds a service only when a tile can't reasonably do without one. Each is checked by Pitwall, not by the SDK: a call without its permission fails with `Denied` and a line in the Log.
 
@@ -233,6 +233,39 @@ With the `show` permission:
 
 None gives the tile anything back. In tests, `ui_requests()` lists them (`OpenFile`, `OpenWeb`, `ViewFile`).
 
+## Files in the project
+
+A view is open in a project: its space's, the one of the agent it was opened next to, or the one whose sidebar menu opened it. `files` reaches that project's folder, and the extension's own files folder. A tile never names a folder of its own.
+
+| Call | Does |
+|---|---|
+| `files::project(view)` | The view's project, `Project { name, folder }`, or `None` (no project, or neither `files.read` nor `projects.read`) |
+| `files::read(&root, path)`, `read_text` | A file's bytes, or its text |
+| `files::stat(&root, path)` | An `Entry`: `path`, `kind` (`File`, `Folder`), `size`, `modified` (ms) |
+| `files::list(&root, folder, deep)` | The entries in a folder (`""` for the root), every level down with `deep`, sorted by path |
+| `files::watch(&root, folder)`, `unwatch(id)` | Follow a folder and everything under it: `Event::FilesChanged { watch, paths }`, changes close together in one event (a quarter second quiet, at most a second late) |
+| `files::write(&root, path, bytes)`, `write_text` | Write a file whole (made with its folders when missing, replaced at once, never half written) |
+| `files::create(&root, path, bytes)` | Write a new file; `Exists` when one is there |
+| `files::make_folder(&root, path)`, `rename(&root, from, to)` | A folder with its parents; move a file or folder (`Exists` when the target is there) |
+| `files::delete(&root, path)` | To the Trash, in a project; for good, in its own folder |
+
+`Root::project(view)` is the view's project; `Root::Data` the extension's own files folder, kept across updates, at most 100 MiB, needing no permission. Reading a project (`project`, `read`, `stat`, `list`, `watch`) needs `files.read`; changing it needs `files.write`, which starts off. During an agent's `show`, `present` or `read` call, writes are refused.
+
+Paths are relative, with `/` between parts. Pitwall refuses (`NotAllowed`, with why) an absolute path, `..`, a link that leads out of the root, anything in `.git` (never listed, read or changed), and a change to Pitwall's own `.pitwall.json` or `.pitwall/`. `list` and `watch` leave out what the project's `.gitignore` files and `.git/info/exclude` ignore; `read` and `stat` still reach those files by name. A file read or written is at most 8 MiB (`TooLarge`), a list at most 10 000 entries, and a tile has at most 8 watches.
+
+```rust
+let root = files::Root::project(view);
+for e in files::list(&root, "docs", true)?.iter().filter(|e| e.path.ends_with(".md")) {
+    let text = files::read_text(&root, &e.path)?;
+    // …
+}
+let watch = files::watch(&root, "docs")?;
+```
+
+When the view moves to another project, or out of every project, the tile hears `Event::ProjectChanged(view)`: its watches there have ended; read the new project. Every change to a project, and every refusal, is a line in the extension's Activity.
+
+In tests, `Harness::project("shop")` starts the tile's view in a project folder of the test's, `project_file(path, text)` puts files in it, and `.grant("files.read")` grants it. Then `write_project_file`, `remove_project_file` and `rename_project_file` change it (the watches hear it at once), `project_file(path)` reads it back, `trashed()` lists what went to the Trash, `watches()` counts the watches, `move_to_project(view, Some("api"))` moves a view, and `activity()` lists its Activity lines.
+
 ## Toolbar button
 
 An extension may put one button in Pitwall's top bar, in a group of its own after the counts. Declare it in `contributes.toolbar`; the user can hide it, and an update never shows it again ([Tiles and UI](ui.md#toolbar-button)).
@@ -321,7 +354,7 @@ assert_eq!(t.reply("deploy"), Some(None));
 
 ## Not provided
 
-- **Files and programs.** `std::fs` fails; keep data in `storage` or `sql`. Files come as permissions ([Permissions](permissions.md#what-comes-later)).
+- **Programs, and files outside its project.** `std::fs` fails; use `files`, `storage` or `sql`.
 - **Raw sockets**, and the network beyond the hosts the manifest names.
 - **Agents' terminals**, at any grant. They carry secrets and prompts.
 - **Other extensions' data, settings or secrets.**
@@ -331,4 +364,4 @@ assert_eq!(t.reply("deploy"), Some(None));
 
 | Phase | Services |
 |---|---|
-| On demand | Files and git in your projects, file pickers, the clipboard, starting agents, and more, each when a tile needs it |
+| On demand | Git in your projects, file pickers, the clipboard, starting agents, and more, each when a tile needs it |

@@ -33,6 +33,7 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | `toolbar.wit` | `toolbar` | `set-badge`, `set-project-badge` (needs `projects.read`), `set-tooltip`, `set-shown` (≤ 1 in 5 s), `close-popover`; the popover is view `toolbar:popover` (`POPOVER_VIEW`) |
 | `service.wit` | `service` | `info`, `restart`, `open-card` for the extension's own server; `TileHandle::set_service` gives its state (the first after start isn't a change) |
 | `agent-tools.wit` | `agent-tools` | an agent's call answered: `reply(call, tool-output)` (text, JSON, item; or an error with problems), `user-edited(call)` |
+| `files.wit` | `files` | the view's project (`project(view)`) and the extension's own files folder (`root.data`): `read`, `stat`, `list` (deep, `.gitignore` honoured), `watch`/`unwatch` (coalesced `files-changed` events), `write`, `create`, `make-folder`, `rename`, `delete` (to the Trash in a project); `files.read` to read, `files.write` to change, refused in gated agent calls; `.git` never reached, `.pitwall.json` and `.pitwall/` never changed, links out refused; changes and refusals as `UiRequest::Activity`. `ViewSpec.project` and `TileHandle::set_project` say the view's project (`project-changed`); `TileHost::set_watcher` and `set_trash` swap in fakes (`files::FakeWatcher`, `files::FolderTrash`) |
 
 A guest is written with the SDK, `sdk/pitwall-extension` (its `wit/` is a
 copy of this one; `tests/sdk_wit.rs` keeps them equal), and built with
@@ -95,7 +96,7 @@ calls `set_content` for a repeat.
 `TileHandle` (every method only posts; false once the worker is gone):
 `send(ui::Event)`, `open_view(ViewSpec)`, `set_content(view, ui::Content)`,
 `close_view(view)`, `set_visible(bool)`, `set_theme(ui::ThemeInfo)`,
-`set_grants(Grants)`, `settings_changed()`, `save_state()`, `rows(view, list,
+`set_grants(Grants)`, `set_project(view, Option<ui::Project>)`, `settings_changed()`, `save_state()`, `rows(view, list,
 start, count)` (rows of the list, table or tree at key path `list` in the
 view's newest frame; answered after the batch's renders, so they match its
 revision; ignored for no such list), `advance(Duration)`
@@ -111,7 +112,7 @@ revision; ignored for no such list), `advance(Duration)`
 | `Started { cached, took }` | instantiated, `init` ok |
 | `Frame(FrameUpdate { view, tile, frame: Arc<ui::Frame>, diff: Diff, took })` | a view's whole tree, already checked against the limits, with its keyed diff (`continues[i]`: the old node index whose state node `i` keeps; `changed`, `added`, `removed`). Unchanged renders aren't sent |
 | `Log(LogLine { level, message, at, from_host })` | the tile's Log: its `log` calls, stdout (info) and stderr (warn), and host notes (slow calls, dropped toasts) |
-| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`, `PutImage { name, format, bytes }` (sniffed, within the limits; before the frames after it), `DropImage(name)`, `Notify { title, body }`, `OpenFile { path, line }`, `OpenWeb { url }`, `Toolbar(ToolbarRequest)`, `RestartService`: apply with `cx.defer` |
+| `Ui(UiRequest)` | `Toast { text, tone }`, `OpenView(tile)`, `ScrollTo { view, key_path }`, `OpenSettings`, `Badges(list)`, `Asks(list)`, `AskResult { id, refused }`, `PutImage { name, format, bytes }` (sniffed, within the limits; before the frames after it), `DropImage(name)`, `Notify { title, body }`, `OpenFile { path, line }`, `OpenWeb { url }`, `Toolbar(ToolbarRequest)`, `RestartService`, `ViewFile { path, line }`, `Activity { method, detail, refused }` (a line for the extension's Activity: a change to a project's files, or a refusal): apply with `cx.defer` |
 | `Rows(RowsUpdate { view, list, revision, start, rows, took })` | answer to `rows(..)`: the rows, checked (`components::check_rows`: ≤ 64 nodes of box, text, icon, button, image, context-menu; unique keys); rows that fail stop the tile (`FrameRefused`) |
 | `StateSaved(Vec<u8>)` | answer to `save_state()` |
 | `Answered { call, answer }` | an agent's call delivered as view content (`content.call`) ended: `Answer::Reply(tool-output)`, `Handled` (no reply: the caller says where it opened) or `NotDelivered(why)` |
