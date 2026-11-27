@@ -132,6 +132,8 @@ impl Gallery {
                 .child(icon(Icon::File).text_color(Token::Text3))
                 .child(text(format!("Row {i}")).flex_1())
                 .child(text(format!("{} KB", (i * 37) % 1000)).text_sm().text_color(Token::Text3))
+                // Rows hold badges, avatars and relative times too.
+                .when(i % 4 == 0, |r| r.child(badge("new").tone(Tone::Info)))
                 .context_menu(
                     vec![menu_item("open", "Open"), menu_item("copy", "Copy name"), separator(), menu_item("remove", "Remove").danger()],
                     cx.listener(move |t: &mut crate::Hello, key: &str, cx| {

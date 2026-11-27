@@ -160,6 +160,50 @@ impl Shape {
     }
 }
 
+/// Pitwall's fonts, for [`ui::measure_text`](crate::ui::measure_text).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextFont {
+    /// The interface font (Inter).
+    #[default]
+    Ui,
+    /// The monospace font (JetBrains Mono).
+    Mono,
+}
+
+impl TextFont {
+    pub(crate) fn wit(self) -> wit::Font {
+        match self {
+            TextFont::Ui => wit::Font::Ui,
+            TextFont::Mono => wit::Font::Mono,
+        }
+    }
+}
+
+/// Text weights, for [`ui::measure_text`](crate::ui::measure_text).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextWeight {
+    /// Regular text.
+    #[default]
+    Normal,
+    /// Labels.
+    Medium,
+    /// Names, headings.
+    Semibold,
+    /// Strong emphasis.
+    Bold,
+}
+
+impl TextWeight {
+    pub(crate) fn wit(self) -> wit::Weight {
+        match self {
+            TextWeight::Normal => wit::Weight::Normal,
+            TextWeight::Medium => wit::Weight::Medium,
+            TextWeight::Semibold => wit::Weight::Semibold,
+            TextWeight::Bold => wit::Weight::Bold,
+        }
+    }
+}
+
 /// One line of text to draw, shaped by Pitwall in its fonts. By default
 /// 13 px (Pitwall's body size), the UI font, the theme's text colour,
 /// starting at its point with the point at the line's top.
@@ -199,6 +243,24 @@ impl Label {
     pub fn mono(mut self) -> Label {
         self.0.font = wit::Font::Mono;
         self
+    }
+
+    /// How wide it is drawn, in the canvas's coordinates (before the
+    /// viewport's zoom), as Pitwall measures it
+    /// ([`ui::measure_text`](crate::ui::measure_text); one host call: to
+    /// measure many labels, pass them all to that at once).
+    pub fn width(&self) -> f32 {
+        let font = match self.0.font {
+            wit::Font::Mono => TextFont::Mono,
+            wit::Font::Ui => TextFont::Ui,
+        };
+        let weight = match self.0.weight {
+            wit::Weight::Normal => TextWeight::Normal,
+            wit::Weight::Medium => TextWeight::Medium,
+            wit::Weight::Semibold => TextWeight::Semibold,
+            wit::Weight::Bold => TextWeight::Bold,
+        };
+        crate::ui::measure_text(&[self.0.text.as_str()], font, self.0.size, weight).first().copied().unwrap_or(0.)
     }
 
     /// Medium weight: labels.
@@ -359,6 +421,16 @@ impl Canvas {
     /// Add a clickable area; where areas overlap, the one added last wins.
     pub fn region(mut self, r: Region) -> Canvas {
         self.spec().regions.push(r);
+        self
+    }
+
+    /// Show `p` over the canvas, anchored with
+    /// [`Popover::at`](crate::widgets::Popover::at) to a point of the canvas's node: the
+    /// menu of a box that was clicked, under that box (map the box's
+    /// corner with [`Viewport::to_view`]). Without `at`, it hangs from the
+    /// canvas's edge.
+    pub fn popover(mut self, p: crate::widgets::Popover) -> Canvas {
+        self.0.children.push(p.into_element());
         self
     }
 

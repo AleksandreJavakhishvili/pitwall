@@ -83,6 +83,8 @@ pub struct Colors {
     pub git_add: Hsla,
     pub git_mod: Hsla,
     pub git_del: Hsla,
+    /// Warnings in a tile's code view (errors use `error`).
+    pub warn: Hsla,
     brackets: [Hsla; 3],
     stray: Hsla,
     keyword: Hsla,
@@ -149,6 +151,7 @@ impl Colors {
             git_add: pick(0x48b97bcc, 0x2e9a5fcc),
             git_mod: pick(0x3a8ee6cc, 0x2f74c4cc),
             git_del: pick(0xdf6164cc, 0xc8484bcc),
+            warn: pick(0xe2b93dff, 0x9a6a00ff),
             brackets: if dark {
                 [c(0xffd700ff), c(0xda70d6ff), c(0x179fffff)]
             } else {

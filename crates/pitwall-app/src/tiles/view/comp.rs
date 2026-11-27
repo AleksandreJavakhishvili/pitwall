@@ -959,7 +959,7 @@ impl TileView {
                 let (d, f) = render::apply(base, &node.style, t);
                 row_flags(d.id(eid), &f, t, node.tooltip.clone(), click.is_some()).when(click.is_some(), |d| d.on_click(cx.listener(move |v, e, _, cx| send_click(v, e, cx)))).children(children).into_any_element()
             }
-            _ => div().into_any_element(),
+            _ => self.row_widget(node, inherit, t, cx).unwrap_or_else(|| div().into_any_element()),
         }
     }
 

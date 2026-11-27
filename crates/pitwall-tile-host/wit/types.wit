@@ -536,8 +536,8 @@ interface types {
     key: string,
     /// What the row shows: a small tree as in a frame (node 0 is the
     /// row's root, filling the row). Boxes, text, icons, buttons,
-    /// images and context menus only (no fields, scrolls or nested
-    /// lists); at most 64 nodes. In a table, the root's children are
+    /// images, context menus, badges, avatars and relative times only
+    /// (no fields, scrolls or nested lists); at most 64 nodes. In a table, the root's children are
     /// the cells, one per column in order.
     nodes: list<node>,
     /// A tree's row: how deep it is (0 at the top); 0 elsewhere.
@@ -1548,6 +1548,12 @@ interface types {
     changed,
     /// Lines were deleted before `start` (a red mark between lines).
     deleted,
+    /// An error on these lines (a red bar, the lines tinted, its
+    /// `message` at the end of the first line).
+    error,
+    /// A warning on these lines (a yellow bar, the lines tinted, its
+    /// `message` at the end of the first line).
+    warning,
   }
 
   /// A mark in a code view's margin.
@@ -1556,6 +1562,10 @@ interface types {
     lines: line-range,
     /// What it says.
     kind: line-mark-kind,
+    /// For an error or a warning: what is wrong, drawn after the first
+    /// line's text (at most 500 bytes; longer is cut). Ignored for the
+    /// other kinds.
+    message: option<string>,
   }
 
   /// Pitwall's read-only code view, showing the tile's text. The text is
@@ -1969,6 +1979,12 @@ interface types {
     placement: placement,
     /// Its width in logical pixels (`none`: its content's, 160–480).
     width: option<f32>,
+    /// Anchor it to this point of its parent instead of the parent's
+    /// edge, in logical pixels from the parent's top-left corner (as a
+    /// `click`'s `at`): under a box of a canvas, say. `placement` then
+    /// says which side of the point it opens on. `none`: the parent's
+    /// edge, as before.
+    at: option<point>,
   }
 
   /// A sheet over the tile asking the user to confirm, in place of the

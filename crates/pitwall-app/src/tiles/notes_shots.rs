@@ -171,7 +171,8 @@ fn notes_shots() {
 }
 
 /// Notes' Send picker over a note, with the agents a daemon server lists
-/// (`web` and `api`), granted `agents.read` and `agents.queue`. Run by
+/// (`web` and `api`), granted `agents.read` and `agents.queue`; then with
+/// a selection in the note, which it offers first. Run by
 /// hand as [`notes_shots`] (`notes_send_shots`).
 #[test]
 #[ignore]
@@ -253,6 +254,23 @@ fn notes_send_shots() {
         cx.run_until_parked();
         let img = cx.capture_screenshot(win.into()).expect("rendered");
         img.save(out.join(format!("notes-send-{theme}.png"))).expect("saved");
+    }
+    // A selection in the note: Send offers it first (FR-14, gap G2).
+    click(&mut cx, "editor/head/send-at/send");
+    settle(&mut cx, "the picker closed", &mut |cx| !tile.read(cx).texts().iter().any(|t| t == "Send to an agent"));
+    let field = cx.update(|cx| tile.read(cx).field_of("editor/n1/text")).unwrap();
+    let at = note.find("fix the Safari flicker").unwrap();
+    cx.update(|cx| field.update(cx, |f, cx| f.set_selection(at..at + "fix the Safari flicker".len(), cx)));
+    cx.run_until_parked();
+    click(&mut cx, "editor/head/send-at/send");
+    settle(&mut cx, "the selection in the picker", &mut |cx| tile.read(cx).texts().iter().any(|t| t == "“fix the Safari flicker”"));
+    for (theme, light) in [("dark", false), ("light", true)] {
+        cx.update(|cx| cx.set_global(if light { crate::theme::Theme::light() } else { crate::theme::Theme::dark() }));
+        cx.run_until_parked();
+        let _ = cx.update_window(win.into(), |_, window, _| window.refresh());
+        cx.run_until_parked();
+        let img = cx.capture_screenshot(win.into()).expect("rendered");
+        img.save(out.join(format!("notes-send-selection-{theme}.png"))).expect("saved");
     }
 }
 

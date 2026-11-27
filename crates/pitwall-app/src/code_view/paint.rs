@@ -483,6 +483,17 @@ impl CodeView {
                         {
                             text.under.push(fill(row_b, c.commented));
                         }
+                        // A problem on the line (a tile's code view).
+                        let problem = (!content.is_diff && side == Side::New)
+                            .then(|| self.line_marks.iter().filter(|(r, _)| r.contains(&line) || r.start == line).find_map(|(_, m)| match m {
+                                super::LineMark::Error => Some(c.error),
+                                super::LineMark::Warning => Some(c.warn),
+                                _ => None,
+                            }))
+                            .flatten();
+                        if let Some(tone) = problem {
+                            text.under.push(fill(row_b, tone.opacity(0.13)));
+                        }
                         // The shaped line, coloured by the highlighter.
                         let shaped = shape_colored(window, l, content.spans(side, line), c);
                         widest = widest.max(shaped.width);
@@ -592,6 +603,16 @@ impl CodeView {
                                 ));
                             }
                         }
+                        // What the problem is, after the line's text.
+                        if !content.is_diff && side == Side::New {
+                            if let Some((_, m, note)) = self.line_notes.iter().find(|(l, _, _)| *l == line) {
+                                let tone = if *m == super::LineMark::Warning { c.warn } else { c.error };
+                                let s = shape_ui(window, note, 12., tone);
+                                let x = text_x + shaped.width + px(28.);
+                                widest = widest.max(shaped.width + px(28.) + s.width);
+                                text.lines.push((s, point(x, y + px(1.))));
+                            }
+                        }
                         text.lines.push((shaped, point(text_x, y)));
 
                         // The margin.
@@ -672,6 +693,8 @@ impl CodeView {
                                     super::LineMark::Changed => (c.git_mod, Bounds::new(point(gx + px(4.), y), size(px(3.), px(LINE_H)))),
                                     super::LineMark::Deleted if r.start == line => (c.git_del, Bounds::new(point(gx + px(2.), y - px(2.)), size(px(7.), px(4.)))),
                                     super::LineMark::Deleted => continue,
+                                    super::LineMark::Error => (c.error, Bounds::new(point(gx + px(4.), y), size(px(3.), px(LINE_H)))),
+                                    super::LineMark::Warning => (c.warn, Bounds::new(point(gx + px(4.), y), size(px(3.), px(LINE_H)))),
                                 };
                                 gutter.over.push(fill(b, color));
                             }

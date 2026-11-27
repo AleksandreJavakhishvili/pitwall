@@ -4791,6 +4791,7 @@ dependencies = [
  "bytes",
  "pitwall-core",
  "rusqlite",
+ "rustybuzz",
  "serde_json",
  "sha2",
  "tempfile",

@@ -322,4 +322,17 @@ pub mod ui {
     pub fn drop_image(name: &str) {
         ui::drop_image(name);
     }
+
+    /// How wide each of `texts` is on one line in Pitwall's `font` at
+    /// `size` logical pixels and `weight`, in logical pixels, kerned as
+    /// Pitwall draws it: to size a canvas's boxes around their labels
+    /// ([`Label::width`](crate::canvas::Label::width) measures one label).
+    /// One width per text, in order. A character Pitwall's font lacks
+    /// counts as an average letter. At most 1 000 texts and 64 KiB a call
+    /// (more: an empty list, noted in the Log). The test harness gives the
+    /// same numbers.
+    pub fn measure_text<S: AsRef<str>>(texts: &[S], font: crate::canvas::TextFont, size: f32, weight: crate::canvas::TextWeight) -> Vec<f32> {
+        let texts: Vec<String> = texts.iter().map(|t| t.as_ref().to_string()).collect();
+        ui::measure_text(&texts, font.wit(), size, weight.wit())
+    }
 }

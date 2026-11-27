@@ -88,7 +88,7 @@ pub mod widgets;
 
 pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
 pub use blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView};
-pub use canvas::{canvas, Canvas, Viewport};
+pub use canvas::{canvas, Canvas, TextFont, TextWeight, Viewport};
 pub use group::{agents, asks, badges};
 pub use events::{Blur, Dismissed, Event, Focused};
 pub use widgets::{avatar, badge, banner, bar_chart, breadcrumbs, card, checkbox, chip, confirm_sheet, copyable, disclosure, divider, empty_state, form_row, h_split, kbd, key_values, line_chart, link, number_field, popover, progress, radio_group, relative_time, relative_time_ms, search_field, segmented, skeleton, slider, sparkline, spinner, status_timeline, switch, toolbar, v_split, vertical_divider, Orientation, Placement, SkeletonShape};
@@ -107,7 +107,7 @@ pub const WORLD: &str = "pitwall:tile@0.1.0";
 pub mod prelude {
     pub use crate::element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
     pub use crate::blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView, Mark};
-    pub use crate::canvas::{canvas, Canvas, Label, Paint, Region, Shape, Viewport};
+    pub use crate::canvas::{canvas, Canvas, Label, Paint, Region, Shape, TextFont, TextWeight, Viewport};
     pub use crate::group::agents::{self, Agent};
     pub use crate::group::asks::{self, Answer, Ask};
     pub use crate::group::badges::{self, Badge, Row};
