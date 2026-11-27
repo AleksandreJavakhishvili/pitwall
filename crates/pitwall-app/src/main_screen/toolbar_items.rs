@@ -169,7 +169,8 @@ impl MainScreen {
         let buttons = items.into_iter().map(|s| {
             let open = self.toolbar_pop.as_ref().is_some_and(|p| p.ext == s.ext);
             let tip = s.item.tooltip.clone().unwrap_or_else(|| if s.def.tooltip.is_empty() { s.name.clone() } else { s.def.tooltip.clone() });
-            let icon = crate::kit::icons::known(&s.def.icon).unwrap_or("extension");
+            // No icon of its own: the extension's (its image, when it has one).
+            let icon = if s.def.icon.is_empty() { crate::extensions::manifest_of(&s.ext, cx).and_then(|m| crate::kit::icons::known(crate::extensions::icon_of(&m))) } else { crate::kit::icons::known(&s.def.icon) }.unwrap_or("extension");
             let badge = s.running.then(|| {
                 let project_badge = (s.def.scope == toolbar::Scope::Project).then(|| project.as_ref().and_then(|p| s.item.projects.get(p).copied())).flatten();
                 project_badge.or(s.item.badge)

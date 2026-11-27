@@ -287,8 +287,9 @@ pub fn icon_btn_state(
         .when_some(bg, |d, bg| d.bg(bg))
         .cursor_pointer()
         .when(!pressing, |d| d.hover_probed(move |s| s.bg(hover_bg)));
+    let glyph = if super::icons::image_icon(icon_name).is_some() { super::icons::icon_any(icon_name, size, color) } else { icon(icon_name, size, color).group_hover_text(group, hover_fg, move |s| s).into_any_element() };
     motion::pressable(el, &id, false, motion::Skin::new(Some(hover_bg), None, RADIUS))
-        .child(icon(icon_name, size, color).group_hover_text(group, hover_fg, move |s| s))
+        .child(glyph)
         .when(!tip.is_empty(), |d| d.tooltip(tooltip(tip)))
 }
 

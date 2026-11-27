@@ -337,7 +337,18 @@ fn browse_reads_the_index_and_says_how_it_stands(cx: &mut TestAppContext) {
     // Report a problem.
     click(cx, "extension-listing-ci-status");
     assert_eq!(state(&view, cx).1.as_deref(), Some("ci-status"));
-    until(cx, "its screenshot asked for", |_| f.http.requests().iter().any(|(u, _)| u.contains("/screens/ci-status/")));
+    until(cx, "its README and screenshots", |cx| cx.debug_bounds("md-image").is_some() && cx.debug_bounds("extension-shot-0").is_some());
+    assert!(f.http.requests().iter().any(|(u, _)| u.contains("/media/ci-status/")));
+    // Its own icon, its README's own image shown, the network's a link
+    // (never fetched).
+    assert!(drawn(cx, "extension-listing-icon-ci-status") && drawn(cx, "md-image-link"));
+    assert!(!f.http.requests().iter().any(|(u, _)| u.contains("shields.io")), "a README's network image isn't fetched");
+    // A screenshot shown large, and closed.
+    click(cx, "extension-shot-0");
+    assert!(drawn(cx, "extension-shot-large"));
+    assert_eq!(view.read_with(cx, |v, _| v.enlarged_screenshot()), Some(("listing/ci-status".into(), 0)));
+    click(cx, "extension-shot-close");
+    assert!(!drawn(cx, "extension-shot-large"));
     for id in ["extension-listing-page-ci-status", "extension-listing-about", "extension-listing-permissions", "extension-permission-risk-agents.queue", "extension-listing-versions", "extension-listing-licence", "extension-listing-report", "extension-report-ci-status"] {
         assert!(drawn(cx, id), "{id} isn't drawn");
     }
@@ -347,6 +358,60 @@ fn browse_reads_the_index_and_says_how_it_stands(cx: &mut TestAppContext) {
     assert_eq!(state(&view, cx).1, None);
     // The newest isn't reviewed yet: Install offers the Verified one.
     assert_eq!(view.read_with(cx, |v, cx| v.offer_of(&v.listing_of("ci-status").unwrap(), cx)), super::browse::Offer::Install("1.0.0".into()));
+}
+
+/// Hello with listing media: its own icon, a dark and light screenshot
+/// with a caption, a README with its own image, one from the network and
+/// one that goes out of its folder.
+pub(crate) fn with_media(exts: &Path) {
+    let hello = exts.join("hello");
+    let m = std::fs::read_to_string(hello.join("extension.json")).unwrap();
+    let mut v: serde_json::Value = serde_json::from_str(&m).unwrap();
+    v["icon"] = "assets/icon.png".into();
+    v["tagline"] = "A counter and a greeting".into();
+    v["categories"] = serde_json::json!(["fun"]);
+    v["homepage"] = "https://example.com/hello".into();
+    v["screenshots"] = serde_json::json!([{"path": "screenshots/main.png", "caption": "The counter, in your theme"}]);
+    std::fs::write(hello.join("extension.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    std::fs::create_dir_all(hello.join("assets")).unwrap();
+    std::fs::create_dir_all(hello.join("media")).unwrap();
+    std::fs::write(hello.join("assets/icon.png"), pitwall_core::testing::png::art::notes(128)).unwrap();
+    std::fs::remove_file(hello.join("screenshots/main.png")).unwrap();
+    std::fs::write(hello.join("screenshots/main-dark.png"), png(160, 100)).unwrap();
+    std::fs::write(hello.join("screenshots/main-light.png"), png(160, 100)).unwrap();
+    std::fs::write(hello.join("media/flow.png"), png(240, 80)).unwrap();
+    std::fs::write(exts.join("secret.png"), png(20, 20)).unwrap();
+    std::fs::write(hello.join("README.md"), "# Hello\n\nA counter and a greeting.\n\n![How it flows](media/flow.png)\n\n![Build](https://img.shields.io/badge/build-passing-green.png)\n\n![Outside](../secret.png)\n").unwrap();
+}
+
+/// The detail page shows its own icon, the theme's screenshot with its
+/// caption (larger on a click), its tagline and homepage, and its README
+/// with its own image; one from the network is a link, one with `..`
+/// isn't shown.
+#[gpui::test]
+fn the_detail_page_shows_its_listing_media(cx: &mut TestAppContext) {
+    let t = TempDir::new("ext-page-media");
+    let root = t.path().join("data");
+    installed(&root.join("extensions"), None);
+    with_media(&root.join("extensions"));
+    init(&root, cx);
+    assert_eq!(cx.update(|cx| crate::extensions::manifest_of("hello", cx).map(|m| crate::extensions::icon_of(&m).to_string())).as_deref(), Some("ext-icon/hello"), "its own icon is what it is drawn with");
+    let (view, cx) = cx.add_window_view(|_, cx| SettingsView::new(true, cx));
+    open_settings(&view, cx);
+    click(cx, "extension-details-hello");
+    until(cx, "its README", |cx| cx.debug_bounds("md-image").is_some());
+    for id in ["extension-detail-facts", "extension-screenshots", "extension-shot-0", "md-image", "md-image-link", "md-image-refused", "extension-homepage-hello"] {
+        assert!(drawn(cx, id), "{id} isn't drawn");
+    }
+    assert!(!drawn(cx, "extension-shot-1"), "a dark and light pair is one screenshot");
+    click(cx, "extension-shot-0");
+    assert!(drawn(cx, "extension-shot-large"));
+    click(cx, "extension-shot-large");
+    assert!(!drawn(cx, "extension-shot-large"), "a click on it closes it");
+    // An icon that isn't square isn't drawn: the extension icon is.
+    std::fs::write(root.join("extensions/hello/assets/icon.png"), png(128, 64)).unwrap();
+    cx.update(|_, cx| crate::extensions::rescan(cx));
+    assert_eq!(cx.update(|_, cx| crate::extensions::manifest_of("hello", cx).map(|m| crate::extensions::icon_of(&m).to_string())).as_deref(), Some("extension"));
 }
 
 #[gpui::test]

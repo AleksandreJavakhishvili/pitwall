@@ -262,7 +262,7 @@ fn lead(l: &Option<Lead>, ix: usize, t: &Theme, motion: bool) -> AnyElement {
         Some(Lead::Warn(g)) => glyph(g.clone(), t.amber)
             .text_size(px(9.5))
             .into_any_element(),
-        Some(Lead::Icon(name)) => icon(name, 14., t.text_3).into_any_element(),
+        Some(Lead::Icon(name)) => crate::kit::icon_any(name, 14., t.text_3),
         Some(Lead::Status(s)) => kit::status_glyph_el(
             *s,
             t,

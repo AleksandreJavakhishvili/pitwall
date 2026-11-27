@@ -105,6 +105,18 @@ pub struct MarkdownView {
     /// text, no scrolling or padding of its own.
     inline: bool,
     hooks: Hooks,
+    /// An extension's README: its images are these and only these.
+    media: Option<Rc<Media>>,
+}
+
+/// The images an extension's README may show ([`MarkdownView::set_media`]):
+/// read from its folder (or the index) and checked before, by the package
+/// path the README writes (`media/flow.png`). With it, an image is shown
+/// only when it is here; one from the network is a plain link, never
+/// fetched; any other (`..`, absolute, missing) its alt text, saying why.
+#[derive(Default)]
+pub struct Media {
+    pub images: std::collections::HashMap<String, Arc<gpui::Image>>,
 }
 
 impl Focusable for MarkdownView {
@@ -131,6 +143,21 @@ impl MarkdownView {
             _load: None,
             inline: false,
             hooks: Hooks::default(),
+            media: None,
+        }
+    }
+
+    /// Show only `media`'s images (an extension's README); `None`: images
+    /// beside the file, as a Preview does.
+    pub fn set_media(&mut self, media: Option<Rc<Media>>, cx: &mut Context<Self>) {
+        let same = match (&self.media, &media) {
+            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            self.media = media;
+            cx.notify();
         }
     }
 
@@ -432,6 +459,7 @@ impl Render for MarkdownView {
             small: self.inline,
             selecting: self.selecting.clone(),
             hooks: self.hooks.clone(),
+            media: self.media.clone(),
         };
         let mut col: Vec<AnyElement> = Vec::new();
         let mut removed = doc.removed.iter().peekable();
@@ -583,6 +611,7 @@ struct Draw<'a> {
     small: bool,
     selecting: Rc<Cell<bool>>,
     hooks: Hooks,
+    media: Option<Rc<Media>>,
 }
 
 /// Where a link click and a task's checkbox go instead of the browser and
@@ -969,6 +998,7 @@ impl Draw<'_> {
     fn image(&self, src: &str, alt: &str, width: Option<f32>) -> AnyElement {
         let t = self.t;
         let alt: SharedString = if alt.is_empty() { "image".into() } else { alt.to_string().into() };
+        let alt_text = alt.clone();
         let muted = t.text_3;
         let chip = move || {
             div()
@@ -981,6 +1011,43 @@ impl Draw<'_> {
                 .child(alt.clone())
                 .into_any_element()
         };
+        if let Some(media) = &self.media {
+            use pitwall_core::extensions::media::{local_ref, Ref};
+            return match local_ref(src) {
+                Ref::Local(rel) => match media.images.get(&rel) {
+                    Some(i) => div()
+                        .debug_selector(|| "md-image".into())
+                        .rounded(RADIUS_SM)
+                        .overflow_hidden()
+                        .child(img(i.clone()).when_some(width, |i, w| i.w(px(w))).max_w_full().max_h(px(560.)).object_fit(ObjectFit::Contain).with_fallback(chip))
+                        .into_any_element(),
+                    None => div().debug_selector(|| "md-image-missing".into()).child(chip()).into_any_element(),
+                },
+                Ref::Remote(url) => {
+                    let (accent, u) = (t.text_2, url.clone());
+                    div()
+                        .id(ElementId::Name(format!("md-image-link-{url}").into()))
+                        .debug_selector(|| "md-image-link".into())
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .text_size(px(12.5))
+                        .text_color(accent)
+                        .cursor_pointer()
+                        .tooltip(kit::tooltip("An image from the network: Pitwall doesn't load it here. Opens in your browser."))
+                        .child(kit::icon("external", 13., accent))
+                        .child(SharedString::from(format!("{alt_text}: {url}")))
+                        .on_click(move |_, _, cx| crate::platform::files::open_url(cx, &u))
+                        .into_any_element()
+                }
+                Ref::Refused(why) => div()
+                    .id(ElementId::Name(format!("md-image-refused-{src}").into()))
+                    .debug_selector(|| "md-image-refused".into())
+                    .tooltip(kit::tooltip(format!("Not shown: {why}")))
+                    .child(chip())
+                    .into_any_element(),
+            };
+        }
         match local_image(self.base, src) {
             Some(p) => div()
                 .rounded(RADIUS_SM)
