@@ -183,6 +183,16 @@ impl Grants {
         }
     }
 
+    /// These grants without the acting ones (`net` and the tile's own
+    /// server, `show`, `notify`, `agents.queue`, `agents.start`,
+    /// `agents.focus`): what an agent's `show`, `present` or `read` call
+    /// runs with (agent-tools.md §11.2).
+    pub fn without_acting(&self) -> Grants {
+        use pitwall_core::extensions::permissions as p;
+        let acting = [p::NET, p::SHOW, p::NOTIFY, p::AGENTS_QUEUE, p::AGENTS_START, p::AGENTS_FOCUS];
+        Grants { granted: self.granted.iter().filter(|g| !acting.contains(&g.as_str()) && !g.starts_with("net.")).cloned().collect(), own_server: None, ..self.clone() }
+    }
+
     /// Whether `permission` is granted.
     pub fn has(&self, permission: &str) -> bool {
         self.granted.contains(permission)
@@ -572,6 +582,8 @@ pub(crate) struct Inner {
     pub config: HostConfig,
     /// Makes `net` requests ([`TileHost::set_fetcher`]).
     pub fetcher: std::sync::RwLock<Arc<dyn net::Fetcher>>,
+    /// Large inputs of agents' calls ([`TileHost::large_inputs`]).
+    pub large: agent::LargeInputs,
     _ticker: EpochTicker,
 }
 
@@ -587,7 +599,7 @@ impl TileHost {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(|e| LoadError::Host(format!("{e:#}")))?;
         bindings::Tile::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(|e| LoadError::Host(format!("{e:#}")))?;
         let ticker = EpochTicker::start(&engine).map_err(|e| LoadError::Host(e.to_string()))?;
-        Ok(TileHost { inner: Arc::new(Inner { engine, linker, config, fetcher: std::sync::RwLock::new(Arc::new(net::HttpFetcher)), _ticker: ticker }) })
+        Ok(TileHost { inner: Arc::new(Inner { engine, linker, config, fetcher: std::sync::RwLock::new(Arc::new(net::HttpFetcher)), large: agent::LargeInputs::default(), _ticker: ticker }) })
     }
 
     /// [`Extension::load`].
@@ -672,6 +684,13 @@ impl TileHost {
 
     pub(crate) fn fetcher(&self) -> Arc<dyn net::Fetcher> {
         self.inner.fetcher.read().map(|f| f.clone()).unwrap_or_else(|_| Arc::new(net::HttpFetcher))
+    }
+
+    /// Where the text of the file an agent's `present` call named
+    /// (`from_file`) waits for the tile's `input-part` while the call is
+    /// delivered: put it before, forget it when the call ends.
+    pub fn large_inputs(&self) -> &agent::LargeInputs {
+        &self.inner.large
     }
 
     pub(crate) fn inner(&self) -> &Arc<Inner> {

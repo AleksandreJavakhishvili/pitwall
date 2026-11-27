@@ -155,7 +155,7 @@ fn notes_shots() {
         let running = r.get("notes").unwrap();
         assert!(matches!(running.state, State::Running));
         let draft = serde_json::json!({ "title": "Standup", "text": "- api: 429 retries merged\n- web: Safari flicker, still open\n- next: release 0.9" });
-        running.handle.as_ref().unwrap().set_content("main", ui::Content { id: None, json: Some(draft.to_string()), bytes: None, call: None, tool: None, caller: None });
+        running.handle.as_ref().unwrap().set_content("main", ui::Content { id: None, json: Some(draft.to_string()), bytes: None, call: None, tool: None, caller: None, append: false, large: None });
     });
     settle(&mut cx, "the draft", &mut |cx| tile.read(cx).texts().iter().any(|t| t == "Draft, not saved"));
     shot(&mut cx, narrow.into(), "draft");
