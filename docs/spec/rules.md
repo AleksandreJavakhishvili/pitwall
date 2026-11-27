@@ -198,6 +198,19 @@ rules file, and the setting changing makes its rules stale); one without
 gets the kind's `args` pointed at the rule itself (Aider `--read <rule>`),
 only for agents on this computer.
 
+## Extensions' skills
+An extension's `agents/SKILL.md` (tile-sdk/agent-tools.md §11.11) reaches
+agents the way the built-in rule does: never in the library or a set. While
+the extension is on, agents may use its tools, and the user gave it to
+projects (its card), the app keeps it in
+`<data>/run/ext-skills/<id>/SKILL.md` with `index.json` naming the projects
+(`rules::ext_skills::sync`). An agent of such a project gets it staged as a
+skill of its own (rulesync targets only; Gemini CLI and Aider get its
+description through the MCP server), counted as something assigned, so it
+is applied with no set too; it is in the fingerprint, so a change makes the
+agent's rules stale and the next apply adds or removes it. Its effective
+entry is `ext:<id>:skills/<id>`, from `extension`.
+
 ## API
 `rules_status` → `{ available: boolean, via: "rulesync"|"npx"|null, version?: string }`,
 `list_rule_library` → `RuleFile[] {id, path, description, targets, root}`,

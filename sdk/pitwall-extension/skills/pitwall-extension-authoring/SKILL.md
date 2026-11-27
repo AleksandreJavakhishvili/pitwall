@@ -310,7 +310,14 @@ impl MyTile {
 - `present` input may say `"mode": "append"` (`call.is_append()`) or name
   a file (`call.large_input()`). `"expose": ["agents", "cli", "palette"]`
   and a `"title"` make a tool a `pitwall extension run` and palette
-  command. Harness: `approve(Approval::Always)`, `run_command`, `undo`.
+  command; one with required input gets a small form in the palette, so
+  keep its input flat (strings, numbers, booleans, enums, with a
+  `description` each). Harness: `approve(Approval::Always)`,
+  `run_command`, `undo`.
+- `agents/SKILL.md` (16 KiB, `name` the extension's id, a `description`,
+  only your own `<id>__…` tools): when agents should use your tools. The
+  user gives it to projects on the extension's card; agents there get it
+  with their rules, from their next start.
 
 ## Services (no permission needed)
 
