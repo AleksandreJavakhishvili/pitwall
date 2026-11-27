@@ -1,5 +1,6 @@
-# The hello tile, the tile host's test fixture, built against WIT 0.1
-# (../../../wit) to a WebAssembly component for wasm32-wasip2. Its own
+# The hello tile, the tile host's test fixture, written with the guest SDK
+# (sdk/pitwall-extension, WIT 0.1) and built to a WebAssembly component for
+# wasm32-wasip2. Its own
 # workspace (the empty [workspace] below), so the main workspace and CI
 # never need the wasm target. The built component is committed as
 # ../hello/tile.wasm, in the hello extension's folder; rebuild it with
@@ -15,8 +16,8 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-# Only the bindings macro and the allocator hook: no async runtime.
-wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc", "std"] }
+# The guest SDK, from this repository.
+pitwall-extension = { path = "../../../../../sdk/pitwall-extension" }
 regex = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 chrono = { version = "0.4", optional = true }

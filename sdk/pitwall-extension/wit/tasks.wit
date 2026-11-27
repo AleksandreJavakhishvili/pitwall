@@ -1,0 +1,18 @@
+package pitwall:tile@0.1.0;
+
+/// Timers (platform-services.md §14.2). No permission. Timers pause while
+/// the tile is hidden and go on when it is shown again; a repeating timer
+/// that was due while hidden fires once, not once per missed period.
+interface tasks {
+  use types.{timer-id, host-error};
+
+  /// Fire a `timer` event after `ms` milliseconds, once or, with `repeat`,
+  /// every `ms` milliseconds until cancelled. At least 100 ms (shorter is
+  /// raised to 100). At most 32 timers at once: one more gives
+  /// `host-error.busy`.
+  timer: func(ms: u32, repeat: bool) -> result<timer-id, host-error>;
+
+  /// Stop a timer. An id that isn't running (fired once, or cancelled
+  /// already) is ignored.
+  cancel: func(id: timer-id);
+}
