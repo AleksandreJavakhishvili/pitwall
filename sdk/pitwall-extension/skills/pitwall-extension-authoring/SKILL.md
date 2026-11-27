@@ -107,7 +107,19 @@ pitwall_extension::export!(App);
 - **Listeners**: `cx.listener(|this, event, cx| …)`, made while rendering and
   handed to the element at once. `on_click` takes `Click`; `on_change` takes
   `&str` (annotate it: `|this, v: &str, cx|`) or `InputChange`; `on_submit`
-  takes `Submit`. Call `cx.notify()` when what shows changed.
+  takes `Submit`; `on_blur` (`Blur`) fires when a field loses the keyboard,
+  the time to save it. Call `cx.notify()` when what shows changed.
+- **Buttons**: look `.primary()`, `.danger()`, `.link()` and size `.small()`
+  combine (`.small().danger()`). `icon_button(Icon::Trash, "Delete")` is
+  square. `Icon` lists every icon Pitwall has; `Icon::Named` with another
+  name draws a dot.
+- **Hover**: `.group("row")` on a row and `.visible_on_group_hover("row")` on
+  its Delete shows the Delete only under the pointer (Pitwall draws it).
+- **Keys**: `cx.bind_key("n", ..)` while rendering. Pitwall's own keys
+  (Esc, Tab, `cmd-` with most letters and digits, `cmd-enter`, …: the list is
+  in ui.md) are dropped with a Log line, so bind `cmd-s` or plain keys. A
+  key without ⌘/Ctrl/Alt doesn't fire while a text field has focus.
+  `cx.focus("list/head/search")`: the key path without the root's.
 - **Text fields**: Pitwall owns what the user types. Keep your copy from
   `on_change` and pass it back with `.value(..)`: the SDK sends it only
   when it differs, so setting your copy to `""` clears the field.
@@ -143,8 +155,11 @@ the schema small and describe each field: agents read it.
 ## Services (no permission needed)
 
 - `storage`: the tile's own key-value store on disk (`get`, `set`,
-  `delete`, `list`, `get_json`, `set_json`). What the user must not lose
-  goes here.
+  `delete`, `list`, `get_json`, `set_json`; `entries_json(prefix)` reads
+  every record under a prefix in a couple of calls). What the user must not
+  lose goes here.
+- Clocks: `std::time::Instant` and `SystemTime` work. Don't
+  `thread::sleep`; use a timer.
 - `settings`: `text(key)`, `number`, `flag`, `secret(key)`, `open()`.
   `Tile::on_event` gets `Event::SettingsChanged` (by default it renders
   again).
@@ -177,10 +192,15 @@ fn counts() {
 }
 ```
 
-Each action waits until the tile handled it and rendered. `wait(duration)`
-lets timers fire; `wait_for_text(text, timeout)` waits for one.
-`text_snapshot()` prints the tree; `log_text()`, `toasts()`, `stored(key)`,
-`reload()` (save state, restart), `set_setting`, `set_content`.
+Each action waits until the tile handled it and rendered. Time is virtual:
+`advance(duration)` moves it (timers, `Instant` and `SystemTime`), so tests
+never sleep; `wait_for_text(text, timeout)` moves it until the text shows.
+`text_snapshot()` prints the tree (with each field's text and focus);
+`field("key")` reads a field; `focus_key`, `blur()`, `focus(false)` move the
+keyboard; `press("n")` a bound key; `resize(view, w, h)`, `light()`;
+`log_text()`, `toasts()`, `stored(key)`, `Harness::stored(key, value)`;
+`reload()` (save state, restart), `restart()` (no saved state),
+`set_setting`, `set_content`.
 
 ## Docs
 

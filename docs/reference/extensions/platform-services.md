@@ -33,7 +33,11 @@ Timers are on the tile's context, since they call back into the tile:
 
 Timers pause while the tile is hidden and go on when it is shown again. A repeating timer that was due while hidden fires once, not once per missed period. There is no background work while hidden: a tile polls only while you can see it.
 
-In tests, `wait(duration)` lets time pass and `wait_for_text(text, timeout)` waits until the tile shows something.
+### Clocks
+
+`std::time::Instant` and `SystemTime` work (WASI's clocks), so a tile can time a debounce or stamp what it stores; `std::thread::sleep` blocks the whole tile, so wait with a timer instead.
+
+In tests time is virtual: it stands still until the test moves it, with `advance(duration)` (`wait` is the same), which fires each timer due on the way at its own time, and moves `Instant` and `SystemTime` with it. `wait_for_text(text, timeout)` moves it in small steps until the tile shows something. `Harness::wall_clock()` runs a test on the computer's clock instead.
 
 ## Storage
 
@@ -42,6 +46,8 @@ The tile's own key-value store, in `storage`. Use it for what the user must not 
 | Call | Does |
 |---|---|
 | `storage::get(key)` | The bytes of `key`, or `None` |
+| `storage::get_many(&keys)` | The bytes of each key, in order (`None` for a missing one), at most 1024 keys: one call, for reading many at once |
+| `storage::entries(prefix)`, `storage::entries_json(prefix)` | Every key that starts with `prefix` with its value (bytes, or JSON with `serde`), in byte order: a `list` and `get_many` calls, so a tile reads all its records in a few calls |
 | `storage::set(key, value)` | Sets `key` to bytes |
 | `storage::delete(key)` | Removes `key` (a missing key is no error) |
 | `storage::list(prefix)` | The keys that start with `prefix` (all for `""`), in byte order |
@@ -65,7 +71,7 @@ The `list` template keeps its whole list as JSON and notes a failed write in the
 
 For state that only has to survive a reload (what is being typed, a scroll position), use `save_state` instead ([Quick start](quick-start.md#develop-with-pitwall-extension-dev)).
 
-In tests, `stored(key)` and `stored_json(key)` read what the tile stored.
+In tests, `stored(key)` and `stored_json(key)` read what the tile stored, and `Harness::stored(key, value)` (or `stored_json`) starts the tile with values already stored. `restart()` starts it again with the same storage and no saved state; `reload()` keeps the saved state too.
 
 ## Settings
 
@@ -123,7 +129,7 @@ Requests about the tile's own views, in `ui`. They act only inside the tile's ow
 |---|---|
 | `ui::toast(text, tone)` | Shows a short message, labelled with the tile's name. `Tone::Info`, `Good`, `Warn` or `Bad`. At most 200 characters and 3 toasts a minute; more are dropped and noted in the Log |
 | `ui::open_view(tile)` | Opens one of the extension's tiles (an id from `contributes.tiles`), or focuses its view when one is open |
-| `ui::scroll_to(view, key_path)` | Scrolls the element at that key path into sight after the view's next render |
+| `ui::scroll_to(view, key_path)` | Scrolls the element at that key path into sight after the view's next render. The key path is the one `cx.focus` takes: keys from the root down, without the root's (`"list/rows/n4"`) |
 | `ui::request_render(view)` | Renders the view again after this call; in a listener, `cx.notify()` is simpler |
 
 The `form` template saves a note and says so in a toast:
