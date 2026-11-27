@@ -31,6 +31,14 @@ impl Tile for Hello {
             return huge();
         }
         let greeting = settings::text("greeting").unwrap_or_else(|| "Hello".to_string());
+        // A key of the tile's and one Pitwall keeps (dropped by the host).
+        let j = cx.listener(|t: &mut Hello, _: &KeyPress, cx| {
+            t.clicks += 1;
+            cx.notify();
+        });
+        cx.bind_key("j", j);
+        let w = cx.listener(|_: &mut Hello, _: &KeyPress, _| {});
+        cx.bind_key("cmd-w", w);
         v_flex()
             .gap(px(8.0))
             .p(px(12.0))
@@ -96,6 +104,11 @@ fn tests(cx: &mut Cx<Hello>) -> AnyElement {
             loop {
                 t.hoard.push(vec![1u8; 1 << 20]);
             }
+        })))
+        .child(button("Many").id("many").small().on_click(cx.listener(|_, _, _| {
+            // Two keys in one host call.
+            let got = storage::get_many(&["clicks", "nope"]).map(|v| v.iter().map(Option::is_some).collect::<Vec<_>>());
+            log::info(format!("get-many: {got:?}"));
         })));
     #[cfg(feature = "heavy")]
     let row = row.child(button("Heavy").id("heavy").small().on_click(cx.listener(|_, _, _| log::info(heavy::work()))));

@@ -14,6 +14,7 @@ use wasmtime::{Store, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::bindings::Tile;
+use crate::clock::Clock;
 use crate::data::{extension_data_dir, ExtensionData, KvStore};
 use crate::frame;
 use crate::host::{HostState, Pending, StateParts};
@@ -36,6 +37,7 @@ enum Msg {
     Grants(Grants),
     SettingsChanged,
     SaveState,
+    Advance(Duration),
     Stop,
 }
 
@@ -112,6 +114,14 @@ impl TileHandle {
         self.post(Msg::SaveState)
     }
 
+    /// With a virtual clock ([`Clock::manual`]): let `time` pass. Timers
+    /// due meanwhile fire in order, each at its own time (while shown),
+    /// and the views render after. Ignored, with a Log line, on the wall
+    /// clock.
+    pub fn advance(&self, time: Duration) -> bool {
+        self.post(Msg::Advance(time))
+    }
+
     /// Stop the tile now: a call that is running ends at the next epoch
     /// tick (about 10 ms), then `Stopped(Stopped)` arrives.
     pub fn stop(&self) {
@@ -170,6 +180,8 @@ struct Worker<'a> {
     visible: bool,
     /// When the current batch of messages was taken (a frame's `took`).
     batch: Instant,
+    /// Reserved keys a frame bound, told in the Log once each.
+    told_keys: HashSet<String>,
 }
 
 struct View {
@@ -214,6 +226,10 @@ impl<'a> Worker<'a> {
         // refused outright, whatever the defaults are (S7).
         let mut wasi = WasiCtxBuilder::new();
         wasi.stdout(stdout.clone()).stderr(stderr.clone()).allow_tcp(false).allow_udp(false).allow_ip_name_lookup(false).socket_addr_check(|_, _| Box::pin(async { false }));
+        // A virtual clock is the guest's `Instant` and `SystemTime` too.
+        if let Some((wall, mono)) = options.clock.wasi() {
+            wasi.wall_clock(wall).monotonic_clock(mono);
+        }
         let limits = StoreLimitsBuilder::new()
             .memory_size(options.grants.memory_limit(manifest))
             .trap_on_grow_failure(true)
@@ -235,6 +251,7 @@ impl<'a> Worker<'a> {
             kv,
             stdout,
             stderr,
+            clock: options.clock.clone(),
         });
         let mut store = Store::new(&inner.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -256,7 +273,7 @@ impl<'a> Worker<'a> {
             StopReason::Crashed(why) => StopReason::LoadFailed(why),
             other => other,
         })?;
-        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now() };
+        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new() };
         let cx = InitContext {
             extension: ext.id().to_string(),
             version: manifest.version.clone().unwrap_or_default(),
@@ -296,7 +313,9 @@ impl<'a> Worker<'a> {
             if self.stopping() {
                 return Err(StopReason::Stopped);
             }
-            let due = if self.visible { self.store.data().next_due() } else { None };
+            // A virtual clock's timers fire only when it is moved.
+            let manual = self.store.data().clock.is_manual();
+            let due = if self.visible && !manual { self.store.data().next_due() } else { None };
             let first = match due {
                 Some(at) => match self.rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(m) => Some(m),
@@ -315,7 +334,8 @@ impl<'a> Worker<'a> {
                 self.apply(msg)?;
             }
             if self.visible {
-                for id in self.store.data_mut().due_timers(Instant::now()) {
+                let now = self.store.data().clock.now();
+                for id in self.store.data_mut().due_timers(now) {
                     self.handle(Event::Timer(id))?;
                 }
             }
@@ -370,8 +390,28 @@ impl<'a> Worker<'a> {
                 }
                 Ok(())
             }
+            Msg::Advance(time) => self.advance(time),
             Msg::Stop => Err(StopReason::Stopped),
         }
+    }
+
+    /// Move a virtual clock on by `time`, firing each timer due meanwhile
+    /// at its own time.
+    fn advance(&mut self, time: Duration) -> Result<(), StopReason> {
+        let Clock::Manual(m) = self.store.data().clock.clone() else {
+            self.store.data_mut().host_log(LogLevel::Warn, "advance: the tile runs on the wall clock".into());
+            return Ok(());
+        };
+        let end = self.store.data().clock.now() + time;
+        while self.visible {
+            let Some(next) = self.store.data().next_due().filter(|n| *n <= end) else { break };
+            m.advance_to(next);
+            for id in self.store.data_mut().due_timers(next) {
+                self.handle(Event::Timer(id))?;
+            }
+        }
+        m.advance_to(end);
+        Ok(())
     }
 
     fn open_view(&mut self, mut v: ViewSpec) -> Result<(), StopReason> {
@@ -437,6 +477,7 @@ impl<'a> Worker<'a> {
                 self.store.data_mut().host_log(LogLevel::Warn, format!("rendering “{view}” took {} ms (keep it under 8 ms)", took.as_millis()));
             }
             frame::check(&new).map_err(|e| StopReason::FrameRefused(e.to_string()))?;
+            let new = self.without_reserved_keys(new);
             let diff = frame::diff(prev.as_deref(), &new);
             if prev.as_deref().is_some_and(|p| diff.is_empty() && p.focus == new.focus && p.keymap == new.keymap) {
                 continue;
@@ -448,6 +489,28 @@ impl<'a> Worker<'a> {
             (self.sink)(TileOutput::Frame(FrameUpdate { view, tile, frame, diff, took: self.batch.elapsed() }));
         }
         Ok(())
+    }
+
+    /// `frame` without the bindings of keys Pitwall keeps (ui.md §3.5),
+    /// each told in the Log the first time.
+    fn without_reserved_keys(&mut self, mut frame: Frame) -> Frame {
+        if !frame.keymap.iter().any(|b| crate::keys::reserved(&b.keys)) {
+            return frame;
+        }
+        let mut dropped = Vec::new();
+        frame.keymap.retain(|b| {
+            let r = crate::keys::reserved(&b.keys);
+            if r {
+                dropped.push(b.keys.clone());
+            }
+            !r
+        });
+        for k in dropped {
+            if self.told_keys.insert(k.clone()) {
+                self.store.data_mut().host_log(LogLevel::Warn, format!("the key binding “{}” was dropped: Pitwall keeps that key for itself (see the reserved keys in the docs)", crate::host::cut(&k, 40)));
+            }
+        }
+        frame
     }
 
     /// After calls: stdout/stderr into the Log, the store to disk, and the

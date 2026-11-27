@@ -16,7 +16,7 @@
 
 use std::marker::PhantomData;
 
-use crate::events::{ChangeEvent, Click, Hover, Pointer, ScrollPosition, Selection, Submit};
+use crate::events::{Blur, ChangeEvent, Click, Focused, Hover, Pointer, ScrollPosition, Selection, Submit};
 use crate::style::{StyleSet, Styled};
 
 /// A function of the tile that an element calls when the user acts, made
@@ -48,7 +48,8 @@ impl<E: ?Sized> std::fmt::Debug for Handler<E> {
     }
 }
 
-/// The events a node can listen for.
+/// The events a node can listen for. `Focus` and `Blur` are the SDK's
+/// own: it calls them when `focus-changed` moves to or from the node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Listen {
     Click,
@@ -58,62 +59,189 @@ pub(crate) enum Listen {
     Scroll,
     Hover,
     Pointer,
+    Focus,
+    Blur,
 }
 
-/// One of Pitwall's icons, drawn in the node's text colour.
+/// One of Pitwall's icons, drawn in the node's text colour: the whole set
+/// Pitwall draws, by the names its own screens use (the app's tests keep
+/// this list equal to its icons, and `pitwall extension check` checks a
+/// manifest's icons against the same list).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Icon {
-    /// Refresh, reload.
-    Refresh,
-    /// A check mark.
-    Check,
-    /// A cross: close, remove.
-    X,
-    /// A plus: add, new.
-    Plus,
-    /// A magnifier: search, filter.
+    /// A sidebar: show or hide a side list. (`sidebar`)
+    Sidebar,
+    /// A magnifier: search, filter. (`search`)
     Search,
-    /// A gear: settings.
+    /// A gear: settings. (`gear`)
     Gear,
-    /// A folder.
-    Folder,
-    /// A file.
-    File,
-    /// A git branch.
-    Branch,
-    /// A terminal.
-    Terminal,
-    /// A bin: delete.
+    /// A plus: add, new. (`plus`)
+    Plus,
+    /// A cross: close, remove. (`x`)
+    X,
+    /// An arrow right: send. (`send`)
+    Send,
+    /// A square: stop. (`stop`)
+    Stop,
+    /// A turning arrow, left: restart. (`restart`)
+    Restart,
+    /// A turning arrow, right: refresh, reload. (`refresh`)
+    Refresh,
+    /// A bin: delete. (`trash`)
     Trash,
-    /// Two pages: copy.
+    /// A version-control branch. (`branch`)
+    Branch,
+    /// A folder. (`folder`)
+    Folder,
+    /// A chevron pointing right: more, open a group. (`chevron`)
+    Chevron,
+    /// Four squares: a grid of things. (`grid`)
+    Grid,
+    /// Six panes: Pitwall's wall of agents. (`wall`)
+    Wall,
+    /// Corners outward: maximise. (`maximize`)
+    Maximize,
+    /// Corners inward: restore. (`restore`)
+    Restore,
+    /// Two windows: a window of its own. (`window`)
+    Window,
+    /// Three dots: more actions. (`more`)
+    More,
+    /// A page with lines: a review. (`review`)
+    Review,
+    /// A terminal. (`terminal`)
+    Terminal,
+    /// A file. (`file`)
+    File,
+    /// Two arrows apart: expand. (`expand`)
+    Expand,
+    /// Two pages: copy. (`copy`)
     Copy,
-    /// An arrow out of a box: opens elsewhere.
+    /// A chevron pointing down: a menu, an open group. (`chevron-down`)
+    ChevronDown,
+    /// A check mark. (`check`)
+    Check,
+    /// A headset. (`headset`)
+    Headset,
+    /// A person: an account. (`user`)
+    User,
+    /// A laptop: this computer. (`laptop`)
+    Laptop,
+    /// A server: another machine. (`server`)
+    Server,
+    /// An eye: view only, show. (`eye`)
+    Eye,
+    /// An arrow out of a box: opens elsewhere. (`external`)
     External,
-    /// Another of Pitwall's icons, by name. An unknown name draws a
-    /// placeholder.
+    /// A picture. (`image`)
+    Image,
+    /// A browser window: a web page. (`browser`)
+    Browser,
+    /// A chevron pointing left: back. (`back`)
+    Back,
+    /// A phone: a device. (`phone`)
+    Phone,
+    /// Angle brackets: code, inspect. (`inspect`)
+    Inspect,
+    /// A page with a pane on the right. (`page-right`)
+    PageRight,
+    /// A page with a pane on the left. (`page-left`)
+    PageLeft,
+    /// A page with a pane below. (`page-below`)
+    PageBelow,
+    /// A pin: keep on top. (`pin`)
+    Pin,
+    /// Six dots: drag to move. (`grip`)
+    Grip,
+    /// A minus: remove, zoom out. (`minus`)
+    Minus,
+    /// A chevron pointing up: previous, close a group. (`chevron-up`)
+    ChevronUp,
+    /// A padlock: can't be changed. (`lock`)
+    Lock,
+    /// A warning triangle. (`alert`)
+    Alert,
+    /// A puzzle piece: an extension. (`extension`)
+    Extension,
+    /// An inbox tray. (`inbox`)
+    Inbox,
+    /// A bell: notifications. (`bell`)
+    Bell,
+    /// A speech bubble: a conversation. (`chat`)
+    Chat,
+    /// A bulleted list. (`list`)
+    List,
+    /// An icon by name, for a name newer than this SDK. An unknown name
+    /// draws nothing, and the test harness notes it.
     Named(String),
 }
 
 impl Icon {
+    /// Every icon of the set, in the order of the app's list.
+    pub const ALL: &'static [Icon] = &[Icon::Sidebar, Icon::Search, Icon::Gear, Icon::Plus, Icon::X, Icon::Send, Icon::Stop, Icon::Restart, Icon::Refresh, Icon::Trash, Icon::Branch, Icon::Folder, Icon::Chevron, Icon::Grid, Icon::Wall, Icon::Maximize, Icon::Restore, Icon::Window, Icon::More, Icon::Review, Icon::Terminal, Icon::File, Icon::Expand, Icon::Copy, Icon::ChevronDown, Icon::Check, Icon::Headset, Icon::User, Icon::Laptop, Icon::Server, Icon::Eye, Icon::External, Icon::Image, Icon::Browser, Icon::Back, Icon::Phone, Icon::Inspect, Icon::PageRight, Icon::PageLeft, Icon::PageBelow, Icon::Pin, Icon::Grip, Icon::Minus, Icon::ChevronUp, Icon::Lock, Icon::Alert, Icon::Extension, Icon::Inbox, Icon::Bell, Icon::Chat, Icon::List];
+
     /// Its name in Pitwall's icon set.
     pub fn name(&self) -> &str {
         match self {
-            Icon::Refresh => "refresh",
-            Icon::Check => "check",
-            Icon::X => "x",
-            Icon::Plus => "plus",
+            Icon::Sidebar => "sidebar",
             Icon::Search => "search",
             Icon::Gear => "gear",
-            Icon::Folder => "folder",
-            Icon::File => "file",
-            Icon::Branch => "branch",
-            Icon::Terminal => "terminal",
+            Icon::Plus => "plus",
+            Icon::X => "x",
+            Icon::Send => "send",
+            Icon::Stop => "stop",
+            Icon::Restart => "restart",
+            Icon::Refresh => "refresh",
             Icon::Trash => "trash",
+            Icon::Branch => "branch",
+            Icon::Folder => "folder",
+            Icon::Chevron => "chevron",
+            Icon::Grid => "grid",
+            Icon::Wall => "wall",
+            Icon::Maximize => "maximize",
+            Icon::Restore => "restore",
+            Icon::Window => "window",
+            Icon::More => "more",
+            Icon::Review => "review",
+            Icon::Terminal => "terminal",
+            Icon::File => "file",
+            Icon::Expand => "expand",
             Icon::Copy => "copy",
+            Icon::ChevronDown => "chevron-down",
+            Icon::Check => "check",
+            Icon::Headset => "headset",
+            Icon::User => "user",
+            Icon::Laptop => "laptop",
+            Icon::Server => "server",
+            Icon::Eye => "eye",
             Icon::External => "external",
+            Icon::Image => "image",
+            Icon::Browser => "browser",
+            Icon::Back => "back",
+            Icon::Phone => "phone",
+            Icon::Inspect => "inspect",
+            Icon::PageRight => "page-right",
+            Icon::PageLeft => "page-left",
+            Icon::PageBelow => "page-below",
+            Icon::Pin => "pin",
+            Icon::Grip => "grip",
+            Icon::Minus => "minus",
+            Icon::ChevronUp => "chevron-up",
+            Icon::Lock => "lock",
+            Icon::Alert => "alert",
+            Icon::Extension => "extension",
+            Icon::Inbox => "inbox",
+            Icon::Bell => "bell",
+            Icon::Chat => "chat",
+            Icon::List => "list",
             Icon::Named(n) => n,
         }
+    }
+
+    /// The icon called `name`, if the set has it.
+    pub fn from_name(name: &str) -> Option<Icon> {
+        Icon::ALL.iter().find(|i| i.name() == name).cloned()
     }
 }
 
@@ -123,7 +251,6 @@ pub(crate) enum ButtonKind {
     Primary,
     Ghost,
     Danger,
-    Small,
     Link,
 }
 
@@ -140,7 +267,7 @@ pub(crate) enum Kind {
     Box,
     Scroll(Axis),
     Text(String),
-    Button { label: String, kind: ButtonKind, icon: Option<Icon>, disabled: bool },
+    Button { label: String, kind: ButtonKind, small: bool, icon: Option<Icon>, disabled: bool },
     Icon(Icon),
     Input(InputSpec),
 }
@@ -262,6 +389,21 @@ pub trait Interactive: Sized {
     /// focus).
     fn on_click(mut self, handler: Handler<Click>) -> Self {
         self.node().listen(Listen::Click, handler);
+        self
+    }
+
+    /// Call `handler` when it gets keyboard focus (a text field, a
+    /// [`focusable`](Interactive::focusable) node).
+    fn on_focus(mut self, handler: Handler<Focused>) -> Self {
+        self.node().listen(Listen::Focus, handler);
+        self
+    }
+
+    /// Call `handler` when it loses keyboard focus: the user moved to
+    /// another node or out of the tile, or the node went away. A text
+    /// field's last edit has arrived before this (save it here).
+    fn on_blur(mut self, handler: Handler<Blur>) -> Self {
+        self.node().listen(Listen::Blur, handler);
         self
     }
 
@@ -430,7 +572,8 @@ impl Button {
         self.set_kind(ButtonKind::Primary)
     }
 
-    /// An ordinary action: a hairline button (the default).
+    /// An ordinary action: a hairline button (the default; small, it is
+    /// Pitwall's row and toolbar button).
     pub fn ghost(self) -> Button {
         self.set_kind(ButtonKind::Ghost)
     }
@@ -440,9 +583,14 @@ impl Button {
         self.set_kind(ButtonKind::Danger)
     }
 
-    /// A small button for rows and toolbars.
-    pub fn small(self) -> Button {
-        self.set_kind(ButtonKind::Small)
+    /// Smaller (26 px instead of 30), for rows, toolbars and a tile's
+    /// bars. The size is apart from the look: `.small().danger()` and
+    /// `.danger().small()` are both a small danger button.
+    pub fn small(mut self) -> Button {
+        if let Kind::Button { small, .. } = &mut self.0.kind {
+            *small = true;
+        }
+        self
     }
 
     /// A button that looks like a link.
@@ -469,7 +617,7 @@ impl Button {
 
 /// A button with a label. Its click goes to [`Interactive::on_click`].
 pub fn button(label: impl Into<String>) -> Button {
-    Button(AnyElement::new(Kind::Button { label: label.into(), kind: ButtonKind::Ghost, icon: None, disabled: false }))
+    Button(AnyElement::new(Kind::Button { label: label.into(), kind: ButtonKind::Ghost, small: false, icon: None, disabled: false }))
 }
 
 /// A small button with only an icon; `label` is its accessible name and

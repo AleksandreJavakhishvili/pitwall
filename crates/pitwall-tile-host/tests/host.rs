@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use pitwall_tile_host::ui::{self, Element, Event, Modifiers, MouseButton, Point};
 use pitwall_tile_host::{
-    Extension, FrameUpdate, Grants, HostConfig, LoadError, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec,
+    Clock, Extension, FrameUpdate, Grants, HostConfig, LoadError, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec,
 };
 
 fn fixture() -> PathBuf {
@@ -216,6 +216,32 @@ fn text_input_timers_logs_and_toasts() {
         _ => None,
     });
     assert_eq!(toast, UiRequest::Toast { text: "Saved".into(), tone: ui::Tone::Good });
+}
+
+/// On a virtual clock a timer fires only when the test moves the clock,
+/// at its time; a reserved key binding is dropped with a Log line; two
+/// stored keys come back from one get-many.
+#[test]
+fn a_virtual_clock_reserved_keys_and_get_many() {
+    let t = tempfile::tempdir().unwrap();
+    let run = start(&host(t.path()), StartOptions { clock: Clock::manual(), ..StartOptions::view("main") });
+    let first = run.frame_with("main", "Ticks: 0");
+    let keys: Vec<&str> = first.frame.keymap.iter().map(|b| b.keys.as_str()).collect();
+    assert_eq!(keys, ["j"], "cmd-w is Pitwall's");
+    assert_eq!(run.log_line("“cmd-w” was dropped").level, LogLevel::Warn);
+    run.click("timer");
+    run.handle.advance(Duration::from_millis(60));
+    run.click("button");
+    let f = run.frame_with("main", "Clicked 1 times");
+    assert!(texts(&f).iter().any(|t| t == "Ticks: 0"), "not due yet: {:?}", texts(&f));
+    run.handle.advance(Duration::from_millis(60));
+    run.frame_with("main", "Ticks: 1");
+    // The tile's own key.
+    let j = first.frame.keymap[0].handler;
+    run.handle.send(Event::Key(ui::KeyEvent { handler: j, keys: "j".into() }));
+    run.frame_with("main", "Clicked 2 times");
+    run.click("many");
+    run.log_line("get-many: Ok([true, false])");
 }
 
 #[test]

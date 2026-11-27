@@ -103,6 +103,16 @@ pub const MAX_WASM_PATH: usize = 100;
 pub const TILE_MEMORY_MIB: u32 = 64;
 pub const MAX_TILE_MEMORY_MIB: u32 = 512;
 
+/// Pitwall's icons by name: what a manifest's `icon` and a tile's icons
+/// may name (the app draws these; the SDK's `Icon` enum lists the same;
+/// the app's tests keep all three equal). `pitwall extension check` warns
+/// about a name not here.
+pub const ICON_NAMES: &[&str] = &[
+    "sidebar", "search", "gear", "plus", "x", "send", "stop", "restart", "refresh", "trash", "branch", "folder", "chevron", "grid", "wall", "maximize", "restore", "window", "more", "review", "terminal", "file", "expand", "copy",
+    "chevron-down", "check", "headset", "user", "laptop", "server", "eye", "external", "image", "browser", "back", "phone", "inspect", "page-right", "page-left", "page-below", "pin", "grip", "minus", "chevron-up", "lock", "alert",
+    "extension", "inbox", "bell", "chat", "list",
+];
+
 /// The longest id, icon name and name.
 pub const MAX_ID: usize = 40;
 pub const MAX_NAME: usize = 40;

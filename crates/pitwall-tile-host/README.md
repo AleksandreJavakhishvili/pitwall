@@ -16,12 +16,12 @@ own compile cache, and the host side of `ui`, `log`, `tasks`, `storage` and
 | File | Interface | What |
 |---|---|---|
 | `world.wit` | world `tile` | imports `ui`, `log`, `tasks`, `storage`, `settings`; exports `guest`; WASI 0.2 for std (stdout/stderr to the Log, no files or sockets) |
-| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button`, `icon`, `scroll`, `input`; styles with theme tokens only; listeners; events; views and content; `host-error` |
+| `types.wit` | `types` | the frame (flat node list with parent indices), elements `box`, `text`, `button` (kind and size), `icon`, `scroll`, `input`; styles with theme tokens only, hover groups; listeners; events (`focus-changed` for the focused node); views and content; `host-error` |
 | `guest.wit` | `guest` (export) | `init`, `render(view)`, `handle(event) -> bool`, `save-state` |
 | `ui.wit` | `ui` | `request-render`, `scroll-to`, `toast`, `open-view` |
 | `log.wit` | `log` | `debug`, `info`, `warn`, `error` |
 | `tasks.wit` | `tasks` | `timer(ms, repeat)`, `cancel` |
-| `storage.wit` | `storage` | key-value: `get`, `set`, `delete`, `list`, `usage` (10 MiB) |
+| `storage.wit` | `storage` | key-value: `get`, `get-many` (≤ 1024 keys, one call), `set`, `delete`, `list`, `usage` (10 MiB) |
 | `settings.wit` | `settings` | `get`, `secret`, `open` |
 
 A guest is written with the SDK, `sdk/pitwall-extension` (its `wit/` is a
@@ -62,8 +62,16 @@ LoadError>` (blocking; for `pitwall extension check`; fills the cache),
 `data_dir()`. Cheap to clone.
 
 `StartOptions { views: Vec<ViewSpec>, grants: Grants, theme: ui::ThemeInfo,
-visible: bool, state: Option<Vec<u8>> }`; `StartOptions::view(tile)` opens
-one view of that tile, visible, nothing granted.
+visible: bool, state: Option<Vec<u8>>, clock: Clock }`; `StartOptions::view(tile)` opens
+one view of that tile, visible, nothing granted, on the wall clock.
+`Clock::manual()` is a virtual clock for tests: time (timers, rate limits,
+WASI's `Instant` and `SystemTime`) stands still until
+`TileHandle::advance(d)`, which fires each timer at its own time; call
+deadlines stay on the wall clock.
+
+**Keys.** `keys::reserved(keys)` says whether a binding is one of Pitwall's
+own (`keys::reserved_list()` lists them for the docs); the host drops such a
+binding from a frame's keymap with a Log line, once per key.
 
 **Views.** One component runs per extension; every place in the layout
 showing one of its tiles is a view, addressed by (extension id, tile, view
@@ -77,7 +85,8 @@ calls `set_content` for a repeat.
 `TileHandle` (every method only posts; false once the worker is gone):
 `send(ui::Event)`, `open_view(ViewSpec)`, `set_content(view, ui::Content)`,
 `close_view(view)`, `set_visible(bool)`, `set_theme(ui::ThemeInfo)`,
-`set_grants(Grants)`, `settings_changed()`, `save_state()`, `stop()`
+`set_grants(Grants)`, `settings_changed()`, `save_state()`, `advance(Duration)`
+(a virtual clock only), `stop()`
 (interrupts a running call within one epoch tick), `is_running()`, `join()`
 (blocking; not for the UI thread), `id()`. Dropping it stops the tile.
 

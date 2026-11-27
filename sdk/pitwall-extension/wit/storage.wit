@@ -14,6 +14,12 @@ interface storage {
   /// The value of `key`, or `none` when it has none.
   get: func(key: string) -> result<option<list<u8>>, host-error>;
 
+  /// The values of `keys`, in the same order (`none` for a key with no
+  /// value), in one host call: a tile loads hundreds of keys at start
+  /// with `list` and this. At most 1024 keys a call (`host-error.too-large`
+  /// over that); `host-error.invalid` for a key that isn't valid.
+  get-many: func(keys: list<string>) -> result<list<option<list<u8>>>, host-error>;
+
   /// Set `key` to `value`. `host-error.too-large` when it would take the
   /// store over 10 MiB; `host-error.invalid` for a key that isn't valid.
   set: func(key: string, value: list<u8>) -> result<_, host-error>;

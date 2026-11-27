@@ -11,9 +11,9 @@ interface ui {
   request-render: func(view: view-id);
 
   /// Scroll the scroll containers around the node at `key-path` (keys
-  /// from the root down, joined by `/`, without the root's) so the node
-  /// is in sight, after the next render of `view`. A path with no node is
-  /// ignored.
+  /// from the root down, joined by `/`, without the root's, as
+  /// `frame.focus`) so the node is in sight, after the next render of
+  /// `view`. A path with no node is ignored.
   scroll-to: func(view: view-id, key-path: string);
 
   /// Show a short message in a toast, labelled with the tile's name. At

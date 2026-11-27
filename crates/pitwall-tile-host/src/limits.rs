@@ -51,6 +51,8 @@ pub const MIN_TIMER: Duration = Duration::from_millis(100);
 pub const STORAGE_BYTES: u64 = 10 << 20;
 /// A storage key.
 pub const MAX_STORAGE_KEY: usize = 256;
+/// The most keys one `storage.get-many` reads.
+pub const MAX_GET_MANY: usize = 1024;
 
 /// What `save-state` may return.
 pub const MAX_STATE_BYTES: usize = 1 << 20;

@@ -631,6 +631,10 @@ pub trait Styled {
         pb_2 => padding [bottom] 2.0;
         /// 8 px padding on the left.
         pl_2 => padding [left] 2.0;
+        /// 12 px padding on the left.
+        pl_3 => padding [left] 3.0;
+        /// 4 px padding on the right.
+        pr_1 => padding [right] 1.0;
         /// 8 px padding on the right.
         pr_2 => padding [right] 2.0;
         /// 4 px margin on every side.
@@ -931,6 +935,37 @@ pub trait Styled {
         Self: Sized,
     {
         self.style().push(wit::Style::Cursor(wit::Cursor::Text));
+        self
+    }
+
+    // ---- Hover groups -------------------------------------------------------
+
+    /// Name this node a hover group, for [`Styled::visible_on_group_hover`]
+    /// in the nodes under it (a list row and its actions). The same name on
+    /// every row is fine: each node looks at its nearest ancestor of that
+    /// name.
+    fn group(mut self, name: impl Into<String>) -> Self
+    where
+        Self: Sized,
+    {
+        self.style().push(wit::Style::Group(name.into()));
+        self
+    }
+    /// Hidden until the pointer is over the nearest ancestor
+    /// [`group`](Styled::group) named `group`: a row's Delete that shows on
+    /// hover. Pitwall shows it without calling the tile; hidden, it takes no
+    /// clicks.
+    ///
+    /// ```ignore
+    /// h_flex().id(id).group("row")
+    ///     .child(text(title).flex_1())
+    ///     .child(icon_button(Icon::Trash, "Delete").visible_on_group_hover("row"))
+    /// ```
+    fn visible_on_group_hover(mut self, group: impl Into<String>) -> Self
+    where
+        Self: Sized,
+    {
+        self.style().push(wit::Style::VisibleOnGroupHover(group.into()));
         self
     }
 }
