@@ -38,6 +38,12 @@ pub struct Reach {
 }
 
 impl Reach {
+    /// Whether this reach lost anything `old` allowed: a host pattern,
+    /// or its own server's address.
+    pub fn narrows(&self, old: &Reach) -> bool {
+        !old.hosts.iter().all(|h| self.hosts.contains(h)) || (old.own_server.is_some() && old.own_server != self.own_server)
+    }
+
     /// Whether `url` may be requested; else the host it names, for the
     /// refusal.
     pub fn check(&self, url: &url::Url) -> Result<(), String> {
@@ -287,6 +293,22 @@ mod tests {
 
     fn req(url: &str) -> Request {
         Request { method: "GET".into(), url: url.into(), headers: vec![], body: None, timeout_ms: None }
+    }
+
+    /// A revoke ends the requests on their way only when the reach lost
+    /// something (a redirect may go anywhere the old one allowed).
+    #[test]
+    fn a_smaller_reach_narrows() {
+        let none = Reach::default;
+        let both = reach(&["api.github.com", "*.example.com"]);
+        assert!(none().narrows(&both), "net taken back");
+        assert!(reach(&["api.github.com"]).narrows(&both), "a host gone");
+        assert!(!both.narrows(&reach(&["api.github.com"])), "a host added");
+        assert!(!both.narrows(&both), "the same");
+        let own = Reach { own_server: Some("127.0.0.1:8790".parse().unwrap()), ..none() };
+        assert!(none().narrows(&own), "its server's address gone");
+        assert!(Reach { own_server: Some("127.0.0.1:8791".parse().unwrap()), ..none() }.narrows(&own), "moved");
+        assert!(!own.narrows(&none()));
     }
 
     #[test]

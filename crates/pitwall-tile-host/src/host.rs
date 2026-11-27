@@ -83,7 +83,8 @@ pub(crate) struct HostState {
     /// `net`: who makes the requests, the ones waiting, and where their
     /// answers go (the worker's own channel).
     pub fetcher: Arc<dyn Fetcher>,
-    pub fetches: BTreeSet<u32>,
+    /// Requests on their way, with the host each asked.
+    pub fetches: BTreeMap<u32, String>,
     pub next_fetch: u32,
     pub done: std::sync::mpsc::Sender<Msg>,
     /// `sql`: its database, opened on first use.
@@ -177,7 +178,7 @@ impl HostState {
             group: p.group,
             images: BTreeMap::new(),
             fetcher: p.fetcher,
-            fetches: BTreeSet::new(),
+            fetches: BTreeMap::new(),
             next_fetch: 1,
             done: p.done,
             db: p.db,
@@ -222,6 +223,38 @@ impl HostState {
         if let Some(g) = self.ungated.take() {
             self.grants = g;
         }
+    }
+
+    /// The user changed its grants while it runs (permissions.md §5.4):
+    /// every call from now on is checked against `g`. What was started
+    /// under the old ones and isn't allowed by the new ends here: when
+    /// `net`'s reach got smaller, the requests on their way (their
+    /// answers are dropped; their ids and hosts returned, for the tile to
+    /// hear they were refused); without `files.read`, the watches on projects; the
+    /// badges on rows it may no longer see. The memory limit and the
+    /// database's size were set at start: those apply after a restart.
+    pub fn set_grants(&mut self, g: Grants) -> Vec<(u32, String)> {
+        // A redirect may lead anywhere the old reach allowed: any loss
+        // ends every request on its way.
+        let narrowed = g.reach().narrows(&self.ungated.as_ref().unwrap_or(&self.grants).reach());
+        let dropped: Vec<(u32, String)> = if narrowed { std::mem::take(&mut self.fetches).into_iter().collect() } else { Vec::new() };
+        if !g.has(pitwall_core::extensions::permissions::FILES_READ) {
+            self.files.end_project_watches();
+        }
+        let shown = self.group.shown.len();
+        self.group.shown.retain(|b| g.has(crate::group::badge_needs(b)));
+        if self.group.shown.len() != shown {
+            self.pending.push(Pending::Ui(UiRequest::Badges(self.group.shown.clone())));
+        }
+        // During a gated call (never between calls, but kept right): the
+        // new grants come back when it ends.
+        if self.ungated.is_some() {
+            self.grants = g.without_acting();
+            self.ungated = Some(g);
+        } else {
+            self.grants = g;
+        }
+        dropped
     }
 
     /// Count a host call; false once over the limit for this second.

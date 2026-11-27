@@ -261,6 +261,12 @@ impl Files {
         self.watches.retain(|_, w| w.view.as_deref() != Some(view));
     }
 
+    /// `files.read` was taken back: the watches on projects end (its own
+    /// files folder's stay).
+    pub fn end_project_watches(&mut self) {
+        self.watches.retain(|_, w| w.view.is_none());
+    }
+
     /// Whether watch `id` is on (its changes are still wanted).
     pub fn watching(&self, id: u32) -> bool {
         self.watches.contains_key(&id)

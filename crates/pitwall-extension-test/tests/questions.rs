@@ -119,3 +119,12 @@ fn a_note_is_sent_after_its_take_back_time_or_comes_back_on_undo() {
     assert!(t.find_text("Sent: Ship it Friday").is_some(), "{}", t.text_snapshot());
     assert!(t.find_key("take-back/take-back-2").is_none());
 }
+
+/// `agents.read` taken back: its badge on an agent goes at once.
+#[test]
+fn a_revoke_takes_its_badges_on_agents_away() {
+    let mut t = granted().open("main");
+    assert_eq!(t.badges().len(), 1);
+    t.revoke("agents.read");
+    assert!(t.badges().is_empty(), "{:?}", t.badges());
+}

@@ -1639,8 +1639,11 @@ impl Session {
         self.settle()
     }
 
-    /// The user takes permission `name` back; the tile's next call is
-    /// refused.
+    /// The user takes permission `name` back, as in Pitwall with no
+    /// restart: the tile's next call is refused, a `net` request on its
+    /// way arrives refused (its answer dropped), its project watches end
+    /// with `files.read`, its badges on agents or projects go with
+    /// `agents.read` or `projects.read`.
     pub fn revoke(&mut self, name: &str) -> &mut Self {
         self.grants.retain(|g| g != name);
         self.check_running();

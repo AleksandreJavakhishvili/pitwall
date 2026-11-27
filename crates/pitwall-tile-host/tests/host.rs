@@ -382,3 +382,96 @@ fn bad_extensions_are_refused_with_a_reason() {
     let ok = Extension::load(&fixture()).unwrap();
     assert_eq!(host.start(&ok, StartOptions::view("nope"), |_| ()).err(), Some(LoadError::UnknownTile("nope".into())));
 }
+
+fn start_from(host: &TileHost, dir: &Path, options: StartOptions) -> Run {
+    let ext = host.load(dir).expect("the fixture loads");
+    let (tx, rx) = mpsc::channel();
+    let handle = host.start(&ext, options, move |o| drop(tx.send(o))).expect("starts");
+    Run { handle, rx, frames: RefCell::default() }
+}
+
+/// Holds every request; the test answers them.
+#[derive(Default)]
+struct Held(std::sync::Mutex<Vec<pitwall_tile_host::net::Done>>);
+
+impl pitwall_tile_host::net::Fetcher for Held {
+    fn fetch(&self, _request: pitwall_tile_host::net::Outgoing, _reach: pitwall_tile_host::net::Reach, done: pitwall_tile_host::net::Done) {
+        self.0.lock().unwrap().push(done);
+    }
+}
+
+/// A grant taken back while the tile runs (permissions.md §5.4): its
+/// next call is denied, and a request on its way arrives denied, its
+/// late answer dropped; granted again, it reaches the host again. No
+/// restart.
+#[test]
+fn a_revoke_applies_to_the_next_call() {
+    let t = tempfile::tempdir().unwrap();
+    let host = host(t.path());
+    let held = std::sync::Arc::new(Held::default());
+    host.set_fetcher(held.clone());
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/services");
+    let m = host.load(&dir).unwrap().manifest().clone();
+    let net = || Grants::for_extension(&m, ["net"]);
+    let run = start_from(&host, &dir, StartOptions { grants: net(), ..StartOptions::view("main") });
+    run.frame_with("main", "schema 2");
+    run.click("fetch");
+    run.frame_with("main", "fetching");
+    assert!(run.handle.set_grants(Grants::for_extension(&m, Vec::<String>::new())));
+    run.frame_with("main", "fetch failed: not allowed to reach api.example.com");
+    let late = held.0.lock().unwrap().pop().expect("held");
+    late(Ok(pitwall_tile_host::net::Response { status: 200, headers: vec![], body: b"late".to_vec(), url: "https://api.example.com/items?x=1".into() }));
+    run.click("fetch");
+    run.next("the next fetch refused", |o| match o {
+        TileOutput::Frame(f) => {
+            assert!(!texts(f).iter().any(|t| t.contains("late")), "the late answer was dropped");
+            texts(f).iter().any(|t| t.starts_with("refused")).then_some(())
+        }
+        _ => None,
+    });
+    assert!(held.0.lock().unwrap().is_empty(), "nothing left");
+    // Granted again: it reaches the host again, the same component.
+    run.handle.set_grants(net());
+    run.click("fetch");
+    run.next("a request sent", |o| match o {
+        TileOutput::Frame(f) => texts(f).iter().any(|t| t == "fetching").then_some(()),
+        TileOutput::Started { .. } => panic!("restarted"),
+        _ => None,
+    });
+    assert_eq!(held.0.lock().unwrap().len(), 1);
+}
+
+/// `files.read` taken back: the next read is denied and the watches on
+/// the project end.
+#[test]
+fn a_revoke_ends_the_project_watches() {
+    let t = tempfile::tempdir().unwrap();
+    let project = t.path().join("shop");
+    std::fs::create_dir_all(project.join("docs")).unwrap();
+    std::fs::write(project.join("docs/a.md"), "# A\n").unwrap();
+    let project = project.canonicalize().unwrap();
+    let host = host(&t.path().join("data"));
+    let watcher = pitwall_tile_host::files::FakeWatcher::new();
+    host.set_watcher(watcher.clone());
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/files");
+    let m = host.load(&dir).unwrap().manifest().clone();
+    let view = ViewSpec { project: Some(ui::Project { name: "shop".into(), folder: project.to_string_lossy().into_owned() }), ..ViewSpec::tile("main") };
+    let run = start_from(&host, &dir, StartOptions { views: vec![view], grants: Grants::for_extension(&m, ["files.read"]), ..StartOptions::view("main") });
+    run.frame_with("main", "in shop");
+    run.click("watch");
+    run.frame_with("main", "watching");
+    assert_eq!(watcher.watching(), 1);
+    run.handle.set_grants(Grants::for_extension(&m, Vec::<String>::new()));
+    run.click("read");
+    run.frame_with("main", "read: not allowed");
+    assert_eq!(watcher.watching(), 0, "the watch ended");
+    watcher.changed(&[project.join("docs/a.md")]);
+    run.click("stat");
+    run.next("the next stat refused", |o| match o {
+        TileOutput::Frame(f) => {
+            assert!(!texts(f).iter().any(|t| t.starts_with("changed: ")), "no change heard");
+            texts(f).iter().any(|t| t.starts_with("stat: not allowed")).then_some(())
+        }
+        _ => None,
+    });
+}

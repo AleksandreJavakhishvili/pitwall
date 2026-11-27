@@ -61,7 +61,8 @@ impl net::Host for HostState {
         };
         let id = self.next_fetch;
         self.next_fetch = self.next_fetch.wrapping_add(1).max(1);
-        self.fetches.insert(id);
+        // The host as a refusal names it, should its reach be taken back.
+        self.fetches.insert(id, out.url.host_str().unwrap_or_default().to_string());
         let done = self.done.clone();
         self.fetcher.fetch(
             out,

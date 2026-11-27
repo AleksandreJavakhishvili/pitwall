@@ -87,11 +87,14 @@ pub(crate) struct Group {
     pub status: bool,
     pub methods: Arc<dyn Methods>,
     noted: BTreeSet<String>,
+    /// The badges it set last, as shown (a grant taken back drops the
+    /// ones that need it).
+    pub shown: Vec<badges::Badge>,
 }
 
 impl Group {
     pub fn new(badges: bool, asks: bool, methods: Arc<dyn Methods>) -> Group {
-        Group { badges, asks, status: false, methods, noted: BTreeSet::new() }
+        Group { badges, asks, status: false, methods, noted: BTreeSet::new(), shown: Vec::new() }
     }
 
     /// With the status, when `m` contributes it.
@@ -120,6 +123,15 @@ impl HostState {
                 _ => HostError::Failed(e.message),
             }
         })
+    }
+}
+
+/// The permission a badge's row needs: `agents.read` on an agent's,
+/// `projects.read` on a project's.
+pub(crate) fn badge_needs(b: &badges::Badge) -> &'static str {
+    match &b.row {
+        badges::Row::Agent(_) => AGENTS_READ,
+        badges::Row::Project(_) => PROJECTS_READ,
     }
 }
 
@@ -205,10 +217,7 @@ impl badges::Host for HostState {
         }
         let mut kept = Vec::with_capacity(list.len());
         for mut b in list {
-            let need = match &b.row {
-                badges::Row::Agent(_) => AGENTS_READ,
-                badges::Row::Project(_) => PROJECTS_READ,
-            };
+            let need = badge_needs(&b);
             if !self.grants.has(need) {
                 self.note_once(&format!("badges:{need}"), format!("badges.set: a badge on {} needs the “{need}” permission; it isn't shown", if need == AGENTS_READ { "an agent" } else { "a project" }));
                 continue;
@@ -228,6 +237,7 @@ impl badges::Host for HostState {
             }
             kept.push(b);
         }
+        self.group.shown = kept.clone();
         self.pending.push(crate::host::Pending::Ui(UiRequest::Badges(kept)));
         Ok(())
     }
