@@ -35,7 +35,8 @@
 //! from what the extension's own WebAssembly component renders, run by
 //! `pitwall-tile-host` in a sandbox. A tile names its component (`wasm`, a
 //! file in the extension's folder) and the WIT world it was built for
-//! (`world`). Tiles need no adapter. The `memory` permission may be an
+//! (`world`), and maybe the content it accepts when opened (`input`, a JSON
+//! schema file). Tiles need no adapter. The `memory` permission may be an
 //! object with its size (`{"reason": …, "mib": 256}`): linear memory above
 //! the 64 MiB every tile gets.
 //!
@@ -206,6 +207,10 @@ pub struct TileDef {
     /// The world it was built for, like `pitwall:tile@0.1.0`; `None`: the
     /// newest the host serves.
     pub world: Option<String>,
+    /// What content it accepts when opened by the user or an agent: a JSON
+    /// schema file in the extension's folder (same path rules as `wasm`,
+    /// ending in `.json`). `None`: it opens without content.
+    pub input: Option<String>,
 }
 
 /// A web view a manifest declares: a page in a web tile. Its address is
@@ -1017,7 +1022,14 @@ fn parse_tiles(v: &Value) -> Result<Vec<TileDef>, String> {
                 Some(w.to_string())
             }
         };
-        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world });
+        let input = match opt_str(o, "input")? {
+            None => None,
+            Some(path) => {
+                check_folder_path(path, ".json").map_err(|e| format!("tile “{id}”: \"input\" {e}"))?;
+                Some(path.to_string())
+            }
+        };
+        out.push(TileDef { id: id.to_string(), title, icon, wasm: wasm.to_string(), world, input });
     }
     Ok(out)
 }
@@ -1025,13 +1037,18 @@ fn parse_tiles(v: &Value) -> Result<Vec<TileDef>, String> {
 /// Why `path` can't name a tile's component: relative, `/`-separated, no
 /// `.` or `..` parts, letters, digits and `._-`, ending in `.wasm`.
 pub fn check_wasm_path(path: &str) -> Result<(), String> {
+    check_folder_path(path, ".wasm").map_err(|e| format!("\"wasm\" {e}"))
+}
+
+/// Why `path` can't name a file ending in `ext` in the extension's folder.
+fn check_folder_path(path: &str, ext: &str) -> Result<(), String> {
     let ok = path.len() <= MAX_WASM_PATH
-        && path.ends_with(".wasm")
+        && path.ends_with(ext)
         && path.split('/').all(|p| !p.is_empty() && p != "." && p != ".." && p.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)));
     if ok {
         Ok(())
     } else {
-        Err(format!("\"wasm\" “{path}” must be a .wasm file in the extension's folder, like tile.wasm (at most {MAX_WASM_PATH} characters)"))
+        Err(format!("“{path}” must be a {ext} file in the extension's folder, like tile{ext} (at most {MAX_WASM_PATH} characters)"))
     }
 }
 
@@ -1781,8 +1798,8 @@ mod tests {
     #[test]
     fn tiles_are_read_and_checked() {
         let m = |extra: &str| format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{{extra}}}}}"#);
-        let ok = parse(&m(r#""tiles": [{"id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0"}, {"id": "other", "title": "Other", "wasm": "build/other.wasm"}]"#)).unwrap();
-        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()) });
+        let ok = parse(&m(r#""tiles": [{"id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "schemas/open.json"}, {"id": "other", "title": "Other", "wasm": "build/other.wasm"}]"#)).unwrap();
+        assert_eq!(ok.contributes.tiles[0], TileDef { id: "main".into(), title: "Hello".into(), icon: Some("grid".into()), wasm: "tile.wasm".into(), world: Some("pitwall:tile@0.1.0".into()), input: Some("schemas/open.json".into()) });
         assert_eq!(ok.contributes.tile("other").map(|t| t.world.clone()), Some(None));
         assert!(ok.contributes.lines().iter().any(|l| l.contains("a tile “Hello” (main)")));
         let err = |extra: &str| parse(&m(extra)).unwrap_err();
@@ -1790,6 +1807,7 @@ mod tests {
             assert!(err(&format!(r#""tiles": [{{"id": "t", "title": "T", "wasm": "{bad}"}}]"#)).contains("tile “t”"), "{bad}");
         }
         assert!(err(r#""tiles": [{"id": "t", "title": "T"}]"#).contains("needs \"wasm\""));
+        assert!(err(r#""tiles": [{"id": "t", "title": "T", "wasm": "t.wasm", "input": "../s.json"}]"#).contains("\"input\""));
         assert!(err(r#""tiles": [{"id": "t", "title": "T", "wasm": "t.wasm", "world": "pitwall:tile@1"}]"#).contains("like pitwall:tile@0.1.0"));
         assert!(err(r#""tiles": [{"id": "t", "title": "T", "wasm": "t.wasm"}, {"id": "t", "title": "U", "wasm": "u.wasm"}]"#).contains("twice"));
         assert!(err(r#""views": [{"id": "t", "title": "T"}], "tiles": [{"id": "t", "title": "T", "wasm": "t.wasm"}]"#).contains("share their ids"));
