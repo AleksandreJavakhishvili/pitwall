@@ -728,8 +728,8 @@ mod tests {
         assert!(check(&hello().join("tile.wasm")).passed());
         assert!(inspect(b"\0asm\x01\0\0\0").unwrap_err().contains("core WebAssembly module"));
         assert!(inspect(b"nope").is_err());
-        assert!(!provided("pitwall:tile/files@0.1.0") && !provided("pitwall:tile/ui@0.2.0") && !provided("wasi:sockets/tcp@0.3.0"));
-        assert!(provided("wasi:cli/stdout@0.2.6") && provided("pitwall:tile/ui@0.1.0") && provided("pitwall:tile/net@0.1.0"));
+        assert!(!provided("pitwall:tile/git@0.1.0") && !provided("pitwall:tile/ui@0.2.0") && !provided("wasi:sockets/tcp@0.3.0"));
+        assert!(provided("wasi:cli/stdout@0.2.6") && provided("pitwall:tile/ui@0.1.0") && provided("pitwall:tile/net@0.1.0") && provided("pitwall:tile/files@0.1.0"));
     }
 
     #[test]
