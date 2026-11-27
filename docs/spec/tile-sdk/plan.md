@@ -134,4 +134,12 @@ tile and show content in it, and the pages below match.
 - [ ] **On demand:** services from [14.3](platform-services.md#143-later-on-demand), each when a seed tile needs it
 - [ ] **7. Stabilise:** WIT 1.0, Preview label removed, deprecation policy
 - [ ] **8. Port or hand over the bundled extensions** ([15.7](extension-model.md#157-effect-on-the-plan))
+  - Agention, ported by us (`extensions/agention/`, 2.0.0; its own Cargo workspace like `tiles/c4`):
+    - [x] A tile replaces the Node adapter: threads and open asks from the operator API through `net`, grouped by agent and session; answer (suggestions, own words, Decline), reply, Mark read, Archive; news through the long poll; the toolbar count keeps it running with no view open
+    - [x] The same asks in the floating control (`asks`) and badges on the sidebar rows of agents waiting on the user (`badges`)
+    - [x] Settings, the `apiKey` secret, the managed `agention serve` service, actions, variables and checklist kept; the adapter, `contributes.inbox` and `matchAgents` dropped
+    - [x] Generic SDK and host feature it needed: a `net` host taken from a `url` setting (`"{setting:KEY}"` in `permissions.net.hosts`), granted per value, followed when the setting changes; the harness's `serve` for stateful fake servers
+    - [x] Tests: harness tests against a Rust port of the fake operator API, unit tests, a headless app test (`test/app.json`, run for every shipped extension that has one), `extension check`, a dependency check and the `tile-agention` CI job; README, dark and light screenshots
+    - [ ] Not yet possible without an adapter (README, "From the adapter to the tile"): the native inbox (⌘I, number keys, Send with take-back; needs the component `inbox` interface), the checklist's "Connected" step and status pill, and the update's "connects as before" health check (both need a way for a tile to report its status)
+  - [ ] The component `inbox` interface, so a tile can feed Pitwall's native inbox
 - [ ] **9. Remove adapters** once each bundled extension has a component version

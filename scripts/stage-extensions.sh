@@ -2,7 +2,8 @@
 # Copies the extensions Pitwall ships into DEST, for the app's bundle
 # (scripts/package-app.sh; docs/spec/extensions.md, "Installing"): every
 # folder of SRC with an extension.json, without what is only for tests
-# (folders named test) or made by a package manager (node_modules), and
+# (folders named test or tests), made by a package manager (node_modules)
+# or by a build (target, a tile's Cargo output), and
 # without .DS_Store files. Settings lists them under Available.
 #
 #   scripts/stage-extensions.sh extensions target/package/extensions
@@ -24,5 +25,5 @@ for d in "$src"/*/; do
   n=$((n + 1))
 done
 [ $n -gt 0 ] || die "no extensions in $src"
-find "$dest" -depth \( -type d \( -name test -o -name node_modules \) -o -name .DS_Store \) -exec rm -rf {} +
+find "$dest" -depth \( -type d \( -name test -o -name tests -o -name node_modules -o -name target \) -o -name .DS_Store \) -exec rm -rf {} +
 echo "stage-extensions: $n into $dest"

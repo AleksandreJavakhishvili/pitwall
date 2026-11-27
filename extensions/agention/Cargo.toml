@@ -1,0 +1,46 @@
+# The Agention extension's tile (README.md): Agention's threads and open
+# asks, read and answered through its operator API. Its own workspace, not
+# a member of Pitwall's: Pitwall's `cargo test --workspace` never builds
+# it, and it may depend on no Pitwall crate but the public
+# `pitwall-extension` (and `pitwall-extension-test`, dev only). CI checks
+# that with scripts/check-deps.sh.
+[workspace]
+resolver = "2"
+
+[package]
+name = "agention-tile"
+version = "2.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Agention in Pitwall: your agents' questions from your own Agention server, answered next to their terminals."
+publish = false
+
+[lib]
+# A WebAssembly component (`cargo build --release --target wasm32-wasip2`;
+# Pitwall runs the copy beside extension.json, tile.wasm), and a library
+# for the unit tests of its API and model code.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The public Tile SDK. Until it is on crates.io it comes from Pitwall's
+# repository (later: pitwall-extension = "0.1").
+pitwall-extension = { path = "../../sdk/pitwall-extension" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Runs the built tile.wasm in Pitwall's own tile runtime (tests/).
+pitwall-extension-test = { path = "../../crates/pitwall-extension-test" }
+
+# Small and quick to load: Pitwall compiles the component on first start.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# The harness tests run the tile in Wasmtime: an unoptimised Wasmtime and
+# Cranelift are too slow for them on a small CI runner.
+[profile.dev.package."*"]
+opt-level = 2

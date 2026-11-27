@@ -2,7 +2,7 @@
   "v": 2,
   "id": "agention",
   "name": "Agention",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "pitwall": ">=0.8.0",
   "docs": "https://github.com/pitwalls/pitwall/tree/main/extensions/agention",
   "source": {
@@ -36,14 +36,23 @@
       "required": true
     }
   ],
-  "contributes": { "inbox": true },
-  "adapter": { "command": ["node", "adapter/main.mjs"] },
+  "permissions": {
+    "net": { "reason": "To read your agents' threads from your Agention server and send your answers", "hosts": ["{setting:server}"] },
+    "agents.read": "To show which of your agents asks, and badge the ones waiting on you"
+  },
+  "contributes": {
+    "tiles": [
+      { "id": "inbox", "title": "Agention", "icon": "inbox", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "agents": false }
+    ],
+    "asks": true,
+    "badges": true,
+    "toolbar": { "icon": "inbox", "tooltip": "Agention", "badge": true, "action": { "kind": "tile", "tile": "inbox" } }
+  },
   "agentEnv": [
     { "name": "AGENTION_URL", "value": "{setting:server}" },
     { "name": "AGENTWORKS_AGENT", "value": "{project}" },
     { "name": "AGENTWORKS_SESSION", "value": "{agent_id}" }
   ],
-  "matchAgents": { "agent": "{project}", "session": "{agent_id}" },
   "actions": [
     {
       "id": "setup",

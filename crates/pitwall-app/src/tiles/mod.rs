@@ -64,6 +64,8 @@ mod group_shots;
 #[cfg(test)]
 mod notes_shots;
 #[cfg(test)]
+mod shipped_tests;
+#[cfg(test)]
 mod gallery_tests;
 #[cfg(test)]
 mod services_shots;

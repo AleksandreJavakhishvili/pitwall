@@ -927,7 +927,7 @@ mod tests {
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).unwrap().flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
-                assert!(!["test", "node_modules", ".DS_Store"].contains(&name.as_str()), "{} is bundled", e.path().display());
+                assert!(!["test", "tests", "node_modules", "target", ".DS_Store"].contains(&name.as_str()), "{} is bundled", e.path().display());
                 if e.path().is_dir() {
                     stack.push(e.path());
                 }

@@ -248,9 +248,6 @@ The adapter, given those settings and secrets, must:
 - carry `answer` (the suggestion picked and the user's words) back, so
   that the answer shows in the thread.
 
-[`extensions/agention/adapter/test/serve-fake.mjs`](../../extensions/agention/adapter/test/serve-fake.mjs)
-is an example.
-
 ### `calls`
 
 For a [protocol 2](protocol-2.md) adapter: `test` plays Pitwall's side,
