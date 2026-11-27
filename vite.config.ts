@@ -30,8 +30,9 @@ export default defineConfig(() => ({
 
   // Extensions bring their own tests, run with Node's test runner
   // (extensions/agention/adapter/README.md), not with vitest.
+  // So does the website (website/README.md, "Docs pipeline").
   test: {
-    exclude: [...configDefaults.exclude, "extensions/**"],
+    exclude: [...configDefaults.exclude, "extensions/**", "website/**"],
   },
 
   clearScreen: false,
