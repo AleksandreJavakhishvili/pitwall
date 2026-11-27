@@ -5,9 +5,11 @@
 //!
 //! - A component starts when one of its tiles is shown (a [`TileView`] is
 //!   made for it) and stops when its last view closes, or when the
-//!   extension is turned off. Hidden views (another space, a tile
-//!   maximised over it) are suspended: no renders, no timers
-//!   ([`Tiles::set_visible`]).
+//!   extension is turned off. When none of its views shows (another
+//!   space, a tile maximised over it) it keeps running for
+//!   [`SUSPEND_AFTER`], then is suspended: no renders, no timers. Hidden
+//!   for [`DROP_AFTER`], it saves its state and is dropped; shown again,
+//!   it starts with that state (runtime.md §2.3, [`Tiles::set_visible`]).
 //! - What the worker sends ([`TileOutput`]) arrives on a channel and is
 //!   applied here on the UI thread: frames for the views, Log lines for
 //!   the extension's Log in Settings, toasts and "open a view" applied
@@ -26,6 +28,7 @@ pub mod view;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::StreamExt;
@@ -38,6 +41,14 @@ pub use view::TileView;
 /// The most Log lines kept per extension.
 pub const LOG_KEEP: usize = 500;
 
+/// How long a component none of whose views shows keeps running before it
+/// is suspended (runtime.md §2.3).
+pub const SUSPEND_AFTER: Duration = Duration::from_secs(60);
+
+/// How long after its last view was hidden a component saves its state
+/// and is dropped (runtime.md §2.3).
+pub const DROP_AFTER: Duration = Duration::from_secs(10 * 60);
+
 /// How a component stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
@@ -46,6 +57,9 @@ pub enum State {
     Running,
     /// It stopped, with why (Restart starts it again).
     Stopped(StopReason),
+    /// Hidden too long: dropped with the state it saved, started again
+    /// with it when one of its views shows.
+    Dropped,
 }
 
 /// A running (or stopped) component.
@@ -63,6 +77,22 @@ pub struct Running {
     pub log: VecDeque<LogLine>,
     /// A reload waits for the state the component saves.
     reloading: bool,
+    /// Moves each time it starts or stops being shown: a later step of
+    /// an earlier hiding is dropped.
+    hidden_seq: u64,
+    /// The component was told it is hidden.
+    suspended: bool,
+    /// Being dropped: waits for the state it saves.
+    dropping: bool,
+    /// What it saved when it was dropped.
+    saved: Option<Vec<u8>>,
+}
+
+/// What hiding leads to, in turn.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hidden {
+    Suspend,
+    Drop,
 }
 
 /// The components that run, and the host that runs them.
@@ -279,21 +309,26 @@ impl Tiles {
     /// stops (it starts again when a tile of it is opened).
     pub fn close(&mut self, id: &str, view: &str, cx: &mut Context<Self>) {
         let Some(r) = self.running.get_mut(id) else { return };
+        let before = !r.shown.is_empty();
         r.views.remove(view);
         r.shown.remove(view);
         r.frames.remove(view);
         if r.views.is_empty() {
             self.running.remove(id);
-        } else if let Some(h) = &r.handle {
-            h.close_view(view);
-            h.set_visible(!r.shown.is_empty());
+        } else {
+            if let Some(h) = &r.handle {
+                h.close_view(view);
+            }
+            self.shown_changed(id, before, cx);
         }
         cx.notify();
     }
 
-    /// View `view` is shown (`true`) or hidden: the component is
-    /// suspended while none of its views shows (runtime.md §2.3).
-    pub fn set_visible(&mut self, id: &str, view: &str, shown: bool, _cx: &mut Context<Self>) {
+    /// View `view` is shown (`true`) or hidden. With none of its views
+    /// shown, the component is suspended after [`SUSPEND_AFTER`] and
+    /// dropped with its state after [`DROP_AFTER`]; shown again, it
+    /// resumes, or starts with that state (runtime.md §2.3).
+    pub fn set_visible(&mut self, id: &str, view: &str, shown: bool, cx: &mut Context<Self>) {
         let Some(r) = self.running.get_mut(id) else { return };
         let before = !r.shown.is_empty();
         if shown {
@@ -301,12 +336,92 @@ impl Tiles {
         } else {
             r.shown.remove(view);
         }
+        self.shown_changed(id, before, cx);
+    }
+
+    /// Whether any of extension `id`'s views shows changed from `before`:
+    /// shown, it resumes (or starts again with what it saved); hidden,
+    /// the steps of hiding are timed.
+    fn shown_changed(&mut self, id: &str, before: bool, cx: &mut Context<Self>) {
+        let Some(r) = self.running.get_mut(id) else { return };
         let now = !r.shown.is_empty();
-        if before != now {
+        if before == now {
+            return;
+        }
+        r.hidden_seq += 1;
+        if !now {
+            self.time_hiding(id, cx);
+            return;
+        }
+        r.dropping = false;
+        if r.state == State::Dropped {
+            let saved = r.saved.take();
+            self.revive(id, saved, cx);
+        } else if r.suspended {
+            r.suspended = false;
             if let Some(h) = &r.handle {
-                h.set_visible(now);
+                h.set_visible(true);
             }
         }
+    }
+
+    /// Hidden now: suspended after [`SUSPEND_AFTER`], dropped after
+    /// [`DROP_AFTER`], unless shown meanwhile.
+    fn time_hiding(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(r) = self.running.get(id) else { return };
+        let (gen, seq, id) = (r.gen, r.hidden_seq, id.to_string());
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SUSPEND_AFTER).await;
+            if !this.update(cx, |t, cx| t.hidden_step(&id, gen, seq, Hidden::Suspend, cx)).unwrap_or(false) {
+                return;
+            }
+            cx.background_executor().timer(DROP_AFTER.saturating_sub(SUSPEND_AFTER)).await;
+            let _ = this.update(cx, |t, cx| t.hidden_step(&id, gen, seq, Hidden::Drop, cx));
+        })
+        .detach();
+    }
+
+    /// A step of hiding, when the component is still the one hidden then
+    /// and hasn't been shown since: whether it was.
+    fn hidden_step(&mut self, id: &str, gen: u64, seq: u64, step: Hidden, cx: &mut Context<Self>) -> bool {
+        let Some(r) = self.running.get_mut(id).filter(|r| r.gen == gen && r.hidden_seq == seq && r.shown.is_empty()) else { return false };
+        let Some(h) = &r.handle else { return false };
+        match step {
+            Hidden::Suspend => {
+                if !r.suspended {
+                    r.suspended = true;
+                    h.set_visible(false);
+                }
+            }
+            Hidden::Drop => {
+                if r.state == State::Running && !r.reloading {
+                    r.dropping = true;
+                    h.save_state();
+                }
+            }
+        }
+        cx.notify();
+        true
+    }
+
+    /// A dropped component shown again: started with the state it saved,
+    /// its views, Log and what shows kept.
+    fn revive(&mut self, id: &str, saved: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        let Some(r) = self.running.remove(id) else { return };
+        let had_state = saved.is_some();
+        self.start(id, r.views, saved, cx);
+        if let Some(n) = self.running.get_mut(id) {
+            n.shown = r.shown;
+            n.log = r.log;
+            n.log.push_back(note(if had_state { "Shown again: started with the state it saved." } else { "Shown again: started afresh." }));
+        }
+        cx.notify();
+    }
+
+    /// Bench and tests: whether extension `id`'s component is suspended
+    /// (told it is hidden).
+    pub fn suspended(&self, id: &str) -> bool {
+        self.running.get(id).is_some_and(|r| r.suspended)
     }
 
     /// Send `event` to extension `id`'s component (a click, typed text,
@@ -336,6 +451,8 @@ impl Tiles {
                     h.save_state();
                 }
             }
+            // Dropped: it starts from the folder with its state when shown.
+            Some(r) if r.state == State::Dropped => {}
             Some(_) => self.restart(id, cx),
             None => {}
         }
@@ -377,7 +494,8 @@ impl Tiles {
     fn start(&mut self, id: &str, views: BTreeSet<String>, state: Option<Vec<u8>>, cx: &mut Context<Self>) {
         let gen = self.next_gen;
         self.next_gen += 1;
-        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false };
+        // It starts hidden (`visible: false`); shown, it is told.
+        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None };
         let started = (|| -> Result<TileHandle, String> {
             let host = self.host(cx)?;
             let dir = crate::extensions::folder_of(id, cx).ok_or_else(|| "Its folder isn't found.".to_string())?;
@@ -417,9 +535,13 @@ impl Tiles {
             TileOutput::Preparing => r.state = State::Starting { preparing: true },
             TileOutput::Started { .. } => {
                 r.state = State::Running;
-                // Shown views are drawn at once.
-                if let Some(h) = &r.handle {
-                    h.set_visible(!r.shown.is_empty());
+                // Shown views are drawn at once; none shown, the steps of
+                // hiding are timed from now.
+                if r.shown.is_empty() {
+                    self.time_hiding(id, cx);
+                } else if let Some(h) = &r.handle {
+                    r.suspended = false;
+                    h.set_visible(true);
                 }
             }
             TileOutput::Frame(u) => {
@@ -438,6 +560,9 @@ impl Tiles {
                 cx.defer(move |cx| ui_request(&id, req, cx));
                 return;
             }
+            TileOutput::StateSaved(bytes) if r.dropping => {
+                self.drop_hidden(id, Some(bytes));
+            }
             TileOutput::StateSaved(bytes) => {
                 if r.reloading {
                     let views = r.views.clone();
@@ -455,7 +580,10 @@ impl Tiles {
             TileOutput::Stopped(why) => {
                 r.handle = None;
                 r.log.push_back(note(&format!("Stopped: {why}.")));
-                if r.reloading {
+                if r.dropping {
+                    // It couldn't save its state: started afresh when shown.
+                    self.drop_hidden(id, None);
+                } else if r.reloading {
                     // It couldn't save its state: start it fresh.
                     let views = r.views.clone();
                     self.running.remove(id);
@@ -467,6 +595,23 @@ impl Tiles {
         }
         self.seq += 1;
         cx.notify();
+    }
+
+    /// Hidden for [`DROP_AFTER`]: the component let go, with what it
+    /// saved. Its outputs from before are ignored from now (a new
+    /// generation).
+    fn drop_hidden(&mut self, id: &str, saved: Option<Vec<u8>>) {
+        let gen = self.next_gen;
+        let Some(r) = self.running.get_mut(id) else { return };
+        self.next_gen += 1;
+        r.gen = gen;
+        r.handle = None;
+        r.dropping = false;
+        r.suspended = false;
+        r.frames.clear();
+        r.saved = saved;
+        r.state = State::Dropped;
+        r.log.push_back(note(&format!("Hidden for {} minutes: let go, with the state it saved. It starts again when shown.", DROP_AFTER.as_secs() / 60)));
     }
 
     /// Extension `id`'s Log lines, oldest first.

@@ -319,6 +319,56 @@ fn the_cli_loads_and_reloads_a_dev_folder(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
 
+/// Hidden (runtime.md §2.3), on GPUI's test clock: shown again within a
+/// minute it never stopped running; hidden a minute it is suspended; ten
+/// minutes, it saves its state and is let go; shown again, it starts with
+/// that state.
+#[gpui::test]
+fn a_hidden_tile_is_suspended_then_let_go(cx: &mut TestAppContext) {
+    let t = TempDir::new("tile-hidden");
+    let root = t.path().join("data");
+    copy_fixture(&root.join("extensions/hello"));
+    init(&root, cx);
+    cx.update(|cx| crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("hello", true)));
+    let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+    // Not drawn: shown and hidden by hand, as the layout does.
+    let tile = cx.update(|_, cx| cx.new(|cx| TileView::new("hello", "main", cx)));
+    tile.update(cx, |t, cx| t.set_shown(true, cx));
+    let r = tiles(cx);
+    until(cx, "first frame", |cx| has_text(&tile, "Clicked 0 times", cx));
+    tile.read_with(cx, |t, cx| t.click("button", pitwall_tile_host::ui::MouseButton::Left, pitwall_tile_host::ui::Modifiers::empty(), 1, pitwall_tile_host::ui::Point { x: 1., y: 1. }, cx));
+    until(cx, "the click", |cx| has_text(&tile, "Clicked 1 times", cx));
+    let suspended = |cx: &mut VisualTestContext| r.read_with(cx, |r, _| r.suspended("hello"));
+    let gen = r.read_with(cx, |r, _| r.generation("hello"));
+    // Hidden briefly: it keeps running.
+    tile.update(cx, |t, cx| t.set_shown(false, cx));
+    cx.executor().advance_clock(super::SUSPEND_AFTER / 2);
+    tile.update(cx, |t, cx| t.set_shown(true, cx));
+    cx.executor().advance_clock(super::SUSPEND_AFTER);
+    frame(cx);
+    assert!(!suspended(cx), "shown again in time");
+    // Hidden a minute: suspended, not before.
+    tile.update(cx, |t, cx| t.set_shown(false, cx));
+    cx.executor().advance_clock(super::SUSPEND_AFTER - Duration::from_secs(1));
+    frame(cx);
+    assert!(!suspended(cx), "still in its minute");
+    cx.executor().advance_clock(Duration::from_secs(2));
+    frame(cx);
+    assert!(suspended(cx), "suspended after a minute hidden");
+    assert_eq!(r.read_with(cx, |r, _| r.get("hello").map(|x| x.state.clone())), Some(State::Running));
+    // Ten minutes hidden: its state saved, let go.
+    cx.executor().advance_clock(super::DROP_AFTER);
+    until(cx, "it is let go", |cx| r.read_with(cx, |r, _| r.get("hello").is_some_and(|x| x.state == State::Dropped)));
+    assert_eq!(r.read_with(cx, |r, _| r.views("hello")), ["main"], "its view stays open");
+    // Shown again: a new component, with the state it saved.
+    tile.update(cx, |t, cx| t.set_shown(true, cx));
+    until(cx, "it runs again", |cx| r.read_with(cx, |r, _| r.get("hello").is_some_and(|x| x.state == State::Running)));
+    assert_ne!(r.read_with(cx, |r, _| r.generation("hello")), gen, "started again");
+    until(cx, "its frame, with its state", |cx| has_text(&tile, "Clicked 1 times", cx));
+    let log = r.read_with(cx, |r, _| r.log("hello"));
+    assert!(log.iter().any(|l| l.from_host && l.message.contains("let go")) && log.iter().any(|l| l.from_host && l.message.contains("state it saved")), "{log:?}");
+}
+
 /// A tile whose title is its extension's name is named once.
 #[test]
 fn a_title_equal_to_the_name_is_said_once() {
