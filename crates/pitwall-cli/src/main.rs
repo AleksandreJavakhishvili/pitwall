@@ -22,6 +22,7 @@ mod render;
 mod reference;
 mod settings;
 mod tile;
+mod tile_tools;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -259,10 +260,13 @@ pub fn failure(e: &Error) -> (Value, u8) {
     (json!({ "error": body }), exit_status(&body.code))
 }
 
-/// 3: not approved; 2: bad arguments; 1: anything else.
+/// 3: not approved (or a tile tool refused); 2: bad arguments; 4: a tile
+/// tool not available; 5: it timed out; 1: anything else.
 pub fn exit_status(code: &str) -> u8 {
     match code {
-        code::DENIED | code::APPROVAL_TIMEOUT => 3,
+        code::DENIED | code::APPROVAL_TIMEOUT | tile_tools::REFUSED => 3,
+        tile_tools::UNAVAILABLE => 4,
+        tile_tools::TIMED_OUT => 5,
         code::BAD_PARAMS | BAD_ARGS => 2,
         _ => 1,
     }

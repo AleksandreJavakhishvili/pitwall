@@ -1605,3 +1605,64 @@ pitwall extension connection remove [OPTIONS] <ID> <CONNECTION>
 |---|---|
 | `--default <DEFAULT>` | When it is the default: the connection that becomes the default. |
 
+### extension tools
+
+The tools its tiles give agents (all extensions' without an id): name, kind (show, present, read, act), what it does, its input.
+
+```bash
+pitwall extension tools [OPTIONS] [ID]
+```
+
+| Argument | |
+|---|---|
+| `ID` (optional) |  |
+
+### extension commands
+
+The tools its tiles offer the command line (`"expose"`), with their arguments: what `run` takes.
+
+```bash
+pitwall extension commands [OPTIONS] [ID]
+```
+
+| Argument | |
+|---|---|
+| `ID` (optional) |  |
+
+### extension call
+
+Call one of its tiles' tools with a JSON input; the result as MCP gives it to agents. Who calls is who runs this: an agent in its terminal, or you in a plain Pitwall terminal (read runs, act asks you in Pitwall); outside Pitwall only show tools.
+
+```bash
+pitwall extension call [OPTIONS] <ID> <TOOL>
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `TOOL` | The tool's name (`current_messages`, or `hello__current_messages`). |
+
+| Option | |
+|---|---|
+| `--input <INPUT>` | The input as JSON text, or `-` to read it from stdin. |
+| `--timeout <TIMEOUT>` | Give up sooner than the tool's own time (seconds; never longer). |
+
+### extension run
+
+Run one of its tiles' commands: `--<property> <value>` for each input property after `--`, or `--json <text|->` for the whole input. Prints the result's JSON (its text with --human). Exit status: 1 the tile answered with an error, 3 refused or denied, 4 not available, 5 timed out.
+
+```bash
+pitwall extension run [OPTIONS] <ID> <COMMAND> [-- <PROPS>...]
+```
+
+| Argument | |
+|---|---|
+| `ID` |  |
+| `COMMAND` |  |
+| `PROPS` (optional) | The input's properties: `-- --item a --text "hi"`. |
+
+| Option | |
+|---|---|
+| `--json <JSON>` | The whole input as JSON text, or `-` for stdin. |
+| `--timeout <TIMEOUT>` | Give up sooner than the tool's own time (seconds; never longer). |
+
