@@ -36,6 +36,23 @@ pub fn id_of(key: &str) -> Option<u64> {
     key.strip_prefix(PREFIX)?.parse().ok()
 }
 
+/// `text` with the task on line `line` (0-based) ticked (`on`) or not, as
+/// a click on its box in Preview asks; `None` when that line is no task.
+pub fn tick(text: &str, line: usize, on: bool) -> Option<String> {
+    let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let l = lines.get_mut(line)?;
+    let indent = l.len() - l.trim_start().len();
+    let rest = &l[indent..];
+    let bullet = rest.chars().next().filter(|c| matches!(c, '-' | '*' | '+'))?;
+    let after = rest[1..].trim_start();
+    let gap = rest.len() - 1 - after.len();
+    if !(after.starts_with("[ ]") || after.starts_with("[x]") || after.starts_with("[X]")) {
+        return None;
+    }
+    *l = format!("{}{bullet}{}[{}]{}", &l[..indent], " ".repeat(gap.max(1)), if on { 'x' } else { ' ' }, &after[3..]);
+    Some(lines.join("\n"))
+}
+
 /// The title: the first line with text, without Markdown's leading `#`s,
 /// at most 120 characters. `None` for a note with no text yet.
 pub fn title(text: &str) -> Option<String> {
@@ -147,5 +164,13 @@ mod tests {
         assert_eq!(draft_text(Some("Plan"), "Plan\n- a"), "Plan\n- a");
         assert_eq!(draft_text(None, "x"), "x");
         assert_eq!(draft_text(Some("  "), "x"), "x");
+    }
+
+    #[test]
+    fn a_task_is_ticked_on_its_line() {
+        assert_eq!(tick("Plan\n- [ ] one\n  * [x] two", 1, true).as_deref(), Some("Plan\n- [x] one\n  * [x] two"));
+        assert_eq!(tick("Plan\n- [ ] one\n  * [x] two", 2, false).as_deref(), Some("Plan\n- [ ] one\n  * [ ] two"));
+        assert_eq!(tick("Plan\n- one", 1, true), None);
+        assert_eq!(tick("Plan", 4, true), None);
     }
 }
