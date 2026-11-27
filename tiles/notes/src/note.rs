@@ -113,9 +113,57 @@ pub fn draft_text(title: Option<&str>, text: &str) -> String {
     }
 }
 
+/// The note's sections under its Markdown headings (not counting a first
+/// line that is the title): each heading's text and its section, the
+/// heading included, up to the next heading of the same or a higher
+/// level. Lines in code fences are no headings. What Send can send apart
+/// from the whole note (frd.md FR-14).
+pub fn sections(text: &str) -> Vec<(String, String)> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut heads: Vec<(usize, usize, String)> = Vec::new();
+    let mut fence: Option<&str> = None;
+    let first = lines.iter().position(|l| !l.trim().is_empty());
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        if let Some(f) = fence {
+            if t.starts_with(f) {
+                fence = None;
+            }
+            continue;
+        }
+        if t.starts_with("```") || t.starts_with("~~~") {
+            fence = Some(&t[..3]);
+            continue;
+        }
+        let level = t.chars().take_while(|c| *c == '#').count();
+        if (1..=6).contains(&level) && t[level..].starts_with(' ') && Some(i) != first {
+            heads.push((i, level, t[level..].trim().to_string()));
+        }
+    }
+    heads
+        .iter()
+        .enumerate()
+        .map(|(n, (at, level, name))| {
+            let end = heads[n + 1..].iter().find(|(_, l, _)| l <= level).map_or(lines.len(), |h| h.0);
+            (name.clone(), lines[*at..end].join("\n").trim_end().to_string())
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sections_are_under_headings() {
+        let text = "# Plan\nintro\n## Today\n- a\n```\n# not a heading\n```\n### Later today\n- b\n## Tomorrow\n- c";
+        let s = sections(text);
+        let names: Vec<&str> = s.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["Today", "Later today", "Tomorrow"]);
+        assert_eq!(s[0].1, "## Today\n- a\n```\n# not a heading\n```\n### Later today\n- b");
+        assert_eq!(s[2].1, "## Tomorrow\n- c");
+        assert!(sections("Just a note\nno headings").is_empty());
+    }
 
     #[test]
     fn title_is_the_first_line_with_text() {
