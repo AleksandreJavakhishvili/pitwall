@@ -164,6 +164,26 @@ impl SettingsView {
         col
     }
 
+    /// [`Self::permission_words`], with what `m` names for it: the
+    /// servers `net` may reach, each as written.
+    pub(super) fn permission_words_of(ui: &Ui, m: &Manifest, name: &str, reason: &str) -> Div {
+        let col = Self::permission_words(ui, name, reason);
+        let listed = permissions::listed(m, name);
+        if listed.is_empty() {
+            return col;
+        }
+        let sel = format!("extension-permission-listed-{}-{name}", m.id);
+        col.child(
+            div()
+                .debug_selector(move || sel)
+                .mt(px(2.))
+                .flex()
+                .flex_wrap()
+                .gap(px(4.))
+                .children(listed.into_iter().map(|h| div().px(px(6.)).py(px(1.)).rounded(px(4.)).bg(ui.t.surface_3).child(crate::kit::mono_text(h, &ui.t).text_color(ui.t.text_2)))),
+        )
+    }
+
     /// What a permission granted with the extension shows in place of a
     /// switch: how much (`memory`: "256 MiB").
     fn amount_chip(ui: &Ui, m: &Manifest, name: &str, amount: String) -> Div {
@@ -242,7 +262,7 @@ impl SettingsView {
             col = col.child(preview_warning(&m.id, ui));
         }
         for p in &m.permissions {
-            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words(ui, &p.name, &p.reason));
+            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &p.name, &p.reason));
             match (permissions::unavailable_why(&p.name), permissions::amount(m, &p.name).filter(|_| permissions::shown_only(&p.name))) {
                 (Some(why), _) => row = row.child(div().flex_none().mt(px(1.)).child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t))),
                 // Granted with it, shown with its size.
@@ -290,6 +310,12 @@ impl SettingsView {
         let mut lines = c.lines();
         if let Some(s) = &m.service {
             lines.push(format!("Runs a local program continuously while it is on: {} (you confirm its command first)", s.label));
+            // Its tiles may reach it without `net`.
+            if crate::tiles::has_tiles(m) {
+                if let Some(Ok(addr)) = pitwall_core::extensions::service::listen_of(m, s, &Default::default()) {
+                    lines.push(format!("Its tiles talk to its own server at {addr}"));
+                }
+            }
         }
         if lines.is_empty() {
             return None;
@@ -303,6 +329,27 @@ impl SettingsView {
                 .gap(px(4.))
                 .child(crate::kit::label("Adds to Pitwall", ui.t.text_3, 11.))
                 .children(lines.into_iter().map(|l| div().text_size(px(12.)).text_color(ui.t.text_2).child(l))),
+        )
+    }
+
+    /// "Show in toolbar", in a card that is on and has a toolbar button:
+    /// what the user sets is kept (an update never shows it again).
+    pub(super) fn toolbar_row(ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<Div> {
+        m.contributes.toolbar.as_ref()?;
+        let on = crate::main_screen::toolbar_items::visible(m, cx);
+        let id = m.id.clone();
+        Some(
+            div()
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .pt(px(10.))
+                .border_t_1()
+                .border_color(ui.t.line)
+                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.t.text).child("Show in toolbar")).child(crate::kit::hint("Its button in the top bar, after the counts. Right-click it to hide it.", &ui.t)))
+                .child(div().flex_none().mt(px(2.)).child(switch(format!("extension-toolbar-{}", m.id), on, ui).on_click(cx.listener(move |_, _, _, cx| {
+                    crate::ui_state::update(cx, |s| *s = std::mem::take(s).with_extension(&id, |e| e.toolbar = Some(!on)));
+                })))),
         )
     }
 
@@ -320,7 +367,7 @@ impl SettingsView {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(text));
         }
         for p in &m.permissions {
-            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words(ui, &p.name, &p.reason));
+            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &p.name, &p.reason));
             let (ext, name) = (m.id.clone(), p.name.clone());
             let right = match (permissions::unavailable_why(&p.name), decisions.get(&p.name)) {
                 (Some(why), _) => div().child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t)),

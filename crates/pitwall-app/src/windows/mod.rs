@@ -660,6 +660,34 @@ pub fn open_extension_view(ext: &str, view: &str, cx: &mut App) {
     });
 }
 
+/// Run `f` on the main screen of every open Pitwall window (later, outside
+/// the caller's updates).
+pub fn each_screen(cx: &mut App, f: impl Fn(&mut crate::main_screen::MainScreen, &mut gpui::Context<crate::main_screen::MainScreen>) + 'static) {
+    cx.defer(move |cx| {
+        for h in main_windows(cx) {
+            let _ = h.update(cx, |v, _, cx| {
+                if let Some(s) = v.screen() {
+                    s.update(cx, |s, cx| f(s, cx));
+                }
+            });
+        }
+    });
+}
+
+/// Page `url` that extension `ext`'s tile asked to show (`show.web`), in
+/// a new web tile of the main window.
+pub fn open_extension_page(ext: &str, url: &str, cx: &mut App) {
+    let (ext, url) = (ext.to_string(), url.to_string());
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(MAIN, cx) else { return };
+        let _ = handle.update(cx, |main, _, cx| {
+            if let Some(screen) = main.screen.clone() {
+                screen.update(cx, |s, cx| s.open_ext_page(&ext, &url, cx));
+            }
+        });
+    });
+}
+
 /// Extension `ext`'s card in Settings → Extensions (a tile's
 /// `settings.open`), in the main window's Settings tile.
 pub fn open_extension_settings(ext: &str, cx: &mut App) {
