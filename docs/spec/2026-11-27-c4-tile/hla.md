@@ -1,4 +1,5 @@
-Status: design, not built. Started 2026-11-27.
+Status: phase A (the core, plain Rust) built in `tiles/c4/`; the tile
+itself waits for the Tile SDK. Started 2026-11-27.
 
 # C4 diagram tile: high-level architecture
 
@@ -247,14 +248,19 @@ What was checked on 2026-11-27:
   keeps the default features [checked].
 - It has not been run under Wasmtime yet: there is no Pitwall tile host
   to run it in. Plan item.
+- Phase A compared it with `rust-sugiyama` on the fixtures and chose it
+  for v1 ([layout-lld §7](layout-lld.md#7-dagre-against-rust-sugiyama)):
+  no arrows through boxes or labels on boxes, at about 15 ms for 50 boxes
+  and 170 ms for 300, natively.
 
 Risk: the crate is young (version 0.1.2, about 11 000 downloads on
 crates.io on 2026-11-27). The tile wraps it behind a small `Layout`
 trait. **Fallback:** `rust-sugiyama` (MIT, petgraph-based, about 81 000
 downloads), which also compiles for `wasm32-wasip2` [checked] but has
 no compound graphs. With it, the tile would lay out each boundary's
-inside first and then lay out boundaries as single big nodes. Plan item:
-compare both on the fixtures before v1 ships.
+inside first and then lay out boundaries as single big nodes. Both were
+compared on the fixtures in phase A
+([layout-lld §7](layout-lld.md#7-dagre-against-rust-sugiyama)).
 
 Steps for a structure diagram:
 1. **Size** each box from its three lines (Name, Kind, purpose) and each
@@ -298,10 +304,13 @@ draws text shaped by the host [SDK,
 [ui §3.7](../tile-sdk/ui.md#37-canvas)], but the SDK design has no way
 for the guest to measure text ([§7](#7-sdk-gaps), gap G2).
 
-**v1 approach, until the SDK can measure:** a table of advance widths for
-Inter, the UI font Pitwall ships (`crates/pitwall-app/assets/fonts/`,
-OFL-1.1), generated into the crate at build time for the text sizes the
-tile uses. The guest sums advances and adds 8 % slack (*proposal*).
+**v1 approach, until the SDK can measure:** a table of advance widths and
+kerning pairs for Inter, the UI font Pitwall ships
+(`crates/pitwall-app/assets/fonts/`, OFL-1.1; the tile keeps its own copy
+in `tiles/c4/assets/fonts/` so it builds outside this repository),
+generated into the crate at build time in font units, so it serves every
+size ([layout-lld §1](layout-lld.md#1-text-widths)). The guest sums
+advances and kerning and adds 8 % slack (*proposal*).
 Wrong widths only make a box a little too wide, or a label truncated by
 the host. When the SDK gains a measuring call, the Sizer switches to it
 and the table goes.
@@ -526,15 +535,19 @@ matches the tile.
   `sdk/pitwall-extension`; once that crate is published, a version from
   crates.io. Tests may also use the published harness,
   `pitwall-extension-test`, as a dev-dependency only, since it never
-  ships in `tile.wasm` (*proposal*, for the owner to confirm).
-- **CI enforces it.** A job builds `tiles/c4` for `wasm32-wasip2`, runs
-  its tests and `pitwall extension check`, and runs a dependency check:
-  `cargo metadata` on `tiles/c4/Cargo.toml` fails the job if any package
-  whose name starts with `pitwall` is in the resolved graph other than
-  `pitwall-extension` (and `pitwall-extension-test` among
-  dev-dependencies), or if any path dependency points outside
-  `tiles/c4/` and `sdk/`. The repository's `rust-toolchain.toml` doesn't
-  list `wasm32-wasip2` among its targets today, so the job adds it.
+  ships in `tile.wasm`. **Approved by the owner on 2026-11-27** as the
+  one exception to "only `pitwall-extension`".
+- **CI enforces it.** The `tile-c4` job in `.github/workflows/ci.yml`
+  runs the tile's tests and clippy, builds it for `wasm32-wasip2`, and
+  runs `tiles/c4/scripts/check-deps.sh`: `cargo metadata` on
+  `tiles/c4/Cargo.toml` fails the job if any package whose name starts
+  with `pitwall` is in the resolved graph other than `pitwall-extension`
+  (and `pitwall-extension-test` as a dev-dependency only), or if any path
+  dependency points outside `tiles/c4/` and `sdk/`. So the tile's own
+  crate is named `c4-tile`, not `pitwall-…`. `pitwall extension check`
+  joins the job once that command exists (SDK phase 1). The repository's
+  `rust-toolchain.toml` doesn't list `wasm32-wasip2` among its targets,
+  so the job adds it.
 - **Why so strict.** The point of a seed tile is that it uses nothing an
   outside author can't. A shortcut into `pitwall-core` would hide a gap
   in the SDK instead of finding it.
