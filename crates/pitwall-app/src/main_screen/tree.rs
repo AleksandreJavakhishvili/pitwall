@@ -68,6 +68,9 @@ pub enum Node {
         /// The text editor's tile (docs/spec/editor.md).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         editor: bool,
+        /// The Extensions tile (docs/spec/layout.md "The Extensions tile").
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        extensions: bool,
     },
     Split {
         id: String,
@@ -97,12 +100,14 @@ pub struct Pane {
     pub device: Option<String>,
     /// The text editor's tile.
     pub editor: bool,
+    /// The Extensions tile.
+    pub extensions: bool,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings && self.device.is_none() && !self.editor
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none() && self.view.is_none() && !self.settings && self.device.is_none() && !self.editor && !self.extensions
     }
 
     /// What a tile that isn't a terminal shows (a files or web tile).
@@ -114,6 +119,7 @@ impl Pane {
             (None, None, None, Some(v)) => Some(Content::View(v.clone())),
             _ if self.settings => Some(Content::Settings),
             _ if self.editor => Some(Content::Editor),
+            _ if self.extensions => Some(Content::Extensions),
             _ => self.device.clone().map(Content::Device),
         }
     }
@@ -137,6 +143,8 @@ pub enum Content {
     Device(String),
     /// The text editor (one at most).
     Editor,
+    /// Settings → Extensions at full size (one at most).
+    Extensions,
 }
 
 /// What is drawn in a tile or a window of its own by one view wherever
@@ -152,6 +160,8 @@ pub enum Surface {
     Device(String),
     /// The text editor.
     Editor,
+    /// Extensions at full size.
+    Extensions,
 }
 
 /// Settings' surface key.
@@ -163,12 +173,15 @@ pub const DEVICE_PREFIX: &str = "@device:";
 /// The text editor's surface key.
 pub const EDITOR_KEY: &str = "@editor";
 
+/// The Extensions tile's surface key.
+pub const EXTENSIONS_KEY: &str = "@extensions";
+
 impl Surface {
     /// The extension it is of (none: Settings, a device).
     pub fn ext(&self) -> &str {
         match self {
             Surface::Inbox(e) | Surface::View(e, _) => e,
-            Surface::Settings | Surface::Device(_) | Surface::Editor => "",
+            Surface::Settings | Surface::Device(_) | Surface::Editor | Surface::Extensions => "",
         }
     }
 
@@ -180,6 +193,7 @@ impl Surface {
             Surface::Settings => SETTINGS_KEY.to_string(),
             Surface::Device(d) => format!("{DEVICE_PREFIX}{d}"),
             Surface::Editor => EDITOR_KEY.to_string(),
+            Surface::Extensions => EXTENSIONS_KEY.to_string(),
         }
     }
 
@@ -190,6 +204,9 @@ impl Surface {
         }
         if key == EDITOR_KEY {
             return Surface::Editor;
+        }
+        if key == EXTENSIONS_KEY {
+            return Surface::Extensions;
         }
         if let Some(d) = key.strip_prefix(DEVICE_PREFIX) {
             return Surface::Device(d.to_string());
@@ -208,6 +225,7 @@ impl Surface {
             Surface::Settings => Content::Settings,
             Surface::Device(d) => Content::Device(d.clone()),
             Surface::Editor => Content::Editor,
+            Surface::Extensions => Content::Extensions,
         }
     }
 
@@ -219,6 +237,7 @@ impl Surface {
             Content::Settings => Some(Surface::Settings),
             Content::Device(d) => Some(Surface::Device(d.clone())),
             Content::Editor => Some(Surface::Editor),
+            Content::Extensions => Some(Surface::Extensions),
             _ => None,
         }
     }
@@ -350,6 +369,7 @@ impl Node {
             settings: false,
             device: None,
             editor: false,
+            extensions: false,
         }
     }
 
@@ -360,7 +380,7 @@ impl Node {
 
     /// A tile showing `c`.
     pub fn content_pane(c: &Content) -> Node {
-        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false, device: None, editor: false }.showing(c)
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None, view: None, settings: false, device: None, editor: false, extensions: false }.showing(c)
     }
 
     /// This pane showing `c` instead (its id kept); a split is unchanged.
@@ -372,7 +392,7 @@ impl Node {
                     Content::Web(w) => (None, Some(w.clone()), None, None),
                     Content::Inbox(x) => (None, None, Some(x.clone()), None),
                     Content::View(v) => (None, None, None, Some(v.clone())),
-                    Content::Settings | Content::Device(_) | Content::Editor => (None, None, None, None),
+                    Content::Settings | Content::Device(_) | Content::Editor | Content::Extensions => (None, None, None, None),
                 };
                 let settings = *c == Content::Settings;
                 let device = match c {
@@ -380,7 +400,8 @@ impl Node {
                     _ => None,
                 };
                 let editor = *c == Content::Editor;
-                Node::Pane { id, agent_id: None, files, web, inbox, view, settings, device, editor }
+                let extensions = *c == Content::Extensions;
+                Node::Pane { id, agent_id: None, files, web, inbox, view, settings, device, editor, extensions }
             }
             n => n,
         }
@@ -426,7 +447,7 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view, settings, device, editor } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings, device, editor, extensions } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
@@ -436,6 +457,7 @@ impl Node {
                 settings: *settings,
                 device: device.clone(),
                 editor: *editor,
+                extensions: *extensions,
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -472,7 +494,7 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files, web, inbox, view, settings, device, editor } => {
+            Node::Pane { id, agent_id, files, web, inbox, view, settings, device, editor, extensions } => {
                 let agent_id = f(id, agent_id);
                 // An agent put in a files, web, inbox, view or Settings tile
                 // takes it.
@@ -484,7 +506,8 @@ impl Node {
                 let settings = !taken && *settings;
                 let device = if taken { None } else { device.clone() };
                 let editor = !taken && *editor;
-                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings, device, editor }
+                let extensions = !taken && *extensions;
+                Node::Pane { id: id.clone(), agent_id, files, web, inbox, view, settings, device, editor, extensions }
             }
             Node::Split {
                 id,
@@ -1123,6 +1146,22 @@ mod tests {
         let back: Node = serde_json::from_value(json).unwrap();
         assert_eq!(back.leaves()[0].content(), Some(Content::Editor));
         assert!(serde_json::to_value(Node::pane(None)).unwrap().get("editor").is_none());
+    }
+
+    #[test]
+    fn the_extensions_tile_is_kept_across_a_restart() {
+        let s = Surface::of(&Content::Extensions).unwrap();
+        assert_eq!(s.key(), "@extensions");
+        assert_eq!(Surface::parse(&s.key()), s);
+        let json = serde_json::to_value(Node::content_pane(&Content::Extensions)).unwrap();
+        assert_eq!(json["extensions"], true);
+        let back: Node = serde_json::from_value(json).unwrap();
+        assert_eq!(back.leaves()[0].content(), Some(Content::Extensions));
+        assert!(serde_json::to_value(Node::pane(None)).unwrap().get("extensions").is_none());
+        // In a window of its own: `extensionsWindow`, back at the next start.
+        let ui = crate::ui_state::UiState::default().surface_to_window(&s);
+        assert!(ui.surface_in_window(&s));
+        assert_eq!(serde_json::to_value(&ui).unwrap()["extensionsWindow"], true);
     }
 
     #[test]

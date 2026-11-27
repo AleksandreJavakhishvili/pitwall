@@ -62,7 +62,11 @@ impl SettingsTile {
     fn new(settings: Option<Entity<SettingsView>>, cx: &mut Context<Self>) -> Self {
         // A tile is in a window with agents (as the dialog over one).
         let settings = settings.unwrap_or_else(|| cx.new(|cx| SettingsView::new(true, cx)));
-        settings.update(cx, |v, cx| v.set_tiled(true, cx));
+        settings.update(cx, |v, cx| {
+            v.set_tiled(true, cx);
+            // Extensions at full size are in their own tile.
+            v.set_compact_extensions(true, cx);
+        });
         let store = crate::ui_state::store(cx);
         let subs = vec![
             // Maximised or not, where it is: its bar follows.
@@ -487,13 +491,13 @@ impl MainScreen {
         cx.notify();
     }
 
-    /// Extension `ext`'s card in Settings → Extensions, in the Settings
-    /// tile (a tile's `settings.open`).
+    /// Extension `ext`'s page in the Extensions tile (a tile's
+    /// `settings.open`).
     pub fn show_extension_settings(&mut self, ext: &str, window: &mut Window, cx: &mut Context<Self>) {
-        crate::settings::data::set_page(cx, Page::Extensions);
-        let settings = view(cx).read(cx).settings();
-        settings.update(cx, |v, cx| v.open_extension(ext, cx));
-        self.open_settings_tile(None, window, cx);
+        // Its page at full size: the Extensions tile.
+        self.open_extensions_tile(window, cx);
+        let page = super::extensions_tile::view(cx).read(cx).page();
+        page.update(cx, |v, cx| v.open_extension(ext, cx));
     }
 
     /// The Settings tile (`pane` of space `space`, in this window) shown

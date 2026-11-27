@@ -169,7 +169,7 @@ fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     view.update_in(cx, |s, window, cx| s.demo_project_menu("/work/alpha", window, cx));
     let labels = view.read_with(cx, |s, _| s.menu_labels());
     let at = labels.iter().position(|l| l == "Tiles").expect("a Tiles section");
-    assert_eq!(labels[at + 1..], ["Open Hello", "Open Hello again (Hello)", "Open Gallery (Hello)"], "{labels:?}");
+    assert_eq!(labels[at + 1..], ["Open Hello", "Open Hello again (Hello)", "Open Gallery (Hello)", "Extensions"], "{labels:?}");
     view.update_in(cx, |s, window, cx| s.run_menu_label("Open Hello", window, cx));
     frame(cx);
     let tile = cx.update(|_, cx| crate::main_screen::view_tile::get("hello/main", cx)).and_then(|v| v.read_with(cx, |v, _| v.tile().cloned())).expect("the view tile draws the tile");

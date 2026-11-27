@@ -60,6 +60,31 @@ pub const HEIGHT: f32 = 540.;
 pub const NAV_WIDTH: f32 = 164.;
 /// In a tile narrower than this, the page list is a row over the page.
 pub const NARROW: f32 = 560.;
+/// The Extensions surface at least this wide has its list beside the page.
+pub const WIDE: f32 = 900.;
+/// The list's width then.
+pub const LIST_WIDTH: f32 = 360.;
+/// The dialog at its smallest.
+pub const MIN_WIDTH: f32 = 720.;
+pub const MIN_HEIGHT: f32 = 540.;
+/// The `ui.json` key of the dialog's size, `[width, height]`.
+pub const SIZE_KEY: &str = "settingsSize";
+
+/// The dialog's size: as the user last left it, else scaled to the
+/// window (`window`: its size), always within it and never under the
+/// smallest.
+pub fn dialog_size(window: (f32, f32), cx: &App) -> (f32, f32) {
+    let kept = crate::ui_state::get(cx).rest.get(SIZE_KEY).and_then(|v| v.as_array().cloned()).and_then(|a| Some((a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32)));
+    let (w, h) = kept.unwrap_or(((window.0 * 0.72).clamp(860., 1080.), (window.1 * 0.78).clamp(600., 820.)));
+    fit_size((w, h), window)
+}
+
+/// `size` within the window (a margin around it), never under the
+/// smallest.
+pub fn fit_size(size: (f32, f32), window: (f32, f32)) -> (f32, f32) {
+    let (mw, mh) = ((window.0 - 48.).max(MIN_WIDTH), (window.1 - 48.).max(MIN_HEIGHT));
+    (size.0.clamp(MIN_WIDTH, mw), size.1.clamp(MIN_HEIGHT, mh))
+}
 
 /// What builds one part of a page.
 pub(super) type Build = Rc<dyn Fn(&mut SettingsView, &Ui, &mut Window, &mut Context<SettingsView>) -> AnyElement>;
@@ -179,6 +204,18 @@ pub struct SettingsView {
     part_focus: HashMap<u64, FocusHandle>,
     /// Drawn in a tile or a window of its own (no header, its full size).
     tiled: bool,
+    /// The Extensions surface (`main_screen::extensions_tile`): the
+    /// Extensions page alone, no page list, at full size; wide, its list
+    /// beside the page.
+    pub(super) surface: bool,
+    /// The dialog's and the Settings tile's Extensions page: the compact
+    /// installed list and "Open Extensions" (the surface has the rest).
+    pub(super) compact_exts: bool,
+    /// The dialog's size while its corner is dragged.
+    dragging_size: Option<(f32, f32)>,
+    /// The dialog: sized to its window, its corner resizing it (a view
+    /// made for a test keeps the fixed size).
+    pub(super) sized: bool,
     /// Its width as last drawn (`-1`: not yet), for a narrow tile.
     width: Rc<Cell<f32>>,
     /// Parts built (tests).
@@ -223,6 +260,20 @@ impl SettingsView {
     pub fn scroll_to_end(&self) {
         let n = self.list.item_count();
         self.list.scroll_to_reveal_item(n.saturating_sub(1));
+    }
+
+    /// The page scrolled to its top (a detail page opened or closed).
+    pub(super) fn scroll_to_top(&self) {
+        self.list.scroll_to(gpui::ListOffset { item_ix: 0, offset_in_item: px(0.) });
+    }
+
+    /// The part known by `key` brought into view (the Extensions page's
+    /// selection).
+    pub(super) fn reveal_part(&self, key: impl Hash) {
+        let k = hash(key);
+        if let Some(ix) = self.keys.iter().position(|x| *x == k) {
+            self.list.scroll_to_reveal_item(ix);
+        }
     }
 
     /// The page scrolled by `dy` (tests and the bench's `settings-scroll`:
@@ -310,6 +361,10 @@ impl SettingsView {
             changed: true,
             part_focus: HashMap::new(),
             tiled: false,
+            surface: false,
+            compact_exts: false,
+            dragging_size: None,
+            sized: false,
             width: Rc::new(Cell::new(-1.)),
             #[cfg(test)]
             built: 0,
@@ -460,6 +515,58 @@ impl SettingsView {
         self.tiled
     }
 
+    /// The Extensions surface: Settings → Extensions at full size, alone
+    /// (docs/spec/layout.md "The Extensions tile").
+    pub fn extensions_surface(cx: &mut Context<Self>) -> SettingsView {
+        let mut v = SettingsView::new(true, cx);
+        v.surface = true;
+        v.tiled = true;
+        v
+    }
+
+    /// Whether this is the Extensions surface.
+    pub fn is_surface(&self) -> bool {
+        self.surface
+    }
+
+    /// The Extensions page compact here (the dialog, the Settings tile).
+    pub fn set_compact_extensions(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.compact_exts != on {
+            self.compact_exts = on;
+            cx.notify();
+        }
+    }
+
+    /// The Extensions surface wide enough for its list beside the page.
+    pub fn wide(&self) -> bool {
+        self.surface && self.width.get() >= WIDE
+    }
+
+    /// The dialog's size now: while its corner is dragged, where it is;
+    /// else as kept (`window`: the window's size).
+    pub fn dialog_size(&self, window: (f32, f32), cx: &App) -> (f32, f32) {
+        self.dragging_size.unwrap_or_else(|| dialog_size(window, cx))
+    }
+
+    /// The corner let go: the size kept in `ui.json` for next time.
+    fn keep_size(&mut self, cx: &mut Context<Self>) {
+        if let Some((w, h)) = self.dragging_size.take() {
+            crate::ui_state::update(cx, |s| {
+                s.rest.insert(SIZE_KEY.into(), serde_json::json!([w.round(), h.round()]));
+            });
+            cx.notify();
+        }
+    }
+
+    /// The page this view shows: the Extensions surface only Extensions.
+    pub(super) fn page_shown(&self, cx: &App) -> Page {
+        if self.surface {
+            Page::Extensions
+        } else {
+            data::page(cx)
+        }
+    }
+
     /// In a tile too narrow for the page list beside the page.
     pub fn narrow(&self) -> bool {
         self.tiled && (0. ..NARROW).contains(&self.width.get())
@@ -468,8 +575,15 @@ impl SettingsView {
     /// Extension `id`'s card unfolded on the Extensions page (an agent's
     /// `show_settings` naming it).
     pub fn open_extension(&mut self, id: &str, cx: &mut Context<Self>) {
+        // Compact here: its page in the Extensions tile.
+        if self.compact_exts {
+            let id = id.to_string();
+            self.exts.page.cursor = Some(id.clone());
+            self.in_surface_quietly(move |v, cx| v.open_extension(&id, cx), cx);
+            return;
+        }
         self.exts_open(id);
-        cx.notify();
+        self.show_extension_detail(Some(id), cx);
     }
 
     pub(super) fn go_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
@@ -551,7 +665,7 @@ impl SettingsView {
         let t = ui.t.clone();
         let n = self.parts.len();
         let el = if ix == 0 {
-            let page = data::page(cx);
+            let page = self.page_shown(cx);
             div()
                 .pt(px(16.))
                 .flex()
@@ -622,6 +736,7 @@ impl SettingsView {
             .key_context(NAV_CONTEXT)
             .on_action(cx.listener(Self::prev_page))
             .on_action(cx.listener(Self::next_page))
+            .map(|d| super::extensions::page::on_nav(d, cx))
             .flex_none()
             .flex()
             .gap(px(1.))
@@ -655,7 +770,7 @@ impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = Ui::new(crate::kit::pop::theme_in(window, cx));
         let t = ui.t.clone();
-        let page = data::page(cx);
+        let page = self.page_shown(cx);
         // "Open as a tile": only where there is a layout (an engine runs).
         let to_tile = self.live.then(|| {
             crate::kit::icon_btn("settings-to-tile", "grid", "Open as a tile in the layout", true, &ui.t)
@@ -710,8 +825,9 @@ impl Render for SettingsView {
                     let w = f32::from(b.size.width);
                     if (width.get() - w).abs() > 0.5 {
                         let was = (0. ..NARROW).contains(&width.get());
+                        let was_wide = width.get() >= WIDE;
                         width.set(w);
-                        if was != (w < NARROW) {
+                        if was != (w < NARROW) || was_wide != (w >= WIDE) {
                             // Drawn again at its width (a view is redrawn
                             // only when it says so).
                             let me = me.clone();
@@ -725,6 +841,23 @@ impl Render for SettingsView {
             )
             .absolute()
             .size_full();
+            if self.surface {
+                // The Extensions surface: no page list; wide, the list
+                // beside the page.
+                let list = self.wide().then(|| self.ext_list_column(&ui, window, cx));
+                return div()
+                    .id("extensions-surface")
+                    .debug_selector(|| "extensions-surface".into())
+                    .relative()
+                    .size_full()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .child(measure)
+                    .children(list)
+                    .child(body)
+                    .into_any_element();
+            }
             let narrow = self.narrow();
             return div()
                 .id("settings-tiled")
@@ -740,12 +873,35 @@ impl Render for SettingsView {
                 .child(body)
                 .into_any_element();
         }
+        // The dialog: as large as the user left it (its corner dragged),
+        // else scaled to the window.
+        let vp = window.viewport_size();
+        let h = if self.sized { self.dialog_size((f32::from(vp.width), f32::from(vp.height)), cx).1 } else { HEIGHT };
+        let grip = crate::kit::resize_grip("settings-resize", t.text_4)
+            .debug_selector(|| "settings-resize".into())
+            .cursor_nwse_resize()
+            .tooltip(tooltip("Drag to resize Settings"));
         div()
+            .id("settings-dialog")
+            .relative()
             .flex()
             .flex_col()
-            .h(px(HEIGHT))
+            .h(px(h))
             .max_h_full()
             .min_h_0()
+            .on_drag_move::<crate::kit::GripDrag>(cx.listener(|v, e: &gpui::DragMoveEvent<crate::kit::GripDrag>, window, cx| {
+                // The box is centred: it grows both ways from its middle.
+                let b = e.bounds;
+                let mid = b.center();
+                let p = e.event.position;
+                let vp = window.viewport_size();
+                let size = fit_size((f32::from(p.x - mid.x) * 2., f32::from(p.y - mid.y) * 2.), (f32::from(vp.width), f32::from(vp.height)));
+                v.dragging_size = Some(size);
+                cx.notify();
+            }))
+            .on_mouse_up(gpui::MouseButton::Left, cx.listener(|v, _, _, cx| v.keep_size(cx)))
+            .on_mouse_up_out(gpui::MouseButton::Left, cx.listener(|v, _, _, cx| v.keep_size(cx)))
+            .when(self.sized, |d| d.child(grip))
             .child(head)
             .child(
                 div()
