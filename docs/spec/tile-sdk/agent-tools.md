@@ -254,6 +254,15 @@ separate from the tile's own permissions:
   Settings → Agents' "Tile tools" exist, and the permission screen
   lists the tile's show-only tools. The `read` and `act` lines, the ask-once
   grant and the approval dialog for tiles come in phase 3.
+- **As built in phase 3:** both kinds go through the daemon's approval
+  dialog (`Approvals::ask_always`) with three answers, Deny, "Always for
+  <agent>" and Allow once. The grant is kept per extension, agent and
+  tool (`ExtensionPrefs.toolGrants`), not per project, and listed with
+  Revoke on the card and in Settings → Agents. A `read` asks until the
+  user chooses Always; an `act` asks each time unless they did; no Always
+  for `act` tools of tiles that hold `agents.queue` or `agents.start`
+  (decision 5; `git.remote` doesn't exist yet). The approval shows in
+  Pitwall's windows; a card in the floating control is still to come.
 
 ### 11.6 Presented content: ids, marks, Undo
 - Every `present` call carries an optional `item` id chosen by the
