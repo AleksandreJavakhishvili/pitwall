@@ -21,6 +21,7 @@ mod bindings;
 pub mod blocks;
 mod cache;
 mod clock;
+pub mod components;
 mod data;
 pub mod frame;
 mod group;
@@ -55,6 +56,8 @@ pub mod ui {
     pub use crate::bindings::pitwall::tile::agents::{Agent, AgentState};
     pub use crate::bindings::pitwall::tile::asks::{Ask, Suggestion};
     pub use crate::bindings::pitwall::tile::badges::{Badge, Row};
+    /// A row of a virtual list, table or tree (`Row` is a badge's row).
+    pub use crate::bindings::pitwall::tile::types::Row as ListRow;
     pub use crate::bindings::pitwall::tile::settings::SettingValue;
     pub use crate::bindings::pitwall::tile::types::*;
 
@@ -372,6 +375,31 @@ pub enum UiRequest {
     Asks(Vec<ui::Ask>),
     /// Its reply to an answer (`asks.reply`): taken, or why not.
     AskResult { id: String, refused: Option<String> },
+    /// `ui.put-image`: keep these bytes (sniffed: one of the
+    /// [`components::ImageFormat`]s, within the limits) for `image` nodes
+    /// with source `data(name)`. Sent before the frames rendered after it.
+    PutImage { name: String, format: components::ImageFormat, bytes: Arc<[u8]> },
+    /// `ui.drop-image`: forget the image put under this name.
+    DropImage(String),
+}
+
+/// Rows of a virtual list, table or tree, as the tile returned them for
+/// [`TileHandle::rows`].
+#[derive(Debug, Clone)]
+pub struct RowsUpdate {
+    pub view: String,
+    /// The list's key path.
+    pub list: String,
+    /// The list's revision in the newest frame the worker rendered when it
+    /// asked: the rows are as the tile's state was then.
+    pub revision: u64,
+    /// The first row's index.
+    pub start: u32,
+    /// The rows, checked ([`components::check_rows`]); fewer than asked at
+    /// the end of the list.
+    pub rows: Arc<Vec<ui::ListRow>>,
+    /// How long `guest.rows` took.
+    pub took: Duration,
 }
 
 /// A new frame of a view.
@@ -439,6 +467,8 @@ pub enum TileOutput {
     StateSaved(Vec<u8>),
     /// It stopped; nothing follows.
     Stopped(StopReason),
+    /// Rows asked for with [`TileHandle::rows`].
+    Rows(RowsUpdate),
 }
 
 /// The tile runtime: one per app, cheap to clone. Holds the engine, the

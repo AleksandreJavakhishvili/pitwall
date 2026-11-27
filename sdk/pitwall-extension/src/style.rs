@@ -149,7 +149,7 @@ pub enum Align {
 }
 
 impl Align {
-    fn wit(self) -> wit::Align {
+    pub(crate) fn wit(self) -> wit::Align {
         match self {
             Align::Start => wit::Align::Start,
             Align::Center => wit::Align::Center,

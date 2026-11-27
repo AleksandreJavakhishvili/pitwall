@@ -69,6 +69,8 @@ pub(crate) struct HostState {
     pub clock: Clock,
     /// The agents' questions group (`agents`, `badges`, `asks`).
     pub group: crate::group::Group,
+    /// Images put with `ui.put-image`: their sizes by name.
+    pub images: BTreeMap<String, usize>,
 }
 
 impl WasiView for HostState {
@@ -122,6 +124,7 @@ impl HostState {
             stderr: p.stderr,
             clock: p.clock,
             group: p.group,
+            images: BTreeMap::new(),
         }
     }
 
@@ -259,6 +262,35 @@ impl ui::Host for HostState {
             self.pending.push(Pending::Ui(UiRequest::OpenView(view)));
         } else {
             self.host_log(LogLevel::Warn, format!("open-view: the manifest declares no tile “{}”", cut(&view, 80)));
+        }
+    }
+
+    fn put_image(&mut self, name: String, bytes: Vec<u8>) -> Result<(), HostError> {
+        use crate::limits::{MAX_IMAGES_BYTES, MAX_IMAGE_BYTES, MAX_KEY_BYTES};
+        if !self.count_call() {
+            return Err(HostError::Busy);
+        }
+        if name.is_empty() || name.len() > MAX_KEY_BYTES {
+            return Err(HostError::Invalid("an image's name is 1 to 128 bytes".into()));
+        }
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err(HostError::TooLarge);
+        }
+        let Some(format) = crate::components::image_format(&bytes) else {
+            return Err(HostError::Invalid("not a PNG, JPEG, GIF, WebP or SVG image".into()));
+        };
+        let others: usize = self.images.iter().filter(|(n, _)| **n != name).map(|(_, b)| *b).sum();
+        if others + bytes.len() > MAX_IMAGES_BYTES {
+            return Err(HostError::TooLarge);
+        }
+        self.images.insert(name.clone(), bytes.len());
+        self.pending.push(Pending::Ui(UiRequest::PutImage { name, format, bytes: bytes.into() }));
+        Ok(())
+    }
+
+    fn drop_image(&mut self, name: String) {
+        if self.count_call() && self.images.remove(&name).is_some() {
+            self.pending.push(Pending::Ui(UiRequest::DropImage(name)));
         }
     }
 }

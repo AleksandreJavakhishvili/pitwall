@@ -53,6 +53,9 @@ pub enum Invalid {
     LongInput(usize),
     /// Node `i`'s canvas, code view, diff view or drag is over a limit.
     Block(usize, crate::blocks::Problem),
+    /// Node `i` is a component (a list, a table, a menu, an image…) that
+    /// breaks one of its rules; the text says which.
+    Component(usize, String),
 }
 
 impl std::fmt::Display for Invalid {
@@ -65,6 +68,7 @@ impl std::fmt::Display for Invalid {
             Invalid::LongKey(i) => write!(f, "node {i}'s key is longer than {MAX_KEY_BYTES} bytes"),
             Invalid::LongInput(i) => write!(f, "node {i}'s text field holds more than {} KiB", MAX_INPUT_BYTES / 1024),
             Invalid::Block(i, p) => write!(f, "node {i} {p}"),
+            Invalid::Component(i, why) => write!(f, "node {i}: {why}"),
         }
     }
 }
@@ -98,12 +102,19 @@ pub fn check(frame: &Frame) -> Result<(), Invalid> {
             }
         }
         crate::blocks::check(n).map_err(|p| Invalid::Block(i, p))?;
+        crate::components::check(i, n).map_err(|why| Invalid::Component(i, why))?;
         bytes += node_bytes(n);
         if bytes > MAX_FRAME_BYTES {
             return Err(Invalid::TooLarge(bytes));
         }
     }
     Ok(())
+}
+
+/// About how many bytes a frame takes through the canonical ABI, as
+/// [`check`] counts them against `MAX_FRAME_BYTES`.
+pub fn frame_bytes(frame: &Frame) -> usize {
+    64 + frame.focus.as_ref().map_or(0, String::len) + frame.keymap.iter().map(|b| b.keys.len() + 16).sum::<usize>() + frame.nodes.iter().map(node_bytes).sum::<usize>()
 }
 
 /// About how many bytes a node takes through the canonical ABI.
@@ -118,7 +129,7 @@ fn node_bytes(n: &Node) -> usize {
         Element::Icon(i) => icon(i),
         Element::Scroll(_) => 4,
         Element::Input(i) => i.value.as_ref().map_or(0, String::len) + i.placeholder.as_ref().map_or(0, String::len) + 32,
-        _ => 0,
+        e => crate::components::bytes(e),
     } + crate::blocks::bytes(n);
     48 + n.key.len()
         + element
