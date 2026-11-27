@@ -169,6 +169,50 @@ pitwall_extension::export!(App);
   - `markdown(text)`: inert; `.on_link` (`LinkClick`), `.on_toggle` (a
     task's line and state). `image_asset("assets/x.svg")`,
     `image_data(name)` after `ui::put_image(name, &bytes)`; no network.
+- **More components** (Pitwall's own controls, same look; "kit parity").
+  Controls are controlled: give the value, hear the change in `on_change`,
+  store it, `cx.notify()`. Every one has `.disabled(true)`; name ones
+  without text with `.label("…")`.
+  - Form: `checkbox("Only failures").checked(on).mixed(some)`,
+    `switch("Notify me").checked(on)` (`on_change`: `&bool`);
+    `radio_group()` / `segmented()` with `.option(key, label)`,
+    `.option_disabled()`, `.selected(key)`, `.horizontal()` (`&str`);
+    `slider(v, 0.0..=100.0).step(5.0).show_value()` (`&f64`);
+    `number_field(Some(2.)).min(0.).max(10.).step(1.).decimals(0)
+    .placeholder("None").readonly(b)` (`&Option<f64>`, `None` when emptied);
+    `search_field("q")` (an `input` with a magnifier and a clear button);
+    `form_row("Branch").required().help("…").error(msg_option).inline()
+    .child(control)`.
+  - Feedback: `progress(Some(0.6))` or `progress(None)` (`.tone(Tone::Good)`),
+    `spinner()`, `skeleton(SkeletonShape::Lines(3) | Block | Circle)`,
+    `empty_state("No runs yet").icon(..).text(..).action("Refresh", listener)`,
+    `banner(Tone::Bad, text).title(..).action(..).on_dismiss(listener)`,
+    `badge("3").tone(Tone::Bad)`, `chip("web").icon(..).selected(b)
+    .on_click(..).on_remove(listener)`, `kbd("cmd-k")`, `.tooltip("…")` on
+    anything.
+  - Layout: `h_split()` / `v_split()` with `.first(a).second(b)
+    .initial(0.4).min_sizes(120., 160.).on_resize(&f64)` (the user's size is
+    kept per view); `disclosure("Env", open).detail("3").on_toggle(&bool)
+    .child(..)`; `card().title(..).detail(..).on_click(..)`; `divider()`,
+    `vertical_divider()`; `breadcrumbs().crumb(key, label).on_pick(&str)`;
+    `toolbar().child(..)`; `popover().placement(Placement::Below).width(240.)
+    .on_dismiss(..)` as a child of the box holding its button, rendered
+    while open; `confirm_sheet("Delete 3 notes?", "Delete").text(..).danger()
+    .on_confirm(..).on_cancel(..)`, rendered while asking (tiles can't open
+    system dialogs).
+  - Data: `key_values().entry("Commit", sha).mono().copyable()`,
+    `avatar("Ada Lovelace").small()/.large()`, `relative_time(system_time)` /
+    `relative_time_ms(ms)` (Pitwall keeps it current: no timer),
+    `copyable(text).mono()` (Pitwall copies on the user's click),
+    `link("Open in CI").url("https://…")` (opens a web tile with the `show`
+    permission; else its `on_click` hears it).
+  - Charts (data only, theme colours, tooltips): `sparkline(values).color(Token::Good)
+    .filled()`, `bar_chart(labels).series(name, values)
+    .series_colored(name, values, Token::Bad).stacked().unit("runs")`,
+    `line_chart(labels).series(..).unit("ms").min(0.).max(..)`,
+    `status_timeline().segment(key, label, Some(Tone::Good))
+    .segment_weighted(key, label, tone, w).on_pick(&str)`. Give each a
+    height and a `.label("…")`.
 - **Render quickly** (under 8 ms; the deadline is 250 ms): compute in
   listeners and timers, read state in `render`. `handle` calls have 1 s,
   `new` 2 s. A tile over a deadline is stopped and the user sees why.
@@ -348,6 +392,14 @@ Components: `rows(list, start, count)` (each
 `choose_row_menu_item`, `choose_menu_item(key_path, label)`,
 `select_option`, `select_tab`, `sort_by`, `resize_column`, `click_link`,
 `toggle_task` (each takes the component's key path, or its own key).
+More components: `toggle` (checkbox, switch, disclosure), `choose(key, option)`
+(radio group, segmented control, breadcrumbs, status timeline), `set_slider`,
+`type_number(key, "12")` (returns whether it sent), `step_number(key, up)`,
+`resize_split(key, 0.7)`, `dismiss` (banner, chip, popover, confirm sheet),
+`key_on(key, "space")` (a key as Pitwall handles it on that component),
+`copy(key)` then `clipboard()`, `open_link(key)` then `opened_pages()`
+(with `.grant("show")`), `clear_search`. The snapshot shows each one's
+state (`checkbox "Only failures" on`, `slider 75 in 0..100`).
 
 Services in tests: `Harness::grant("net")` (or `grant`/`revoke` while it
 runs), `respond(url, status, body)` and `respond_error` (nothing leaves the
@@ -359,5 +411,7 @@ opened), `toolbar()`, `click_toolbar(None)`, `click_in_popover("close")`,
 ## Docs
 
 The design and reference: `docs/spec/tile-sdk/` in Pitwall's repository
-(`authoring.md`, `runtime.md`, `ui.md`) and the WIT files in the SDK's
-`wit/` folder, every item documented.
+(`authoring.md`, `runtime.md`, `ui.md`, its component catalogue in 3.10)
+and the WIT files in the SDK's `wit/` folder, every item documented. The
+website's Extensions pages have a page per component group (Form controls,
+Feedback, Layout, Data display, Charts) with screenshots and examples.
