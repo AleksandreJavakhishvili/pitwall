@@ -112,6 +112,22 @@ impl Index {
         self.relink();
     }
 
+    /// Adds or replaces one diagram that is in no file (a shown diagram,
+    /// FR-12): `path` groups it for zoom preference (the same path first,
+    /// as the same file is for docs diagrams), `title` is its heading.
+    pub fn set_diagram(&mut self, path: &str, id: &str, title: Option<&str>, text: &str) {
+        self.entries.retain(|e| e.id() != id);
+        self.entries.push(entry(path, Block::from_text(id, text, title)));
+        self.entries.sort_by(|a, b| a.path.cmp(&b.path).then(a.block.fence_line.cmp(&b.block.fence_line)));
+        self.relink();
+    }
+
+    /// Removes one diagram by id.
+    pub fn remove(&mut self, id: &str) {
+        self.entries.retain(|e| e.id() != id);
+        self.relink();
+    }
+
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }

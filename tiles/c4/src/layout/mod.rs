@@ -2,6 +2,7 @@
 //! (layout-lld.md §2–§4, §6).
 
 mod dagre;
+pub mod sequence;
 #[cfg(feature = "sugiyama")]
 mod sugiyama;
 

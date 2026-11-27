@@ -97,3 +97,89 @@ pub fn compare(before: &Structure, after: &Structure) -> ChangeView {
         .collect();
     ChangeView { boxes, arrows, removed_boxes, removed_arrows }
 }
+
+/// How one box or arrow of the Changes drawing is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Drawn {
+    Added,
+    Changed,
+    Kept,
+    /// Only in before: a dashed ghost.
+    Removed,
+}
+
+impl From<Change> for Drawn {
+    fn from(c: Change) -> Drawn {
+        match c {
+            Change::Added => Drawn::Added,
+            Change::Changed => Drawn::Changed,
+            Change::Kept => Drawn::Kept,
+        }
+    }
+}
+
+/// The Changes drawing (FR-17, FR-40): the after diagram with before's
+/// removed boxes and arrows put back, so one layout places them all. Its
+/// boxes and arrows are after's first, index for index, then the ghosts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Merged {
+    pub structure: Structure,
+    pub boxes: Vec<Drawn>,
+    pub arrows: Vec<Drawn>,
+}
+
+/// After, with what before had and after hasn't drawn as ghosts. A
+/// removed box goes into the boundary of the same Name in after (or a
+/// copy of its own, when after has none).
+pub fn merged(before: &Structure, after: &Structure) -> Merged {
+    use crate::c4::End;
+    let view = compare(before, after);
+    let mut s = after.clone();
+    let mut boxes: Vec<Drawn> = view.boxes.iter().map(|&c| c.into()).collect();
+    let mut arrows: Vec<Drawn> = view.arrows.iter().map(|&c| c.into()).collect();
+    // Before's boundaries in the merged structure, by index, made when
+    // first needed.
+    let mut bounds: Vec<Option<usize>> = vec![None; before.boundaries.len()];
+    fn boundary(j: usize, before: &Structure, s: &mut Structure, bounds: &mut Vec<Option<usize>>) -> usize {
+        if let Some(i) = bounds[j] {
+            return i;
+        }
+        let key = name_key(&before.boundaries[j].name);
+        let i = match s.boundaries.iter().position(|b| name_key(&b.name) == key) {
+            Some(i) => i,
+            None => {
+                let parent = before.boundaries[j].parent.map(|p| boundary(p, before, s, bounds));
+                let mut b = before.boundaries[j].clone();
+                b.parent = parent;
+                s.boundaries.push(b);
+                s.boundaries.len() - 1
+            }
+        };
+        bounds[j] = Some(i);
+        i
+    }
+    let mut placed: HashMap<usize, usize> = HashMap::new();
+    for &j in &view.removed_boxes {
+        let mut b = before.boxes[j].clone();
+        b.boundary = b.boundary.map(|p| boundary(p, before, &mut s, &mut bounds));
+        s.boxes.push(b);
+        boxes.push(Drawn::Removed);
+        placed.insert(j, s.boxes.len() - 1);
+    }
+    let after_boxes: HashMap<String, usize> = (0..after.boxes.len()).map(|i| (box_key(after, i), i)).collect();
+    for &j in &view.removed_arrows {
+        let a = &before.arrows[j];
+        let mut end = |e: End| -> Option<End> {
+            match e {
+                End::Box(k) => placed.get(&k).copied().or_else(|| after_boxes.get(&box_key(before, k)).copied()).map(End::Box),
+                End::Boundary(k) => Some(End::Boundary(boundary(k, before, &mut s, &mut bounds))),
+            }
+        };
+        let (Some(from), Some(to)) = (end(a.from), end(a.to)) else { continue };
+        let mut a = a.clone();
+        (a.from, a.to) = (from, to);
+        s.arrows.push(a);
+        arrows.push(Drawn::Removed);
+    }
+    Merged { structure: s, boxes, arrows }
+}

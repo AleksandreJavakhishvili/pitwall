@@ -1,0 +1,32 @@
+{
+  "v": 2,
+  "id": "c4",
+  "name": "C4 diagrams",
+  "version": "0.1.0",
+  "pitwall": ">=0.8.0",
+  "icon": "grid",
+  "description": "C4 diagrams your agents draw, shown next to their terminal, with click to zoom",
+  "license": "Apache-2.0",
+  "contributes": {
+    "tiles": [
+      {
+        "id": "main", "title": "C4 diagrams", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json",
+        "tools": [
+          {
+            "name": "show",
+            "kind": "present",
+            "description": "Draw a C4 (or sequence) diagram for the user, next to your terminal. Send Mermaid: a `flowchart` with one `subgraph` per boundary, boxes labelled \"Name [Kind]<br/>purpose\" (Kind: Person, Software System, Container, Component, Database, Queue, External System), labelled arrows (A -->|reads| B), and `classDef new`/`changed`/`external` with `class a,b new`; or a `sequenceDiagram`. Give each diagram an `item` id (\"containers\") and send it again with the same item to update it in place: the user sees what changed. Boxes whose Name is a boundary of another diagram you showed open it on click. Bad Mermaid changes nothing and comes back with line and column.",
+            "input": {
+              "type": "object",
+              "required": ["mermaid"],
+              "properties": {
+                "mermaid": { "type": "string", "maxLength": 200000, "description": "The diagram's Mermaid source: `flowchart` (or `graph`) or `sequenceDiagram`, with or without a ```mermaid fence" },
+                "title": { "type": "string", "maxLength": 200, "description": "The diagram's title (else its frontmatter title, else its first box's Name)" }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
