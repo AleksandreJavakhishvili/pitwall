@@ -195,6 +195,7 @@ type Callback<T> = dyn FnMut(&mut T, &Fired, &mut Cx<T>);
 /// A listener's closure, shared by its handler slot and a pending call.
 type Shared<T> = Rc<RefCell<Box<Callback<T>>>>;
 type TimerFn<T> = dyn FnMut(&mut T, &mut Cx<T>);
+type FetchFn<T> = dyn FnOnce(&mut T, Result<crate::net::Response, crate::net::Error>, &mut Cx<T>);
 
 /// What a listener stands for, by handler number.
 struct Entry<T> {
@@ -262,6 +263,8 @@ pub struct Cx<T> {
     /// The virtual lists, tables and trees of each view, by (view, key
     /// path): how to make their rows, and their rows' handlers.
     lists: HashMap<(String, String), ListRows<T>>,
+    /// What to call with each `net` request's answer.
+    fetches: HashMap<u32, Box<FetchFn<T>>>,
 }
 
 /// How a row is made (`Cx::rows`).
@@ -306,6 +309,7 @@ impl<T: 'static> Cx<T> {
             lost_blur: HashMap::new(),
             renders: 0,
             lists: HashMap::new(),
+            fetches: HashMap::new(),
         }
     }
 
@@ -321,6 +325,24 @@ impl<T: 'static> Cx<T> {
     pub fn rows<R: crate::components::IntoRow>(&mut self, f: impl Fn(&mut T, usize, &mut Cx<T>) -> R + 'static) -> crate::components::Rows {
         let make: Box<RowFn<T>> = Box::new(move |t, i, cx| f(t, i, cx).into_row());
         crate::components::Rows(Rc::new(make))
+    }
+
+    /// Send `request` through Pitwall ([`net`](crate::net)); `f` runs with
+    /// the answer when it comes (call [`Cx::notify`] in it to show what
+    /// changed). Errors at once when it can't be sent: not granted `net`,
+    /// a host it may not reach, an address that isn't valid, 8 requests
+    /// already waiting. A tile's own server
+    /// ([`service::url`](crate::service::url)) needs no grant.
+    pub fn fetch(&mut self, request: crate::net::Request, f: impl FnOnce(&mut T, Result<crate::net::Response, crate::net::Error>, &mut Cx<T>) + 'static) -> Result<crate::net::RequestId, crate::net::Error> {
+        let id = crate::bindings::pitwall::tile::net::fetch(&request.wit())?;
+        self.fetches.insert(id, Box::new(f));
+        Ok(crate::net::RequestId(id))
+    }
+
+    /// Stop waiting for a request: its callback never runs.
+    pub fn cancel_fetch(&mut self, id: crate::net::RequestId) {
+        crate::bindings::pitwall::tile::net::cancel(id.0);
+        self.fetches.remove(&id.0);
     }
 
     /// A listener for an element: `f` runs with the tile, the event and
@@ -997,6 +1019,13 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
             wit::Event::Link(l) => cx.fire(tile, None, l.handler, Fired::Link(crate::events::LinkClick { url: l.url, modifiers: mods(l.modifiers) })),
             wit::Event::Sort(s) => cx.fire(tile, None, s.handler, Fired::Sort(crate::events::SortChange { column: s.column, direction: s.direction.into() })),
             wit::Event::ColumnResized(c) => cx.fire(tile, None, c.handler, Fired::ColumnResized(crate::events::ColumnWidth { column: c.column, width: c.width })),
+            wit::Event::Fetched(f) => {
+                if let Some(cb) = cx.fetches.remove(&f.id) {
+                    cb(tile, f.outcome.map(crate::net::Response::from).map_err(crate::net::Error::from), cx);
+                }
+            }
+            wit::Event::ToolbarClicked(project) => tile.on_event(&Event::ToolbarClicked { project }, cx),
+            wit::Event::ServiceChanged(info) => tile.on_event(&Event::ServiceChanged(info.into()), cx),
         }
         std::mem::take(&mut cx.notified)
     })

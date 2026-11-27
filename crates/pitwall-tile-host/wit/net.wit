@@ -1,0 +1,98 @@
+package pitwall:tile@0.1.0;
+
+/// HTTP requests to the hosts the user granted (platform-services.md
+/// §14.2, permissions.md §5.1). Needs the `net` permission: the manifest
+/// lists its hosts (`"net": {"reason": …, "hosts": ["api.github.com",
+/// "*.example.com"]}`), the user sees them as written and may refuse.
+/// Without the grant every request is refused with `denied`.
+///
+/// Pitwall makes the request, not the tile: no sockets, no DNS, no TLS of
+/// its own. The URL is parsed by Pitwall and its host compared with the
+/// list (after IDNA, before any name lookup); `https://` to a listed host,
+/// plain `http://` only to this computer (`localhost`, `127.0.0.1`,
+/// `[::1]`) and only when listed. A host without a port in the list is
+/// reached on the scheme's own port only. Redirects are followed by
+/// Pitwall (at most 5), only to listed hosts. No cookies, no proxy, no
+/// credentials are added.
+///
+/// A request runs while the tile goes on: `fetch` returns at once with
+/// the request's number, and the answer arrives as a `fetched` event. At
+/// most 8 requests at once, a body of at most 8 MiB, an answer of at most
+/// 32 MiB, 30 s unless the request asks for less (at most 120 s).
+///
+/// A tile that talks to its extension's own server (a `service` in the
+/// manifest) may reach that server's address without `net`: see
+/// [`service`].
+interface net {
+  /// A header, as sent or received.
+  record header {
+    name: string,
+    value: string,
+  }
+
+  /// A request.
+  record request {
+    /// `GET`, `POST`, `PUT`, `PATCH`, `DELETE` or `HEAD`.
+    method: string,
+    /// The whole address, `https://…` (or `http://localhost…`).
+    url: string,
+    /// Headers to send. `Host`, `Content-Length`, `Connection`, `Cookie`
+    /// and `Proxy-*` are Pitwall's and refused.
+    headers: list<header>,
+    /// The body, at most 8 MiB.
+    body: option<list<u8>>,
+    /// Give up after this many milliseconds (default and most: 30 000;
+    /// at most 120 000 when asked for).
+    timeout-ms: option<u32>,
+  }
+
+  /// An answer: any HTTP status, 404 and 500 included.
+  record response {
+    /// The status code.
+    status: u16,
+    /// The answer's headers (`Set-Cookie` left out).
+    headers: list<header>,
+    /// The body, at most 32 MiB.
+    body: list<u8>,
+    /// The address that answered, after redirects.
+    url: string,
+  }
+
+  /// Why a request got no answer.
+  variant fetch-error {
+    /// The tile isn't granted `net`, or the host isn't one it may reach
+    /// (the text names the host).
+    denied(string),
+    /// Over a limit: 8 requests at once, a body over 8 MiB, an answer over
+    /// 32 MiB.
+    too-large,
+    /// The request isn't valid (a bad URL, method or header); the text
+    /// says why.
+    invalid(string),
+    /// No answer in time.
+    timed-out,
+    /// It couldn't be sent or the connection failed (offline, a name that
+    /// doesn't resolve, a TLS error); the text says what happened.
+    failed(string),
+  }
+
+  /// A request's number, unique while the tile runs.
+  type request-id = u32;
+
+  /// What `fetched` carries: the request's number and its answer.
+  record fetched {
+    /// The number `fetch` returned.
+    id: request-id,
+    /// The answer, or why there is none.
+    outcome: result<response, fetch-error>,
+  }
+
+  /// Send `request`; its answer arrives as a `fetched` event with the
+  /// number returned here. Refused at once (`denied`, `invalid`,
+  /// `too-large`) when it can't be sent.
+  fetch: func(request: request) -> result<request-id, fetch-error>;
+
+  /// Stop waiting for request `id`: no `fetched` arrives for it. A number
+  /// that isn't waiting is ignored.
+  cancel: func(id: request-id);
+}

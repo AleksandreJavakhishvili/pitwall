@@ -31,6 +31,17 @@ tokio = { version = "1", default-features = false }
 pitwall-core = { path = "../pitwall-core" }
 sha2 = "0.10"
 serde_json = "1"
+# `net` (src/net.rs): requests made by Pitwall for a tile, to the hosts the
+# user granted. ureq (MIT OR Apache-2.0) with rustls is already in the tree
+# (the app's npm client); url (MIT OR Apache-2.0, through ureq) parses
+# addresses and applies IDNA before the host is compared.
+ureq = "2.12"
+url = "2.5"
+# `sql` (src/sql.rs): the extension's own SQLite database, run by Pitwall,
+# not in the guest (platform-services.md §14.2). rusqlite is MIT; SQLite
+# itself is public domain, compiled in (`bundled`) so every OS has the same
+# version and nothing depends on a system library.
+rusqlite = { version = "0.37", features = ["bundled", "hooks", "limits"] }
 
 [dev-dependencies]
 tempfile = "3"

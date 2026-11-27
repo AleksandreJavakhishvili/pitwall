@@ -26,8 +26,9 @@ use crate::{cache, Extension, FrameUpdate, Grants, LoadError, LogLevel, StartOpt
 
 pub(crate) type Sink = Box<dyn FnMut(TileOutput) + Send>;
 
-/// From the UI thread to a tile's worker.
-enum Msg {
+/// From the UI thread to a tile's worker (and from `net`'s request
+/// threads: their answers).
+pub(crate) enum Msg {
     Event(Event),
     OpenView(ViewSpec),
     SetContent(String, Content),
@@ -40,6 +41,10 @@ enum Msg {
     Advance(Duration),
     Stop,
     Rows { view: String, list: String, start: u32, count: u32 },
+    /// A `net` request's answer.
+    Fetched(crate::net::Fetched),
+    /// Its own server's state ([`TileHandle::set_service`]).
+    Service(crate::ui::ServiceInfo),
 }
 
 /// A running tile, as the app holds it. Every method only posts a message
@@ -115,6 +120,13 @@ impl TileHandle {
         self.post(Msg::SaveState)
     }
 
+    /// Its own server's state now (services.md §13.2): kept for
+    /// `service.info`, and the guest gets `service-changed` when it
+    /// changed. Send it after start and on each change.
+    pub fn set_service(&self, info: crate::ui::ServiceInfo) -> bool {
+        self.post(Msg::Service(info))
+    }
+
     /// With a virtual clock ([`Clock::manual`]): let `time` pass. Timers
     /// due meanwhile fire in order, each at its own time (while shown),
     /// and the views render after. Ignored, with a Log line, on the wall
@@ -165,10 +177,11 @@ pub(crate) fn spawn(host: TileHost, ext: Extension, options: StartOptions, mut s
     let stop = Arc::new(AtomicBool::new(false));
     let id = ext.id().to_string();
     let flag = stop.clone();
+    let done = tx.clone();
     let thread = std::thread::Builder::new()
         .name(format!("tile:{id}"))
         .spawn(move || {
-            let reason = match Worker::start(&host, &ext, options, rx, flag, &mut sink) {
+            let reason = match Worker::start(&host, &ext, options, rx, done, flag, &mut sink) {
                 Ok(mut w) => w.run().err().unwrap_or(StopReason::Stopped),
                 Err(reason) => reason,
             };
@@ -217,7 +230,7 @@ fn stop_reason(e: &wasmtime::Error, call: &'static str, limit: Duration, stop: &
 }
 
 impl<'a> Worker<'a> {
-    fn start(host: &TileHost, ext: &Extension, options: StartOptions, rx: mpsc::Receiver<Msg>, stop: Arc<AtomicBool>, sink: &'a mut Sink) -> Result<Worker<'a>, StopReason> {
+    fn start(host: &TileHost, ext: &Extension, options: StartOptions, rx: mpsc::Receiver<Msg>, done: mpsc::Sender<Msg>, stop: Arc<AtomicBool>, sink: &'a mut Sink) -> Result<Worker<'a>, StopReason> {
         let inner = host.inner();
         let data_dir = &inner.config.data_dir;
         let wasm = ext.read_wasm().map_err(|e| StopReason::LoadFailed(e.to_string()))?;
@@ -265,6 +278,11 @@ impl<'a> Worker<'a> {
             stderr,
             clock: options.clock.clone(),
             group: crate::group::Group::new(manifest.contributes.badges, manifest.contributes.asks, inner.config.methods.clone()),
+            fetcher: host.fetcher(),
+            done,
+            db: crate::sql::Db::new(&extension_data_dir(data_dir, ext.id()), options.grants.sql_quota()),
+            toolbar: manifest.contributes.toolbar.clone(),
+            has_service: manifest.service.is_some(),
         });
         let mut store = Store::new(&inner.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -296,6 +314,7 @@ impl<'a> Worker<'a> {
         };
         arm(&mut w.store, INIT_DEADLINE);
         let init = w.tile.pitwall_tile_guest().call_init(&mut w.store, &cx);
+        w.store.data_mut().end_call();
         match init {
             Ok(Ok(())) => {}
             Ok(Err(why)) => return Err(StopReason::InitFailed(crate::host::cut(&why, 1000))),
@@ -420,6 +439,22 @@ impl<'a> Worker<'a> {
                 }
                 Ok(())
             }
+            // Cancelled (or from before a restart): dropped.
+            Msg::Fetched(f) => {
+                if self.store.data_mut().fetches.remove(&f.id) {
+                    self.handle(Event::Fetched(f))
+                } else {
+                    Ok(())
+                }
+            }
+            Msg::Service(info) => {
+                let s = self.store.data_mut();
+                if !s.has_service || s.service == info {
+                    return Ok(());
+                }
+                s.service = info.clone();
+                self.handle(Event::ServiceChanged(info))
+            }
         }
     }
 
@@ -511,6 +546,7 @@ impl<'a> Worker<'a> {
         let t = Instant::now();
         let r = self.tile.pitwall_tile_guest().call_handle(&mut self.store, &event);
         let changed = r.map_err(|e| self.fail(&e, "handle", HANDLE_DEADLINE))?;
+        self.store.data_mut().end_call();
         let took = t.elapsed();
         if took > HANDLE_WARN {
             self.store.data_mut().host_log(LogLevel::Warn, format!("handling an event took {} ms (keep it under {} ms)", took.as_millis(), HANDLE_WARN.as_millis()));
@@ -532,6 +568,7 @@ impl<'a> Worker<'a> {
             let t = Instant::now();
             let r = self.tile.pitwall_tile_guest().call_render(&mut self.store, &view);
             let new = r.map_err(|e| self.fail(&e, "render", RENDER_DEADLINE))?;
+            self.store.data_mut().end_call();
             let took = t.elapsed();
             if took > RENDER_WARN {
                 self.store.data_mut().host_log(LogLevel::Warn, format!("rendering “{view}” took {} ms (keep it under 8 ms)", took.as_millis()));

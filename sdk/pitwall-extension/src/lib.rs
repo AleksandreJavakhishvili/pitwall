@@ -68,6 +68,7 @@ pub mod element;
 pub mod events;
 mod group;
 mod host;
+mod services;
 pub mod style;
 mod tile;
 
@@ -77,6 +78,7 @@ pub use canvas::{canvas, Canvas, Viewport};
 pub use events::{Blur, Event, Focused};
 pub use group::{agents, asks, badges};
 pub use host::{log, settings, storage, ui, HostError, Tone};
+pub use services::{net, notify, service, show, sql, toolbar};
 pub use style::{px, relative, rems, Align, Length, Styled, Token};
 pub use tile::{Content, ContentError, Cx, SavedState, Tile, Timer, ViewInfo};
 pub use components::{choice, column, image_asset, image_data, markdown, menu_button, menu_icon_button, menu_item, select, separator, tab, table, tabs, tree, tree_row, virtual_list, Column, IntoRow, MenuEntry, Rows, TreeRow};
@@ -96,6 +98,7 @@ pub mod prelude {
     pub use crate::group::asks::{self, Answer, Ask};
     pub use crate::group::badges::{self, Badge, Row};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};
+    pub use crate::services::{net, notify, service, show, sql, toolbar};
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};
     pub use std::time::Duration;
