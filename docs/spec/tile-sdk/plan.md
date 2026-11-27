@@ -131,6 +131,7 @@ tile and show content in it, and the pages below match.
     - [x] In the app's headless tests, `TileView::choose` (a segmented control's or radio group's option) and `TileView::press_key`; the C4 tile's Changes view has dark and light screenshots (#135)
     - [x] Rows (`allowed_in_row`) may hold badges, avatars and relative times (batch 1's follow-up) (#135)
 - [ ] **6a. Native blocks and ports:** the review port as proof tile, then the files tree and inbox ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk))
+  - [ ] Port Pitwall's own inbox to the SDK (the owner asked why it's built in): a tile with the SDK's status, shortcut, number keys and take-back can already be an inbox, as the Agention tile is
 - [ ] **On demand:** services from [14.3](platform-services.md#143-later-on-demand), each when a seed tile needs it
 - [ ] **7. Stabilise:** WIT 1.0, Preview label removed, deprecation policy
 - [ ] **8. Port or hand over the bundled extensions** ([15.7](extension-model.md#157-effect-on-the-plan))
@@ -140,6 +141,6 @@ tile and show content in it, and the pages below match.
     - [x] Settings, the `apiKey` secret, the managed `agention serve` service, actions, variables and checklist kept; the adapter, `contributes.inbox` and `matchAgents` dropped
     - [x] Generic SDK and host feature it needed: a `net` host taken from a `url` setting (`"{setting:KEY}"` in `permissions.net.hosts`), granted per value, followed when the setting changes; the harness's `serve` for stateful fake servers
     - [x] Tests: harness tests against a Rust port of the fake operator API, unit tests, a headless app test (`test/app.json`, run for every shipped extension that has one), `extension check`, a dependency check and the `tile-agention` CI job; README, dark and light screenshots
-    - [ ] Not yet possible without an adapter (README, "From the adapter to the tile"): the native inbox (⌘I, number keys, Send with take-back; needs the component `inbox` interface), the checklist's "Connected" step and status pill, and the update's "connects as before" health check (both need a way for a tile to report its status)
-  - [ ] The component `inbox` interface, so a tile can feed Pitwall's native inbox
+    - [x] What the adapter gave, as generic SDK features: the status report (`status.set`: the card's pill, the checklist's Connected step, the update's "connects as before"), a tile's shortcut (`shortcut` permission, off by default; ⌘⇧U for this tile), number keys (`bind_key`, already there) and Send with take-back (`TakeBack`); the tile uses them all
+    - [ ] Left (README, "From the adapter to the tile"): its questions aren't in Pitwall's built-in inbox panel, which only adapters feed; that waits for the inbox's own port (6a)
 - [ ] **9. Remove adapters** once each bundled extension has a component version

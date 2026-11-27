@@ -183,15 +183,18 @@ Then turn Agention on; its card becomes a checklist:
    server; never to agents, never shown or logged.
 5. Set up Agention in my agents (section 2), if you haven't.
 
-Turning it on asks for two permissions: **network** (your server, the
+Turning it on asks for three permissions: **network** (your server, the
 host of Server address; when you change the address, the permission
-follows it) and **agents.read** (to tell which of your agents a thread is
-from).
+follows it), **agents.read** (to tell which of your agents a thread is
+from) and **a keyboard shortcut** (⌘⇧U, Ctrl+Shift+Alt+U off macOS, to
+open the tile from anywhere; off unless you switch it on, and you can
+change the keys in the card). Once it connects, the card says
+**Connected** and the checklist's last step is done.
 
 ## 5. Use it
 
 Press the **Agention** button on the toolbar (its count is the open
-questions) or open the Agention tile from the command palette: a tile of
+questions), press ⌘⇧U if you allowed the shortcut, or open the Agention tile from the command palette: a tile of
 your layout.
 
 - **The list**: threads grouped by agent and session, under the agent's
@@ -201,8 +204,10 @@ your layout.
 - **A thread** (beside the list when the tile is wide, over it when
   narrow): its messages, and each open question with its suggestions (one
   click answers; with several to pick, pick then Send), your own words,
-  or Decline. Write to the agent in the box below. **Mark read** and
-  **Archive** are on its bar.
+  or Decline. Keys 1 to 9 pick the first open question's suggestions
+  (while you aren't typing in a box). Write to the agent in the box
+  below. An answer or a reply waits 5 seconds with **Undo** before it is
+  sent. **Mark read** and **Archive** are on its bar.
 - **Elsewhere in Pitwall**: the same open questions in Pitwall's floating
   control, where you can answer them too, and a badge on the sidebar row
   of each agent that waits on you (a click opens the tile).
@@ -235,18 +240,21 @@ The tile says it at its top, with a button:
 
 Version 2.0.0 replaces the Node.js adapter (1.x) with the tile; Node.js
 is no longer needed. Its settings, API key, managed server, actions and
-variables are the same. Not yet possible without an adapter, so missing
-for now:
+variables are the same, and so is what you see of it:
 
-- **Pitwall's built-in inbox** (⌘I, "Open Agention inbox", number keys to
-  answer, Send with take-back): it is fed only by adapters. A tile can't
-  serve it yet (the Tile SDK's `inbox` interface is a separate item of
-  the Tile SDK plan). The toolbar button and the tile replace it.
-- **The checklist's "Connected" step and the card's status pill**: Pitwall
-  draws them from an adapter's status, and a tile has no way to report
-  one. The tile shows the connection itself, at its top.
-- **The update's health check** is now "the server is up" only (it was
-  "and the adapter connects again", from the adapter's status).
+- **The inbox** is the tile, opened from the toolbar, the palette or its
+  shortcut (⌘⇧U, once allowed; the adapter's inbox had ⌘I, which stays
+  Pitwall's). Number keys answer, as in Pitwall's inbox, and an answer
+  or a reply waits 5 seconds with Undo before it is sent.
+- **The card's status pill and the checklist's "Connected" step** come
+  from the tile's status report (connecting, connected, signed out or an
+  error with its words), as they came from the adapter's.
+- **The update's health check** is again "the server is up and Agention
+  connects as before".
+
+What is left: the open questions show in the floating control and on
+the agents' rows rather than in Pitwall's built-in inbox panel, which
+only adapters feed (Pitwall plans to make that inbox a tile too).
 
 ## Building and testing
 

@@ -11,7 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fake::{AskSpec, Fake, SERVER};
-use pitwall_extension_test::{agent, BadgeTone, Harness, Session, ToolbarBadge, UiRequest};
+use pitwall_extension_test::{agent, BadgeTone, ConnState, Harness, Session, ToolbarBadge, UiRequest};
+
+/// How long a reply or an answer waits for Undo before it is sent.
+const TAKE_BACK: Duration = Duration::from_secs(5);
 
 fn dir() -> &'static str {
     env!("CARGO_MANIFEST_DIR")
@@ -105,8 +108,11 @@ fn answering_in_the_tile() {
     t.click_text("Which database?");
     assert!(shows(&t, "SQLite or Postgres?"), "{}", t.text_snapshot());
     assert!(shows(&t, "I need to pick one for the cache."));
-    // One pick goes at once.
+    // One pick goes after its take-back time.
     t.click_key("main/thread/messages/m1/body/a1/picks/s1");
+    assert!(fake.answer_of(&id, 1).is_none(), "held for Undo first");
+    assert!(t.text_snapshot().contains("Your answer: sending in 5 s"), "{}", t.text_snapshot());
+    t.advance(TAKE_BACK);
     let a = fake.answer_of(&id, 1).expect("answered");
     assert_eq!(a["labels"], serde_json::json!(["SQLite"]));
     assert!(shows(&t, "You answered: SQLite"), "{}", t.text_snapshot());
@@ -125,9 +131,9 @@ fn answering_in_words_and_declining() {
     let id = fake.add_thread("web", "a1", "Two things", "Two questions.", vec![AskSpec::new("Where do logs go?", &[]), AskSpec::new("Ship today?", &["Yes", "No"])]);
     let mut t = open(&fake);
     t.click_text("Two things");
-    t.type_into("main/thread/messages/m1/body/a1/words", "in the data dir").click_key("main/thread/messages/m1/body/a1/actions/send");
+    t.type_into("main/thread/messages/m1/body/a1/words", "in the data dir").click_key("main/thread/messages/m1/body/a1/actions/send").advance(TAKE_BACK);
     assert_eq!(fake.answer_of(&id, 1).unwrap()["text"], "in the data dir");
-    t.click_key("main/thread/messages/m1/body/a2/actions/decline");
+    t.click_key("main/thread/messages/m1/body/a2/actions/decline").advance(TAKE_BACK);
     assert_eq!(fake.answer_of(&id, 2).unwrap()["declined"], true);
     assert!(shows(&t, "You declined"), "{}", t.text_snapshot());
 }
@@ -174,15 +180,14 @@ fn replies_mark_read_and_archive() {
     t.choose("head/filter", "all").click_text("Status");
     t.click_key("main/thread/head/read");
     assert_eq!(fake.marks(&id).0, 1);
-    t.type_into("main/thread/reply-box/reply", "Thanks, merge it.").click_key("main/thread/reply-box/actions/send-reply");
+    t.type_into("main/thread/reply-box/reply", "Thanks, merge it.").click_key("main/thread/reply-box/actions/send-reply").advance(TAKE_BACK);
     assert_eq!(fake.sent().last().unwrap()["text"], "Thanks, merge it.");
     assert!(shows(&t, "Thanks, merge it."), "{}", t.text_snapshot());
     assert_eq!(t.field_text("main/thread/reply-box/reply"), "", "cleared once sent");
     // The agent writes meanwhile: the reply is refused as stale and the
     // thread read again.
     fake.agent_post(&id, "One more thing.", vec![]);
-    t.type_into("main/thread/reply-box/reply", "Ok").click_key("main/thread/reply-box/actions/send-reply");
-    t.settle();
+    t.type_into("main/thread/reply-box/reply", "Ok").click_key("main/thread/reply-box/actions/send-reply").advance(TAKE_BACK);
     assert!(shows(&t, "One more thing."), "{}", t.text_snapshot());
     t.click_key("main/thread/head/archive");
     assert_eq!(fake.marks(&id).1, 4);
@@ -228,6 +233,54 @@ fn down_then_back() {
     assert!(shows(&t, "Trying again in 1 s"), "{}", t.text_snapshot());
     t.advance(Duration::from_secs(1));
     assert!(shows(&t, "Connected"), "{}", t.text_snapshot());
+}
+
+#[test]
+fn its_status_is_reported_as_the_adapter_did() {
+    let fake = Fake::new();
+    let t = open(&fake);
+    assert_eq!(t.status(), Some((ConnState::Ready, String::new())));
+    let t = harness(&fake, &fake::revoked()).open("inbox");
+    let (state, said) = t.status().unwrap();
+    assert_eq!(state, ConnState::SignedOut);
+    assert!(said.contains("refused the API key"), "{said}");
+    fake.fail_next(503, "unavailable");
+    let mut t = open(&fake);
+    assert_eq!(t.status().map(|s| s.0), Some(ConnState::Error));
+    t.advance(Duration::from_secs(1));
+    assert_eq!(t.status().map(|s| s.0), Some(ConnState::Ready));
+    let t = Harness::build(dir()).open("inbox");
+    assert_eq!(t.status().map(|s| s.0), Some(ConnState::Error), "not set up");
+}
+
+#[test]
+fn a_reply_can_be_taken_back() {
+    let fake = Fake::new();
+    let id = fake.add_thread("web", "a1", "Status", "Tests pass.", vec![]);
+    let mut t = open(&fake);
+    t.choose("head/filter", "all").click_text("Status");
+    let before = fake.sent().len();
+    t.type_into("main/thread/reply-box/reply", "Merge it.").click_key("main/thread/reply-box/actions/send-reply");
+    assert!(shows(&t, "Your reply: sending in 5 s"), "{}", t.text_snapshot());
+    t.advance(Duration::from_secs(2)).click_key("main/thread/take-back/take-back-1");
+    assert_eq!(t.field_text("main/thread/reply-box/reply"), "Merge it.", "back in the box");
+    t.advance(TAKE_BACK);
+    assert_eq!(fake.sent().len(), before, "never sent");
+    let _ = id;
+}
+
+#[test]
+fn number_keys_answer_the_open_question() {
+    let fake = Fake::new();
+    let id = asking(&fake);
+    let mut t = open(&fake);
+    t.click_text("Which database?");
+    // Typing in the reply box, 2 is a 2.
+    t.focus_key("main/thread/reply-box/reply");
+    assert!(t.try_press("2").is_err());
+    t.blur().press("2").advance(TAKE_BACK);
+    assert_eq!(fake.answer_of(&id, 1).expect("answered")["labels"], serde_json::json!(["SQLite"]));
+    assert!(shows(&t, "You answered: SQLite"), "{}", t.text_snapshot());
 }
 
 #[test]
