@@ -348,8 +348,14 @@ impl SettingsView {
 
     /// The remove card's choice for `m`'s data folder (kept unless ticked).
     pub(super) fn service_remove_choice(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<AnyElement> {
-        m.service.as_ref()?;
         let data = service::data_dir(&m.id, cx)?;
+        // A tile's storage, settings and database (packaging.md §6.5):
+        // asked only when it kept any, with its size.
+        let what = match (&m.service, m.contributes.tiles.is_empty()) {
+            (Some(_), _) => format!("Also delete its service's data in {}. Off: it is kept there.", service::shown(&data)),
+            (None, false) if data.is_dir() => format!("Also delete its data ({}) in {}. Off: it is kept there, for a later install.", pitwall_core::extensions::package::size_words(dir_size(&data)), service::shown(&data)),
+            _ => return None,
+        };
         let ticked = self.exts.remove_data.contains(&m.id);
         let id = m.id.clone();
         let sel = format!("extension-remove-data-{}", m.id);
@@ -363,7 +369,21 @@ impl SettingsView {
                 }
                 cx.notify();
             })))
-            .child(div().flex_1().min_w_0().text_size(px(12.)).text_color(ui.t.text_2).child(format!("Also delete its service's data in {}. Off: it is kept there.", service::shown(&data))));
+            .child(div().flex_1().min_w_0().text_size(px(12.)).text_color(ui.t.text_2).child(what));
         Some(row.into_any_element())
     }
+}
+
+/// The bytes of the files under `dir` (links not followed).
+fn dir_size(dir: &std::path::Path) -> u64 {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| match std::fs::symlink_metadata(e.path()) {
+            Ok(m) if m.is_dir() => dir_size(&e.path()),
+            Ok(m) if m.is_file() => m.len(),
+            _ => 0,
+        })
+        .sum()
 }
