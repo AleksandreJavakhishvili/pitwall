@@ -1,0 +1,40 @@
+# Builds and signs dist/v1/ on main (marketplace.md §7.1), and once a day
+# so Pitwall sees a fresh signed index (an index older than 14 days is
+# shown as stale: it may be held back). The index key is the only secret;
+# it lives in the "index" environment, which only this workflow on main
+# may use.
+name: publish
+on:
+  push:
+    branches: [main]
+    paths: ["extensions/**", "authors/**", "maintainers.toml", "categories.toml", "blocked.toml"]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: { group: publish, cancel-in-progress: false }
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: index
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tool, from Pitwall at a pinned commit
+        run: cargo install --locked --git https://github.com/pitwalls/pitwall --rev PITWALL_COMMIT pitwall-index
+      - name: Build and sign
+        env:
+          INDEX_KEY: ${{ secrets.INDEX_KEY }}
+          PITWALL_INDEX_KEY_PASSWORD: ${{ secrets.INDEX_KEY_PASSWORD }}
+        run: |
+          umask 077
+          printf '%s\n' "$INDEX_KEY" > "$RUNNER_TEMP/index.key"
+          pitwall-index build . --key "$RUNNER_TEMP/index.key"
+          rm -f "$RUNNER_TEMP/index.key"
+      - name: Commit dist/
+        run: |
+          git config user.name "pitwall-index"
+          git config user.email "pitwall-index@users.noreply.github.com"
+          git add dist
+          git commit -m "build: index $(date -u +%FT%TZ)" && git push || echo "nothing changed"
