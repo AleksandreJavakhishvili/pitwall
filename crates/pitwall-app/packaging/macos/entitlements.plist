@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Hardened-runtime entitlements for Developer ID builds (scripts/package-app.sh
-     signs the sidecars and the app with them). Deliberately empty, like the Tauri
-     app's today: no JIT (GPUI's Metal shaders are precompiled, and even runtime
-     shaders compile through the Metal driver, not JIT), no unsigned libraries,
-     no DYLD_* variables. Agents run as separate executables and are not limited
-     by the app's hardened runtime. Add a key here only with a reason next to it. -->
+<!-- Hardened-runtime entitlements for the app (scripts/package-app.sh signs
+     Developer ID builds with them, scripts/install-local.sh local ones). Add a
+     key here only with a reason next to it. No unsigned libraries, no DYLD_*
+     variables. GPUI's Metal shaders are precompiled. Agents run as separate
+     executables and are not limited by the app's hardened runtime. -->
 <plist version="1.0">
 <dict>
+	<!-- Tiles: Wasmtime compiles each tile's WebAssembly to machine code in
+	     memory and then makes that memory executable (it doesn't use MAP_JIT),
+	     which the hardened runtime kills ("Code Signature Invalid") without
+	     this key. The compiled code is the sandboxed tile's, nothing else. -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
 </dict>
 </plist>

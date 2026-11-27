@@ -52,7 +52,8 @@ for bin in "$DEST"/Contents/MacOS/*; do
   [ "$name" = pitwall ] && continue
   codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier "dev.pitwall.app.${name#pitwall-}" "$bin"
 done
-codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app "$DEST"
+# The app itself with its entitlements (tiles need executable memory).
+codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app --entitlements crates/pitwall-app/packaging/macos/entitlements.plist "$DEST"
 codesign --verify --deep --strict "$DEST"
 echo "installed and signed: $DEST"
 # Terminals still running a holder from inside an older bundle lose macOS
