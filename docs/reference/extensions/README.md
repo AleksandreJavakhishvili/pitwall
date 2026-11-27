@@ -38,7 +38,7 @@ The first preview is for authors who want to build tiles early:
 - Tiles in Pitwall's layout, opened from the command palette, with their Log in Settings → Extensions.
 - `pitwall extension new` scaffolds a tile project from a template, `pitwall extension dev` builds and checks it on every save and reloads it in the running Pitwall keeping its state, `pitwall extension check` checks it, and `pitwall extension test` runs its tests in Pitwall's own tile runtime.
 - Tiles are shared as signed packages. `pitwall extension pack` makes a `.pwtile` file and `pitwall extension sign` signs it with your minisign key. Pitwall installs the file from Settings → Extensions → Install from file… or with `pitwall extension install <file>`. It checks the signature first, shows the key, and requires updates to be signed by the same key. The version before an update is kept for Go back ([Packaging](packaging.md), [Install](install.md)).
-- An extensions index lists tiles for Browse. Its signed list is checked against keys built into Pitwall. Verified marks a version a maintainer reviewed. Withdrawn, blocked and unlisted versions are refused or turned off, with the reason. `pitwall extension publish` writes your tile's entry and opens the pull request ([Marketplace](marketplace.md), [Publishing](publishing.md)). The index opens to everyone after the outside security review.
+- An extensions index lists tiles for Browse. Its signed list is checked against keys built into Pitwall. Verified marks a version a maintainer reviewed. Withdrawn, blocked and unlisted versions are refused or turned off, with the reason. `pitwall extension publish` writes your tile's entry and opens the pull request ([Marketplace](marketplace.md), [Publishing](publishing.md)). The Extensions tile has Installed and Browse at full size ([Extensions in Settings](settings-page.md)). The index opens to everyone after the outside security review.
 - For a quick try, an unsigned folder installs too (Install from folder…), with an "Unsigned, preview" warning. Folder installs don't update.
 - An authoring skill for coding agents, and the docs as one `llms.txt` file ([For coding agents](for-agents.md)).
 - Agents open tiles with content (`<extension-id>__open`) and use the show tools a tile declares, through Pitwall's MCP server, with a switch per tile ([Agent tools](agent-tools.md)).
@@ -57,6 +57,7 @@ The other kinds of tools (reading back what a tile shows, acting outside it) com
 - [Permissions](permissions.md): what each grant means.
 - [Packaging](packaging.md): packing and signing a `.pwtile`, keys and updates.
 - [Install](install.md): installing from a file, who signed it, updates, Go back and Remove.
+- [Extensions in Settings](settings-page.md): the Extensions tile, searching what is installed, an extension's page, Browse and installing from the index.
 - [Marketplace](marketplace.md): the extensions index, how Pitwall checks it, Verified, reports, withdrawn and blocked versions.
 - [Publishing](publishing.md): listing a tile in the index with `pitwall extension publish`.
 - [Platform services](platform-services.md): what Pitwall gives every tile.

@@ -6,7 +6,7 @@
 
 You need the package, `<id>-<version>.pwtile`, and normally its signature, `<id>-<version>.pwtile.minisig`, in the same folder.
 
-- **In Pitwall:** Settings → Extensions → Install from file…, then pick the `.pwtile`.
+- **In Pitwall:** Settings → Extensions → Install from file…, then pick the `.pwtile`. To install from the extensions index instead, use Browse in the Extensions tile ([Extensions in Settings](settings-page.md)): it goes through the same trust screen.
 - **From a terminal:** `pitwall extension install ./my-tile-0.1.0.pwtile`. It prints who signed it and what it asks for, then you approve it in Pitwall.
 
 Pitwall checks the signature before it unpacks anything. A package that was changed after it was signed is refused, and Pitwall says why.
