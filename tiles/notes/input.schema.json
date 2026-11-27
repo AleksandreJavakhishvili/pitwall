@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Notes: a draft note to show",
+  "description": "Open Notes with a draft note. It stays a draft, not saved, until the user keeps it; the same content id again replaces the draft in place.",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "maxLength": 200, "description": "The note's title, put on its first line. Leave it out when the text's first line is the title" },
+    "text": { "type": "string", "maxLength": 262144, "description": "The note's plain text; its first line is the title unless title is given" }
+  }
+}
