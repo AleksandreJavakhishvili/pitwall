@@ -35,12 +35,14 @@ pub(crate) struct State {
     /// `general.devicePreviews`.
     device_previews: AtomicBool,
     cli: RwLock<Option<PathBuf>>,
+    /// The extensions' show-only tile tools offered now, by MCP name.
+    tile_tools: RwLock<Vec<String>>,
 }
 
 impl Default for State {
     fn default() -> State {
         // On by default, as the settings.
-        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), settings: AtomicBool::new(true), device: AtomicBool::new(true), device_previews: AtomicBool::new(true), cli: RwLock::new(None) }
+        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), settings: AtomicBool::new(true), device: AtomicBool::new(true), device_previews: AtomicBool::new(true), cli: RwLock::new(None), tile_tools: RwLock::new(Vec::new()) }
     }
 }
 
@@ -141,19 +143,32 @@ impl Engine {
         self.sync_show_rule();
     }
 
-    /// The MCP server for an agent starting now: none when showing files
-    /// and web pages are both off, or there is no CLI.
+    /// The extensions' show-only tile tools the host offers agents now
+    /// (their MCP names), allowed at launch where a kind takes a list.
+    pub fn set_tile_tools(&self, names: Vec<String>) {
+        *self.show.tile_tools.write().unwrap_or_else(|e| e.into_inner()) = names;
+    }
+
+    /// The tile tools offered now ([`Engine::set_tile_tools`]).
+    pub fn tile_tools(&self) -> Vec<String> {
+        self.show.tile_tools.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The MCP server for an agent starting now: none when showing files,
+    /// web pages and devices are off and no tile offers tools, or there
+    /// is no CLI.
     pub fn show_files_wiring(&self) -> Option<McpWiring> {
-        if !self.show_files_on() && !self.show_web_on() && !self.show_device_on() {
+        let tiles = self.tile_tools();
+        if !self.show_files_on() && !self.show_web_on() && !self.show_device_on() && tiles.is_empty() {
             return None;
         }
-        self.show_files_server()
+        self.show_files_server().map(|m| McpWiring { tools: tiles, ..m })
     }
 
     /// The MCP server, setting or not (what goes in a tool's MCP file).
     pub fn show_files_server(&self) -> Option<McpWiring> {
         let cli = self.show.cli.read().unwrap_or_else(|e| e.into_inner()).clone()?;
-        Some(McpWiring { command: cli.to_string_lossy().into_owned(), args: vec!["mcp".into()] })
+        Some(McpWiring { command: cli.to_string_lossy().into_owned(), args: vec!["mcp".into()], tools: Vec::new() })
     }
 
     /// How each agent kind gets the ability (Settings → Agents).

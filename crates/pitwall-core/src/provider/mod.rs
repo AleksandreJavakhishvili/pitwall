@@ -307,6 +307,11 @@ pub struct McpWiring {
     pub command: String,
     /// `["mcp"]`.
     pub args: Vec<String>,
+    /// Extensions' show-only tile tools offered when the agent starts
+    /// (`hello__open`), allowed at launch beside Pitwall's own where the
+    /// kind takes an allow list (agent-tools.md §11.4). Tools added later
+    /// reach the agent through `notifications/tools/list_changed`.
+    pub tools: Vec<String>,
 }
 
 /// What to run, for `create` and `start`. Providers that launch a command

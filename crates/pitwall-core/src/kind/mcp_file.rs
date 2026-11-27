@@ -367,7 +367,7 @@ mod tests {
     use super::*;
 
     fn wiring() -> McpWiring {
-        McpWiring { command: "/h/.pitwall/bin/pitwall-cli".into(), args: vec!["mcp".into()] }
+        McpWiring { command: "/h/.pitwall/bin/pitwall-cli".into(), args: vec!["mcp".into()], tools: Vec::new() }
     }
 
     fn file(extra: &str) -> McpFile {
