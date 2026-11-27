@@ -294,6 +294,26 @@ late.
   rows in pages (`rows(list, start, count)`) as they scroll into view,
   cached until the guest invalidates them.
 
+**Measured: a 100 000-row list** (phase 2, PR #TBD; the hello fixture's
+`gallery` tile, Apple M-series, debug builds of the host and the app, the
+guest a release component). `cargo test -p pitwall-tile-host --test
+components -- --nocapture` and `PITWALL_TILE_SHOTS=<dir> cargo test -p
+pitwall-app gallery_shots -- --ignored --nocapture` print them.
+
+| What | Measured |
+|---|---|
+| The gallery's frame (list, table, tree, tabs, select, menu, Markdown, images) | 22 nodes, about 3.5 KiB: the list names its count, no row is in it |
+| A page of 64 rows (320 nodes) from `guest.rows` | 0.47–0.51 ms, lifted and checked |
+| A jump to row 50 000: scroll, the pages asked for, sent, drawn | about 23 ms (one ask round trip and two draws) |
+| A frame of the gallery after it (headless) | about 1.3 ms |
+| Rows the app keeps per list | ≤ 2 048 (the SDK keeps their listeners for 4 096) |
+
+So scrolling costs what Pitwall's own lists cost: the app lays out only
+the rows in sight (a `uniform_list`), and asks for a page and one either
+side of what is in sight, so a page arrives before it scrolls in. While
+a page is on its way its rows are blank; after the list's revision moves
+the old rows stay drawn until the new ones come.
+
 ---
 
 ## 3. The WIT interface
@@ -373,7 +393,8 @@ interface guest {
   render: func(view: view-id) -> frame;
   /// Handle one event. Returns true when state changed (a render follows).
   handle: func(event: event) -> bool;
-  /// Rows of a virtual list or table, as small trees.
+  /// Rows of a virtual list, table or tree, as small trees (WIT 0.1:
+  /// `rows(view, key-path, start, count) -> list<row>`, at most 256).
   rows: func(view: view-id, list: string, range: row-range) -> rows;
   /// Draw a canvas at its laid-out size.
   draw: func(view: view-id, canvas: string, at: size) -> list<draw-op>;
