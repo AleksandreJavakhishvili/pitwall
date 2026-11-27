@@ -3,7 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Only pull requests into main. Work piled on an integration branch is
+  # checked once, by that branch's own pull request into main.
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
