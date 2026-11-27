@@ -48,6 +48,10 @@ mod updates;
 
 pub use service_ui::ServiceFacts;
 
+/// The page's intro: both kinds of extension, and that installing runs
+/// nothing.
+pub const INTRO: &str = "Extensions add tiles, inboxes, or both. A tile runs sandboxed, and Pitwall draws it. An inbox brings questions from your agents' tools, from a program that runs only while the extension is on. Installing one turns nothing on; one you got elsewhere goes in the extensions folder (Open folder).";
+
 /// The page's own state.
 #[derive(Default)]
 pub struct Section {
@@ -486,13 +490,23 @@ impl SettingsView {
                 self.exts._subs.push(cx.observe(&store, |_, _, cx| cx.notify()));
             }
         }
-        let folder = crate::extensions::dir(cx).map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()));
+        let dir = crate::extensions::dir(cx);
         let load = self.dev_load_button(ui, cx);
-        let restart = folder.is_some().then(|| self.restart_setting(ui, cx));
+        let restart = dir.is_some().then(|| self.restart_setting(ui, cx));
+        // The folder is a button, not a path in the text.
+        let open = dir.clone().map(|d| {
+            crate::kit::text_button("extensions-open-folder", "Open folder", BtnKind::GhostSm, false, &ui.t)
+                .debug_selector(|| "extensions-open-folder".into())
+                .tooltip(crate::kit::tooltip(format!("Open the extensions folder ({})", pitwall_core::paths::tildify(&d.to_string_lossy()))))
+                .on_click(move |_, _, cx| {
+                    let _ = std::fs::create_dir_all(&d);
+                    crate::platform::files::open_in_default_app(cx, &d);
+                })
+        });
         section()
             .child(
                 head(ui, "Extensions").child(
-                    div().flex().gap(px(4.)).child(load).child(
+                    div().flex().gap(px(4.)).child(load).children(open).child(
                         crate::kit::text_button("extensions-rescan", "Look again", BtnKind::GhostSm, false, &ui.t)
                             .tooltip(crate::kit::tooltip("Read the extensions folder again"))
                             .on_click(cx.listener(|_, _, _, cx| {
@@ -504,10 +518,7 @@ impl SettingsView {
             )
             .children(self.dev_note(ui))
             .child(crate::kit::hint(
-                match &folder {
-                    Some(f) => format!("Extensions bring questions from your agents' tools into Pitwall, in an inbox. Installing one turns nothing on: its program runs only while it is on. An extension you got elsewhere goes in {f}."),
-                    None => "Extensions need Pitwall's data folder, which isn't in use here.".to_string(),
-                },
+                if dir.is_some() { INTRO } else { "Extensions need Pitwall's data folder, which isn't in use here." },
                 &ui.t,
             ))
             .children(restart)
