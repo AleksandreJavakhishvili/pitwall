@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 pub mod contract;
 mod fake;
+pub mod index;
 pub mod npm;
 
 pub use fake::{FakeProvider, FakeTerm, FakeTermCtl, Launched};

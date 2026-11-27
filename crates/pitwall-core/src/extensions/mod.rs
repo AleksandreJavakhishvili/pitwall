@@ -47,6 +47,7 @@
 
 pub mod activity;
 pub mod check;
+pub mod index;
 pub mod install;
 pub mod log;
 pub mod net;
