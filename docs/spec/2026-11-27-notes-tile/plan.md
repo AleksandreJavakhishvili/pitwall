@@ -11,8 +11,8 @@ The Tile SDK's own phases are tracked in
 [tile-sdk/plan.md](../tile-sdk/plan.md). This plan only says which of
 them each step waits for, and it doesn't tick their items.
 
-**Status:** step 0 built (#119) on SDK phase 1; not yet seen in Pitwall,
-which waits for `TileView` and folder install (G8).
+**Status:** step 0 built (#119) on SDK phase 1, its SDK gaps G8–G18
+closed and seen in Pitwall headless on macOS (#121).
 
 ## SDK requests
 
@@ -23,17 +23,17 @@ that design. The step it blocks is named.
 
 - [x] G1, G1b: the `input` element's record (multi-line, rows, font, who owns the value) and which of ⌘⏎ or submit wins in a tile. Blocks step 0 (#111: WIT 0.1's `input` and [ui.md §3.5](../tile-sdk/ui.md#35-keyboard-and-focus): a focused multi-line field submits on ⌘⏎)
 - [x] G1c: input value size is measured in the phase 1 work, with a number recorded for a 256 KiB note. Blocks step 0's FR-10 limit (#119: about 3 ms a change round trip in the harness, release tile, Apple-silicon Mac; the value isn't repeated in frames)
-- [ ] G8: `TileView` and folder install, then the `input` layout (`size_full` vs `rows`), icons and look checked in Pitwall. Blocks step 0's done
-- [ ] G9: the harness sends focus, resize and theme, restarts without state, reads a field's text, and has a virtual clock. Blocks tests of save on focus loss and of the side-by-side layout
-- [ ] G10: a blur event for one text field. Not blocking; the 1 s timer covers it
-- [ ] G11: reading many storage keys in one call. Blocks v1 with more than about 190 notes loading in one second
-- [ ] G12: the icon set listed in the SDK and checked. Not blocking
-- [ ] G13: the reserved keys listed and checked; when bindings fire while a field has focus. Not blocking
-- [ ] G14: focus a field from the element, not by its full key path. Not blocking
-- [ ] G15: button size apart from its look. Not blocking
-- [ ] G16: `extension new --sdk` writes relative paths and no skill copies inside Pitwall's checkout. Not blocking
-- [ ] G17: which WASI interfaces (clocks, random) a tile has, documented. Not blocking
-- [ ] G18: `Div` and the other builders in the prelude; a show-on-hover style. Not blocking
+- [x] G8: `TileView` and folder install, then the `input` layout (`size_full` vs `rows`), icons and look checked in Pitwall. Blocks step 0's done (#121: `tiles/notes_shots.rs` installs Notes from its folder and draws it headless on macOS; a multi-line field given a height now fills it, icon buttons are square; not yet seen on Windows or Linux)
+- [x] G9: the harness sends focus, resize and theme, restarts without state, reads a field's text, and has a virtual clock. Blocks tests of save on focus loss and of the side-by-side layout (#121: also `focus-changed`, stored values at start, `field()`, the text and focus in the snapshot, and keys the tile wouldn't get refused)
+- [x] G10: a blur event for one text field. Not blocking; the 1 s timer covers it (#121: `focus-changed(node-focus)` in WIT; `on_focus`/`on_blur` in the SDK)
+- [x] G11: reading many storage keys in one call. Blocks v1 with more than about 190 notes loading in one second (#121: `storage.get-many`, ≤ 1024 keys a call; the SDK's `entries_json`)
+- [x] G12: the icon set listed in the SDK and checked. Not blocking (#121: `Icon` has all 51, `ICON_NAMES` in core; `check` and the harness warn)
+- [x] G13: the reserved keys listed and checked; when bindings fire while a field has focus. Not blocking (#121: listed in ui.md; the host drops them with a Log line; plain keys don't fire while a field has focus; Notes binds N and /)
+- [x] G14: focus a field from the element, not by its full key path. Not blocking (#121: the docs now agree, `cx.focus` and `scroll_to` take the key path without the root's; focusing from the element stays open)
+- [x] G15: button size apart from its look. Not blocking (#121: `button-size`; `.small().danger()`)
+- [x] G16: `extension new --sdk` writes relative paths and no skill copies inside Pitwall's checkout. Not blocking (#121: relative inside the checkout; `--no-skill`)
+- [x] G17: which WASI interfaces (clocks, random) a tile has, documented. Not blocking (#121)
+- [x] G18: `Div` and the other builders in the prelude; a show-on-hover style. Not blocking (#121: `group` and `visible_on_group_hover`; Notes shows a Delete on a row on hover)
 - [ ] G4b: `files` gains remove, rename and create-folder, or the design states that the WASI route under `/projects/<n>` does them under the same grants and path checks. Blocks v1
 - [ ] G5, G5b: a tile learns its space's project, and grants and agents name projects by the same id. Blocks v1's per-project lists and agent picker
 - [ ] G7: what happens to host calls in flight at suspension. Blocks v1's save on hide
@@ -57,7 +57,7 @@ and an SDK-preview author other than its writer has used it for a day.
 - [x] Filter field over titles and text; harness test (#119: every word must appear, case-insensitive)
 - [x] Opened with a draft note (`input.schema.json`, `{ "title"?, "text" }`): unsaved and marked until Keep, Discard drops it, new content replaces it in place; harness tests (#119; moved here from v1's agent draft, since phase 1 already delivers content to `on_content`)
 - [x] Each SDK gap found while building is added to [frd.md §7](frd.md#7-sdk-gaps) and the list above, in the same pull request (#119: G8–G18)
-- [ ] Seen in Pitwall, installed from its folder, in Dark and Light, narrow (one pane) and wide (list and note side by side); fixed where it doesn't look like Pitwall's own tiles. Waits for G8
+- [x] Seen in Pitwall, installed from its folder, in Dark and Light, narrow (one pane) and wide (list and note side by side); fixed where it doesn't look like Pitwall's own tiles. Waits for G8 (#121: headless on macOS, `PITWALL_TILE_SHOTS=<folder> cargo test -p pitwall-app notes_shots -- --ignored`; the editor's field fills the pane, icon buttons square, the bars' buttons small)
 
 ## v1: project notes, preview, send
 

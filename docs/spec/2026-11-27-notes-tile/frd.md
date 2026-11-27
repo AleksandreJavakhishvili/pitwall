@@ -244,6 +244,10 @@ Notes uses it to save and go back to the list. A 256 KiB note takes about
 3 ms a change round trip (event, handle, render) in the harness on an
 Apple-silicon Mac, release tile; the value isn't repeated in frames.
 
+G8–G18 were closed in #121 before WIT 0.1 is published (each item's
+resolution is in [plan.md](plan.md#sdk-requests)); G14's own proposal, focusing a field from
+the element, stays open: the docs now agree on the key path instead.
+
 Found while building step 0 (#119), most painful first:
 
 | # | Gap | Why Notes needs it | Proposal (open) | Blocks |
