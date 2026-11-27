@@ -740,6 +740,73 @@ interface types {
     markdown(markdown),
     /// An image.
     image(image),
+    /// A checkbox with its label.
+    checkbox(check),
+    /// A switch (an on/off toggle) with its label.
+    switch(check),
+    /// A group of radio buttons: one of several choices.
+    radio-group(choice-group),
+    /// A segmented control: one of a few choices, side by side.
+    segmented(choice-group),
+    /// A slider: a number in a range, dragged or moved with the keys.
+    slider(slider),
+    /// A number field with − and + steps.
+    number-field(number-field),
+    /// A search field: a text field with a magnifier and a clear button.
+    search-field(search-field),
+    /// A form row: a label over (or beside) the control under it, with
+    /// help text, a validation message and a required mark.
+    form-row(form-row),
+    /// A progress bar, with a known share done or still going.
+    progress(progress),
+    /// A spinning ring: something is loading.
+    spinner,
+    /// A grey placeholder where content is loading.
+    skeleton(skeleton),
+    /// An empty state: an icon, a title, a line of text and an action.
+    empty-state(empty-state),
+    /// An inline banner: information, success, a warning or an error.
+    banner(banner),
+    /// A small count or status label.
+    badge(badge),
+    /// A chip (a tag): a label that can be picked or removed.
+    chip(chip),
+    /// A key or shortcut, drawn as Pitwall draws its own (`cmd-k`: ⌘K).
+    kbd(string),
+    /// Two panes with a bar between them the user drags.
+    split(split),
+    /// A section with a header that opens and closes it.
+    disclosure(disclosure),
+    /// A card: a bordered box, with a title.
+    card(card),
+    /// A thin line between things.
+    divider(orientation),
+    /// Breadcrumbs: where the user is, each level clickable.
+    breadcrumbs(list<crumb>),
+    /// A toolbar row: Pitwall's bar look for the buttons and fields in it.
+    toolbar,
+    /// A popover anchored to its parent node, drawn by Pitwall.
+    popover(popover),
+    /// A sheet over the tile asking the user to confirm.
+    confirm-sheet(confirm-sheet),
+    /// A list of labels and their values.
+    key-values(list<key-value>),
+    /// An avatar: a person's initials in a circle.
+    avatar(avatar),
+    /// A time drawn as "5 min ago", kept up to date by Pitwall.
+    relative-time(relative-time),
+    /// Text with a button that copies it.
+    copyable(copyable),
+    /// A link: opens a web page, or tells the tile.
+    link(link),
+    /// A small line chart without axes, inline with text.
+    sparkline(sparkline),
+    /// A bar chart.
+    bar-chart(bar-chart),
+    /// A line chart with axes.
+    line-chart(line-chart),
+    /// A row of coloured segments, one per run (CI runs, deploys).
+    status-timeline(status-timeline),
   }
 
   /// The events a node can ask for, each with the handler it should
@@ -778,6 +845,13 @@ interface types {
     sort,
     /// A table's column resized by the user.
     column-resized,
+    /// A control's value changed: a checkbox, switch, radio group,
+    /// segmented control, slider, number field, disclosure, split,
+    /// breadcrumb or status timeline (`value-changed`).
+    value,
+    /// The user closed or removed it: a banner, a chip, a popover, a
+    /// confirm sheet's Cancel (`dismissed`).
+    dismiss,
   }
 
   /// An event a node asks for, and the handler it should carry.
@@ -1195,6 +1269,11 @@ interface types {
     toolbar-clicked(option<string>),
     /// The extension's own server changed state (`service.info`).
     service-changed(service-info),
+    /// A control with a `value` listener was changed by the user.
+    value-changed(value-change),
+    /// A node with a `dismiss` listener was closed or removed by the user;
+    /// carries its handler.
+    dismissed(handler),
   }
 
   /// What the tile gets when it starts.
@@ -1572,5 +1651,457 @@ interface types {
     text: option<string>,
     /// The user declined to answer.
     declined: bool,
+  }
+
+  // ---- Components, batch 2: form controls, feedback, layout, data
+  // display and charts (ui.md §3.10). Drawn with Pitwall's own kit, so a
+  // tile's controls are the app's controls ("kit parity"). Controls are
+  // controlled: the frame says the value, the user's change arrives as
+  // `value-changed`, and the tile's next frame shows it.
+
+  /// A control's new value, as `value-changed` carries it.
+  variant control-value {
+    /// A checkbox or switch is on (true) or off; a disclosure is open.
+    on(bool),
+    /// A slider's, number field's or split's number (a split's: the
+    /// first pane's share, 0.0–1.0).
+    number(f64),
+    /// The key of the radio button, segment, breadcrumb or timeline
+    /// segment chosen.
+    choice(string),
+    /// A number field was emptied.
+    empty,
+  }
+
+  /// A control's value changed (`value`).
+  record value-change {
+    /// The handler of the node's `value` listener.
+    handler: handler,
+    /// What it is now.
+    value: control-value,
+  }
+
+  /// A checkbox or a switch. A click on it or its label, or Space while it
+  /// has focus, sends `value-changed` with `on` and the other state;
+  /// without a `value` listener it can't be changed.
+  record check {
+    /// Its label, drawn after the box (or before the switch); empty for
+    /// none (then give the node a `label`, its accessible name).
+    label: string,
+    /// On.
+    checked: bool,
+    /// A checkbox that stands for a group of which only some are on:
+    /// drawn with a dash. A click sends `on(true)`.
+    mixed: bool,
+    /// Drawn dimmed; takes no clicks and no focus.
+    disabled: bool,
+  }
+
+  /// One choice of a radio group or a segmented control.
+  record choice-item {
+    /// Its key, sent in `value-changed` (`choice`). Unique in the group,
+    /// at most 128 bytes.
+    key: string,
+    /// What it says.
+    label: string,
+    /// Drawn dimmed and can't be chosen.
+    disabled: bool,
+  }
+
+  /// One of several choices: a radio group (a column, or a row when
+  /// `horizontal`) or a segmented control. One focus stop: the arrow keys
+  /// move to the next choice and choose it, Home and End to the first and
+  /// last. At most 64 choices.
+  record choice-group {
+    /// The choices, in order.
+    items: list<choice-item>,
+    /// The chosen one's key; `none`: none yet.
+    selected: option<string>,
+    /// A radio group laid out in a row (a segmented control always is).
+    horizontal: bool,
+    /// The whole group is dimmed and can't be changed.
+    disabled: bool,
+  }
+
+  /// A slider. Dragging moves it at once; `value-changed` follows as it
+  /// moves (at most one every 50 ms) and when it is let go. Left and Down
+  /// step down, Right and Up step up, Page Up and Page Down by a tenth,
+  /// Home and End to the ends.
+  record slider {
+    /// Its value, kept between `min` and `max`.
+    value: f64,
+    /// The lowest value.
+    min: f64,
+    /// The highest value (above `min`).
+    max: f64,
+    /// The steps it snaps to (0: none; the keys then move a hundredth).
+    step: f64,
+    /// Draw the value at its right.
+    show-value: bool,
+    /// Dimmed and can't be changed.
+    disabled: bool,
+  }
+
+  /// A number field. Typing a number and pressing Enter (or leaving the
+  /// field) sends `value-changed` with it, kept within `min` and `max` and
+  /// rounded to `decimals`; text that isn't a number is put back. − and +
+  /// (and Up and Down while it has focus) step by `step`.
+  record number-field {
+    /// What it shows; `none`: empty.
+    value: option<f64>,
+    /// The lowest value it takes.
+    min: option<f64>,
+    /// The highest value it takes.
+    max: option<f64>,
+    /// What − and + add (above 0; 1 is usual).
+    step: f64,
+    /// Digits after the point, 0–6.
+    decimals: u8,
+    /// Shown in faint text while it is empty.
+    placeholder: option<string>,
+    /// Shown, selectable, but not changed (no steps).
+    readonly: bool,
+    /// Dimmed and can't be changed or focused.
+    disabled: bool,
+  }
+
+  /// A search field: one line of text with a magnifier before it and a
+  /// clear button while it holds text. It is a text field (`input`):
+  /// Pitwall owns what is typed, `change` and `submit` listeners hear it
+  /// as they do from `input`, and the clear button sends `input-changed`
+  /// with an empty value.
+  record search-field {
+    /// Text to put in it, as `input.value` (`none` keeps what it holds).
+    value: option<string>,
+    /// The revision of `value`, as `input.revision`.
+    revision: u64,
+    /// Shown in faint text while it is empty (default: "Search").
+    placeholder: option<string>,
+    /// Dimmed and can't be edited.
+    disabled: bool,
+  }
+
+  /// A form row: its label over its children (the control), or beside
+  /// them, with help text under them, and a validation message in place
+  /// of the help while there is one. The label is the control's
+  /// accessible name when the control has none.
+  record form-row {
+    /// The label.
+    label: string,
+    /// Help under the control, in muted text.
+    help: option<string>,
+    /// A validation message, in red, in place of the help; the control is
+    /// marked invalid.
+    error: option<string>,
+    /// A required field: a mark after the label.
+    required: bool,
+    /// The label beside the control (a fixed column) instead of over it.
+    inline: bool,
+  }
+
+  /// A progress bar.
+  record progress {
+    /// The share done, 0.0–1.0; `none` while it can't be known (a bar
+    /// that moves, or a still one with Reduce motion).
+    value: option<f32>,
+    /// Its colour by meaning (`none`: the text colour).
+    tone: option<tone>,
+  }
+
+  /// A grey placeholder where content is loading, sized by the node's
+  /// styles (a `block` without a size is a line tall and fills the row).
+  /// It shimmers unless Reduce motion is on.
+  variant skeleton {
+    /// This many lines of text (1–20), the last one shorter.
+    lines(u8),
+    /// A box (give it a size).
+    block,
+    /// A circle (an avatar), as tall as its width.
+    circle,
+  }
+
+  /// An empty state, centred in its box: an icon, a title, a line of
+  /// text and an action button, as Pitwall's own lists say they're empty.
+  /// The action's click is the node's `click` listener.
+  record empty-state {
+    /// An icon over the title.
+    icon: option<icon>,
+    /// What is empty ("No runs yet").
+    title: string,
+    /// What to do about it.
+    text: option<string>,
+    /// The action button's label (needs a `click` listener).
+    action: option<string>,
+  }
+
+  /// An inline banner in the tile's flow (not a toast). Its action's
+  /// click is the node's `click` listener; its close button (when
+  /// `dismissible`) sends `dismissed`.
+  record banner {
+    /// Information (`info`), success (`good`), a warning (`warn`) or an
+    /// error (`bad`).
+    tone: tone,
+    /// A bold first line.
+    title: option<string>,
+    /// The message.
+    text: string,
+    /// An action button's label (needs a `click` listener).
+    action: option<string>,
+    /// It has a close button (needs a `dismiss` listener).
+    dismissible: bool,
+  }
+
+  /// A small count or status label, as Pitwall's own.
+  record badge {
+    /// What it says ("3", "beta"); at most 32 bytes.
+    text: string,
+    /// Its colour by meaning (`none`: neutral).
+    tone: option<tone>,
+  }
+
+  /// A chip (a tag). With a `click` listener it can be picked (drawn
+  /// `selected`); `removable` gives it a × that sends `dismissed` (as do
+  /// Backspace and Delete while it has focus).
+  record chip {
+    /// What it says.
+    label: string,
+    /// An icon before the label.
+    icon: option<icon>,
+    /// Its colour by meaning (`none`: neutral).
+    tone: option<tone>,
+    /// Drawn picked.
+    selected: bool,
+    /// It has a ×.
+    removable: bool,
+    /// Dimmed; takes no clicks.
+    disabled: bool,
+  }
+
+  /// Which way something runs.
+  enum orientation {
+    /// Left to right.
+    horizontal,
+    /// Top to bottom.
+    vertical,
+  }
+
+  /// Two panes (the node's first two children) with a bar between them
+  /// that the user drags. Pitwall keeps the user's size for the view by
+  /// the node's key path, across restarts, and sends it as `value-changed`
+  /// (`number`: the first pane's share) when a drag ends.
+  record split {
+    /// Side by side (`horizontal`) or one above the other.
+    orientation: orientation,
+    /// The first pane's share at first, 0.05–0.95.
+    initial: f32,
+    /// The first pane's smallest size, in logical pixels.
+    min-first: f32,
+    /// The second pane's smallest size, in logical pixels.
+    min-second: f32,
+  }
+
+  /// A section with a header that opens and closes it: the header is
+  /// a button (Enter or Space while it has focus) that sends
+  /// `value-changed` with `on` and the other state; the node's children
+  /// are drawn under it while `open`.
+  record disclosure {
+    /// The header.
+    title: string,
+    /// Muted text at the header's right (a count, a summary).
+    detail: option<string>,
+    /// Open.
+    open: bool,
+  }
+
+  /// A card: a bordered box on the raised surface with its children in
+  /// it, under a title when it has one. With a `click` listener the whole
+  /// card is clickable and focusable.
+  record card {
+    /// A title at its top.
+    title: option<string>,
+    /// Muted text at the title's right.
+    detail: option<string>,
+  }
+
+  /// One level of breadcrumbs.
+  record crumb {
+    /// Its key, sent in `value-changed` (`choice`).
+    key: string,
+    /// What it says.
+    label: string,
+  }
+
+  /// Where a popover opens from its anchor.
+  enum placement {
+    /// Under it (the default place).
+    below,
+    /// Over it.
+    above,
+    /// At its left.
+    start,
+    /// At its right.
+    end,
+  }
+
+  /// A popover: the node's children in a floating panel anchored to the
+  /// node's parent, drawn by Pitwall inside the tile and kept in the
+  /// window. It is open while it is in the frame. Esc and a click outside
+  /// it send `dismissed` (the tile then leaves it out). At most one a
+  /// frame.
+  record popover {
+    /// Where it opens.
+    placement: placement,
+    /// Its width in logical pixels (`none`: its content's, 160–480).
+    width: option<f32>,
+  }
+
+  /// A sheet over the tile asking the user to confirm, in place of the
+  /// system dialogs a tile can't open. Shown while it is in the frame;
+  /// the rest of the tile is dimmed and takes no input. Its confirm
+  /// button is the node's `click` listener (Enter); Cancel, Esc and a
+  /// click on the dimmed tile send `dismissed`. At most one a frame.
+  record confirm-sheet {
+    /// The question ("Delete 3 notes?").
+    title: string,
+    /// More about it.
+    text: option<string>,
+    /// The confirm button's label ("Delete").
+    confirm: string,
+    /// The cancel button's label (`none`: "Cancel").
+    cancel: option<string>,
+    /// A destructive action: the confirm button is red.
+    danger: bool,
+  }
+
+  /// One line of a key-value list.
+  record key-value {
+    /// The label ("Branch").
+    key: string,
+    /// The value ("main").
+    value: string,
+    /// The value in the monospace font (ids, hashes, paths).
+    mono: bool,
+    /// The value has a copy button.
+    copyable: bool,
+  }
+
+  /// An avatar's size.
+  enum avatar-size {
+    /// 20 px.
+    small,
+    /// 28 px.
+    medium,
+    /// 40 px.
+    large,
+  }
+
+  /// An avatar: the initials of `name` in a circle, coloured from the
+  /// theme by the name, so a person has the same colour everywhere. Its
+  /// accessible name and tooltip are `name` unless the node has its own.
+  record avatar {
+    /// The person's or thing's name ("Ada Lovelace": AL).
+    name: string,
+    /// Its size.
+    size: avatar-size,
+  }
+
+  /// A time, drawn relative to now ("just now", "5 min ago", "3 h ago",
+  /// "yesterday", then the date) and kept up to date by Pitwall, so the
+  /// tile needs no timer. Its tooltip is the date and time in full.
+  record relative-time {
+    /// The time, in milliseconds since 1970-01-01 UTC.
+    at: s64,
+  }
+
+  /// Text with a copy button. Pitwall writes the text to the clipboard
+  /// only when the user clicks the button (or presses Enter while it has
+  /// focus), and says "Copied"; a `click` listener hears it too.
+  record copyable {
+    /// The text shown and copied (at most 64 KiB).
+    text: string,
+    /// In the monospace font.
+    mono: bool,
+  }
+
+  /// A link. With `url` (https, or http on this computer) and the `show`
+  /// permission, a click opens the page in a Pitwall web tile, as
+  /// `web.open` does; otherwise it is the node's `click` listener (a
+  /// link to somewhere in the tile).
+  record link {
+    /// What it says.
+    label: string,
+    /// The page it opens.
+    url: option<string>,
+  }
+
+  /// A series of a chart.
+  record chart-series {
+    /// Its name, in the legend and tooltips.
+    name: string,
+    /// Its values, one per label (a NaN or infinite value is a gap).
+    values: list<f64>,
+    /// Its colour (`none`: the next of Pitwall's chart colours).
+    color: option<token>,
+  }
+
+  /// A sparkline: a small line without axes, sized by the node's styles
+  /// (default 80 × 20).
+  record sparkline {
+    /// The values, oldest first (at most 1 000).
+    values: list<f64>,
+    /// Its colour (`none`: the text colour).
+    color: option<token>,
+    /// The area under the line is filled, faintly.
+    filled: bool,
+  }
+
+  /// A bar chart: one group of bars per label, one bar per series in it
+  /// (or one stacked bar), with a value axis, and a tooltip per bar.
+  record bar-chart {
+    /// The labels along the bottom (at most 200).
+    labels: list<string>,
+    /// The series (at most 8), each with one value per label.
+    series: list<chart-series>,
+    /// Stack the series in one bar per label.
+    stacked: bool,
+    /// The values' unit, in the axis and tooltips ("ms", "%").
+    unit: option<string>,
+  }
+
+  /// A line chart: one line per series over the labels, with axes and a
+  /// tooltip on hover that lists each series' value at the label under
+  /// the pointer.
+  record line-chart {
+    /// The labels along the bottom (at most 1 000; Pitwall draws as many
+    /// as fit).
+    labels: list<string>,
+    /// The series (at most 8), each with one value per label.
+    series: list<chart-series>,
+    /// The values' unit, in the axis and tooltips.
+    unit: option<string>,
+    /// The axis's lowest value (`none`: from the data, or 0).
+    min: option<f64>,
+    /// The axis's highest value (`none`: from the data).
+    max: option<f64>,
+  }
+
+  /// One segment of a status timeline.
+  record timeline-segment {
+    /// Its key, sent in `value-changed` (`choice`) when it is clicked.
+    key: string,
+    /// Its tooltip and accessible name ("#412 passed in 3 min").
+    label: string,
+    /// Its colour by meaning (`none`: neutral, as for a run not started).
+    tone: option<tone>,
+    /// Its width relative to the others (a run's duration; 1.0 for all
+    /// alike).
+    weight: f32,
+  }
+
+  /// A status timeline: a row of coloured segments, oldest first, each
+  /// with a tooltip, as a CI tile shows its last runs. At most 500.
+  record status-timeline {
+    /// The segments.
+    segments: list<timeline-segment>,
   }
 }

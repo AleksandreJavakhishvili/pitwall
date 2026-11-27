@@ -76,6 +76,28 @@ pub const MAX_CODE_BYTES: usize = 1 << 20;
 /// A drag's data.
 pub const MAX_DRAG_DATA: usize = 64 << 10;
 
+/// Choices in a radio group or a segmented control (ui.md §3.10).
+pub const MAX_CHOICES: usize = 64;
+/// Levels of breadcrumbs.
+pub const MAX_CRUMBS: usize = 32;
+/// Lines of a key-value list.
+pub const MAX_KEY_VALUES: usize = 500;
+/// Series in a bar or line chart.
+pub const MAX_SERIES: usize = 8;
+/// Labels of a bar chart (and values in each of its series).
+pub const MAX_CHART_LABELS: usize = 200;
+/// Labels of a line chart, values in each of its series, and values of a
+/// sparkline.
+pub const MAX_CHART_POINTS: usize = 1000;
+/// Segments of a status timeline.
+pub const MAX_SEGMENTS: usize = 500;
+/// A copyable's text.
+pub const MAX_COPY_BYTES: usize = 64 << 10;
+/// A badge's text.
+pub const MAX_SHORT_TEXT: usize = 32;
+/// A link's address.
+pub const MAX_URL_BYTES: usize = 2048;
+
 /// A component file.
 pub const MAX_WASM_BYTES: u64 = 20 << 20;
 
