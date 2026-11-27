@@ -9,7 +9,7 @@ headless run in Pitwall's tile runtime and the signatures.
 | Command | What it does |
 |---|---|
 | `pitwall-index check <repo> [--base <dir>] [--login <github>] [--previous <index.json>] [--output <file>]` | Every file checked; the change judged against the base; each new version downloaded (size, SHA-256, the author's signature, package rules, licence, manifest = entry) and loaded headless with no grants. A Markdown report; exit 1 on a problem; `auto-merge=true` when the bot may merge. |
-| `pitwall-index build <repo> --key <index.key> [--out <dir>]` | `dist/v1/index.json` and `blocked.json` built and signed, new screenshots under `screens/`. Versions already in the old `index.json` aren't downloaded again. |
+| `pitwall-index build <repo> --key <index.key> [--out <dir>]` | `dist/v1/index.json` and `blocked.json` built and signed, new screenshots under `screens/`, and each listing's README, icon, screenshots and README images under `media/<id>/` (named by SHA-256). Versions already in the old `index.json` aren't downloaded again. |
 | `pitwall-index review <repo> <id> <version> --by <handle> --key <review.key> --reproducible` | A maintainer's review recorded in the entry: Verified. |
 | `pitwall-index categories` | `categories.toml` as Pitwall knows it. |
 

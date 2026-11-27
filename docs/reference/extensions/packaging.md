@@ -25,13 +25,32 @@ pitwall extension pack
 | the input schemas its tiles name | Required when named. |
 | `agents/SKILL.md` | Optional. An agent skill, text only, at most 16 KiB. |
 | `assets/` | Optional. svg, png and webp only. Fonts are refused. |
-| `screenshots/` | Optional. png or webp, at most 6, at most 2 MiB each. |
+| `screenshots/` | Optional. png or webp, at most 8, at most 2 MiB each. A `-dark` and `-light` pair counts once. |
+| `media/` | Optional. The images your README shows: png, webp, jpeg or gif, at most 2 MiB each. |
+| its icon file | When `"icon"` names one (below). |
 
 Sources, `target/` and hidden files stay out. A symbolic link stops the pack. File names may use only ASCII letters, digits, `.`, `_`, `-` and `/`. The whole package may be at most 50 MiB.
 
 The same files always give the same package, byte for byte. Two people who build the same component and pack it get identical files.
 
 A package holds tiles only. An extension that also runs a program (an adapter or a service) is still installed from Git, npm or a folder.
+
+## Adding images
+
+There is no upload service: an extension's images are files in its folder, packed with it, and linked by relative path. Browse and the detail page show them before and after install.
+
+- **Its icon.** `"icon": "assets/icon.png"` in `extension.json`: a square png or webp, 64 to 1024 px, at most 256 KiB. No SVG. Pitwall shows it on its card, in Browse, in the Tiles menu, on its toolbar button and in the command palette. An icon name (`"grid"`) still works; an icon that doesn't check is replaced by the standard one.
+- **Screenshots.** Files in `screenshots/`, png or webp, at most 8. `main-dark.png` and `main-light.png` are one screenshot: Pitwall shows the one of your theme. To give them an order and captions, list them:
+
+  ```json
+  "screenshots": [ { "path": "screenshots/main.png", "caption": "The board, beside its agent" } ]
+  ```
+
+  (`main.png` names the pair.) Captions are at most 120 characters. Click one to see it larger.
+- **README images.** Put them in `media/` (or `assets/`, `screenshots/`) and link them relatively: `![How it works](media/flow.png)` or `<img src="media/flow.png">`. Each is checked by its content, not its name. Pitwall never fetches an image from the network: `![Build](https://…)` shows as a link to it. A path that leaves the folder (`../`) or isn't packed isn't shown. GitHub's `#gh-dark-mode-only` and `#gh-light-mode-only` work too.
+- **Listing fields.** `"tagline"` (at most 80 characters, shown under the name), `"categories"` (1 to 3 of the [index's](publishing.md#what-the-index-needs)), `"homepage"` and `"repository"` (https), and `"license"` (its SPDX name). The detail page shows them.
+
+`pitwall extension check` checks all of this and warns about what a listing lacks (an icon, screenshots, a tagline, categories, a licence, a network image).
 
 ## Make a signing key
 

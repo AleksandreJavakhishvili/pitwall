@@ -27,11 +27,11 @@ When nothing is installed, or nothing matches, the list says so and offers to cl
 ![An extension's page, dark](images/settings/extensions-page-detail-dark.png) ![An extension's page, light](images/settings/extensions-page-detail-light.png)
 
 - **Head.** Its icon, name, author, version, who signed it (and Verified, when the index says so of that very file), and its switch.
-- **README and screenshots**, from its own folder. The README is drawn inert: no HTML runs and no image is fetched.
+- **Its line and categories**, then its **screenshots** (your theme's, with their captions; click one to see it larger, with ← and →), then its **README** from its own folder. The README is drawn inert: no HTML runs. Its images from its own folder are shown; one from the network is a link instead, never fetched, and one outside its folder isn't shown. See [Adding images](packaging.md#adding-images).
 - **Permissions**, each with the reason the extension gives and, for those that act on your agents or files, what can go wrong. When it is on, each permission has its switch.
 - **What it adds**: its tiles, inbox, services and agent tools (with their switches), and the projects its skills are installed in.
 - **Versions and changelog**: the one installed, the one Go back returns to, the versions the index lists with how each stands, and its CHANGELOG.md.
-- **Licence and source**, and **Update**, **Go back**, **Remove** and its activity.
+- **Licence, homepage and source**, and **Update**, **Go back**, **Remove** and its activity.
 
 A copy installed from the index says so. If the index later blocks that version, Pitwall turns it off and its card gives the reason. A version withdrawn by its author, or an extension no longer listed, says so too. It keeps working, but gets no more updates from the index.
 
@@ -42,14 +42,14 @@ A copy installed from the index says so. If the index later blocks that version,
 Browse reads the [extensions index](marketplace.md). Pitwall checks its signature against the keys built into Pitwall and searches it on your computer. It sends nothing: there are no install counts or ratings.
 
 - **Search** by name, line, author and category, a **category** (Git, CI, Databases, APIs, Notes, Monitoring, Docs, Fun, Other), **Verified only** (on at first) and **Works with this Pitwall**.
-- **Cards** have the extension's icon, name, author, Verified, its line, what it may do in words ("Connects to api.github.com · Reads your agents"), and **Install**, **Installed** or **Update**.
+- **Cards** have the extension's own icon, name, author, Verified, its tagline (or line), its first screenshot, what it may do in words ("Connects to api.github.com · Reads your agents"), and **Install**, **Installed** or **Update**.
 - **States.** Browse says when it is loading or offline, when the index couldn't be read or checked, when it shows the copy Pitwall kept from before, and when the index is more than 14 days old and may be out of date.
 
 ### A listing's page and Install
 
 ![A listing's page, dark](images/settings/extensions-page-browse-detail-dark.png) ![A listing's page, light](images/settings/extensions-page-browse-detail-light.png)
 
-A listing's page has its screenshots, what it does (with a link to its README on GitHub), its permissions with their reasons and risk notes, its versions (Verified, not yet reviewed, withdrawn or blocked), its licence and repository, and **Report a problem**.
+A listing's page has its screenshots, its README with its images (copied into the index, so nothing comes from anywhere else; a listing without one links to its README on GitHub), its permissions with their reasons and risk notes, its versions (Verified, not yet reviewed, withdrawn or blocked), its licence and repository, and **Report a problem**.
 
 **Install** downloads the version the index offers: the newest Verified one, or the newest when none is Verified. Pitwall refuses a blocked or withdrawn version. It checks that the file is the one listed (its SHA-256) and that it is signed by one of its author's keys in the index. Then you get the same trust screen as [Install from a file](install.md), and nothing is installed until you press Install there. Pitwall records that the copy came from the index, so its updates come from there too.
 
