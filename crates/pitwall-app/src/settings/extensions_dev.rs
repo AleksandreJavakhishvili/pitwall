@@ -45,6 +45,12 @@ pub fn log_lines(id: &str, cx: &gpui::App) -> Vec<(String, pitwall_core::extensi
         lines.extend(s.read(cx).log(id).into_iter().map(|l| ("service".to_string(), l)));
         lines.sort_by_key(|(_, l)| l.at);
     }
+    // What its tiles printed and logged, and when they started and stopped.
+    let tile = crate::tiles::log_lines(id, cx);
+    if !tile.is_empty() {
+        lines.extend(tile.into_iter().map(|l| ("tile".to_string(), l)));
+        lines.sort_by_key(|(_, l)| l.at);
+    }
     lines
 }
 
@@ -136,12 +142,12 @@ impl SettingsView {
     /// (in place of Remove). Whether it is a development one.
     pub(super) fn dev_buttons(&mut self, ui: &Ui, m: &Manifest, mut row: Div, cx: &mut Context<Self>) -> (Div, bool) {
         let dev = Self::is_dev(&m.id, cx);
-        if m.adapter.is_some() || m.service.is_some() {
+        if m.adapter.is_some() || m.service.is_some() || crate::tiles::has_tiles(m) {
             let shown = self.exts.dev.logs.contains_key(&m.id);
             let id = m.id.clone();
             row = row.child(
                 crate::kit::text_button(SharedString::from(format!("extension-log-{}", m.id)), if shown { "Hide log" } else { "Log" }, BtnKind::GhostSm, false, &ui.t)
-                    .tooltip(crate::kit::tooltip("What Pitwall and its adapter said to each other, and what it and its service printed"))
+                    .tooltip(crate::kit::tooltip(if crate::tiles::has_tiles(m) { "What its tiles logged and printed, and when they started and stopped" } else { "What Pitwall and its adapter said to each other, and what it and its service printed" }))
                     .on_click(cx.listener(move |v, _, _, cx| {
                         if v.exts.dev.logs.remove(&id).is_none() {
                             v.exts.dev.logs.insert(id.clone(), (ScrollHandle::new(), 0));

@@ -156,7 +156,13 @@ pub fn set_value(ext: &str, conn: Option<&str>, key: &str, value: Option<String>
     }
     let c = ensure(ext, conn, cx)?;
     let model = crate::accounts::model(cx);
-    model.update(cx, |a, cx| a.set_connection_value(&c.id, key, value.as_deref(), cx))
+    model.update(cx, |a, cx| a.set_connection_value(&c.id, key, value.as_deref(), cx))?;
+    // Its tiles read their settings from its data folder.
+    if conn.is_none() && super::manifest_of(ext, cx).is_some_and(|m| crate::tiles::has_tiles(&m)) {
+        let t = crate::tiles::tiles(cx);
+        t.update(cx, |t, cx| t.write_setting(ext, key, value.as_deref(), cx))?;
+    }
+    Ok(())
 }
 
 /// [`set_value`] on the connection Settings shows.
@@ -210,6 +216,9 @@ pub fn set_secret(id: &str, key: &str, secret: Option<String>, cx: &mut App, don
                 h.update(cx, |h, _| h.bump_secrets(&ext, &c.id));
                 let model = crate::accounts::model(cx);
                 err = model.update(cx, |m, cx| m.set_connection_secret(&c.id, &key, set, cx)).err();
+                if let Some(t) = crate::tiles::try_tiles(cx) {
+                    t.update(cx, |t, cx| t.secrets_changed(&ext, cx));
+                }
             }
             done(err, cx);
         });

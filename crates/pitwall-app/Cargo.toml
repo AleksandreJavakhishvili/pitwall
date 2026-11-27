@@ -40,6 +40,10 @@ pitwall-client = { path = "../pitwall-client" }
 # Tailnet peers (docs/spec/tailnet-peers.md): the agents of the user's other
 # machines, read-only, and sharing this Mac's with them.
 pitwall-peer = { path = "../pitwall-peer" }
+# Extensions' tiles (docs/spec/tile-sdk/): their WebAssembly components run
+# by the tile host (Wasmtime, Apache-2.0 WITH LLVM-exception), drawn here
+# (src/tiles).
+pitwall-tile-host = { path = "../pitwall-tile-host" }
 # Extensions from an npm package (extensions/https.rs): the registry's
 # metadata and a version's tarball over https, no credentials, no proxy.
 # ureq is MIT OR Apache-2.0 and new in the tree, with rustls (Apache-2.0
@@ -165,3 +169,11 @@ gpui = { version = "=0.2.2", features = ["test-support"] }
 gpui_platform = { path = "../../third_party/zed/gpui_platform", features = ["test-support"] }
 pitwall-core = { path = "../pitwall-core", features = ["testing"] }
 pitwall-peer = { path = "../pitwall-peer", features = ["testing"] }
+# Headless screenshots of tiles saved as PNG (tiles/tests.rs, ignored by
+# default). Already in the tree.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# The headless screenshots' text system off the main thread (vendored with
+# GPUI, Apache-2.0; already in the tree via gpui_platform).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui_apple = { path = "../../third_party/zed/gpui_apple", features = ["font-kit"] }

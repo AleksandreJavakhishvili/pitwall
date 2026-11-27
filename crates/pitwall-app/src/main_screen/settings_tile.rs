@@ -487,6 +487,15 @@ impl MainScreen {
         cx.notify();
     }
 
+    /// Extension `ext`'s card in Settings → Extensions, in the Settings
+    /// tile (a tile's `settings.open`).
+    pub fn show_extension_settings(&mut self, ext: &str, window: &mut Window, cx: &mut Context<Self>) {
+        crate::settings::data::set_page(cx, Page::Extensions);
+        let settings = view(cx).read(cx).settings();
+        settings.update(cx, |v, cx| v.open_extension(ext, cx));
+        self.open_settings_tile(None, window, cx);
+    }
+
     /// The Settings tile (`pane` of space `space`, in this window) shown
     /// and made the space's focused tile.
     pub fn focus_settings_tile(&mut self, space: &str, pane: &str, cx: &mut Context<Self>) {

@@ -426,12 +426,36 @@ pub fn load_dev(folder: &std::path::Path, cx: &mut App) -> Result<String, String
     Ok(m.id)
 }
 
+/// `pitwall extension dev` (`extension.devReload`): the extension in
+/// `folder` loaded as a development folder and turned on with the
+/// permissions turning on grants by default, or (loaded and on already)
+/// reloaded in place. Its id, and whether it was loaded now.
+pub fn load_dev_or_reload(folder: &std::path::Path, cx: &mut App) -> Result<(String, bool), String> {
+    let folder = folder.canonicalize().map_err(|_| format!("{} isn't there", folder.display()))?;
+    let m = pitwall_core::extensions::read_in_place(&folder).map_err(|why| format!("It can't be used: {why}."))?;
+    let loaded = dev_folder(&m.id, cx).is_some_and(|p| p == folder);
+    if loaded && crate::ui_state::get(cx).extension_on(&m.id) {
+        reload_dev(&m.id, cx);
+        return Ok((m.id, false));
+    }
+    let id = if loaded { m.id.clone() } else { load_dev(&folder, cx)? };
+    let m = manifest_of(&id, cx).ok_or_else(|| "It can't be read after loading it.".to_string())?;
+    let kept = crate::ui_state::get(cx).extension(&id).grants;
+    let picks = crate::settings::extensions::initial_picks(&m, &kept);
+    crate::settings::extensions::turn_on_with(&m, &picks, cx);
+    Ok((id, true))
+}
+
 /// Read development extension `id`'s manifest again and, when it is on,
 /// start its adapters again.
 pub fn reload_dev(id: &str, cx: &mut App) {
     rescan(cx);
     let h = hub::hub(cx);
     h.update(cx, |h, cx| h.restart(id, cx));
+    // Its tiles: the running component replaced in place, with its state.
+    if let Some(t) = crate::tiles::try_tiles(cx) {
+        t.update(cx, |t, cx| t.reload(id, cx));
+    }
 }
 
 /// Take development extension `id` off the list: turned off and

@@ -235,6 +235,11 @@ pub fn check_one(id: &str, cx: &mut App) {
         cx.update(|cx| {
             u.update(cx, |u, cx| {
                 u.checking.remove(&id);
+                // Installed from a preview folder: never updated.
+                if origin.as_ref().is_some_and(Origin::is_preview) {
+                    cx.notify();
+                    return;
+                }
                 let pre = version.as_deref().is_some_and(source::is_pre);
                 let mine = origin.as_ref().filter(|o| o.is_from(&src));
                 let key = seen_key(&src);
@@ -333,6 +338,7 @@ pub fn prepare(id: &str, offer: Offer, cx: &mut App, done: impl FnOnce(Result<Pr
                 Ok(Offer { manifest: f.manifest, folder: f.folder, origin: Origin::Npm { package, registry, version, integrity } })
             })
         }
+        Origin::Folder { .. } => cx.background_executor().spawn(async move { Err("A preview folder gets no updates: install a newer folder to replace it.".to_string()) }),
     };
     let origin = cx.background_executor().spawn(async move { install::local(&folder).origin });
     cx.spawn(async move |cx| {
@@ -476,6 +482,26 @@ fn finish_add(job: gpui::Task<Result<(Offer, Option<Origin>), String>>, cx: &mut
     .detach();
 }
 
+/// "Install from folder…" (docs/spec/tile-sdk/packaging.md §6.3): an
+/// extension of tiles in folder `path`, checked as a package is (its
+/// manifest, sizes, files, component) and copied into a staging folder of
+/// Pitwall's off the UI thread; `done` gets what installing it would
+/// change, or why it can't be. The folder itself is never changed.
+pub fn prepare_from_folder(path: &std::path::Path, cx: &mut App, done: impl FnOnce(Result<Prepared, String>, &mut App) + 'static) {
+    let Some(data) = dir(cx) else {
+        let why: String = "Extensions need Pitwall's data folder.".into();
+        cx.defer(move |cx| done(Err(why), cx));
+        return;
+    };
+    let path = path.to_path_buf();
+    let job = cx.background_executor().spawn(async move {
+        let offer = pitwall_core::extensions::preview::stage(&path, &data)?;
+        let origin = install::local(&data.join(&offer.manifest.id)).origin;
+        Ok((offer, origin))
+    });
+    finish_add(job, cx, done);
+}
+
 /// A prepared copy the user didn't take: a fetched folder is deleted.
 pub fn discard(p: &Prepared, cx: &mut App) {
     if p.offer.origin != Origin::Bundled {
@@ -495,10 +521,17 @@ pub fn discard(p: &Prepared, cx: &mut App) {
 pub fn apply(p: &Prepared, replace_changed: bool, cx: &mut App, done: impl FnOnce(Outcome, &mut App) + 'static) {
     let offer = p.offer.clone();
     let fetched = (offer.origin != Origin::Bundled).then(|| offer.folder.clone());
+    let id = offer.manifest.id.clone();
     let cleanup = move |o: Outcome, cx: &mut App| {
         if o != Outcome::ChangedLocally {
             if let Some(f) = fetched {
                 let _ = std::fs::remove_dir_all(f);
+            }
+        }
+        // Its tiles that run: the new copy's component, with their state.
+        if o == Outcome::Done {
+            if let Some(t) = crate::tiles::try_tiles(cx) {
+                t.update(cx, |t, cx| t.reload(&id, cx));
             }
         }
         done(o, cx);
