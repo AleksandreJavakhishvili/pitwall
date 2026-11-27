@@ -42,6 +42,11 @@
 //! open, and toolbar changes are captured ([`Session::notifications`],
 //! [`Session::ui_requests`], [`Session::toolbar`]). The extension's own
 //! server is said to be up at an address you give ([`Harness::own_server`]).
+//! **Files.** [`Harness::project`] opens the views in a project folder
+//! made for the test ([`Harness::project_file`] fills it); changes the
+//! test makes through the session reach the tile's watches at once
+//! ([`Session::write_project_file`]), and what the tile moves to the
+//! Trash lands in a folder of the test ([`Session::trashed`]).
 //! **Agents' calls.** [`Session::call`] calls a tile's tool as an agent
 //! would through Pitwall's MCP server (`<extension>__open`, or a show
 //! tool the manifest declares): the input checked against its schema,
@@ -50,6 +55,7 @@
 //! agent is told back ([`Called`]).
 
 mod canvas;
+mod files;
 mod widgets;
 
 use std::collections::{BTreeMap, HashMap};
@@ -92,6 +98,7 @@ pub use pitwall_tile_host::ui::{Font, Weight};
 
 mod components;
 pub use components::ListRow;
+pub use files::ActivityLine;
 
 /// The Rust target tiles are built for.
 pub const WASM_TARGET: &str = "wasm32-wasip2";
@@ -179,6 +186,10 @@ pub struct Harness {
     methods: Arc<agents::FakeMethods>,
     net: Arc<FakeFetcher>,
     own_server: Option<std::net::SocketAddr>,
+    /// The project its views are open in (a folder made for the test), and
+    /// the files it starts with.
+    project: Option<String>,
+    project_files: Vec<(String, Vec<u8>)>,
 }
 
 /// The toolbar button as the tile left it ([`Session::toolbar`]).
@@ -200,7 +211,7 @@ impl Harness {
     /// The extension in `dir`, already built (its component where its
     /// manifest names it).
     pub fn load(dir: impl AsRef<Path>) -> Harness {
-        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new(), methods: agents::methods(), net: FakeFetcher::new(), own_server: None }
+        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new(), methods: agents::methods(), net: FakeFetcher::new(), own_server: None, project: None, project_files: Vec::new() }
     }
 
     /// The extension in `dir`, built first with [`build`]. Panics with the
@@ -271,6 +282,27 @@ impl Harness {
         self
     }
 
+    /// Open its views in a project called `name`: a folder made for the
+    /// test (empty unless [`Harness::project_file`] fills it), which
+    /// `files` reaches once `files.read` (to change it, `files.write`) is
+    /// granted with [`Harness::grant`]. Its
+    /// changes made through the session ([`Session::write_project_file`]
+    /// and the others) reach the tile's watches at once; what it moves to
+    /// the Trash lands in a folder of the test ([`Session::trashed`]).
+    pub fn project(mut self, name: &str) -> Harness {
+        self.project = Some(name.to_string());
+        self
+    }
+
+    /// Start with file `path` (from the project's folder, `/` between
+    /// parts) holding `text`, in the project ([`Harness::project`]; one
+    /// called `project` when none was named).
+    pub fn project_file(mut self, path: &str, text: impl Into<Vec<u8>>) -> Harness {
+        self.project.get_or_insert_with(|| "project".to_string());
+        self.project_files.push((path.to_string(), text.into()));
+        self
+    }
+
     /// Start with this saved state (what `save_state` returned).
     pub fn state(mut self, state: Vec<u8>) -> Harness {
         self.state = Some(state);
@@ -307,6 +339,8 @@ impl Harness {
         let ext = Extension::load(&self.dir).unwrap_or_else(|e| panic!("{} can't be loaded: {e}", self.dir.display()));
         let host = TileHost::new(HostConfig { data_dir: data.path().to_path_buf(), secrets: Arc::new(FakeSecrets(self.secrets.clone())), methods: self.methods.clone() }).expect("the tile runtime starts");
         host.set_fetcher(self.net.clone());
+        let fs = files::Fs::new(&host, data.path(), self.project.as_deref(), &self.project_files);
+        let view = view.in_project(fs.project.clone());
         let store = host.extension_data(ext.id());
         for (key, value) in &self.settings {
             check_setting(&ext, key);
@@ -360,6 +394,7 @@ impl Harness {
             last_call: None,
             clipboard: None,
             opened_pages: Vec::new(),
+            fs,
         };
         s.settle();
         s
@@ -546,6 +581,8 @@ pub struct Session {
     clipboard: Option<String>,
     /// Web pages links opened.
     opened_pages: Vec<String>,
+    /// The test's project, its watches and its Trash.
+    fs: files::Fs,
 }
 
 /// How an agent's call ended ([`Session::call`]): what the agent is told.
@@ -1223,7 +1260,7 @@ impl Session {
     /// Open view `view` of tile `tile`, with `content` (JSON) if given.
     pub fn open_view(&mut self, view: &str, tile: &str, content: Option<serde_json::Value>) -> &mut Self {
         self.check_running();
-        assert!(self.handle.open_view(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: content.as_ref().map(json_content) }));
+        assert!(self.handle.open_view(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: content.as_ref().map(json_content), project: self.fs.project.clone() }));
         self.settle()
     }
 
@@ -1403,7 +1440,7 @@ impl Session {
         if self.frames.contains_key(&view) {
             assert!(self.handle.set_content(&view, content));
         } else {
-            assert!(self.handle.open_view(ViewSpec { id: view.clone(), tile: def.id.clone(), content: Some(content) }));
+            assert!(self.handle.open_view(ViewSpec { id: view.clone(), tile: def.id.clone(), content: Some(content), project: self.fs.project.clone() }));
         }
         self.settle();
         self.host.large_inputs().forget(self.ext.id(), id);
@@ -1475,7 +1512,7 @@ impl Session {
         self.handle.stop();
         self.pump(Instant::now() + WAIT, |s| s.stopped.is_some());
         let ext = Extension::load(self.ext.dir()).unwrap_or_else(|e| panic!("it can't be loaded again: {e}"));
-        let options = StartOptions { views: vec![ViewSpec::tile(&self.main_tile())], grants: self.grants_now(&ext), theme: self.theme, visible: self.visible, state, clock: self.clock.clone() };
+        let options = StartOptions { views: vec![ViewSpec::tile(&self.main_tile()).in_project(self.fs.project.clone())], grants: self.grants_now(&ext), theme: self.theme, visible: self.visible, state, clock: self.clock.clone() };
         let (handle, rx) = launch(&self.host, &ext, options);
         if let Some(info) = service_info(&ext, self.own_server) {
             handle.set_service(info);
@@ -1625,7 +1662,7 @@ impl Session {
                     return self.close_view(POPOVER_VIEW);
                 }
                 self.send(Event::ToolbarClicked(project.map(String::from)));
-                assert!(self.handle.open_view(ViewSpec { id: POPOVER_VIEW.to_string(), tile, content: None }));
+                assert!(self.handle.open_view(ViewSpec { id: POPOVER_VIEW.to_string(), tile, content: None, project: None }));
             }
             Action::Tile(_) => {
                 self.send(Event::ToolbarClicked(project.map(String::from)));

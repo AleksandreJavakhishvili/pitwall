@@ -113,6 +113,8 @@ pub(crate) struct HostState {
     pub ungated: Option<Grants>,
     /// Large inputs of calls (`from_file`), shared with the host.
     pub large: crate::agent::LargeInputs,
+    /// `files`: each view's project, the watches.
+    pub files: crate::files::Files,
 }
 
 impl WasiView for HostState {
@@ -143,6 +145,7 @@ pub(crate) struct StateParts {
     pub toolbar: Option<ToolbarDef>,
     pub has_service: bool,
     pub large: crate::agent::LargeInputs,
+    pub files: crate::files::Files,
 }
 
 impl HostState {
@@ -190,6 +193,7 @@ impl HostState {
             gated: None,
             ungated: None,
             large: p.large,
+            files: p.files,
         }
     }
 

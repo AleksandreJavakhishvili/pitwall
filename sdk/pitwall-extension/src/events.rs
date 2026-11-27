@@ -350,6 +350,19 @@ pub enum Event {
     /// ([`Reply::later`](crate::tools::Reply::later)) took too long and was
     /// given up: stop working on it.
     ToolCancelled(u64),
+    /// Files changed under a folder the tile watches
+    /// ([`files::watch`](crate::files::watch)); changes close together
+    /// arrive as one.
+    FilesChanged {
+        /// The watch.
+        watch: crate::files::WatchId,
+        /// The paths that changed, from the watch's root, sorted.
+        paths: Vec<String>,
+    },
+    /// The view with this id moved to another project, or out of every
+    /// project: read [`files::project`](crate::files::project) again. Its
+    /// watches on the old project ended.
+    ProjectChanged(String),
 }
 
 /// A listener's event: what the SDK hands a closure made with

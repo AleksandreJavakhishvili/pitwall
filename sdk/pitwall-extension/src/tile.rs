@@ -1114,6 +1114,8 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
             wit::Event::ServiceChanged(info) => tile.on_event(&Event::ServiceChanged(info.into()), cx),
             wit::Event::UndoPresent(call) => tile.on_event(&Event::UndoPresent(call), cx),
             wit::Event::ToolCancelled(call) => tile.on_event(&Event::ToolCancelled(call), cx),
+            wit::Event::FilesChanged(c) => tile.on_event(&Event::FilesChanged { watch: crate::files::WatchId(c.watch), paths: c.paths }, cx),
+            wit::Event::ProjectChanged(view) => tile.on_event(&Event::ProjectChanged(view), cx),
         }
         std::mem::take(&mut cx.notified)
     })

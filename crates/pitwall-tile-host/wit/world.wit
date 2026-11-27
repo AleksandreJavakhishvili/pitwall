@@ -20,18 +20,19 @@ package pitwall:tile@0.1.0;
 /// that reach Pitwall's agents need a permission the user grants
 /// (`agents.read`, `agents.queue`), and badges and questions need the
 /// manifest to contribute them; `net`, `notify` and `show` need the
-/// permission of that name. A tile that isn't granted one gets
-/// `host-error.denied` from it instead of failing to load, and can ask
-/// again later (a `grants-changed` event says when the user changed
-/// them).
+/// permission of that name, and a project's files need `files.read` or
+/// `files.write`. A tile that isn't granted one gets `denied` from it
+/// instead of failing to load, and can ask again later (a
+/// `grants-changed` event says when the user changed them).
 ///
 /// Besides these, the host provides WASI 0.2 for what Rust's standard
 /// library needs: the wall and monotonic clocks (`std::time::SystemTime`
 /// and `Instant` work), random numbers, and stdout and stderr, whose lines
 /// go to the tile's Log (stdout as info, stderr as warnings). There are no
-/// environment variables, arguments, files or sockets: keep data with
-/// [`storage`]. In the test harness both clocks are virtual: they move
-/// only when the test lets time pass.
+/// environment variables, arguments, files or sockets through WASI: keep
+/// data with [`storage`], and reach files through [`files`]. In the test
+/// harness both clocks are virtual: they move only when the test lets
+/// time pass.
 world tile {
   /// Ask for renders, scroll a node into view, show a toast, open a view.
   import ui;
@@ -63,6 +64,9 @@ world tile {
   import service;
   /// Agents' calls of the tile's tools: answers to show-only calls, large inputs.
   import agent-tools;
+  /// Files in the project a view is open in (`files.read`, `files.write`),
+  /// and the extension's own files folder.
+  import files;
 
   /// What Pitwall calls in the tile.
   export guest;
