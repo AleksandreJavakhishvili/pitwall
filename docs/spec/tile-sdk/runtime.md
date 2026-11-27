@@ -259,7 +259,7 @@ wants wall-clock deadlines, not determinism. Epochs need 64-bit atomics
   `Component::deserialize` instead of mapped. CI's macOS job starts a
   tile in a binary signed that way (`scripts/check-hardened-tiles.sh`),
   and the app's next launch pauses tiles that were starting when it
-  was killed ([crash-loop protection](../../reference/troubleshooting.md)).
+  was killed ([crash-loop protection](../../reference/extensions/install.md#troubleshooting)).
 - Compiled files are tied to the exact Wasmtime version, patch
   included (S1), so any Pitwall update that moves Wasmtime recompiles
   each tile once, on first use, off the main thread. Phase 0 measured
