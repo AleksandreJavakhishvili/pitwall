@@ -100,6 +100,8 @@ pub struct Section {
     prepared: HashMap<String, Prepared>,
     /// "Add from Git or npm…" open.
     add_git: Option<AddGit>,
+    /// "Install from folder…" open.
+    add_folder: Option<AddFolder>,
     /// Go back of a folder changed by hand asked to confirm.
     confirm_back: Option<String>,
     /// The permission screen: the extension being turned on, and each
@@ -129,6 +131,15 @@ pub(super) struct AddGit {
     dir: Entity<TextInput>,
     package: Entity<TextInput>,
     registry: Entity<TextInput>,
+    busy: bool,
+    note: Option<String>,
+    prepared: Option<Prepared>,
+}
+
+/// "Install from folder…" (docs/spec/tile-sdk/packaging.md §6.3): the
+/// folder picked, then what installing it changes, or why it can't be.
+pub(super) struct AddFolder {
+    path: Option<std::path::PathBuf>,
     busy: bool,
     note: Option<String>,
     prepared: Option<Prepared>,

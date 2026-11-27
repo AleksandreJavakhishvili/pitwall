@@ -128,6 +128,42 @@ due timers (only while visible), renders the views that changed, writes the
 key-value store if it changed, then hands over Log lines and UI requests.
 Hidden: no renders, no timers; showing renders every open view.
 
+## In the app
+
+`crates/pitwall-app/src/tiles/` runs one `TileHost` for the app, with
+Pitwall's data folder, and draws each tile with the kit (`TileView`, in a
+view tile of the layout). A component starts when one of its tiles is
+shown, is suspended while none shows, stops when its last tile closes or
+the extension is turned off. Its Log lines are in Settings → Extensions
+(the card's Log). Settings written there go through `ExtensionData`,
+then `settings_changed()`.
+
+### Development reload: `extension.devReload`
+
+The daemon method `pitwall extension dev` calls after each build
+(capability `extensions`, never an extension's own):
+
+```json
+{"method": "extension.devReload", "params": {"path": "/abs/path/to/my-tile"}}
+```
+
+- `path`: the extension's folder (where its `extension.json` is),
+  absolute. It must contribute tiles and run no programs (no adapter,
+  service or setup actions).
+- The first call for a folder asks the user in Pitwall, then loads it as
+  a development extension (listed where it is, never copied) and turns
+  it on. Later calls ask nothing: the running component saves its state
+  (`save-state`), a new one starts from the folder with that state and
+  the same open tiles, and its Log says "Reloaded".
+- Answer (`ExtDevReloaded`): `{proto, id, name, loaded, tiles,
+  reloaded, text, message}`. `loaded`: loaded and turned on by this call;
+  `reloaded`: the tiles that were running and were replaced; `text`: what
+  happened, in plain words (`message`: the same, which the CLI prints).
+- Errors: `bad_params` (not a folder of tiles), `conflict` (that id is
+  loaded from another folder), `denied` / `approval_timeout` (the user
+  declined, or nobody answered), `busy` (a call for that folder is under
+  way).
+
 ## Tests
 
 `cargo test -p pitwall-tile-host` (macOS, Linux and Windows in CI):

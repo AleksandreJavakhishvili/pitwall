@@ -15,7 +15,7 @@ use pitwall_core::extensions::Manifest;
 
 use super::super::view::SettingsView;
 use super::super::widgets::Ui;
-use super::{AddGit, Shipped};
+use super::{AddFolder, AddGit, Shipped};
 use crate::extensions::catalog::{self, Prepared};
 use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
 
@@ -91,6 +91,7 @@ impl SettingsView {
         let mut parts: Vec<String> = Vec::new();
         match &origin {
             Some(o @ (Origin::Git { .. } | Origin::Npm { .. })) => parts.push(format!("From {}", o.describe())),
+            Some(o @ Origin::Folder { .. }) => parts.push(format!("{}. It gets no updates: install a newer folder to replace it", o.describe())),
             Some(Origin::Bundled) => parts.push("Comes with Pitwall".into()),
             None => parts.push("Put here by hand".into()),
         }
@@ -499,12 +500,28 @@ impl SettingsView {
     /// or what the release it found changes.
     pub(super) fn add_git_view(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let open = self.exts.add_git.is_some();
-        let head = div().flex().items_center().pt(px(8.)).child(crate::kit::label("Available", ui.t.text_3, 11.)).child(div().flex_1()).child(
-            btn("extension-add-git".to_string(), "Add from Git or npm…", BtnKind::GhostSm, open, ui)
-                .tooltip(crate::kit::tooltip("Install an extension from a git repository's release tags or an npm package's versions"))
-                .on_click(cx.listener(|v, _, w, cx| v.open_add_git(w, cx))),
-        );
+        let folder_open = self.exts.add_folder.is_some();
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .pt(px(8.))
+            .child(crate::kit::label("Available", ui.t.text_3, 11.))
+            .child(div().flex_1())
+            .child(
+                btn("extension-add-folder".to_string(), "Install from folder…", BtnKind::GhostSm, folder_open, ui)
+                    .tooltip(crate::kit::tooltip("Preview: install an extension of tiles from a folder on this computer. It is copied, unsigned, and never updated"))
+                    .on_click(cx.listener(|v, _, _, cx| v.open_add_folder(cx))),
+            )
+            .child(
+                btn("extension-add-git".to_string(), "Add from Git or npm…", BtnKind::GhostSm, open, ui)
+                    .tooltip(crate::kit::tooltip("Install an extension from a git repository's release tags or an npm package's versions"))
+                    .on_click(cx.listener(|v, _, w, cx| v.open_add_git(w, cx))),
+            );
         let mut col = div().flex().flex_col().gap(px(8.)).child(head);
+        if let Some(card) = self.add_folder_view(ui, cx) {
+            col = col.child(card);
+        }
         let Some(add) = self.exts.add_git.as_ref() else { return col };
         let (npm, url, sub, package, registry, busy, note, prepared) = (add.npm, add.url.clone(), add.dir.clone(), add.package.clone(), add.registry.clone(), add.busy, add.note.clone(), add.prepared.clone());
         let mut card = div().id("extension-add-git-card").flex().flex_col().gap(px(10.)).p(px(14.)).rounded(px(10.)).border_1().border_color(ui.t.line_strong).bg(ui.t.surface_2);
@@ -554,6 +571,158 @@ impl SettingsView {
         }
         col = col.child(card);
         col
+    }
+
+    /// "Install from folder…" open: the folder being checked, why it
+    /// can't be installed, or what installing it changes with the
+    /// permissions it asks for and the preview warning.
+    fn add_folder_view(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
+        let add = self.exts.add_folder.as_ref()?;
+        let (busy, note, prepared, path) = (add.busy, add.note.clone(), add.prepared.clone(), add.path.clone());
+        let mut card = div().id("extension-add-folder-card").debug_selector(|| "extension-add-folder-card".into()).flex().flex_col().gap(px(10.)).p(px(14.)).rounded(px(10.)).border_1().border_color(ui.t.line_strong).bg(ui.t.surface_2);
+        let cancel = btn("extension-add-folder-cancel".to_string(), "Cancel", BtnKind::GhostSm, busy && prepared.is_some(), ui).on_click(cx.listener(|v, _, _, cx| v.close_add_folder(cx)));
+        match prepared {
+            Some(p) => {
+                let m = &p.offer.manifest;
+                let (icon, text) = Self::ext_title(ui, m, &m.id);
+                card = card.child(div().flex().gap(px(12.)).items_start().child(icon).child(text));
+                card = card.child(super::grants::preview_warning(&m.id, ui));
+                if !m.permissions.is_empty() {
+                    let mut perms = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child("It asks for these permissions"));
+                    for ask in &m.permissions {
+                        let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words(ui, &ask.name, &ask.reason));
+                        if let Some(amount) = pitwall_core::extensions::permissions::amount(m, &ask.name) {
+                            let sel = format!("extension-add-folder-amount-{}", ask.name);
+                            row = row.child(div().flex_none().mt(px(1.)).debug_selector(move || sel).child(crate::kit::mono_text(amount, &ui.t).text_color(ui.t.text_2)));
+                        }
+                        perms = perms.child(row);
+                    }
+                    card = card.child(perms.child(crate::kit::hint("You answer them when you turn it on.", &ui.t)));
+                }
+                card = card.child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child("What installing it changes on this computer"));
+                card = card.child(changes_view(ui, &p.changes));
+                let note = match &p.replaces {
+                    Some(v) => format!("It replaces the installed {} {}; the installed copy is kept for Go back. Its settings and data stay. It gets no updates: install a newer folder to replace it.", m.name, v.clone().unwrap_or_default()),
+                    None => "Installing runs nothing: it stays off until you turn it on. It gets no updates: install a newer folder to replace it.".into(),
+                };
+                card = card.child(crate::kit::hint(note, &ui.t));
+                let replacing = p.replaces.is_some();
+                let yes = btn("extension-add-folder-install".to_string(), if busy { "Installing…" } else if replacing { "Replace" } else { "Install" }, BtnKind::Small, busy, ui).on_click(cx.listener(|v, _, _, cx| v.install_from_folder(cx)));
+                card = card.child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(yes));
+            }
+            None => {
+                let what = match (&path, busy) {
+                    (Some(p), true) => format!("Checking {}…", pitwall_core::paths::tildify(&p.to_string_lossy())),
+                    (Some(p), false) => format!("From {}", pitwall_core::paths::tildify(&p.to_string_lossy())),
+                    (None, _) => "Pick the folder with its extension.json.".to_string(),
+                };
+                card = card.child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child("Install from folder"));
+                card = card.child(crate::kit::hint(what, &ui.t));
+                let again = btn("extension-add-folder-pick".to_string(), "Choose another folder…", BtnKind::GhostSm, busy, ui).on_click(cx.listener(|v, _, _, cx| v.open_add_folder(cx)));
+                card = card.child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).when(note.is_some(), |d| d.child(again)));
+            }
+        }
+        if let Some(n) = note {
+            card = card.child(div().debug_selector(|| "extension-add-folder-note".into()).text_size(px(12.)).text_color(ui.t.amber).child(n));
+        }
+        Some(card)
+    }
+
+    /// "Install from folder…": the folder picker, then the folder checked.
+    fn open_add_folder(&mut self, cx: &mut Context<Self>) {
+        if self.exts.add_folder.as_ref().is_some_and(|a| a.busy) {
+            return;
+        }
+        if let Some(p) = self.exts.add_folder.take().and_then(|a| a.prepared) {
+            catalog::discard(&p, cx);
+        }
+        self.exts.add_folder = Some(AddFolder { path: None, busy: true, note: None, prepared: None });
+        cx.notify();
+        let picked = crate::platform::files::pick_folder(cx, "Install extension");
+        cx.spawn(async move |this, cx| {
+            let folder = picked.await;
+            let _ = this.update(cx, |v, cx| match folder {
+                Some(f) => v.look_at_folder(f, cx),
+                None => {
+                    v.exts.add_folder = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Folder `path` checked and copied aside: what installing it changes,
+    /// or why it can't be installed. (Also what bench commands and tests
+    /// call: no folder picker.)
+    pub fn look_at_folder(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        self.exts.add_folder = Some(AddFolder { path: Some(path.clone()), busy: true, note: None, prepared: None });
+        cx.notify();
+        let me = cx.entity().downgrade();
+        catalog::prepare_from_folder(&path, cx, move |res, cx| {
+            let mut res = Some(res);
+            let _ = me.update(cx, |v, cx| {
+                let Some(add) = v.exts.add_folder.as_mut() else { return };
+                add.busy = false;
+                match res.take() {
+                    Some(Ok(p)) => add.prepared = Some(p),
+                    Some(Err(why)) => add.note = Some(why),
+                    None => {}
+                }
+                cx.notify();
+            });
+            // Closed meanwhile: the copy goes.
+            if let Some(Ok(p)) = res {
+                catalog::discard(&p, cx);
+            }
+        });
+    }
+
+    fn close_add_folder(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.exts.add_folder.take().and_then(|a| a.prepared) {
+            catalog::discard(&p, cx);
+        }
+        cx.notify();
+    }
+
+    /// Install (or replace with) the folder looked at, as its Install
+    /// button does.
+    pub fn install_from_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(add) = self.exts.add_folder.as_mut() else { return };
+        let Some(p) = add.prepared.clone() else { return };
+        if add.busy {
+            return;
+        }
+        add.busy = true;
+        add.note = None;
+        cx.notify();
+        let me = cx.entity().downgrade();
+        let id = p.offer.manifest.id.clone();
+        catalog::apply(&p, true, cx, move |o, cx| {
+            let _ = me.update(cx, |v, cx| {
+                match o {
+                    catalog::Outcome::Done => {
+                        v.exts.add_folder = None;
+                        v.exts.open.insert(id.clone(), true);
+                    }
+                    catalog::Outcome::Failed(why) => {
+                        if let Some(add) = v.exts.add_folder.as_mut() {
+                            add.busy = false;
+                            add.prepared = None;
+                            add.note = Some(why);
+                        }
+                    }
+                    catalog::Outcome::ChangedLocally => {}
+                }
+                cx.notify();
+            });
+        });
+    }
+
+    /// Tests and bench commands: what "Install from folder…" shows now
+    /// (checking or installing, why not, the id it would install).
+    pub fn add_folder_state(&self) -> Option<(bool, Option<String>, Option<String>)> {
+        self.exts.add_folder.as_ref().map(|a| (a.busy, a.note.clone(), a.prepared.as_ref().map(|p| p.offer.manifest.id.clone())))
     }
 
     fn open_add_git(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {

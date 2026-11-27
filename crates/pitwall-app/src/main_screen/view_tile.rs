@@ -64,6 +64,9 @@ pub struct ViewTile {
     menu: Option<PlaceMenu>,
     /// Why a button press didn't reach the adapter.
     error: Option<String>,
+    /// A tile its component draws (docs/spec/tile-sdk/), not an
+    /// adapter's view.
+    tile: Option<Entity<crate::tiles::TileView>>,
     _subs: Vec<Subscription>,
 }
 
@@ -140,8 +143,15 @@ impl ViewTile {
             Surface::Inbox(e) => (e.clone(), String::new()),
             Surface::Settings | Surface::Device(_) | Surface::Editor => (String::new(), String::new()),
         };
+        // An extension's own tile: its component draws it.
+        let tile = crate::extensions::manifest_of(&ext, cx).filter(|m| m.contributes.tile(&view).is_some()).map(|_| {
+            let (e, v) = (ext.clone(), view.clone());
+            cx.new(|cx| crate::tiles::TileView::new(&e, &v, cx))
+        });
         let h = hub::hub(cx);
-        h.update(cx, |h, cx| h.show_view(&ext, &view, cx));
+        if tile.is_none() {
+            h.update(cx, |h, cx| h.show_view(&ext, &view, cx));
+        }
         let mut subs = vec![cx.observe(&h, |this, _, cx| {
             this.settle(cx);
             cx.notify();
@@ -164,8 +174,14 @@ impl ViewTile {
             pinned: false,
             menu: None,
             error: None,
+            tile,
             _subs: subs,
         }
+    }
+
+    /// The extension's tile it draws, if it is one.
+    pub fn tile(&self) -> Option<&Entity<crate::tiles::TileView>> {
+        self.tile.as_ref()
     }
 
     /// Who draws it now (a window of its own, or a tile).
@@ -333,7 +349,7 @@ pub(crate) fn agent_chip(ext: &str, item: &str, agent: &str, t: &Theme, cx: &mut
 
 impl ViewTile {
     fn title(&self, m: &Manifest) -> String {
-        let view = m.contributes.view(&self.view).map_or(self.view.clone(), |d| d.title.clone());
+        let view = m.contributes.view(&self.view).map(|d| d.title.clone()).or_else(|| m.contributes.tile(&self.view).map(|d| d.title.clone())).unwrap_or_else(|| self.view.clone());
         format!("{view} · {}", m.name)
     }
 
@@ -351,7 +367,7 @@ impl ViewTile {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         };
         let title = self.title(m);
-        let icon = icon_or(m.contributes.view(&self.view).and_then(|d| d.icon.as_deref()), crate::extensions::icon_of(m));
+        let icon = icon_or(m.contributes.view(&self.view).and_then(|d| d.icon.as_deref()).or_else(|| m.contributes.tile(&self.view).and_then(|d| d.icon.as_deref())), crate::extensions::icon_of(m));
         let name: SharedString = title.clone().into();
         div()
             .id(SharedString::from(format!("view-bar-{}", self.key)))
@@ -654,7 +670,7 @@ impl Render for ViewTile {
             .flex_col();
         let menu = self.menu.clone().map(|(at, replace)| self.place_menu(at, replace, &t, cx));
         let root = root.children(menu);
-        let m = self.manifest(cx).filter(|m| m.contributes.view(&self.view).is_some());
+        let m = self.manifest(cx).filter(|m| m.contributes.view(&self.view).is_some() || m.contributes.tile(&self.view).is_some());
         let Some(m) = m else {
             let key = self.key.clone();
             return root
@@ -666,6 +682,14 @@ impl Render for ViewTile {
                 .into_any_element();
         };
         let root = root.child(self.header(&m, &t, cx));
+        if let Some(tile) = self.tile.clone() {
+            // The tile focused (opened, ⌘1–9): the keyboard goes into it.
+            if self.focus.is_focused(window) {
+                let f = tile.read(cx).focus_handle(cx);
+                window.defer(cx, move |window, cx| window.focus(&f, cx));
+            }
+            return root.child(tile).into_any_element();
+        }
         let (run, data, note, busy) = self.data(cx);
         if let Some(s) = self.state(&m, &run, &t, cx) {
             return root.child(s).into_any_element();
@@ -740,7 +764,7 @@ impl MainScreen {
     /// view `view` focused where it is (its window brought forward when it
     /// is in one), else placed as the inbox is; at row `item` when given.
     pub fn open_view(&mut self, ext: &str, view: &str, item: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(m) = crate::extensions::manifest_of(ext, cx).filter(|m| m.contributes.view(view).is_some()) else {
+        let Some(m) = crate::extensions::manifest_of(ext, cx).filter(|m| m.contributes.view(view).is_some() || m.contributes.tile(view).is_some()) else {
             self.toast(Toast::info("No such view", Some("Its extension isn't found, or no longer has it.".into())), cx);
             return;
         };
@@ -812,6 +836,7 @@ impl MainScreen {
     pub(super) fn render_view_pane(&mut self, pane: &str, key: &str, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let v = view(key, cx);
         v.update(cx, |v, cx| v.held(false, cx));
+        crate::tiles::drew(&self.label, key, cx);
         let body = div().flex_1().min_w_0().min_h_0().flex().child(v).into_any_element();
         self.tile_shell(pane, Content::View(key.to_string()), format!("view-tile-{key}"), body, None, t, cx)
     }

@@ -307,9 +307,23 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         .rank(rank::TERMINALS);
         out.push(if i == 0 { cmd.keys("⌘I") } else { cmd });
     }
+    // Each extension's tiles that are on (their component starts when one
+    // opens).
+    let ui = crate::ui_state::get(cx);
+    for m in crate::extensions::enabled(&crate::extensions::found(cx), &ui) {
+        for tile in &m.contributes.tiles {
+            let (ext, view) = (m.id.clone(), tile.id.clone());
+            let icon = tile.icon.as_deref().and_then(crate::kit::icons::known).or_else(|| crate::kit::icons::known(crate::extensions::icon_of(&m))).unwrap_or("extension");
+            out.push(
+                Command::new(format!("tile-{}/{}", m.id, tile.id), format!("Open {} ({})", tile.title, m.name), format!("open tile {} {} extension", tile.title.to_lowercase(), m.name.to_lowercase()), on_screen(pc, move |s, w, cx| s.open_view(&ext, &view, None, w, cx)))
+                    .icon(icon)
+                    .rank(rank::TERMINALS),
+            );
+        }
+    }
     // Each running extension's views and commands (labelled with its
     // name; no keys of their own).
-    let focused = pc.screen.as_ref().and_then(|s| s.upgrade()).and_then(|s| s.read(cx).focused_agent_id());
+    let focused =pc.screen.as_ref().and_then(|s| s.upgrade()).and_then(|s| s.read(cx).focused_agent_id());
     for m in crate::extensions::running(cx) {
         for v in &m.contributes.views {
             let (ext, view) = (m.id.clone(), v.id.clone());

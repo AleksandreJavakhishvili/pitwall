@@ -37,6 +37,7 @@ pub mod terminal;
 pub mod review;
 pub mod rules;
 pub mod theme;
+pub mod tiles;
 pub mod ui;
 pub mod ui_state;
 pub mod wall;
