@@ -208,6 +208,10 @@ pub fn setup(cmd: &ExtensionCmd, c: &mut pitwall_client::Client) -> Result<Outpu
         ExtensionCmd::Connection(ConnectionCmd::Add { id, name }) => act(c, id, ExtOp::ConnectionAdd { name: name.clone() }),
         ExtensionCmd::Connection(ConnectionCmd::Rename { id, connection, name }) => act(c, id, ExtOp::ConnectionRename { connection: connection.clone(), name: name.clone() }),
         ExtensionCmd::Connection(ConnectionCmd::Remove { id, connection, default }) => act(c, id, ExtOp::ConnectionRemove { connection: connection.clone(), default: default.clone() }),
+        ExtensionCmd::Tools { id } => crate::tile_tools::tools(c, id.as_deref()),
+        ExtensionCmd::Commands { id } => crate::tile_tools::commands(c, id.as_deref()),
+        ExtensionCmd::Call { id, tool, input, timeout } => crate::tile_tools::call_tool(c, id, tool, input, *timeout),
+        ExtensionCmd::Run { id, command, json, timeout, props } => crate::tile_tools::run(c, id, command, json.as_deref(), props, *timeout),
         ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Dev { .. } | ExtensionCmd::Pack { .. } | ExtensionCmd::Sign { .. } => unreachable!("offline (run, dev)"),
     }
 }
