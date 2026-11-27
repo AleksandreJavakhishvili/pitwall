@@ -68,6 +68,12 @@ impl MainScreen {
         }
     }
 
+    /// Open the agent's Next up popover, as its chip does (tests).
+    #[cfg(test)]
+    pub(crate) fn demo_next_up(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_next_up(id, window, cx);
+    }
+
     /// The agent's Next up popover is open (tests).
     #[cfg(test)]
     pub(super) fn next_up_open(&self) -> Option<&str> {
