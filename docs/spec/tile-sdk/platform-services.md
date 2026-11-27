@@ -146,7 +146,7 @@ built only when its trigger happens.
 
 | Service | Where designed | Trigger that justifies it |
 |---|---|---|
-| Files in projects (`files.read`, `files.write`) | [3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new), as built in [14.5](#145-files-in-projects-as-built) | Built (#PRNUM): Notes keeps notes as Markdown in a project, and the C4 tile draws the diagrams in a project's docs and follows their changes |
+| Files in projects (`files.read`, `files.write`) | [3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new), as built in [14.5](#145-files-in-projects-as-built) | Built (#136): Notes keeps notes as Markdown in a project, and the C4 tile draws the diagrams in a project's docs and follows their changes |
 | Git (`git.read/write/remote`) | [3.8](runtime.md#38-host-apis), [5.1](permissions.md#51-new-permissions-new) | The review port ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) brings `git.read/write` into the plan when it starts; `git.remote` waits for the git client seed tile |
 | File and folder pickers (grant one item per pick) | — | A tile must open a file the user chooses without a project-wide `files` grant (database browser opening a SQLite file) |
 | Reads of Pitwall data beyond agents: projects, worktrees, the focused agent | [3.8](runtime.md#38-host-apis) (method table) | A seed tile must place data by project or follow the focused agent |
@@ -174,7 +174,7 @@ built only when its trigger happens.
   service's job ([13](services.md#13-tile-apps-with-a-server)).
 
 ### 14.5 Files in projects, as built
-Built in #PRNUM (`files.wit`, the SDK's `files` module), for the C4 tile's
+Built in #136 (`files.wit`, the SDK's `files` module), for the C4 tile's
 docs diagrams and Notes' project notes.
 
 - **The project is the view's, not picked.** [5.1](permissions.md#51-new-permissions-new)
