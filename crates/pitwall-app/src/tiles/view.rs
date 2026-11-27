@@ -12,6 +12,11 @@
 //!   least as new as the field's.
 //! - Keys reach the tile only while it has the keyboard; Pitwall's own
 //!   keys come first. A multi-line field submits on ⌘⏎ as Pitwall's do.
+//! - Tab and Shift-Tab move focus among its focusable nodes (buttons,
+//!   enabled fields, nodes marked `focusable`) in tree order, wrapping;
+//!   Enter or Space presses a focused button (ui.md §3.5).
+//! - `ui.scroll-to` scrolls each scroll node the keyed node is in so it
+//!   is in sight, once a frame with the node is drawn.
 //! - While it starts it says so ("Preparing…" when it is compiled first);
 //!   when it stopped it says why in plain words, with Restart.
 
@@ -80,6 +85,10 @@ pub struct TileView {
     had_focus: bool,
     /// A node the tile asked to focus, done while the tile has focus.
     want_focus: Option<String>,
+    /// The newest `ui.scroll-to` taken, and the node it waits to scroll
+    /// to (with the counter it came with).
+    scrolled: u64,
+    scroll_want: Option<(String, u64)>,
     shown: bool,
     _subs: Vec<Subscription>,
 }
@@ -154,6 +163,8 @@ impl TileView {
             size: Rc::new(Cell::new(None)),
             had_focus: false,
             want_focus: None,
+            scrolled: 0,
+            scroll_want: None,
             shown: false,
             _subs: subs,
         };
@@ -188,8 +199,19 @@ impl TileView {
         self.tiles.read(cx).send(&self.ext, event)
     }
 
-    /// The newest frame, applied when it is new.
+    /// The newest frame, applied when it is new; a newer `ui.scroll-to`
+    /// taken.
     fn sync(&mut self, cx: &mut Context<Self>) {
+        let ask = self.tiles.read(cx).get(&self.ext).and_then(|r| r.scroll_to.get(&self.tile)).cloned();
+        if let Some((path, seq)) = ask.filter(|(_, seq)| *seq > self.scrolled) {
+            self.scrolled = seq;
+            self.scroll_want = Some((path, seq));
+        }
+        self.sync_frame(cx);
+        self.scroll_wanted(cx);
+    }
+
+    fn sync_frame(&mut self, cx: &mut Context<Self>) {
         let newest = self.tiles.read(cx).get(&self.ext).and_then(|r| r.frames.get(&self.tile)).map(|(u, seq)| (u.frame.clone(), *seq));
         match newest {
             Some((frame, seq)) if seq != self.applied => {
@@ -243,7 +265,9 @@ impl TileView {
                 }
                 _ => st.scroll = None,
             }
-            if node.focusable && st.focus.is_none() && !matches!(node.element, Element::Input(_)) {
+            // Buttons are focusable whatever the node says; fields have
+            // their own.
+            if (node.focusable || matches!(node.element, Element::Button(_))) && st.focus.is_none() && !matches!(node.element, Element::Input(_)) {
                 st.focus = Some(cx.focus_handle().tab_stop(true));
             }
             nodes.insert(path.clone(), st);
@@ -311,6 +335,64 @@ impl TileView {
             }
             f.named = named;
         }
+    }
+
+    /// The nodes Tab stops at, in tree order, with their focus handles:
+    /// enabled buttons and fields, and nodes marked `focusable`.
+    fn focus_stops(&self, cx: &App) -> Vec<(String, FocusHandle)> {
+        let Some(frame) = &self.frame else { return vec![] };
+        tree_order(&self.kids)
+            .into_iter()
+            .filter_map(|i| {
+                let st = self.nodes.get(&self.paths[i])?;
+                let h = match &frame.nodes[i].element {
+                    Element::Input(inp) if !inp.disabled => st.field.as_ref().map(|f| f.input.read(cx).focus_handle(cx)),
+                    Element::Input(_) => None,
+                    Element::Button(b) if b.disabled => None,
+                    _ => st.focus.clone(),
+                }?;
+                Some((self.paths[i].clone(), h))
+            })
+            .collect()
+    }
+
+    /// Tab (Shift-Tab: `back`): focus moves to the next focusable node in
+    /// tree order, wrapping (the first, or the last, when none has it).
+    /// The node focused. (Also what tests call: no key is pressed.)
+    pub fn move_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<String> {
+        let stops = self.focus_stops(cx);
+        let at = stops.iter().position(|(_, h)| h.contains_focused(window, cx));
+        let (path, h) = stops.get(step(stops.len(), at, back)?)?.clone();
+        window.focus(&h, cx);
+        cx.notify();
+        Some(path)
+    }
+
+    /// The node that has focus in the tile (tests).
+    pub fn focused(&self, window: &Window, cx: &App) -> Option<String> {
+        self.focus_stops(cx).into_iter().find(|(_, h)| h.contains_focused(window, cx)).map(|(p, _)| p)
+    }
+
+    /// Scroll to the node `ui.scroll-to` named, once it is drawn: each
+    /// scroll node it is in scrolls the child it is under into sight. A
+    /// node not in the first frame drawn after the ask is let go.
+    fn scroll_wanted(&mut self, cx: &mut Context<Self>) {
+        let Some((path, seq)) = self.scroll_want.clone() else { return };
+        let Some(frame) = self.frame.clone() else { return };
+        let Some(i) = self.paths.iter().position(|p| *p == path) else {
+            if self.applied > seq {
+                self.scroll_want = None;
+            }
+            return;
+        };
+        for (s, child) in scroll_steps(&frame.nodes, &self.kids, i) {
+            if let Some(h) = self.nodes.get(&self.paths[s]).and_then(|st| st.scroll.as_ref()) {
+                // The scroll's content: its probe first, then its children.
+                h.scroll_to_item(child + 1);
+            }
+        }
+        self.scroll_want = None;
+        cx.notify();
     }
 
     /// The node at key path `path`, by index.
@@ -419,11 +501,27 @@ impl TileView {
         }
         let Some(frame) = self.frame.clone() else { return };
         let ks = &e.keystroke;
+        let plain = !(ks.modifiers.platform || ks.modifiers.control || ks.modifiers.alt);
+        // Tab moves focus, in a field too.
+        if plain && ks.key == "tab" {
+            if self.move_focus(ks.modifiers.shift, window, cx).is_some() {
+                cx.stop_propagation();
+            }
+            return;
+        }
         // A field gets plain keys (typing "j" is typing).
         let typing = self.nodes.values().filter_map(|s| s.field.as_ref()).any(|f| f.input.read(cx).is_focused(window));
-        let plain = !(ks.modifiers.platform || ks.modifiers.control || ks.modifiers.alt);
         if typing && plain {
             return;
+        }
+        // A focused button: Enter or Space presses it.
+        if plain && !ks.modifiers.shift && matches!(ks.key.as_str(), "enter" | "space") {
+            let button = self.focused(window, cx).filter(|p| self.node(p).is_some_and(|n| matches!(n.element, Element::Button(_))));
+            if let Some(path) = button {
+                self.click(&path, ui::MouseButton::Left, ui::Modifiers::empty(), 1, ui::Point { x: 0., y: 0. }, cx);
+                cx.stop_propagation();
+                return;
+            }
         }
         let mac = cfg!(target_os = "macos");
         if let Some(b) = frame.keymap.iter().find(|b| !render::reserved(&b.keys) && render::matches(&b.keys, ks, mac)) {
@@ -496,6 +594,14 @@ impl TileView {
                     };
                 }
                 let el = el.when_some(node.tooltip.clone(), |d, tip| d.tooltip(kit::tooltip(tip)));
+                // Focus (Tab), with the ring boxes have.
+                let el = match st.and_then(|s| s.focus.as_ref()) {
+                    Some(h) => {
+                        let focused = h.is_focused(window);
+                        el.track_focus(h).when(focused, |d| d.shadow(vec![focus_ring(t)]))
+                    }
+                    None => el,
+                };
                 match (b.disabled, handler(node, Listen::Click)) {
                     (false, Some(h)) => {
                         let bounds = st.map(|s| s.bounds.clone()).unwrap_or_default();
@@ -550,7 +656,7 @@ impl TileView {
                 let focused = st.and_then(|s| s.focus.as_ref()).is_some_and(|h| h.is_focused(window));
                 let d = self.interact(d.id(id), node, &path, f, st, t, cx);
                 d.debug_selector(move || sel.clone())
-                    .when(focused, |d| d.shadow(vec![gpui::BoxShadow { color: t.focus.opacity(0.55), offset: gpui::point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(2.), inset: false }]))
+                    .when(focused, |d| d.shadow(vec![focus_ring(t)]))
                     .children(children)
                     .into_any_element()
             }
@@ -654,6 +760,53 @@ impl TileView {
         };
         Some(el.debug_selector(|| "tile-state".into()).into_any_element())
     }
+}
+
+/// The ring around a focused node.
+fn focus_ring(t: &Theme) -> gpui::BoxShadow {
+    gpui::BoxShadow { color: t.focus.opacity(0.55), offset: gpui::point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(2.), inset: false }
+}
+
+/// The nodes from the root down, each before its children, siblings in
+/// order (`kids`: each node's children by index).
+pub(super) fn tree_order(kids: &[Vec<usize>]) -> Vec<usize> {
+    let mut out = Vec::with_capacity(kids.len());
+    let mut stack = if kids.is_empty() { vec![] } else { vec![0] };
+    while let Some(i) = stack.pop() {
+        out.push(i);
+        stack.extend(kids[i].iter().rev().copied());
+    }
+    out
+}
+
+/// Of `n` stops, the one after `at` (before it, `back`), wrapping; the
+/// first (the last, `back`) when none is at; none when there are none.
+pub(super) fn step(n: usize, at: Option<usize>, back: bool) -> Option<usize> {
+    if n == 0 {
+        return None;
+    }
+    Some(match (at, back) {
+        (None, false) => 0,
+        (None, true) => n - 1,
+        (Some(i), false) => (i + 1) % n,
+        (Some(i), true) => (i + n - 1) % n,
+    })
+}
+
+/// What scrolling to node `i` scrolls: each scroll node it is in,
+/// innermost first, with which of that scroll's children it is under.
+pub(super) fn scroll_steps(nodes: &[Node], kids: &[Vec<usize>], i: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut child = i;
+    while let Some(p) = nodes.get(child).and_then(|n| n.parent).map(|p| p as usize).filter(|p| *p < child) {
+        if matches!(nodes[p].element, Element::Scroll(_)) {
+            if let Some(ix) = kids[p].iter().position(|k| *k == child) {
+                out.push((p, ix));
+            }
+        }
+        child = p;
+    }
+    out
 }
 
 /// An empty box over its parent that notes where the parent was drawn.
