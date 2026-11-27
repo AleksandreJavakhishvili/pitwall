@@ -27,22 +27,22 @@ pull request until then.
   - [x] Runaway tile stopped by epoch interruption ≤ 100 ms (#107; pass with a wall-clock check on each tick: ≈ 7 ms, ≤ 13 ms; miss as runtime.md specifies, by tick count: 200–430 ms late at 1 s)
   - [x] Threading model confirmed: where the store lives, how calls leave the UI thread (#107; store on the `tile:<id>` worker, UI thread only sends and receives)
 - [x] The unverified fallbacks checked: Winch compile speed, fuel as the stop for a runaway tile (#107; Winch compiles 3–5× faster and runs 1.9× slower; fuel costs 25–30 % a frame and isn't time)
-- [x] Owner's go, change or stop decision recorded in [README §10.3](README.md#103-decisions) (#PR: go with changes, item 19; size gate per architecture)
+- [x] Owner's go, change or stop decision recorded in [README §10.3](README.md#103-decisions) (#111: go with changes, item 19; size gate per architecture)
 
 ## Phase 1: Runtime and SDK preview
 
 Done when an author can run `pitwall extension new`, `dev` and `install`
 on macOS, Linux and Windows, and the Preview docs describe exactly that.
 
-- [x] WIT 0.1: box, text, button, icon, scroll, input, events, ui, log (#PR: `crates/pitwall-tile-host/wit/`, documented; host-owned `input` with selection, pointer positions, views with content for agents)
-- [x] Platform services `tasks`, `storage`, `settings` ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)) (#PR: host side in `pitwall-tile-host`; storage and settings under `<data>/extension-data/<id>/`; the Settings form is the app's)
-- [x] Host runtime: worker thread per tile, limits with wall-clock deadlines, stop, compile cache, Log lines, frames with diff, grants ([2](runtime.md)) (#PR: `pitwall-tile-host`, API in its README)
+- [x] WIT 0.1: box, text, button, icon, scroll, input, events, ui, log (#111: `crates/pitwall-tile-host/wit/`, documented; host-owned `input` with selection, pointer positions, views with content for agents)
+- [x] Platform services `tasks`, `storage`, `settings` ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)) (#111: host side in `pitwall-tile-host`; storage and settings under `<data>/extension-data/<id>/`; the Settings form is the app's)
+- [x] Host runtime: worker thread per tile, limits with wall-clock deadlines, stop, compile cache, Log lines, frames with diff, grants ([2](runtime.md)) (#111: `pitwall-tile-host`, API in its README)
 - [ ] `TileView` in the layout, drawing the host's frames and routing events ([2](runtime.md))
 - [ ] SDK crate `pitwall-extension` (guest side) and `pitwall-extension-test` harness core ([4](authoring.md))
 - [ ] `pitwall extension new`, `dev`, `check` for components ([9.1](authoring.md#91-commands-pitwall-extension-))
 - [ ] Unsigned install from a folder or URL: Settings → Extensions and `pitwall extension install`, permission screen, "Unsigned, preview" warning ([6.3](packaging.md#63-install))
-- [x] Host tests run on macOS, Linux and Windows in CI (#PR)
-- [x] Lean Wasmtime in the release build (#PR): no `cache` feature, Wasmtime's and Cranelift's crates at `opt-level = "s"` ([10.3](README.md#103-decisions) item 19)
+- [x] Host tests run on macOS, Linux and Windows in CI (#111)
+- [x] Lean Wasmtime in the release build (#111): no `cache` feature, Wasmtime's and Cranelift's crates at `opt-level = "s"` ([10.3](README.md#103-decisions) item 19)
 - [ ] A 2–3 MB tile compiles in under 1 s on a 4-core CI runner ([10.3](README.md#103-decisions) item 19)
 - [ ] Authoring skill and generated `llms.txt` ([9.5](authoring.md#95-docs-for-authors-agents))
 - [ ] Docs pipeline: pages from Markdown, examples from source, a link check ([9.6](authoring.md#96-website-docs))
