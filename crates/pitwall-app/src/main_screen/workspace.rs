@@ -508,6 +508,11 @@ pub struct ExtensionPrefs {
     /// revoked on its card or in Settings → Agents.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
     pub tool_grants: Vec<ToolGrant>,
+    /// The projects (folders) whose agents get its skill for agents
+    /// (`agents/SKILL.md`, agent-tools.md §11.11), while it is on and its
+    /// tools are offered to agents.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub skill_projects: Vec<String>,
     /// The share of the first pane of each split pane of its tiles the
     /// user dragged, by `<view>/<key path>` (ui.md §3.10).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
@@ -606,7 +611,7 @@ impl Confirmed {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.toolbar.is_none() && self.agents_off.is_empty() && self.splits.is_empty() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.toolbar.is_none() && self.agents_off.is_empty() && self.tool_grants.is_empty() && self.skill_projects.is_empty() && self.splits.is_empty() && self.rest.is_empty()
     }
 }
 

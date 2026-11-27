@@ -46,10 +46,13 @@ mod c4_tests;
 mod c4_shots;
 #[cfg(test)]
 mod agents_run_tests;
+#[cfg(test)]
+mod agent_tools_finish_tests;
 pub mod blocks;
 #[cfg(test)]
 mod blocks_tests;
 pub mod canvas;
+pub mod form;
 pub mod group;
 pub mod render;
 #[cfg(test)]
@@ -68,6 +71,8 @@ mod services_shots;
 mod agents_shots;
 #[cfg(test)]
 mod agent_tools_shots;
+#[cfg(test)]
+mod agent_tools_finish_shots;
 #[cfg(test)]
 mod widgets_tests;
 pub mod view;
