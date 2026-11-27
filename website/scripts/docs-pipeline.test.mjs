@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { extractRegion, resolveIncludes } from "./includes.mjs";
 import { parseWit, readWit, undocumented, witMarkdown } from "./wit-docs.mjs";
 import { checkSite } from "./check-links.mjs";
-import { EXTENSION_PAGES, SOURCES, docsNavHtml, llmsTxt, renderPage } from "./pages.mjs";
+import { EXTENSION_PAGES, SOURCES, docsNavHtml, llmsTxt, renderPage, splitChildren } from "./pages.mjs";
 
 const SITE = resolve(import.meta.dirname, "..");
 const temp = () => mkdtempSync(join(tmpdir(), "pitwall-docs-"));
@@ -169,8 +169,58 @@ test("every Extensions page has a source, an HTML page and a sidebar entry", () 
     assert.ok(html.includes(`<!-- markdown:${name} -->`), `${path} has its marker`);
     assert.ok(nav.includes(`href="${path}"`), `${path} is in the sidebar`);
     const out = renderPage(name, { repoUrl: "https://github.com/o/r" });
-    assert.match(out, /<p class="label">Extensions<\/p>\n<div class="docs-title"><h1>.+<\/h1><span class="pill">Preview<\/span><\/div>/);
+    assert.match(out, /<div class="docs-title"><h1>.+<\/h1><span class="pill">Preview<\/span><\/div>/);
+    if (path === "/docs/extensions/") assert.match(out, /^<p class="label">Extensions<\/p>/);
+    else assert.match(out, /^<nav class="eyebrow crumbs" aria-label="Breadcrumb"><ol><li><a href="\/docs\/">Docs<\/a><\/li><li><a href="\/docs\/extensions\/">Extensions<\/a><\/li><\/ol><\/nav>/);
+    assert.match(out, /<nav class="docs-pager"/);
   }
+});
+
+// ---------- split pages ----------
+
+test("the CLI reference is split into a page per command, its source stays one file", () => {
+  const children = splitChildren("cli");
+  assert.ok(children.length > 5);
+  const agent = children.find((c) => c.slug === "agent");
+  assert.equal(agent.path, "/docs/cli/agent/");
+  assert.match(agent.md, /^# pitwall agent\n/);
+  assert.match(agent.md, /^## agent list$/m, "### headings move up a level");
+  const parent = renderPage("cli", { repoUrl: "https://github.com/o/r" });
+  assert.match(parent, /<h2 id="global-options">/);
+  assert.doesNotMatch(parent, /<h2 id="agent">/);
+  assert.match(parent, /<a href="\/docs\/cli\/agent\/"><code>agent<\/code><\/a>/, "the command list links to the child pages");
+  const moved = JSON.parse(parent.match(/id="moved-anchors">(.*?)<\/script>/)[1]);
+  assert.equal(moved.agent, "agent/");
+  assert.equal(moved["agent-list"], "agent/#agent-list");
+  const child = renderPage("cli/agent", { repoUrl: "https://github.com/o/r" });
+  assert.match(child, /<h1>pitwall agent<\/h1>/);
+  assert.match(child, /<h2 id="agent-list">/);
+  assert.match(child, /<a href="\/docs\/cli\/">CLI<\/a>/);
+  assert.match(child, /rel="prev"><span>Previous<\/span><strong>CLI<\/strong>/);
+});
+
+test("the sidebar nests a parent's pages, open only in its family", () => {
+  const onAgent = docsNavHtml("/docs/cli/agent/index.html");
+  assert.match(onAgent, /<details open><summary><a href="\/docs\/cli\/">CLI<\/a><\/summary>/);
+  assert.match(onAgent, /<a href="\/docs\/cli\/agent\/" aria-current="page">agent<\/a>/);
+  assert.match(onAgent, /<nav class="docs-subnav" aria-label="CLI pages">/);
+  const elsewhere = docsNavHtml("/docs/settings/index.html");
+  assert.match(elsewhere, /<details><summary><a href="\/docs\/cli\/">CLI<\/a><\/summary>/);
+  assert.doesNotMatch(elsewhere, /docs-subnav/);
+});
+
+test("the link check follows a split page's moved anchors", () => {
+  const dist = temp();
+  const page = (path, body) => {
+    mkdirSync(join(dist, path, ".."), { recursive: true });
+    writeFileSync(join(dist, path), `<!doctype html><html><body>${body}</body></html>`);
+  };
+  const map = `<script type="application/json" id="moved-anchors">{"a":"a/","a-x":"a/#a-x","gone":"b/#nope"}</script>`;
+  page("cli/index.html", `<h2 id="top">CLI</h2>${map}`);
+  page("cli/a/index.html", `<h1>a</h1><h2 id="a-x">x</h2>`);
+  page("index.html", `<a href="/cli/#a">ok</a><a href="/cli/#a-x">ok</a><a href="/cli/#gone">bad</a><a href="/cli/#missing">bad</a>`);
+  const { broken } = checkSite(dist);
+  assert.deepEqual(broken.map((b) => b.href), ["/cli/#gone", "/cli/#missing"]);
 });
 
 test("llms.txt holds every Extensions page with absolute links", () => {
