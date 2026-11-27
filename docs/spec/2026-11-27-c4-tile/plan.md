@@ -65,7 +65,7 @@ cache" updates the same tile in place with Cache highlighted.
 
 SDK requests (each is a change to the SDK's design and plan, made there):
 - [x] G1 canvas pointer position raised in the SDK design ([hla §7](hla.md#7-sdk-gaps)). Done when the SDK's `ui.md` has the decision and the SDK plan has an item, or the owner decides against it (#123: hit regions with clicks, and pointer events on the canvas)
-- [x] G2 text measurement raised. Done as for G1 (#PR: `ui.measure-text` in the SDK, [ui.md 3.11](../tile-sdk/ui.md#311-the-seed-tiles-gaps-as-built); the tile keeps its table, since its core lays out without the SDK, and `tests/text_widths.rs` checks it equals Pitwall's measure, [layout-lld §1](layout-lld.md#1-text-widths))
+- [x] G2 text measurement raised. Done as for G1 (#135: `ui.measure-text` in the SDK, [ui.md 3.11](../tile-sdk/ui.md#311-the-seed-tiles-gaps-as-built); the tile keeps its table, since its core lays out without the SDK, and `tests/text_widths.rs` checks it equals Pitwall's measure, [layout-lld §1](layout-lld.md#1-text-widths))
 - [x] G3 canvas text in px, or a scale op, raised. Done as for G1 (#123: text in pixels, and a transform)
 - [x] G4 stroke width and dashes raised. Done as for G1 (#123)
 - [x] G5 wheel and pinch raised. Done as for G1 (#123)
