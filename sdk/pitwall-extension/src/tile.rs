@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::bindings::pitwall::tile::{tasks, types as wit};
 use crate::element::{AnyElement, Axis, ButtonKind, Handler, IntoElement, Kind, Listen};
-use crate::events::{Click, CodeSelection, Dropped, Event, Fired, Hover, InputChange, KeyPress, LineClick, ListenerEvent, Pointer, PointerKind, ScrollPosition, Selection, TextPos, Theme};
+use crate::events::{Click, CodeSelection, Dropped, Event, Fired, ValueFired, Hover, InputChange, KeyPress, LineClick, ListenerEvent, Pointer, PointerKind, ScrollPosition, Selection, TextPos, Theme};
 use crate::host::log;
 
 /// A tile: its state, how it draws each view, and what it does when the
@@ -641,15 +641,19 @@ impl<T: 'static> Cx<T> {
                     (Some(_), Some(r)) => Some(wit::TextRange { start: r.start as u32, end: r.end as u32 }),
                     _ => None,
                 };
-                wit::Element::Input(wit::Input {
-                    value,
-                    revision,
-                    selection,
-                    placeholder: spec.placeholder,
-                    multiline: spec.multiline,
-                    rows: spec.rows,
-                    disabled: spec.disabled,
-                })
+                if spec.search {
+                    wit::Element::SearchField(wit::SearchField { value, revision, placeholder: spec.placeholder, disabled: spec.disabled })
+                } else {
+                    wit::Element::Input(wit::Input {
+                        value,
+                        revision,
+                        selection,
+                        placeholder: spec.placeholder,
+                        multiline: spec.multiline,
+                        rows: spec.rows,
+                        disabled: spec.disabled,
+                    })
+                }
             }
             Kind::Canvas(spec) => {
                 let spec = *spec;
@@ -675,6 +679,7 @@ impl<T: 'static> Cx<T> {
                 self.list_node(&b.view, &path, l)
             }
             Kind::Component(spec) => spec.wit().unwrap_or(wit::Element::Box),
+            Kind::Widget(spec) => spec.0,
         };
         b.nodes.push(wit::Node { parent, key, element, style, on, focusable, tooltip, label });
         let mut used: HashSet<String> = HashSet::new();
@@ -890,6 +895,8 @@ impl Listen {
             Listen::Pointer => wit::Listen::Pointer,
             Listen::Wheel => wit::Listen::Wheel,
             Listen::LineClick => wit::Listen::LineClick,
+            Listen::Value => wit::Listen::Value,
+            Listen::Dismiss => wit::Listen::Dismiss,
             Listen::Focus | Listen::Blur | Listen::Drop => return None,
             Listen::Toggle => wit::Listen::Toggle,
             Listen::Link => wit::Listen::Link,
@@ -1008,6 +1015,8 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
                 let sel = CodeSelection { side: s.side.into(), start: pos(s.start), end: pos(s.end), text: s.text };
                 cx.fire(tile, None, s.handler, Fired::CodeSelect(sel));
             }
+            wit::Event::ValueChanged(v) => cx.fire(tile, None, v.handler, Fired::Value(ValueFired::from_wit(v.value))),
+            wit::Event::Dismissed(h) => cx.fire(tile, None, h, Fired::Dismiss),
             wit::Event::ViewOpened(v) => {
                 let content = v.content.map(Content::from);
                 // A declared tool's call is the tool's, not the view's

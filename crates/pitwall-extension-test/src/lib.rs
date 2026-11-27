@@ -50,6 +50,7 @@
 //! agent is told back ([`Called`]).
 
 mod canvas;
+mod widgets;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -81,6 +82,8 @@ pub use pitwall_tile_host::ui::{BadgeTone, ServiceInfo, ServiceState, ToolbarBad
 /// Why a faked `net` request failed ([`Harness::respond_error`]).
 pub use pitwall_tile_host::net::FetchError as NetError;
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
+/// A component's new value, as `value-changed` carries it.
+pub use pitwall_tile_host::ui::ControlValue;
 
 mod components;
 pub use components::ListRow;
@@ -346,6 +349,8 @@ impl Harness {
             own_server: self.own_server,
             calls: pitwall_tile_host::agent::ShowCalls::new(),
             answers: HashMap::new(),
+            clipboard: None,
+            opened_pages: Vec::new(),
         };
         s.settle();
         s
@@ -510,6 +515,10 @@ pub struct Session {
     calls: pitwall_tile_host::agent::ShowCalls,
     /// Answers to calls, by call id, not taken yet.
     answers: HashMap<u64, pitwall_tile_host::agent::Answer>,
+    /// What the last copy button put on the clipboard.
+    clipboard: Option<String>,
+    /// Web pages links opened.
+    opened_pages: Vec<String>,
 }
 
 /// How an agent's call ended ([`Session::call`]): what the agent is told.
@@ -555,14 +564,14 @@ impl Session {
                 let mut live = std::collections::HashSet::new();
                 for (i, n) in f.frame.nodes.iter().enumerate() {
                     let at = (view.clone(), paths[i].clone());
-                    if let Element::Input(input) = &n.element {
+                    if let Some((value, revision)) = widgets::field_value(n) {
                         live.insert(paths[i].clone());
-                        if let Some(v) = &input.value {
+                        if let Some(v) = value {
                             let r = self.revisions.entry(at.clone()).or_default();
-                            if input.revision >= *r {
+                            if revision >= *r {
                                 self.texts.insert(at.clone(), v.clone());
                             }
-                            *r = (*r).max(input.revision);
+                            *r = (*r).max(revision);
                         }
                         self.texts.entry(at).or_default();
                     }
@@ -822,6 +831,7 @@ impl Session {
         let nodes = &f.frame.nodes;
         let paths = key_paths(&f.frame);
         let focused = self.focused.get(view);
+        let now_ms = self.clock.system_now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
         let mut depth = vec![0usize; nodes.len()];
         let mut out = String::new();
         for (i, n) in nodes.iter().enumerate() {
@@ -844,7 +854,11 @@ impl Session {
                         if input.multiline { " multiline" } else { "" }
                     )
                 }
-                e => components::describe(e).unwrap_or_else(|| pitwall_tile_host::components::kind(e).to_string()),
+                Element::SearchField(s) => {
+                    let text = self.texts.get(&(view.to_string(), paths[i].clone())).filter(|t| !t.is_empty());
+                    format!("search-field{}{}", s.placeholder.as_ref().map(|p| format!(" placeholder={p:?}")).unwrap_or_default(), text.map(|t| format!(" text={t:?}")).unwrap_or_default())
+                }
+                e => widgets::describe(e, now_ms).or_else(|| components::describe(e)).unwrap_or_else(|| pitwall_tile_host::components::kind(e).to_string()),
             };
             let what = if focused == Some(&paths[i]) { format!("{what} focused") } else { what };
             let key = if n.key.chars().all(|c| c.is_ascii_digit()) || i == 0 { String::new() } else { format!(" #{}", n.key) };
@@ -865,6 +879,8 @@ impl Session {
                     Listen::Link => "link",
                     Listen::Sort => "sort",
                     Listen::ColumnResized => "column-resized",
+                    Listen::Value => "value",
+                    Listen::Dismiss => "dismiss",
                 })
                 .collect();
             let on = if on.is_empty() { String::new() } else { format!(" [{}]", on.join(", ")) };
@@ -952,7 +968,7 @@ impl Session {
 
     fn input(&self, key_path: &str) -> Found {
         match self.find_key(key_path) {
-            Some(f) if matches!(f.node.element, Element::Input(_)) => f,
+            Some(f) if matches!(f.node.element, Element::Input(_) | Element::SearchField(_)) => f,
             Some(_) => panic!("“{key_path}” isn't a text field"),
             None => panic!("there is no text field “{key_path}”; it shows:\n{}", self.text_snapshot()),
         }
@@ -964,9 +980,12 @@ impl Session {
         let f = self.input(key_path);
         let Some(l) = f.node.on.iter().find(|l| l.on == Listen::Change) else { panic!("the text field “{key_path}” doesn't listen for changes") };
         let l = *l;
-        if let Some(i) = f.input() {
-            assert!(!i.disabled, "the text field “{key_path}” is disabled");
-        }
+        let disabled = match &f.node.element {
+            Element::Input(i) => i.disabled,
+            Element::SearchField(s) => s.disabled,
+            _ => false,
+        };
+        assert!(!disabled, "the text field “{key_path}” is disabled");
         self.take_focus();
         self.move_focus(&f.view, Some(f.key_path.clone()));
         let at = (f.view.clone(), f.key_path.clone());
@@ -1015,7 +1034,7 @@ impl Session {
         };
         let handler = b.handler;
         let types = pitwall_tile_host::keys::parse(keys).is_some_and(|(m, _)| m.types());
-        let field = self.focused.get(&self.main).filter(|p| self.find_key(p).is_some_and(|f| f.input().is_some())).cloned();
+        let field = self.focused.get(&self.main).filter(|p| self.find_key(p).is_some_and(|f| widgets::field_value(&f.node).is_some())).cloned();
         if let (true, Some(field)) = (types, field) {
             return Err(format!("“{keys}” types into the focused text field “{field}” instead: a binding without ⌘/Ctrl/Alt doesn't fire while a field has focus"));
         }
@@ -1051,7 +1070,8 @@ impl Session {
     /// that had it hears its blur.
     pub fn focus_key(&mut self, key_path: &str) -> &mut Self {
         let Some(f) = self.find_key(key_path) else { panic!("there is no node “{key_path}”; it shows:\n{}", self.text_snapshot()) };
-        assert!(f.node.focusable || matches!(f.node.element, Element::Input(_) | Element::Button(_)), "“{key_path}” can't take focus: make it focusable");
+        let own = pitwall_tile_host::widgets::focusable(&f.node.element, f.listens(Listen::Click));
+        assert!(f.node.focusable || own || matches!(f.node.element, Element::Input(_) | Element::SearchField(_) | Element::Button(_) | Element::NumberField(_)), "“{key_path}” can't take focus: make it focusable");
         self.take_focus();
         self.move_focus(&f.view, Some(f.key_path));
         self.settle()
@@ -1085,16 +1105,13 @@ impl Session {
     /// such field.
     pub fn field(&self, key_path: &str) -> Field {
         let f = self.input(key_path);
-        let Some(i) = f.input() else { unreachable!() };
         let at = (f.view.clone(), f.key_path.clone());
-        Field {
-            text: self.texts.get(&at).cloned().unwrap_or_default(),
-            multiline: i.multiline,
-            rows: i.rows,
-            placeholder: i.placeholder.clone(),
-            disabled: i.disabled,
-            focused: self.focused.get(&f.view) == Some(&f.key_path),
-        }
+        let (multiline, rows, placeholder, disabled) = match &f.node.element {
+            Element::Input(i) => (i.multiline, i.rows, i.placeholder.clone(), i.disabled),
+            Element::SearchField(s) => (false, None, s.placeholder.clone(), s.disabled),
+            _ => unreachable!(),
+        };
+        Field { text: self.texts.get(&at).cloned().unwrap_or_default(), multiline, rows, placeholder, disabled, focused: self.focused.get(&f.view) == Some(&f.key_path) }
     }
 
     /// View `view` is now `width` × `height` logical pixels (a tile

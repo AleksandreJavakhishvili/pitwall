@@ -84,12 +84,14 @@ pub mod tools;
 /// `Result<Reply, ToolError>`, becomes the tool of that name (see
 /// [`tools`]). `export!` finds it.
 pub use pitwall_extension_macros::tools;
+pub mod widgets;
 
 pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
 pub use blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView};
 pub use canvas::{canvas, Canvas, Viewport};
-pub use events::{Blur, Event, Focused};
 pub use group::{agents, asks, badges};
+pub use events::{Blur, Dismissed, Event, Focused};
+pub use widgets::{avatar, badge, banner, bar_chart, breadcrumbs, card, checkbox, chip, confirm_sheet, copyable, disclosure, divider, empty_state, form_row, h_split, kbd, key_values, line_chart, link, number_field, popover, progress, radio_group, relative_time, relative_time_ms, search_field, segmented, skeleton, slider, sparkline, spinner, status_timeline, switch, toolbar, v_split, vertical_divider, Orientation, Placement, SkeletonShape};
 pub use host::{log, settings, storage, ui, HostError, Tone};
 pub use services::{net, notify, service, show, sql, toolbar};
 pub use style::{px, relative, rems, Align, Length, Styled, Token};
@@ -106,10 +108,11 @@ pub mod prelude {
     pub use crate::element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
     pub use crate::blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView, Mark};
     pub use crate::canvas::{canvas, Canvas, Label, Paint, Region, Shape, Viewport};
-    pub use crate::events::{Blur, Click, CodeSelection, Dropped, Event, Focused, Hover, InputChange, KeyPress, LineClick, Pointer, PointerKind, Side, Submit, Theme, ThemeMode};
     pub use crate::group::agents::{self, Agent};
     pub use crate::group::asks::{self, Answer, Ask};
     pub use crate::group::badges::{self, Badge, Row};
+    pub use crate::widgets::{avatar, badge, banner, bar_chart, breadcrumbs, card, checkbox, chip, confirm_sheet, copyable, disclosure, divider, empty_state, form_row, h_split, kbd, key_values, line_chart, link, number_field, popover, progress, radio_group, relative_time, relative_time_ms, search_field, segmented, skeleton, slider, sparkline, spinner, status_timeline, switch, toolbar, v_split, vertical_divider, Orientation, Placement, SkeletonShape};
+    pub use crate::events::{Dismissed, Blur, Click, CodeSelection, Dropped, Event, Focused, Hover, InputChange, KeyPress, LineClick, Pointer, PointerKind, Side, Submit, Theme, ThemeMode};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};
     pub use crate::services::{net, notify, service, show, sql, toolbar};
     pub use crate::style::{px, relative, rems, Length, Styled, Token};

@@ -56,6 +56,9 @@ pub enum Invalid {
     /// Node `i` is a component (a list, a table, a menu, an image…) that
     /// breaks one of its rules; the text says which.
     Component(usize, String),
+    /// Node `i`'s component (a form control, chart, split, popover…) is
+    /// over a limit or out of place (ui.md §3.10).
+    Widget(usize, crate::widgets::Problem),
 }
 
 impl std::fmt::Display for Invalid {
@@ -69,6 +72,7 @@ impl std::fmt::Display for Invalid {
             Invalid::LongInput(i) => write!(f, "node {i}'s text field holds more than {} KiB", MAX_INPUT_BYTES / 1024),
             Invalid::Block(i, p) => write!(f, "node {i} {p}"),
             Invalid::Component(i, why) => write!(f, "node {i}: {why}"),
+            Invalid::Widget(i, p) => write!(f, "node {i} {p}"),
         }
     }
 }
@@ -103,11 +107,13 @@ pub fn check(frame: &Frame) -> Result<(), Invalid> {
         }
         crate::blocks::check(n).map_err(|p| Invalid::Block(i, p))?;
         crate::components::check(i, n).map_err(|why| Invalid::Component(i, why))?;
+        crate::widgets::check(n).map_err(|p| Invalid::Widget(i, p))?;
         bytes += node_bytes(n);
         if bytes > MAX_FRAME_BYTES {
             return Err(Invalid::TooLarge(bytes));
         }
     }
+    crate::widgets::check_tree(frame).map_err(|(i, p)| Invalid::Widget(i, p))?;
     Ok(())
 }
 
@@ -130,7 +136,8 @@ fn node_bytes(n: &Node) -> usize {
         Element::Scroll(_) => 4,
         Element::Input(i) => i.value.as_ref().map_or(0, String::len) + i.placeholder.as_ref().map_or(0, String::len) + 32,
         e => crate::components::bytes(e),
-    } + crate::blocks::bytes(n);
+    } + crate::blocks::bytes(n)
+        + crate::widgets::bytes(n);
     48 + n.key.len()
         + element
         + n.style.len() * 24
