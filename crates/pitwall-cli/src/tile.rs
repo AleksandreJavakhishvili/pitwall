@@ -38,7 +38,7 @@ pub const DEV_RELOAD: &str = "extension.devReload";
 pub const REPO: &str = "https://github.com/pitwalls/pitwall";
 
 /// The interfaces of `pitwall:tile@0.1.0` a component may import.
-const INTERFACES: [&str; 6] = ["types", "ui", "log", "tasks", "storage", "settings"];
+const INTERFACES: [&str; 12] = ["types", "ui", "log", "tasks", "storage", "settings", "net", "sql", "notify", "show", "toolbar", "service"];
 
 // ---- new --------------------------------------------------------------------
 
@@ -714,8 +714,8 @@ mod tests {
         assert!(check(&hello().join("tile.wasm")).passed());
         assert!(inspect(b"\0asm\x01\0\0\0").unwrap_err().contains("core WebAssembly module"));
         assert!(inspect(b"nope").is_err());
-        assert!(!provided("pitwall:tile/net@0.1.0") && !provided("pitwall:tile/ui@0.2.0") && !provided("wasi:sockets/tcp@0.3.0"));
-        assert!(provided("wasi:cli/stdout@0.2.6") && provided("pitwall:tile/ui@0.1.0"));
+        assert!(!provided("pitwall:tile/files@0.1.0") && !provided("pitwall:tile/ui@0.2.0") && !provided("wasi:sockets/tcp@0.3.0"));
+        assert!(provided("wasi:cli/stdout@0.2.6") && provided("pitwall:tile/ui@0.1.0") && provided("pitwall:tile/net@0.1.0"));
     }
 
     #[test]
