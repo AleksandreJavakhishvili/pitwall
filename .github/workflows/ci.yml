@@ -235,6 +235,35 @@ jobs:
         continue-on-error: true
         run: cargo test -p pitwall-cli
 
+  tile-c4:
+    name: C4 tile (test + wasm build + dependency check)
+    # The C4 seed tile is its own Cargo workspace (tiles/c4/, outside the root
+    # one) and may use no Pitwall crate but pitwall-extension
+    # (docs/spec/2026-11-27-c4-tile/hla.md §6).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pinned toolchain, plus the tile's target (not in rust-toolchain.toml).
+      - run: rustup toolchain install && rustup target add wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiles/c4
+
+      - name: cargo test
+        run: cargo test --manifest-path tiles/c4/Cargo.toml --all-features
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path tiles/c4/Cargo.toml --all-features --all-targets -- -D warnings
+
+      - name: cargo build (wasm32-wasip2)
+        run: cargo build --manifest-path tiles/c4/Cargo.toml --target wasm32-wasip2
+
+      - name: Dependency check
+        run: sh tiles/c4/scripts/check-deps.sh
+
   web:
     # The React UI is the website's live demo (src/README.md): type-check,
     # build and unit-test it, then build the site that embeds it.
