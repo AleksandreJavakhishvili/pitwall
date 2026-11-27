@@ -1,5 +1,6 @@
 //! What a tile's store holds, and the host side of each imported interface
-//! (runtime.md §3.8): `ui`, `log`, `tasks`, `storage`, `settings`. All of
+//! (runtime.md §3.8): `ui`, `log`, `tasks`, `storage`, `settings` (the
+//! agents' questions group is in [`crate::group`]). All of
 //! it runs on the tile's worker thread, inside the guest's calls; nothing
 //! here waits on the UI thread. Requests for the UI are queued and handed
 //! to the app after the call ([`crate::UiRequest`]).
@@ -66,6 +67,8 @@ pub(crate) struct HostState {
     pub stderr: LogPipe,
     /// The time timers and rate limits go by.
     pub clock: Clock,
+    /// The agents' questions group (`agents`, `badges`, `asks`).
+    pub group: crate::group::Group,
 }
 
 impl WasiView for HostState {
@@ -89,6 +92,7 @@ pub(crate) struct StateParts {
     pub stdout: LogPipe,
     pub stderr: LogPipe,
     pub clock: Clock,
+    pub group: crate::group::Group,
 }
 
 impl HostState {
@@ -117,11 +121,12 @@ impl HostState {
             stdout: p.stdout,
             stderr: p.stderr,
             clock: p.clock,
+            group: p.group,
         }
     }
 
     /// Count a host call; false once over the limit for this second.
-    fn count_call(&mut self) -> bool {
+    pub(crate) fn count_call(&mut self) -> bool {
         let now = self.clock.now();
         if now.duration_since(self.window) >= Duration::from_secs(1) {
             self.window = now;

@@ -306,8 +306,15 @@ pub struct RowMark {
 }
 
 /// The badges and notes on agent `a`'s row: each running extension's
-/// that names it (by Pitwall's id, or by its `matchAgents`).
+/// that names it (by Pitwall's id, or by its `matchAgents`), then its
+/// tiles'.
 pub fn marks_for_agent(a: &pitwall_proto::AgentView, cx: &App) -> Vec<RowMark> {
+    let mut out = adapter_marks_for_agent(a, cx);
+    out.extend(crate::tiles::group::marks_for_agent(a, cx));
+    out
+}
+
+fn adapter_marks_for_agent(a: &pitwall_proto::AgentView, cx: &App) -> Vec<RowMark> {
     use pitwall_core::extensions::view::Target;
     let Some(hub) = hub::try_hub(cx) else { return vec![] };
     let list = crate::accounts::list(cx);
@@ -328,15 +335,17 @@ pub fn marks_for_agent(a: &pitwall_proto::AgentView, cx: &App) -> Vec<RowMark> {
     out
 }
 
-/// The badges and notes on project `path`'s row.
+/// The badges and notes on project `path`'s row, adapters' then tiles'.
 pub fn marks_for_project(path: &str, cx: &App) -> Vec<RowMark> {
     use pitwall_core::extensions::view::Target;
-    let Some(hub) = hub::try_hub(cx) else { return vec![] };
     let mut out = Vec::new();
-    for m in running(cx) {
-        let Some(st) = hub.read(cx).get(&m.id) else { continue };
-        out.extend(st.badges.iter().filter(|(_, b)| matches!(&b.target, Target::Project(p) if p == path)).map(|(_, b)| RowMark { ext: m.id.clone(), name: m.name.clone(), badge: b.clone() }));
+    if let Some(hub) = hub::try_hub(cx) {
+        for m in running(cx) {
+            let Some(st) = hub.read(cx).get(&m.id) else { continue };
+            out.extend(st.badges.iter().filter(|(_, b)| matches!(&b.target, Target::Project(p) if p == path)).map(|(_, b)| RowMark { ext: m.id.clone(), name: m.name.clone(), badge: b.clone() }));
+        }
     }
+    out.extend(crate::tiles::group::marks_for_project(path, cx));
     out
 }
 

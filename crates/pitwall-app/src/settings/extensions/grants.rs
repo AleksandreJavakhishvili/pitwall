@@ -427,6 +427,7 @@ impl SettingsView {
                 Via::Socket => "socket",
                 Via::Pitwall => "Pitwall",
                 Via::View => "button",
+                Via::Tile => "tile",
             };
             let (word, color) = match &e.outcome {
                 Outcome::Ok => ("ok".to_string(), ui.t.green),

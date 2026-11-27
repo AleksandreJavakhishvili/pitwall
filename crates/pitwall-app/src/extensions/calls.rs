@@ -160,11 +160,16 @@ pub fn decide(id: &str, name: &str, granted: bool, cx: &mut App) {
 /// Answer call `method` of extension `ext` (off the UI thread): the
 /// result, an error over [`protocol::MAX_OUT`] for one too big.
 pub fn answer(server: Option<&Server>, ext: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value, CallError> {
+    answer_via(server, ext, method, params, Via::Adapter)
+}
+
+/// [`answer`] for a call that came `via` its adapter or its tiles.
+pub fn answer_via(server: Option<&Server>, ext: &str, method: &str, params: serde_json::Value, via: Via) -> Result<serde_json::Value, CallError> {
     let Some(server) = server else {
         return Err(CallError::new("unsupported", "This Pitwall can't answer calls."));
     };
     let caller = server.extension_caller(ext).ok_or_else(|| CallError::new("denied", "This extension is off."))?;
-    let v = server.call_as(&caller, method, params, Via::Adapter).map_err(|e| CallError::new(&e.code, e.message))?;
+    let v = server.call_as(&caller, method, params, via).map_err(|e| CallError::new(&e.code, e.message))?;
     let size = serde_json::to_string(&v).map(|s| s.len()).unwrap_or(0);
     if size > protocol::MAX_OUT {
         return Err(CallError::new("too_large", format!("The answer is over {} KiB.", protocol::MAX_OUT / 1024)));

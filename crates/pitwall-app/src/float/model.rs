@@ -416,6 +416,9 @@ pub struct AskItem {
     pub busy: bool,
     /// Why the last one on its thread didn't go.
     pub note: Option<String>,
+    /// Asked by the extension's tile (its id and title), not its inbox:
+    /// answered to the tile, and "Open <title>" opens it.
+    pub tile: Option<(String, String)>,
 }
 
 impl AskItem {
@@ -480,6 +483,7 @@ pub fn asks(inboxes: &[Inbox]) -> Vec<AskItem> {
                     ask: a.clone(),
                     busy: b.busy.contains(&th.id),
                     note: b.notes.get(&th.id).cloned(),
+                    tile: None,
                 });
             }
         }

@@ -19,11 +19,16 @@
 //!   saved, for `pitwall extension dev` (`extension.devReload`).
 //!
 //! [`TileView`] draws a view's frames with the kit ([`render`]).
+//! - The agents' questions group ([`group`]): tiles read the agents and
+//!   queue into Next up through the daemon's method table, and their
+//!   badges and questions are kept here for the sidebar and the floating
+//!   control.
 
 pub mod blocks;
 #[cfg(test)]
 mod blocks_tests;
 pub mod canvas;
+pub mod group;
 pub mod render;
 #[cfg(test)]
 mod tests;
@@ -95,6 +100,8 @@ pub struct Running {
     /// The node each view was last asked to scroll to (`ui.scroll-to`),
     /// with a counter that moves with each ask.
     pub scroll_to: HashMap<String, (String, u64)>,
+    /// Its badges and questions (kept while it is suspended or let go).
+    pub group: group::Kept,
 }
 
 /// What hiding leads to, in turn.
@@ -113,6 +120,12 @@ pub struct Tiles {
     next_gen: u64,
     secrets: Arc<AppSecrets>,
     seq: u64,
+    /// The method table tiles' `agents` calls reach.
+    methods: Arc<group::AppMethods>,
+    /// What tiles saw of the agents last ([`group::fingerprint`]).
+    agents_seen: u64,
+    /// The last answer sent to a tile's question.
+    next_req: u64,
 }
 
 struct Handle(Entity<Tiles>);
@@ -142,7 +155,22 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             }
         })
         .detach();
-        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0 }
+        // The agents: running components hear `agents-changed` when what
+        // they see of them changes.
+        if let Some(store) = cx.try_global::<crate::agents::StoreHandle>().map(|s| s.0.clone()) {
+            cx.observe(&store, |t: &mut Tiles, store, cx| {
+                let seen = group::fingerprint(&store.read(cx).agents);
+                if std::mem::replace(&mut t.agents_seen, seen) != seen {
+                    for r in t.running.values() {
+                        if let Some(h) = &r.handle {
+                            h.send(ui::Event::AgentsChanged);
+                        }
+                    }
+                }
+            })
+            .detach();
+        }
+        Tiles { host: None, data_dir: None, tx, running: HashMap::new(), next_gen: 1, secrets: Arc::new(AppSecrets { store, accounts: Mutex::new(HashMap::new()) }), seq: 0, methods: Default::default(), agents_seen: 0, next_req: 0 }
     });
     cx.set_global(Handle(e.clone()));
     // Turned off: its component stops at once (runtime.md §2.3).
@@ -153,7 +181,10 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             let ui = crate::ui_state::get(cx);
             let off: Vec<String> = t.running.keys().filter(|id| !ui.extension_on(id)).cloned().collect();
             for id in off {
+                // Its badges and questions go with it.
                 t.running.remove(&id);
+                cx.emit(group::MarksChanged);
+                cx.defer(crate::float::sync);
                 cx.notify();
             }
         });
@@ -288,7 +319,7 @@ impl Tiles {
         let made = match dir {
             Some(dir) => {
                 self.data_dir = Some(dir.clone());
-                TileHost::new(HostConfig { data_dir: dir, secrets: self.secrets.clone() }).map_err(|e| e.to_string())
+                TileHost::new(HostConfig { data_dir: dir, secrets: self.secrets.clone(), methods: self.methods.clone() }).map_err(|e| e.to_string())
             }
             None => Err("Tiles need Pitwall's data folder.".into()),
         };
@@ -339,7 +370,10 @@ impl Tiles {
         r.shown.remove(view);
         r.frames.remove(view);
         if r.views.is_empty() {
+            // Its badges and questions go with it.
             self.running.remove(id);
+            cx.emit(group::MarksChanged);
+            cx.defer(crate::float::sync);
         } else {
             if let Some(h) = &r.handle {
                 h.close_view(view);
@@ -347,6 +381,63 @@ impl Tiles {
             self.shown_changed(id, before, cx);
         }
         cx.notify();
+    }
+
+    /// A tile's new set of badges: applied at most every
+    /// [`crate::extensions::hub::views::BADGES_EVERY`] (the newest waits
+    /// for its turn), as adapters' are.
+    fn set_badges(&mut self, id: &str, list: Vec<ui::Badge>, cx: &mut Context<Self>) {
+        use crate::extensions::hub::views::BADGES_EVERY;
+        let Some(r) = self.running.get_mut(id) else { return };
+        let now = std::time::Instant::now();
+        if let Some(at) = r.group.badges_at.filter(|at| now.duration_since(*at) < BADGES_EVERY) {
+            if r.group.badges_wait.replace(list).is_none() {
+                let (id, wait) = (id.to_string(), BADGES_EVERY - now.duration_since(at));
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |t, cx| {
+                        let Some(r) = t.running.get_mut(&id) else { return };
+                        if let Some(list) = r.group.badges_wait.take() {
+                            r.group.badges_at = Some(std::time::Instant::now());
+                            r.group.badges = list;
+                            cx.emit(group::MarksChanged);
+                        }
+                    });
+                })
+                .detach();
+            }
+            return;
+        }
+        r.group.badges_at = Some(now);
+        r.group.badges = list;
+        cx.emit(group::MarksChanged);
+    }
+
+    /// The user answered question `ask` of extension `id`'s tiles (in the
+    /// floating control): sent to its component as `ask-answered`, started
+    /// again first when it was let go. The answer's number, to follow its
+    /// reply ([`group::ask_result`]); `None` when it can't take it (the
+    /// question is gone, or the component stopped).
+    pub fn answer(&mut self, id: &str, ask: &str, picks: Vec<u32>, text: Option<String>, declined: bool, cx: &mut Context<Self>) -> Option<u64> {
+        let r = self.running.get(id)?;
+        if !r.group.asks.iter().any(|a| a.id == ask) {
+            return None;
+        }
+        if r.state == State::Dropped {
+            let saved = self.running.get_mut(id)?.saved.take();
+            self.revive(id, saved, cx);
+        }
+        let r = self.running.get_mut(id)?;
+        let text = text.filter(|t| !t.trim().is_empty());
+        let event = ui::Event::AskAnswered(ui::AskAnswer { id: ask.to_string(), picks, text, declined });
+        if !r.handle.as_ref().is_some_and(|h| h.send(event)) {
+            return None;
+        }
+        self.next_req += 1;
+        r.group.busy.insert(ask.to_string(), self.next_req);
+        r.group.notes.remove(ask);
+        cx.notify();
+        Some(self.next_req)
     }
 
     /// View `view` is shown (`true`) or hidden. With none of its views
@@ -438,6 +529,7 @@ impl Tiles {
         if let Some(n) = self.running.get_mut(id) {
             n.shown = r.shown;
             n.log = r.log;
+            n.group = r.group;
             n.log.push_back(note(if had_state { "Shown again: started with the state it saved." } else { "Shown again: started afresh." }));
         }
         cx.notify();
@@ -520,7 +612,9 @@ impl Tiles {
         let gen = self.next_gen;
         self.next_gen += 1;
         // It starts hidden (`visible: false`); shown, it is told.
-        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new() };
+        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new(), group: Default::default() };
+        // Its `agents` calls reach the daemon's method table as it is now.
+        self.methods.set_server(cx.try_global::<crate::extensions::calls::Api>().and_then(|a| a.server.clone()));
         let started = (|| -> Result<TileHandle, String> {
             let host = self.host(cx)?;
             let dir = crate::extensions::folder_of(id, cx).ok_or_else(|| "Its folder isn't found.".to_string())?;
@@ -585,6 +679,18 @@ impl Tiles {
                 self.seq += 1;
                 r.scroll_to.insert(view, (key_path, self.seq));
             }
+            TileOutput::Ui(UiRequest::Badges(list)) => {
+                self.set_badges(id, list, cx);
+                return;
+            }
+            TileOutput::Ui(UiRequest::Asks(list)) => {
+                r.group.set_asks(list);
+                cx.defer(crate::float::sync);
+            }
+            TileOutput::Ui(UiRequest::AskResult { id: ask, refused }) => {
+                r.group.replied(&ask, refused);
+                cx.defer(crate::float::sync);
+            }
             TileOutput::Ui(req) => {
                 let id = id.to_string();
                 cx.defer(move |cx| ui_request(&id, req, cx));
@@ -598,11 +704,13 @@ impl Tiles {
                     let views = r.views.clone();
                     let shown = r.shown.clone();
                     let log = std::mem::take(&mut r.log);
+                    let kept = std::mem::take(&mut r.group);
                     self.running.remove(id);
                     self.start(id, views, Some(bytes), cx);
                     if let Some(n) = self.running.get_mut(id) {
                         n.shown = shown;
                         n.log = log;
+                        n.group = kept;
                         n.log.push_back(note("Reloaded from its folder, with the state it saved."));
                     }
                 }
@@ -673,8 +781,9 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
         UiRequest::Toast { text, .. } => crate::windows::extension_toast(id, name, text, None, cx),
         UiRequest::OpenView(tile) => crate::windows::open_extension_view(id, &tile, cx),
         UiRequest::OpenSettings => crate::windows::open_extension_settings(id, cx),
-        // Kept for its view in `Tiles::apply`.
-        UiRequest::ScrollTo { .. } => {}
+        // Kept for its view, the sidebar and the floating control in
+        // `Tiles::apply`.
+        UiRequest::ScrollTo { .. } | UiRequest::Badges(_) | UiRequest::Asks(_) | UiRequest::AskResult { .. } => {}
     }
 }
 
