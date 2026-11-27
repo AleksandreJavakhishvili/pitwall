@@ -66,6 +66,8 @@ struct NodeState {
     /// The scroll position last told (x, y).
     told: Rc<Cell<Option<(f32, f32)>>>,
     focus: Option<FocusHandle>,
+    /// A code or diff view's (native-blocks.md §16.2).
+    block: Option<super::blocks::Block>,
 }
 
 pub struct TileView {
@@ -277,6 +279,7 @@ impl TileView {
                 }
                 _ => st.scroll = None,
             }
+            super::blocks::Block::sync(&mut st.block, path, &node.element, cx);
             // Buttons are focusable whatever the node says; fields have
             // their own.
             if (node.focusable || matches!(node.element, Element::Button(_))) && st.focus.is_none() && !matches!(node.element, Element::Input(_)) {
@@ -411,6 +414,45 @@ impl TileView {
     fn node(&self, path: &str) -> Option<&Node> {
         let i = self.paths.iter().position(|p| p == path)?;
         self.frame.as_ref()?.nodes.get(i)
+    }
+
+    /// The handler of node `path`'s `on` listener.
+    pub(super) fn listener_of(&self, path: &str, on: Listen) -> Option<u32> {
+        self.node(path).and_then(|n| handler(n, on))
+    }
+
+    /// Send `event` to the tile.
+    pub(super) fn send_event(&self, event: Event, cx: &App) -> bool {
+        self.send(event, cx)
+    }
+
+    /// The code or diff view of node `path`.
+    pub(super) fn block_mut(&mut self, path: &str) -> Option<&mut super::blocks::Block> {
+        self.nodes.get_mut(path)?.block.as_mut()
+    }
+
+    /// The code or diff view of node `path` (tests and bench commands).
+    pub fn code_view_of(&self, path: &str) -> Option<Entity<crate::code_view::CodeView>> {
+        self.nodes.get(path)?.block.as_ref().map(|b| b.view.clone())
+    }
+
+    /// A click on canvas region `key` of node `path`, at its centre (tests
+    /// and bench commands: nothing is clicked on the screen).
+    pub fn click_region(&self, path: &str, key: &str, cx: &App) -> bool {
+        let Some(Element::Canvas(c)) = self.node(path).map(|n| &n.element) else { return false };
+        let Some(r) = c.regions.iter().find(|r| r.key == key) else { return false };
+        let Some(handler) = r.click else { return false };
+        let b = super::canvas::Tf::new(&c.transform, Point::default()).rect(&r.rect);
+        let at = ui::Point { x: f32::from(b.center().x), y: f32::from(b.center().y) };
+        self.send(Event::Click(ui::Click { handler, button: ui::MouseButton::Left, modifiers: ui::Modifiers::empty(), count: 1, at }), cx)
+    }
+
+    /// Send pointer event `kind` at `at` to node `path`'s `pointer` (or,
+    /// for a wheel or pinch, `wheel`) listener (tests and bench commands).
+    pub fn pointer(&self, path: &str, kind: ui::PointerKind, at: ui::Point, cx: &App) -> bool {
+        let on = if matches!(kind, ui::PointerKind::Wheel(_) | ui::PointerKind::Pinch(_)) { Listen::Wheel } else { Listen::Pointer };
+        let Some(handler) = self.listener_of(path, on) else { return false };
+        self.send(Event::Pointer(ui::PointerEvent { handler, kind, at, modifiers: ui::Modifiers::empty() }), cx)
     }
 
     fn on_input(&mut self, path: &str, e: &InputEvent, cx: &mut Context<Self>) {
@@ -671,6 +713,31 @@ impl TileView {
                     ui::Axis::Both => outer.child(inner.overflow_scroll().flex_1().min_h_0().min_w_0()).into_any_element(),
                 }
             }
+            Element::Canvas(c) => {
+                let (d, f) = render::apply(div(), &node.style, t);
+                let d = self.interact(d.id(id.clone()), node, &path, f, st, t, cx);
+                let (paint_frame, theme) = (frame.clone(), t.clone());
+                let paint = canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, cx| {
+                        if let Some(Element::Canvas(c)) = paint_frame.nodes.get(i).map(|n| &n.element) {
+                            super::canvas::draw(c, bounds, &theme, window, cx);
+                        }
+                    },
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full();
+                let regions: Vec<AnyElement> = c.regions.iter().map(|r| self.region(&id, &path, c, r, st, cx)).collect();
+                d.debug_selector(move || sel.clone()).relative().overflow_hidden().child(paint).children(regions).into_any_element()
+            }
+            Element::CodeView(_) | Element::DiffView(_) => {
+                let Some(view) = st.and_then(|s| s.block.as_ref()).map(|b| b.view.clone()) else { return div().into_any_element() };
+                let (d, f) = render::apply(div(), &node.style, t);
+                let d = self.interact(d.id(id), node, &path, f, st, t, cx);
+                d.debug_selector(move || sel.clone()).min_h_0().min_w_0().overflow_hidden().child(view).into_any_element()
+            }
             Element::Box => {
                 let children: Vec<AnyElement> = self.kids[i].clone().into_iter().map(|k| self.build(k, inherit, window, t, cx)).collect();
                 // The root fills the tile (its styles may say otherwise).
@@ -711,10 +778,56 @@ impl TileView {
         if let Some(h) = st.and_then(|s| s.focus.clone()) {
             d = d.track_focus(&h);
         }
-        if click.is_none() && hover.is_none() && pointer.is_none() {
+        let wheel = handler(node, Listen::Wheel);
+        let drag = node.style.iter().rev().find_map(|s| match s {
+            ui::Style::Drag(d) => Some(d.clone()),
+            _ => None,
+        });
+        let drop = node.style.iter().rev().find_map(|s| match s {
+            ui::Style::DropTarget(d) => Some(d.clone()),
+            _ => None,
+        });
+        if click.is_none() && hover.is_none() && pointer.is_none() && wheel.is_none() && drag.is_none() && drop.is_none() {
             return d;
         }
         d = d.relative().child(bounds_probe(st));
+        if let Some(h) = wheel {
+            let b = bounds.clone();
+            d = d.on_scroll(cx.listener(move |v, e: &gpui::ScrollEvent, window, cx| {
+                cx.stop_propagation();
+                let delta = e.delta.pixel_delta(window.line_height());
+                // GPUI's delta moves the content; the tile's is the scroll.
+                let kind = ui::PointerKind::Wheel(ui::Delta { x: -f32::from(delta.x), y: -f32::from(delta.y) });
+                v.send(Event::Pointer(ui::PointerEvent { handler: h, kind, at: point(e.position, b.get()), modifiers: modifiers(&e.modifiers) }), cx);
+            }));
+            let b = bounds.clone();
+            d = d.on_pinch(cx.listener(move |v, e: &gpui::PinchEvent, _, cx| {
+                cx.stop_propagation();
+                v.send(Event::Pointer(ui::PointerEvent { handler: h, kind: ui::PointerKind::Pinch(e.delta), at: point(e.position, b.get()), modifiers: modifiers(&e.modifiers) }), cx);
+            }));
+        }
+        if let Some(src) = drag {
+            let value = NodeDrag { ext: self.ext.clone(), tile: self.tile.clone(), kind: src.kind, data: src.data, label: src.label.into() };
+            d = d.on_drag(value, |d, grab, _, cx| cx.new(|_| crate::main_screen::topbar::AgentGhost::named(d.label.clone(), grab)));
+        }
+        if let Some(target) = drop {
+            let (ext, tile) = (self.ext.clone(), self.tile.clone());
+            let ok = Rc::new(move |d: &NodeDrag| d.ext == ext && d.tile == tile && target.accepts.contains(&d.kind));
+            let over = t.focus.opacity(0.12);
+            let ring = t.focus;
+            let (o1, o2, o3) = (ok.clone(), ok.clone(), ok);
+            let b = bounds.clone();
+            let h = target.handler;
+            d = d
+                .drag_over::<NodeDrag>(move |s, drag, _, _| if o1(drag) { s.bg(over).border_color(ring) } else { s })
+                .can_drop(move |any, _, _| any.downcast_ref::<NodeDrag>().is_some_and(|d| o2(d)))
+                .on_drop(cx.listener(move |v, drag: &NodeDrag, window, cx| {
+                    if o3(drag) {
+                        let at = point(window.mouse_position(), b.get());
+                        v.send(Event::Dropped(ui::DropEvent { handler: h, kind: drag.kind.clone(), data: drag.data.clone(), at }), cx);
+                    }
+                }));
+        }
         if let Some(h) = click {
             let b = bounds.clone();
             let focus = st.and_then(|s| s.focus.clone());
@@ -753,6 +866,46 @@ impl TileView {
         }
         let _ = path;
         d
+    }
+
+    /// Canvas region `r` of node `path` (canvas `c`): a box over the
+    /// drawing with its tooltip, the hand cursor when it can be clicked,
+    /// and its click and hover sent with positions in the canvas node.
+    fn region(&self, id: &SharedString, path: &str, c: &ui::Canvas, r: &ui::HitRegion, st: Option<&NodeState>, cx: &mut Context<Self>) -> AnyElement {
+        let b = super::canvas::Tf::new(&c.transform, Point::default()).rect(&r.rect);
+        let canvas_at = st.map(|s| s.bounds.clone()).unwrap_or_default();
+        let sel = format!("tile-region-{path}/{}", r.key);
+        let tip = r.tooltip.clone().unwrap_or_else(|| r.label.clone());
+        let mut d = div()
+            .id(SharedString::from(format!("{id}-region-{}", r.key)))
+            .debug_selector(move || sel.clone())
+            .absolute()
+            .left(b.origin.x)
+            .top(b.origin.y)
+            .w(b.size.width)
+            .h(b.size.height)
+            .when(!tip.is_empty(), |d| d.tooltip(kit::tooltip(tip)));
+        if let Some(h) = r.click {
+            let at = canvas_at.clone();
+            d = d.cursor_pointer().on_click(cx.listener(move |v, e: &gpui::ClickEvent, _, cx| {
+                // A press that dragged (to pan) isn't a click.
+                if let gpui::ClickEvent::Mouse(m) = e {
+                    let moved = m.up.position - m.down.position;
+                    if f32::from(moved.x.abs() + moved.y.abs()) > super::canvas::CLICK_SLACK {
+                        return;
+                    }
+                }
+                cx.stop_propagation();
+                let button = if e.is_right_click() { ui::MouseButton::Right } else if e.is_middle_click() { ui::MouseButton::Middle } else { ui::MouseButton::Left };
+                v.send(Event::Click(ui::Click { handler: h, button, modifiers: modifiers(&e.modifiers()), count: e.click_count() as u32, at: point(e.position(), at.get()) }), cx);
+            }));
+        }
+        if let Some(h) = r.hover {
+            d = d.on_hover(cx.listener(move |v, inside: &bool, window, cx| {
+                v.send(Event::Hover(ui::Hover { handler: h, inside: *inside, at: point(window.mouse_position(), canvas_at.get()) }), cx);
+            }));
+        }
+        d.into_any_element()
     }
 
     /// The key path of the node that has the keyboard: a text field or a
@@ -795,6 +948,17 @@ impl TileView {
         };
         Some(el.debug_selector(|| "tile-state".into()).into_any_element())
     }
+}
+
+/// A node of a tile dragged inside its view (ui.md §3.6): dropped only on
+/// a target of the same view that accepts its kind.
+#[derive(Clone, Debug)]
+pub struct NodeDrag {
+    ext: String,
+    tile: String,
+    kind: String,
+    data: String,
+    label: SharedString,
 }
 
 /// The ring around a focused node.

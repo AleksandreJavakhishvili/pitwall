@@ -238,7 +238,7 @@ impl Editor {
                 this.marks_later(id, cx);
                 cx.notify();
             }
-            CodeViewEvent::Comment { .. } => {}
+            CodeViewEvent::Comment { .. } | CodeViewEvent::LineClicked { .. } => {}
         });
         let n = (1..).find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.untitled == format!("Untitled-{n}"))).unwrap_or(1);
         self.tabs.push(Tab {
