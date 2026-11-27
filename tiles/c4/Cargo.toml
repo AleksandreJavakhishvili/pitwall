@@ -17,6 +17,9 @@ publish = false
 [features]
 # The rust-sugiyama layout, kept to compare with dagre (layout-lld.md §7).
 sugiyama = ["dep:rust-sugiyama", "dep:petgraph"]
+# The Painter (src/paint.rs) and the shop demo tile (examples/shop_tile.rs):
+# drawing on the Tile SDK canvas (hla.md §3.8, phase B).
+tile = ["dep:pitwall-extension"]
 
 [dependencies]
 # Markdown fences and headings; default features (html, getopts) aren't needed.
@@ -26,6 +29,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 dagre = "0.1.2"
 rust-sugiyama = { version = "0.4", optional = true }
 petgraph = { version = "0.8", optional = true }
+# The public Tile SDK, for drawing (the `tile` feature).
+pitwall-extension = { path = "../../sdk/pitwall-extension", optional = true }
 
 [build-dependencies]
 # Reads Inter's advances and kerning into a table at build time
@@ -35,3 +40,9 @@ rustybuzz = "0.20"
 [dev-dependencies]
 # Shapes sample labels to check the width table (layout-lld.md §1).
 rustybuzz = "0.20"
+
+# The shop fixture's diagrams drawn as a tile, for wasm32-wasip2 (phase B demo).
+[[example]]
+name = "shop_tile"
+crate-type = ["cdylib"]
+required-features = ["tile"]

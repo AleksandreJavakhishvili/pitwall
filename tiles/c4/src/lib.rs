@@ -12,4 +12,6 @@ pub mod index;
 pub mod layout;
 pub mod limits;
 pub mod mermaid;
+#[cfg(feature = "tile")]
+pub mod paint;
 pub mod text;
