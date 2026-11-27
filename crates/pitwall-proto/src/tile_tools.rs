@@ -79,6 +79,21 @@ pub fn mcp_name(extension: &str, tool: Option<&str>) -> String {
     format!("{}__{}", extension.replace('.', "-"), tool.unwrap_or("open"))
 }
 
+/// The approval a `read` or `act` call of extension `extension`'s tile
+/// asks for, as its `action` (`tile.act:diagrams`): what the floating
+/// control knows it by ([`approval_extension`]).
+pub fn approval_action(kind: &str, extension: &str) -> String {
+    format!("tile.{kind}:{extension}")
+}
+
+/// The extension whose tile an approval is for ([`approval_action`]), and
+/// the call's kind; `None` for any other approval.
+pub fn approval_extension(action: &str) -> Option<(&str, &str)> {
+    let rest = action.strip_prefix("tile.")?;
+    let (kind, ext) = rest.split_once(':')?;
+    (matches!(kind, "read" | "act") && !ext.is_empty()).then_some((ext, kind))
+}
+
 impl TileTool {
     /// Its name in MCP ([`mcp_name`]).
     pub fn name(&self) -> String {
@@ -537,6 +552,16 @@ mod tests {
             tiles: vec![TileTarget { id: "main".into(), title: "Hello".into(), input: Some(json!({ "type": "object", "properties": { "message": { "type": "string" } } })) }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_tiles_approval_names_its_extension() {
+        assert_eq!(approval_action("act", "acme.diagrams"), "tile.act:acme.diagrams");
+        assert_eq!(approval_extension("tile.act:acme.diagrams"), Some(("acme.diagrams", "act")));
+        assert_eq!(approval_extension("tile.read:c4"), Some(("c4", "read")));
+        assert_eq!(approval_extension("session.add"), None);
+        assert_eq!(approval_extension("tile.show:c4"), None);
+        assert_eq!(approval_extension("tile.read:"), None);
     }
 
     #[test]

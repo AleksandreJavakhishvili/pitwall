@@ -222,6 +222,7 @@ pub fn float_asks(agents: &[AgentView], cx: &App) -> Vec<AskItem> {
                 busy: r.group.busy.contains_key(&a.id),
                 note: r.group.notes.get(&a.id).cloned(),
                 tile: Some((tile.id.clone(), tile.title.clone())),
+                approval: None,
             });
         }
     }

@@ -766,6 +766,16 @@ fn asks(cx: &App) -> Vec<AskItem> {
     }
     // Tiles' questions, after the inboxes' (platform-services.md §14.2).
     out.extend(crate::tiles::group::float_asks(agents, cx));
+    // Approvals of agents' read and act calls in tiles (agent-tools.md
+    // §11.5), answered here as in the dialog.
+    let ext_of = |id: &str| match crate::extensions::manifest_of(id, cx) {
+        Some(m) => {
+            let icon = m.contributes.tiles.first().and_then(|t| t.icon.clone()).unwrap_or_else(|| crate::extensions::icon_of(&m).to_string());
+            (m.name.clone(), icon)
+        }
+        None => (id.to_string(), "extension".to_string()),
+    };
+    out.extend(model::approvals(&f.store.read(cx).approvals, &ext_of));
     // Blocking ones first across the inboxes too (stable).
     out.sort_by_key(|a| !a.ask.blocking);
     out
@@ -884,6 +894,10 @@ pub fn sync(cx: &mut App) {
         let h = hub::try_hub(cx);
         let result = |key: &str, req: u64| {
             let a = questions.iter().find(|a| a.key() == key)?;
+            // An approval answered goes from the list: nothing to wait for.
+            if a.approval.is_some() {
+                return None;
+            }
             if a.tile.is_some() {
                 return crate::tiles::group::ask_result(&a.ext, req, cx);
             }
@@ -1217,6 +1231,15 @@ fn key(ev: &KeyDownEvent, cx: &mut App) -> bool {
         }
         _ => {}
     }
+    // A question's or an approval's suggestion by its number, as its
+    // chip shows it.
+    if let (Some(model::Entry::Ask(a)), true) = (current, plain) {
+        if let Some(n) = ks.key.parse::<u32>().ok().filter(|n| (1..=9).contains(n) && (*n as usize) <= a.ask.suggestions.len()) {
+            let key = a.key();
+            pick_ask(&key, n - 1, cx);
+            return true;
+        }
+    }
     let item = match current {
         Some(model::Entry::Agent(i)) if i.local => i,
         _ => {
@@ -1284,6 +1307,18 @@ fn pick_ask(key: &str, i: u32, cx: &mut App) {
     if i as usize >= a.ask.suggestions.len() || cx.global::<Float>().sent.contains_key(key) {
         return;
     }
+    if let Some(ap) = &a.approval {
+        let (allow, always) = ap.answers.get(i as usize).copied().unwrap_or((false, false));
+        log(|| format!("approval {}: allow {allow}, always {always}", ap.id));
+        match crate::approvals::answer(&ap.id, allow, always, cx) {
+            Ok(()) => {
+                cx.global_mut::<Float>().sent.insert(key.to_string(), 0);
+            }
+            Err(e) => log(|| format!("approval not answered: {e}")),
+        }
+        sync_later(cx);
+        return;
+    }
     if a.ask.multiple {
         let p = cx.global_mut::<Float>().picks.entry(key.to_string()).or_default();
         match p.iter().position(|x| *x == i) {
@@ -1305,7 +1340,8 @@ fn pick_ask(key: &str, i: u32, cx: &mut App) {
 /// decline), as its inbox does: `true` when it went.
 fn send_ask(a: &AskItem, picks: Vec<u32>, text: Option<String>, declined: bool, cx: &mut App) -> bool {
     let key = a.key();
-    if cx.global::<Float>().sent.contains_key(&key) {
+    // An approval is answered by its suggestions alone (`pick_ask`).
+    if a.approval.is_some() || cx.global::<Float>().sent.contains_key(&key) {
         return false;
     }
     log(|| format!("answer to {key}: picks {picks:?}, own words {}, declined {declined}", text.as_deref().is_some_and(|t| !t.trim().is_empty())));
@@ -1326,6 +1362,14 @@ fn send_ask(a: &AskItem, picks: Vec<u32>, text: Option<String>, declined: bool, 
 /// Bring Pitwall forward on question `a`'s thread in its inbox, or on the
 /// tile that asks it.
 fn open_ask(a: &AskItem, cx: &mut App) {
+    // An approval: Pitwall forward on the agent that asks, where the
+    // dialog shows it.
+    if let Some(ap) = &a.approval {
+        if let Some(agent) = ap.agent.clone() {
+            open(&agent, cx);
+        }
+        return;
+    }
     if let Some((tile, _)) = &a.tile {
         crate::windows::show_extension_view(&a.ext, tile, cx);
         return;
@@ -2534,8 +2578,24 @@ impl FloatView {
                     .text_color(t.text)
                     .child(a.ask.question.clone()),
             )
+            // An approval: what the call names (the tool's description,
+            // the project, the input), as the dialog shows it.
+            .when_some(a.approval.as_ref().filter(|ap| !ap.details.is_empty()), |d, ap| {
+                d.child(
+                    div()
+                        .debug_selector(named("approval-details"))
+                        .mb(px(GAP))
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .text_size(px(12.))
+                        .line_height(px(17.))
+                        .text_color(t.text_2)
+                        .children(ap.details.iter().take(8).map(|l| div().child(SharedString::from(l.clone())))),
+                )
+            })
             .when(!a.ask.suggestions.is_empty(), |d| d.child(div().mb(px(GAP)).child(options)))
-            .child(answer)
+            .when(a.approval.is_none(), |d| d.child(answer))
             .when_some(note, |d, (text, error)| {
                 d.child(
                     div()
