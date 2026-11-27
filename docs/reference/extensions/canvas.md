@@ -41,7 +41,9 @@ A label is drawn at its point with 13 px Inter in the text colour unless told ot
 
 Text smaller than 2 px on screen isn't drawn.
 
-**Sizing boxes to their text.** There is no call that asks Pitwall how wide a text is. Pitwall draws canvas text with Inter and JetBrains Mono, the same fonts at every size, and a width scales with the size, so a table of Inter's character widths in the tile measures text closely enough to size boxes and wrap lines (the C4 tile does this). Give a label a `.max_width` as a safety margin: if the measure is short by a few pixels, the text ends in "…" instead of running over the box.
+**Sizing boxes to their text.** `ui::measure_text(&texts, TextFont::Ui, 14.0, TextWeight::Semibold)` asks Pitwall how wide each text is in its fonts (Inter, or JetBrains Mono for `TextFont::Mono`) at that size and weight, kerned as Pitwall draws it, in canvas units at zoom 1; `label.width()` measures one label as it is set up. Measure all a drawing's labels in one call (at most 1 000 texts and 64 KiB): each call counts toward a tile's host calls. A width scales with the size, and a character Pitwall's fonts lack counts as an average letter, so still give a label a `.max_width` as a safety margin: if the measure is short by a few pixels, the text ends in "…" instead of running over the box. The test harness measures the same way, so tests see the same widths (`pitwall_extension_test::text_width`). The C4 tile keeps its own table of Inter's widths instead, because its layout runs without the SDK; a test checks that the table and Pitwall's measure agree.
+
+**A box's menu.** A popover can hang from a point of the canvas: `canvas.popover(popover().at(x, y).child(…))`, with (x, y) in the canvas node's pixels, from its top-left corner (map a box's corner with `viewport.to_view(x, y)`). The C4 tile opens its "which diagram?" menu this way, under the box that was clicked ([Popover](components-layout.md#popover)).
 
 ## Zoom and pan
 
@@ -117,6 +119,7 @@ The harness ([quick start](quick-start.md#test-it)) shows canvases in the text s
 |---|---|
 | `t.canvas("diagram")` | What the canvas draws, its transform and regions, to assert on |
 | `t.click_region("API")`, `t.hover_region("API", true)` | Click or point at the region with that label |
+| `t.right_click_region("API")` | Right-click it (a box's menu) |
 | `t.wheel(key, dx, dy, x, y)`, `t.pinch(key, delta, x, y)` | Scroll or pinch over an element |
 | `t.drag_pointer(key, from, to)` | Press, move and let go: a pan |
 | `t.drag(from_key, to_key)`, `t.try_drag(…)` | Drag one element onto another; `try_drag` says why nothing was dropped |

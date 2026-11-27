@@ -24,6 +24,7 @@ code_view(source)
 | `code_view(text)` | The view of `text` (at most 1 MiB). Give it a size: `.flex_1()`, `.size_full()` or a height. It scrolls inside |
 | `.language(name)` | For highlighting: a name (`rust`, `typescript`, `python`, `go`, `markdown`, …) or a file name (`main.rs`). Unknown names show plain text |
 | `.mark(lines, mark)` | A bar in the margin by lines (0-based, end exclusive): `Mark::Added` (green), `Mark::Changed` (blue), or `Mark::Deleted` (a red mark where lines were removed) |
+| `.mark_with(lines, mark, message)` | A problem: `Mark::Error` (red) or `Mark::Warning` (yellow) bars the lines and tints them, and `message` (at most 500 bytes, its first line) is drawn after the first line's text, as an editor shows a compiler's errors |
 | `.reveal(line)` | Scroll that line (0-based) into the middle. Only when it differs from the last render's, so the user's own scrolling isn't undone |
 | `.on_line_click(handler)` | A click on a line number. `LineClick` has the `line` (0-based) and the `side` |
 | `.on_select(handler)` | The selection changed. `CodeSelection` has where it starts and ends (line and column, 0-based) and the selected text |
@@ -52,7 +53,7 @@ The selection is told at most every 100 ms while the user drags it, and its text
 
 ## Testing
 
-The harness shows the views in the text snapshot (`code-view language=rust lines=8 marks=3`, `diff-view texts side-by-side`) and acts on them:
+The harness shows the views in the text snapshot (`code-view language=rust lines=8 marks=3`, with each problem as `error@7 "message"` or `warning@2 "message"`; `diff-view texts side-by-side`) and acts on them:
 
 | Call | Does |
 |---|---|

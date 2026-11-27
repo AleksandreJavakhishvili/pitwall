@@ -93,7 +93,7 @@ A long list: search results, log lines, a file's history, anything that may run 
 | `.revision(n)` | A number that changes only when the rows do. Without it every render counts as new data and Pitwall asks for the rows in sight again |
 | `.on_select(listener)` | Hears a row chosen |
 
-- **Rows.** A row is a small tree (at most 64 nodes) of boxes, text, icons, buttons, images and a context menu; no text fields or nested lists. Give each row its item's id with `.id(…)`, so the selection follows the item; a key has no `/`. Listeners in a row (a button's `on_click`, a [context menu](#menus)) work like any other.
+- **Rows.** A row is a small tree (at most 64 nodes) of boxes, text, icons, buttons, images, a context menu, [badges](components-feedback.md), [avatars and relative times](components-data.md); no text fields or nested lists. Give each row its item's id with `.id(…)`, so the selection follows the item; a key has no `/`. Listeners in a row (a button's `on_click`, a [context menu](#menus)) work like any other.
 - **Events.** `on_select` gets the row's key (`&str`), or the whole `Picked`: `key`, `index`, `modifiers` (⌘ or Shift for adding to a selection), and `activate`, true for a double click or Enter.
 - **Keyboard.** With the list focused (a click on it), Up and Down move the selection, Home and End go to the ends, Page Up and Page Down by a screen, and Enter activates; each sends `select`. A row that isn't loaded yet is selected when it arrives.
 - **Size.** It fills its parent: give the parent a height, or let it grow (`flex_1` in a column that has one).
@@ -324,6 +324,8 @@ Pitwall owns what the user types: typing, selection, undo and input methods neve
 ```rust
 {{#include crates/pitwall-cli/templates/tile/list/lib.rs.tmpl#list-submit}}
 ```
+
+**The selection.** `on_change` with the whole `InputChange` has the cursor or selection after each edit, and `.on_select(listener)` hears it move without an edit (`Selection`, a range of UTF-8 byte offsets in the text); keep the latest with your copy of the text, and the selected text is that range of it. Notes sends the selection to an agent this way. In tests, `t.select_text(key, range)` or `t.select_in(key, "words")` selects as the user would.
 
 `.placeholder(…)` shows faint text while it is empty. `.multiline()` makes it several lines (Enter adds a line, ⌘Enter submits) and `.rows(n)` its height, or, given a height or room to grow (`.size_full()`, `.flex_1()`), it fills that, at least its rows; `.select(range)` places the cursor when `.value` changes the text; `.disabled(true)` makes it read-only. The `form` template's fields:
 

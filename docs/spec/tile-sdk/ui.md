@@ -268,12 +268,10 @@ tooltip, click and hover handlers) are laid over the drawing; their
 label is the accessible name. Input: `pointer` events had positions
 already; `listen.wheel` adds `pointer-kind.wheel(delta)` and
 `pointer-kind.pinch(f32)`. A press that moves more than 4 px is not a
-region click. Limits: 20 000 ops, 5 000 regions. No text-measurement
-call: canvas text is Inter or JetBrains Mono at any size, widths scale
-linearly with size, and GPUI's text system is not reachable from the
-tile's worker or the harness, so a width table in the guest (as the C4
-tile has) is the measure; `max-width` guards the rest. The SDK's
-`Viewport` turns drag, wheel, ⌘-wheel and pinch into zoom and pan.
+region click. Limits: 20 000 ops, 5 000 regions. Text measurement:
+`ui.measure-text` ([3.11](#311-the-seed-tiles-gaps-as-built)); `max-width`
+guards the rest. The SDK's `Viewport` turns drag, wheel, ⌘-wheel and
+pinch into zoom and pan.
 
 
 
@@ -690,3 +688,45 @@ record) and its status. Batch 1 is #126; batch 2 is #128.
 | Bar chart | `bar-chart(bar-chart)` | `bar_chart` | Phase 2, batch 2 |
 | Line chart | `line-chart(line-chart)` | `line_chart` | Phase 2, batch 2 |
 | Status timeline | `status-timeline(status-timeline)` | `status_timeline` | Phase 2, batch 2 |
+
+### 3.11 The seed tiles' gaps (as built)
+
+What the C4 and Notes seed tiles found missing ([plan](plan.md) item 6),
+added to WIT 0.1 in place, the fixtures and `tiles/c4/tile.wasm` rebuilt:
+
+- **Text measurement** (C4 G2). `ui.measure-text(texts, font, size,
+  weight) -> list<f32>`: widths on one line in Pitwall's Inter or
+  JetBrains Mono, kerned. GPUI's text system isn't reachable from a
+  tile's worker or the harness, so the host reads tables `build.rs`
+  makes from the app's own font files with rustybuzz (the method the C4
+  tile used); the harness gives the same numbers. Batched (≤ 1 000 texts,
+  64 KiB a call), since each call counts toward the 200 host calls a
+  second. SDK: `ui::measure_text`, `Label::width`. The C4 tile keeps its
+  own table: its layout core builds and is tested without the SDK, and a
+  layout measures thousands of strings while wrapping; its test now
+  checks the table against the host's measure (equal for 100 labels,
+  both weights), so a font Pitwall changes fails there.
+- **A popover at a point** (C4's box menu). `popover.at: option<point>`
+  anchors it to a point of its parent, in the parent's pixels;
+  `placement` says which side. A canvas draws its popover children, so
+  `canvas.popover(popover().at(..))` opens a menu under a box.
+- **Problem lines in the code view.** `line-mark-kind` gains `error` and
+  `warning`, `line-mark` a `message`: a red or yellow bar, the lines
+  tinted, the message after the first line's text. The C4 tile's
+  problems view uses it.
+- **The selection of a text input** (Notes G2). No WIT change: WIT 0.1
+  already sends the selection with each `input-changed` and in
+  `input-selected`; the tile keeps the latest with its copy of the text.
+  The harness gains `select_text` and `select_in`; Notes sends the
+  selection first when there is one.
+- **`viewer.open`** (Notes FR-10). `show.file` is the editor;
+  `show.view(path, line)` shows the file in Pitwall's file viewer, as an
+  agent's `show_files` does: the extension's own viewer window
+  (`tile:<id>`), rooted at the file's git repository (else its folder),
+  opened behind the front window without the keyboard. Needs `show`.
+- **Rows** may hold badges, avatars and relative times (batch 1's
+  follow-up).
+- **The app's headless tests** choose a segmented control's or radio
+  group's option (`TileView::choose`) and press a bound key
+  (`TileView::press_key`), as the harness does; the C4 tile's Changes
+  view has its screenshot.

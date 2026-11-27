@@ -103,12 +103,13 @@ tile and show content in it, and the pages below match.
   - SDK gaps the seed tiles found (each to be raised in the SDK's design, not reached around):
     - [ ] `files.read` (`list`, `watch`) and `files.write`: C4 phase C and D, Notes' project notes. Tiles have no file access at all (WASI has no preopens)
     - [ ] A tile's project (Notes G5): which project a view is in, for per-project notes and lists; agents name theirs in a call's `caller`, the user's own views don't
-    - [ ] `viewer.open` from a tile (Notes FR-10, open in the editor)
-    - [ ] A popover at a point of a canvas: the C4 tile's "which diagram?" menu is anchored to the bar, not to the box clicked
-    - [ ] Problem lines in the code view: `Mark` has added, changed and deleted only, so the C4 tile marks a bad line as changed; an error (and warning) mark, with its message, would say what it is
-    - [ ] Text measurement (C4 G2): the tile carries its own table of Inter's advance widths to size boxes
-    - [ ] The selection of an input (Notes G2): Send sends the whole note or a section, not the selected text
-    - [ ] In the app's headless tests, a way to choose a segmented control's option or press a key on a tile (`TileView` has click, pointer and region clicks only), for screenshots of the C4 tile's Changes view
+    - [x] `viewer.open` from a tile (Notes FR-10): `show.view(path, line)` shows a file in Pitwall's file viewer (the extension's own viewer window, rooted at its git repository), needs `show`; `show.file` stays the editor. Notes' "open in the editor" itself waits for project notes (`files.*`) (#PR)
+    - [x] A popover at a point of a canvas: `popover.at`, `Canvas::popover`; the C4 tile's "which diagram?" menu opens under the box clicked (#PR)
+    - [x] Problem lines in the code view: `Mark::Error` and `Mark::Warning` with a message (`mark_with`), drawn as a bar, a tint and the message after the line; the C4 tile's problems view uses them (#PR)
+    - [x] Text measurement (C4 G2): `ui.measure-text` from the app's font files, the same in the harness; C4 keeps its table (its core has no SDK), checked equal to Pitwall's measure ([ui.md 3.11](ui.md#311-the-seed-tiles-gaps-as-built)) (#PR)
+    - [x] The selection of an input (Notes G2): already in WIT 0.1 (`input-changed`, `input-selected`); the harness selects (`select_text`, `select_in`) and Notes sends the selection first (#PR)
+    - [x] In the app's headless tests, `TileView::choose` (a segmented control's or radio group's option) and `TileView::press_key`; the C4 tile's Changes view has dark and light screenshots (#PR)
+    - [x] Rows (`allowed_in_row`) may hold badges, avatars and relative times (batch 1's follow-up) (#PR)
 - [ ] **6a. Native blocks and ports:** the review port as proof tile, then the files tree and inbox ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk))
 - [ ] **On demand:** services from [14.3](platform-services.md#143-later-on-demand), each when a seed tile needs it
 - [ ] **7. Stabilise:** WIT 1.0, Preview label removed, deprecation policy
