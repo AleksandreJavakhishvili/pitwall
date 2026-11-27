@@ -1,0 +1,64 @@
+{
+  "about": "The tile in the app itself, headless (crates/pitwall-app runs every extensions/*/test/app.json): installed from this folder, set up, turned on, against a fake server on this computer that answers from the table below. No real server or key is used.",
+  "tile": "inbox",
+  "without": {
+    "service": "So that no real “agention serve” is started: the test is about the tile."
+  },
+  "settings": { "server": "{url}" },
+  "secrets": { "apiKey": "agention_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+  "server": [
+    { "method": "GET", "path": "/api/operator", "body": { "versions": [1] } },
+    { "method": "POST", "path": "/api/operator/v1/reads", "status": 400, "body": { "error": { "code": "invalid_input", "message": "Required", "field": "threads" } } },
+    {
+      "method": "GET",
+      "path": "/api/operator/v1/sessions",
+      "body": {
+        "agents": [
+          { "agent": "web", "sessions": [{ "session": "a1", "status": { "state": "blocked", "title": "Picking a cache database" }, "presence": { "quiet": false }, "threads": { "total": 1, "unread": 1 }, "open_asks": { "count": 1 } }], "truncated": false },
+          { "agent": "api", "sessions": [{ "session": "s9", "status": { "state": "working", "title": "Writing the release notes" }, "presence": { "quiet": false }, "threads": { "total": 2, "unread": 1 }, "open_asks": { "count": 1 } }], "truncated": false }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/operator/v1/threads",
+      "body": {
+        "threads": [
+          { "agent": "web", "session": "a1", "number": 1, "title": "Which database for the cache?", "created_at": "2026-11-27T09:10:00.000Z", "updated_at": "2026-11-27T09:12:00.000Z", "last_seq": 1, "read_through": 0, "unread": 1, "message_count": 1, "archived": false, "open_asks": { "asks": [{ "number": 1, "seq": 1 }], "count": 1, "blocking": true, "overdue": false }, "status": "open" },
+          { "agent": "api", "session": "s9", "number": 2, "title": "Release notes for 0.9", "created_at": "2026-11-27T08:40:00.000Z", "updated_at": "2026-11-27T09:05:00.000Z", "last_seq": 2, "read_through": 0, "unread": 2, "message_count": 2, "archived": false, "open_asks": { "asks": [{ "number": 1, "seq": 2 }], "count": 1, "blocking": false, "overdue": false }, "status": "open" },
+          { "agent": "api", "session": "s9", "number": 1, "title": "Flaky billing test", "created_at": "2026-11-26T15:00:00.000Z", "updated_at": "2026-11-26T15:30:00.000Z", "last_seq": 3, "read_through": 3, "unread": 0, "message_count": 3, "archived": false, "open_asks": { "asks": [], "count": 0, "blocking": false, "overdue": false }, "status": "none" }
+        ],
+        "total": 3
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/operator/v1/s/web/a1/threads/1",
+      "body": {
+        "thread": { "agent": "web", "session": "a1", "number": 1, "title": "Which database for the cache?", "created_at": "2026-11-27T09:10:00.000Z", "updated_at": "2026-11-27T09:12:00.000Z", "last_seq": 1, "read_through": 0, "unread": 1, "message_count": 1, "archived": false, "open_asks": { "asks": [{ "number": 1, "seq": 1 }], "count": 1, "blocking": true, "overdue": false }, "status": "open" },
+        "messages": [
+          { "seq": 1, "author": { "kind": "session", "agent": "web", "session": "a1" }, "created_at": "2026-11-27T09:12:00.000Z", "live": true, "text": "The session cache needs a store. **Postgres** is already running for the app; **SQLite** keeps the cache next to each worker and needs nothing new.", "asks": [{ "number": 1, "question": "Which one should the cache use?", "suggestions": [{ "label": "Postgres", "description": "" }, { "label": "SQLite", "description": "" }], "multiple": false, "impact": "blocking", "priority": "normal", "open": true }] }
+        ],
+        "marks": { "read_through": 0, "archived_through": 0 }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/operator/v1/s/api/s9/threads/2",
+      "body": {
+        "thread": { "agent": "api", "session": "s9", "number": 2, "title": "Release notes for 0.9", "created_at": "2026-11-27T08:40:00.000Z", "updated_at": "2026-11-27T09:05:00.000Z", "last_seq": 2, "read_through": 0, "unread": 2, "message_count": 2, "archived": false, "open_asks": { "asks": [{ "number": 1, "seq": 2 }], "count": 1, "blocking": false, "overdue": false }, "status": "open" },
+        "messages": [
+          { "seq": 1, "author": { "kind": "session", "agent": "api", "session": "s9" }, "created_at": "2026-11-27T08:40:00.000Z", "live": true, "text": "Drafted the release notes from the merged pull requests." },
+          { "seq": 2, "author": { "kind": "session", "agent": "api", "session": "s9" }, "created_at": "2026-11-27T09:05:00.000Z", "live": true, "text": "Two changes could go either way.", "asks": [{ "number": 1, "question": "Which should be in the notes?", "suggestions": [{ "label": "The 429 retries", "description": "" }, { "label": "The new export", "description": "" }], "multiple": true, "impact": "none", "priority": "normal", "open": true }] }
+        ],
+        "marks": { "read_through": 0, "archived_through": 0 }
+      }
+    },
+    { "method": "GET", "path": "/api/operator/v1/wait", "hold": true }
+  ],
+  "size": [900, 560],
+  "steps": [
+    { "see": ["Which database for the cache?", "Release notes for 0.9"], "shot": "list" },
+    { "click": "main/list/rows/t-web~a1~1", "see": ["Which one should the cache use?"], "shot": "thread" }
+  ]
+}

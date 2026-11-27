@@ -63,10 +63,10 @@
     "agents": 2,
     "expect": [
       ["Stops Agention's server and backs up its data first:", "agention backup --data {data} {backup}/agention.db"],
-      ["Installs Agention 1.4.0 (the installed 1.3.0 is kept for Go back)."],
+      ["Installs Agention 2.0.0 (the installed 1.3.0 is kept for Go back)."],
       ["If Agention's server is older than 0.7.0 or isn't installed, runs “Install Agention's server here”:", "npm install -g @wayfarerlabs/agention@0.7.0"],
       ["Starts Agention's server and waits until it is up (at most 60 s)."],
-      ["Checks that Agention's server is up and Agention connects as before (within 30 s). If not, it puts back Agention 1.3.0, its data and its service, and says what failed."],
+      ["Checks that Agention's server is up (within 30 s). If not, it puts back Agention 1.3.0, its data and its service, and says what failed."],
       [
         "Runs “Set up Agention in my agents” again for every account (its commands changed); a failure there doesn't undo the update, and shows Retry:",
         "Claude Code, default: claude plugin marketplace remove agention",
@@ -81,11 +81,5 @@
       "2 running agents keep the previous setup until restarted.",
       "After the update: Pitwall restarts nothing by itself: their rows and this card say so, with Restart."
     ]
-  },
-  "agreement": {
-    "fake": ["node", "adapter/test/serve-fake.mjs"],
-    "settings": { "server": "{url}" },
-    "secrets": { "apiKey": "{key}" },
-    "answer": { "pick": 1, "label": "SQLite", "text": "in the data dir" }
   }
 }

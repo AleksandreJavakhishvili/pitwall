@@ -68,6 +68,6 @@ The full specification, with every limit, is
 [`docs/spec/extensions.md`](../spec/extensions.md). Two extensions in
 this repository are worth reading: [`extensions/demo-inbox`](../../extensions/demo-inbox/)
 (a fake adapter with made-up threads) and
-[`extensions/agention`](../../extensions/agention/) (a real service, with
-settings, a secret, setup actions, a local server Pitwall keeps running,
-and a fake server for its tests).
+[`extensions/agention`](../../extensions/agention/) (a real service as a
+tile, with settings, a secret, setup actions, a local server Pitwall keeps
+running, and a fake server for its tests).

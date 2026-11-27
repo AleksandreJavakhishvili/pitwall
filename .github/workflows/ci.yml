@@ -320,6 +320,47 @@ jobs:
       - name: Dependency check
         run: sh tiles/c4/scripts/check-deps.sh
 
+  tile-agention:
+    name: Agention tile (wasm build + tests + harness tests + check + dependency check)
+    # The Agention extension's tile is its own Cargo workspace
+    # (extensions/agention/, outside the root one, which may not name it) and
+    # may use no Pitwall crate but pitwall-extension (pitwall-extension-test
+    # for its tests), as the C4 tile. Its API and model code is tested
+    # natively; its harness tests build tile.wasm and run it in Pitwall's
+    # tile runtime against a fake operator API.
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install && rustup target add wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            extensions/agention -> target
+            . -> target
+
+      - name: cargo build (wasm32-wasip2)
+        run: cargo build --manifest-path extensions/agention/Cargo.toml --target wasm32-wasip2 --release
+
+      - name: cargo clippy (wasm32-wasip2 and native, with the tests)
+        run: |
+          cargo clippy --manifest-path extensions/agention/Cargo.toml --target wasm32-wasip2 -- -D warnings
+          cargo clippy --manifest-path extensions/agention/Cargo.toml --all-features --all-targets -- -D warnings
+
+      - name: cargo test (API and model, and harness tests in the tile runtime)
+        run: cargo test --manifest-path extensions/agention/Cargo.toml --all-features
+
+      - name: pitwall extension check
+        run: cargo run -p pitwall-cli -- extension check extensions/agention -H
+
+      - name: Dependency check
+        run: sh extensions/agention/scripts/check-deps.sh
+
   tile-notes:
     name: Notes tile (wasm build + harness tests + check + dependency check)
     # The Notes seed tile is its own Cargo workspace (tiles/notes/, outside the

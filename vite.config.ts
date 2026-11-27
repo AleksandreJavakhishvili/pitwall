@@ -28,8 +28,8 @@ export default defineConfig(() => ({
     ],
   },
 
-  // Extensions bring their own tests, run with Node's test runner
-  // (extensions/agention/adapter/README.md), not with vitest.
+  // Extensions bring their own tests (test/pitwall.json, and cargo test in
+  // a tile's folder), not run with vitest.
   // So does the website (website/README.md, "Docs pipeline").
   test: {
     exclude: [...configDefaults.exclude, "extensions/**", "website/**"],

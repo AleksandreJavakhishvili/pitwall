@@ -3,15 +3,17 @@
 [Agention](https://github.com/WayfarerLabs/agention) (MIT, by Wayfarer
 Labs, not part of Pitwall) is a self-hosted "attention inbox": your agents
 post questions into threads through an MCP bridge, and you answer them.
-With this extension you answer them in Pitwall, in an inbox tile, next to
-the agents that asked.
+With this extension you answer them in Pitwall, in a tile, next to the
+agents that asked.
 
 This folder is a Pitwall extension (see
 [docs/spec/extensions.md](../../docs/spec/extensions.md)): a manifest,
-`extension.json`, and an adapter, `adapter/` (Node.js), which Pitwall runs
-while the extension is on. The adapter talks to your Agention server's
-operator API and to Pitwall over stdin and stdout; it never touches your
-agents.
+`extension.json`, and a tile, `tile.wasm`, built from the Rust crate here
+(`src/`) with Pitwall's public Tile SDK, like the C4 and Notes tiles. The
+tile runs in Pitwall's sandbox and reaches only your Agention server (the
+`net` permission names the **Server address** setting's host,
+`{setting:server}`); it never touches your agents. Before 2.0.0 this was a
+Node.js adapter; see [From the adapter to the tile](#from-the-adapter-to-the-tile).
 
 ## What you need
 
@@ -21,8 +23,6 @@ agents.
   v0.6.0 server, but the plugin this extension installs in your agents
   (v0.7.0) refuses a server older than itself, so a server you run
   yourself needs upgrading first.
-- Node.js 24 or later on the machine running Pitwall (the adapter runs with
-  `node` from your login shell's PATH).
 - Agention's plugin in Claude Code and/or Codex (step 2), installed once by
   you.
 
@@ -67,7 +67,7 @@ with `agention backup --data <its data folder> <backup folder>/agention.db`
 `extension-backups/agention/<time>` in Pitwall's data folder (private; the
 last three are kept). Then it installs the new files, updates the server
 with **Install Agention's server** if the new version needs a newer one,
-starts it and checks that it is up and that the inbox connects again.
+starts it and checks that it is up.
 Only then does it update the plugin in your agents. If the server doesn't
 come up, Pitwall puts the previous extension, the database and the
 previous server back by itself and says what failed. A server program it
@@ -178,47 +178,106 @@ Then turn Agention on; its card becomes a checklist:
 4. API key: create it in Agention's web UI (section 3), copy it, then
    "Paste from clipboard". It goes to your
    system's secure store (Keychain, Credential Manager or Secret
-   Service); Pitwall's files only record that it is set. It is given to
-   the adapter when it starts, never to agents or the server.
+   Service); Pitwall's files only record that it is set. Only the tile
+   reads it, and sends it only in the `Authorization` header to your
+   server; never to agents, never shown or logged.
 5. Set up Agention in my agents (section 2), if you haven't.
-6. Connected: ticked once the adapter reaches your server; otherwise
-   its words on why (signed out, unreachable, or why it stopped, with
-   Try again).
 
-The status pill on the card's top row says the same at a glance. Open the inbox with ⌘I (Ctrl+Shift+I on
-Windows and Linux) or "Open Agention inbox" in the command palette: a
-tile of your layout, with your agents' questions first. An agent with an
-open question also gets a small badge on its sidebar row; a click opens
-the inbox there.
+Turning it on asks for two permissions: **network** (your server, the
+host of Server address; when you change the address, the permission
+follows it) and **agents.read** (to tell which of your agents a thread is
+from).
+
+## 5. Use it
+
+Press the **Agention** button on the toolbar (its count is the open
+questions) or open the Agention tile from the command palette: a tile of
+your layout.
+
+- **The list**: threads grouped by agent and session, under the agent's
+  name when it is one of Pitwall's agents, with its session's status.
+  "Waiting on you" (default) shows threads with open questions or news,
+  those that block first; "All" shows the rest too.
+- **A thread** (beside the list when the tile is wide, over it when
+  narrow): its messages, and each open question with its suggestions (one
+  click answers; with several to pick, pick then Send), your own words,
+  or Decline. Write to the agent in the box below. **Mark read** and
+  **Archive** are on its bar.
+- **Elsewhere in Pitwall**: the same open questions in Pitwall's floating
+  control, where you can answer them too, and a badge on the sidebar row
+  of each agent that waits on you (a click opens the tile).
+
+News arrives at once (the tile keeps a long poll open with your server
+while Pitwall runs, even with the tile closed) and everything is read
+again every minute.
 
 ## When something is wrong
 
-- **Signed out**: the key is missing, revoked, or lacks a scope. Agention
-  answers a missing scope as "not found", so the adapter checks the scopes
-  when it connects by sending requests that should be refused for bad
-  input (400) rather than not found (404). That depends on the order in
-  which the server checks requests and is the most fragile part; a future
+The tile says it at its top, with a button:
+
+- **Set up Agention**: a setting is missing or wrong, the network
+  permission isn't granted, or the address doesn't answer like an
+  Agention server (or one too old for the operator API). Open Settings.
+- **Signed out**: the key is refused, or lacks a scope. Agention answers
+  a missing scope as "not found", so the tile checks `threads:write` when
+  it connects by sending a request that should be refused for bad input
+  (400) rather than not found (404). That depends on the order in which
+  the server checks requests and is the most fragile part; a future
   Agention version may change it.
-- **Stopped: “node” isn't installed**: install Node.js 24+, then Restart.
-- **Its server stopped**: the card shows its last lines; the Log has the
-  rest. Fix what they say, then press Start.
+- **Not connected**: the server can't be reached or failed; the tile
+  tries again after 1, 2, 5, 10 and 30 seconds, then every minute. When
+  it is the server Pitwall runs and it isn't up, **Open its card** shows
+  why; its last lines are in the card's Log.
 - Threads don't show a badge on an agent: the agent was started before the
   extension was turned on, or it registered with names of its own.
 
-The adapter's own tests: `cd adapter && node --test test/*.test.js` (they use a fake
-server, never a real one).
+## From the adapter to the tile
+
+Version 2.0.0 replaces the Node.js adapter (1.x) with the tile; Node.js
+is no longer needed. Its settings, API key, managed server, actions and
+variables are the same. Not yet possible without an adapter, so missing
+for now:
+
+- **Pitwall's built-in inbox** (⌘I, "Open Agention inbox", number keys to
+  answer, Send with take-back): it is fed only by adapters. A tile can't
+  serve it yet (the Tile SDK's `inbox` interface is a separate item of
+  the Tile SDK plan). The toolbar button and the tile replace it.
+- **The checklist's "Connected" step and the card's status pill**: Pitwall
+  draws them from an adapter's status, and a tile has no way to report
+  one. The tile shows the connection itself, at its top.
+- **The update's health check** is now "the server is up" only (it was
+  "and the adapter connects again", from the adapter's status).
+
+## Building and testing
+
+The tile is its own Cargo workspace, not part of Pitwall's:
+
+```bash
+cargo build --release --target wasm32-wasip2
+cp target/wasm32-wasip2/release/agention_tile.wasm tile.wasm
+cargo test
+```
+
+`cargo test` runs the unit tests of the operator API and model code
+(`src/api.rs`, `src/model.rs`), and the tests in `tests/`, which run
+`tile.wasm` in Pitwall's own tile runtime against a fake operator API
+(`tests/fake/`, in memory). Pitwall's own tests open the tile in the app
+against a fake server too (`test/app.json`). None uses a real server or
+key. `scripts/check-deps.sh` checks it uses no Pitwall crate but the
+public SDK; `pitwall extension check .` checks the folder.
 
 ## Releasing a new version of this extension
 
 Pitwall updates this extension from this repository (`source` in
 `extension.json`), without waiting for a Pitwall release. To release one:
 
-1. Change what it needs (an adapter fix, the pinned Agention version in
-   the setup action and the server action), and raise `version` in
-   `extension.json` (say to `1.5.0`). Commit it to `main`.
+1. Change what it needs (a tile fix, with `tile.wasm` built again as
+   above; the pinned Agention version in the setup action and the server
+   action), and raise `version` in `extension.json` and `Cargo.toml` (say
+   to `2.1.0`). Commit it to `main`.
 2. Tag that commit `agention-v<version>`, the same version as in
    `extension.json`, and push the tag:
-   `git tag agention-v1.5.0 && git push origin agention-v1.5.0`.
+   `git tag agention-v2.1.0 && git push origin agention-v2.1.0`.
 
 A tag is never moved once pushed: Pitwall records the commit a tag
 pointed at and refuses a tag that moved. Pitwall finds the new tag when it
