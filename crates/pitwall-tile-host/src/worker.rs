@@ -22,6 +22,7 @@ use crate::limits::*;
 use crate::stdio::LogPipe;
 use crate::ui::{Event, Frame, InitContext, PointerKind, ThemeInfo};
 use crate::ui::{Content, ViewContent, ViewOpened};
+use crate::agent::Answer;
 use crate::{cache, Extension, FrameUpdate, Grants, LoadError, LogLevel, StartOptions, StopReason, TileHost, TileOutput, ViewSpec, MAX_CONTENT_BYTES};
 
 pub(crate) type Sink = Box<dyn FnMut(TileOutput) + Send>;
@@ -526,23 +527,56 @@ impl<'a> Worker<'a> {
         }
         if v.content.as_ref().is_some_and(|c| content_size(c) > MAX_CONTENT_BYTES) {
             self.store.data_mut().host_log(LogLevel::Warn, format!("view “{}” was opened with more than {} MiB of content; it opens without it", v.id, MAX_CONTENT_BYTES >> 20));
+            if let Some(call) = v.content.as_ref().and_then(|c| c.call) {
+                self.answer(call, Answer::NotDelivered(format!("the content is over {} MiB", MAX_CONTENT_BYTES >> 20)));
+            }
             v.content = None;
         }
         self.views.insert(v.id.clone(), View { tile: v.tile.clone(), frame: None });
         self.dirty.insert(v.id.clone());
-        self.handle(Event::ViewOpened(ViewOpened { view: v.id, tile: v.tile, content: v.content }))
+        let call = v.content.as_ref().and_then(|c| c.call);
+        self.delivering(call, Event::ViewOpened(ViewOpened { view: v.id, tile: v.tile, content: v.content }))
+    }
+
+    /// Handle `event`, which delivers agent call `call` when there is one,
+    /// then say how the call ended (the tile's reply, or handled).
+    fn delivering(&mut self, call: Option<u64>, event: Event) -> Result<(), StopReason> {
+        let Some(call) = call else { return self.handle(event) };
+        let s = self.store.data_mut();
+        s.awaiting = Some(call);
+        s.reply = None;
+        let r = self.handle(event);
+        let s = self.store.data_mut();
+        s.awaiting = None;
+        let reply = s.reply.take();
+        r?;
+        self.answer(call, reply.map_or(Answer::Handled, Answer::Reply));
+        Ok(())
+    }
+
+    /// Queue the answer to agent call `call` (sent after this batch's
+    /// frames).
+    fn answer(&mut self, call: u64, answer: Answer) {
+        self.store.data_mut().pending.push(Pending::Answer(call, answer));
     }
 
     fn set_content(&mut self, view: String, content: Content) -> Result<(), StopReason> {
         if !self.views.contains_key(&view) {
             self.store.data_mut().host_log(LogLevel::Warn, format!("content for view “{view}”, which isn't open, was dropped"));
+            if let Some(call) = content.call {
+                self.answer(call, Answer::NotDelivered("its view isn't open".into()));
+            }
             return Ok(());
         }
         if content_size(&content) > MAX_CONTENT_BYTES {
             self.store.data_mut().host_log(LogLevel::Warn, format!("content over {} MiB for view “{view}” was dropped", MAX_CONTENT_BYTES >> 20));
+            if let Some(call) = content.call {
+                self.answer(call, Answer::NotDelivered(format!("the content is over {} MiB", MAX_CONTENT_BYTES >> 20)));
+            }
             return Ok(());
         }
-        self.handle(Event::ViewContent(ViewContent { view, content }))
+        let call = content.call;
+        self.delivering(call, Event::ViewContent(ViewContent { view, content }))
     }
 
     fn handle(&mut self, event: Event) -> Result<(), StopReason> {
@@ -626,6 +660,8 @@ impl<'a> Worker<'a> {
             (self.sink)(match p {
                 Pending::Log(line) => TileOutput::Log(line),
                 Pending::Ui(r) => TileOutput::Ui(r),
+                Pending::Edited(call) => TileOutput::UserEdited(call),
+                Pending::Answer(call, answer) => TileOutput::Answered { call, answer },
             });
         }
     }

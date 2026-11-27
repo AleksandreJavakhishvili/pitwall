@@ -17,6 +17,7 @@
 //! - [`ui`]: the element tree and event types of the WIT world.
 //! - [`ExtensionData`]: an extension's settings and stored data on disk.
 
+pub mod agent;
 mod bindings;
 pub mod blocks;
 mod cache;
@@ -543,6 +544,13 @@ pub enum TileOutput {
     Ui(UiRequest),
     /// What `save-state` returned ([`TileHandle::save_state`]).
     StateSaved(Vec<u8>),
+    /// An agent's call (content with `call`, [`agent::ShowCalls::begin`])
+    /// was handled, answered or not delivered: answer the agent now.
+    Answered { call: u64, answer: agent::Answer },
+    /// The tile said the user changed what call `call` showed
+    /// (`agent-tools.user-edited`): refuse that agent's later calls with
+    /// the same item ([`agent::ShowCalls::user_edited`]).
+    UserEdited(u64),
     /// It stopped; nothing follows.
     Stopped(StopReason),
     /// Rows asked for with [`TileHandle::rows`].
