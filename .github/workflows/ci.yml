@@ -240,6 +240,8 @@ jobs:
     # The C4 seed tile is its own Cargo workspace (tiles/c4/, outside the root
     # one) and may use no Pitwall crate but pitwall-extension
     # (docs/spec/2026-11-27-c4-tile/hla.md §6).
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
