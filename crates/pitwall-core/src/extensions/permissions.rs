@@ -42,6 +42,15 @@ pub const NOTIFY: &str = "notify";
 /// tile-sdk/permissions.md §5.1). Shown on the permission screen with
 /// its size, not a switch: granted when the extension is turned on.
 pub const MEMORY: &str = "memory";
+/// Its tiles connect to the hosts the manifest lists (`{"reason": …,
+/// "hosts": [...]}`; docs/spec/tile-sdk/permissions.md §5.1): https, and
+/// plain http only to this computer.
+pub const NET: &str = "net";
+/// Its tiles' database may grow past the 100 MiB every extension's gets,
+/// up to the size its manifest names (`{"reason": …, "mib": 500}`;
+/// platform-services.md §14.2). Shown with its size, not a switch, as
+/// [`MEMORY`].
+pub const SQL: &str = "sql";
 
 /// How much a permission lets an extension do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +90,7 @@ pub fn action_needs(m: &str) -> Option<&'static str> {
 }
 
 /// Every permission this Pitwall knows, the ones it serves first.
-pub const ALL: [Permission; 10] = [
+pub const ALL: [Permission; 12] = [
     Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, risk_note: None, available: true },
@@ -92,18 +101,33 @@ pub const ALL: [Permission; 10] = [
     Permission { name: AGENTS_START, title: "Start agents", detail: "Ask to start an agent in one of your projects, maybe with a first prompt. Every request asks you first, showing the project, the tool and the prompt in full.", risk: Risk::High, risk_note: Some("An agent it starts runs as you, with the project's accounts, in your repository. Allowed without looking, it can set work going that you didn't ask for."), available: true },
     Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: MEMORY, title: "Use more memory", detail: "Its tiles may use more memory than the 64 MiB every tile gets, up to the size shown. It gives no access to anything else.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: NET, title: "Connect to these servers", detail: "Its tiles may send requests to the servers listed here, exactly as written, and read the answers (https; plain http only to this computer). What its tiles have, from you or from other servers, can be sent to them.", risk: Risk::Medium, risk_note: None, available: true },
+    Permission { name: SQL, title: "Keep a larger database", detail: "Its tiles' own database may grow to the size shown instead of the 100 MiB every extension gets. Only its own data: it gives no access to anything else.", risk: Risk::Low, risk_note: None, available: true },
 ];
 
 /// Whether `name` is shown on the permission screen without a switch:
-/// granted with the extension ([`MEMORY`]).
+/// granted with the extension ([`MEMORY`], [`SQL`]).
 pub fn shown_only(name: &str) -> bool {
-    name == MEMORY
+    name == MEMORY || name == SQL
 }
 
 /// What the permission screen shows beside `name` for `m` instead of a
 /// switch: the memory its tiles may use ("256 MiB").
 pub fn amount(m: &Manifest, name: &str) -> Option<String> {
-    (name == MEMORY).then(|| format!("{} MiB", m.memory_mib.unwrap_or(super::TILE_MEMORY_MIB)))
+    match name {
+        MEMORY => Some(format!("{} MiB", m.memory_mib.unwrap_or(super::TILE_MEMORY_MIB))),
+        SQL => Some(format!("{} MiB", m.sql_mib.unwrap_or(super::TILE_SQL_MIB))),
+        _ => None,
+    }
+}
+
+/// What the permission screen lists under `name` for `m`, as the manifest
+/// wrote it: `net`'s hosts.
+pub fn listed(m: &Manifest, name: &str) -> Vec<String> {
+    match name {
+        NET => m.net_hosts.iter().map(|h| h.written()).collect(),
+        _ => vec![],
+    }
 }
 
 /// Permission `name`, when this Pitwall knows it.
