@@ -51,6 +51,7 @@ pub mod install;
 pub mod log;
 pub mod net;
 pub mod npm;
+pub mod package;
 pub mod permissions;
 pub mod plan;
 pub mod preview;

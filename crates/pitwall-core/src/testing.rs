@@ -95,6 +95,45 @@ impl Store for MemStore {
     }
 }
 
+/// A throwaway minisign key that signs tile packages in tests
+/// (docs/spec/tile-sdk/packaging.md §6.2): made fresh each time, never
+/// written anywhere but a test's own folder, without a password.
+pub struct Signing(minisign::KeyPair);
+
+impl Default for Signing {
+    fn default() -> Signing {
+        Signing::new()
+    }
+}
+
+impl Signing {
+    pub fn new() -> Signing {
+        Signing(minisign::KeyPair::generate_unencrypted_keypair().expect("a key"))
+    }
+
+    /// Its key as a package's signer.
+    pub fn signer(&self) -> crate::extensions::package::Signer {
+        crate::extensions::package::Signer::from_public_key(&self.0.pk.to_base64()).expect("its own key")
+    }
+
+    /// A `.minisig` of `bytes` as `pitwall extension sign` writes it (the
+    /// public key in its untrusted comment).
+    pub fn sign(&self, bytes: &[u8]) -> String {
+        let comment = crate::extensions::package::signature_comment(&self.signer());
+        minisign::sign(Some(&self.0.pk), &self.0.sk, std::io::Cursor::new(bytes), None, Some(&comment)).expect("signed").into_string()
+    }
+
+    /// A `.minisig` of `bytes` as plain `minisign -S` writes it.
+    pub fn sign_bare(&self, bytes: &[u8]) -> String {
+        minisign::sign(Some(&self.0.pk), &self.0.sk, std::io::Cursor::new(bytes), None, None).expect("signed").into_string()
+    }
+
+    /// Its secret key as a `minisign.key` file holds it (no password).
+    pub fn secret_key_file(&self) -> String {
+        self.0.sk.to_box(None).expect("boxed").into_string()
+    }
+}
+
 /// A fresh directory under the system temp dir, deleted on drop.
 pub struct TempDir(PathBuf);
 

@@ -47,6 +47,10 @@ pub enum Origin {
     /// folder"): `path`, where it was copied from. Developer preview:
     /// never updated (installing a newer folder replaces it).
     Folder { path: String },
+    /// A tile package (`.pwtile`, docs/spec/tile-sdk/packaging.md §6):
+    /// the file it was installed from, the file's SHA-256 and the key that
+    /// signed it (`None`: unsigned, a developer preview as a folder is).
+    Package { path: String, sha256: String, signer: Option<super::package::Signer> },
 }
 
 impl Origin {
@@ -75,6 +79,12 @@ impl Origin {
             (Origin::Git { url: a, dir: da, .. }, Origin::Git { url: b, dir: db, .. }) => same_repo(a, b) && da == db,
             (Origin::Npm { package: a, registry: ra, .. }, Origin::Npm { package: b, registry: rb, .. }) => a == b && same_registry(ra, rb),
             (Origin::Folder { path: a }, Origin::Folder { path: b }) => a == b,
+            // Packages: signed by the same key (or both unsigned).
+            (Origin::Package { signer: a, .. }, Origin::Package { signer: b, .. }) => match (a, b) {
+                (Some(a), Some(b)) => a.same(b),
+                (None, None) => true,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -100,13 +110,15 @@ impl Origin {
             }
             Origin::Npm { package, registry, version, integrity } => format!("{}, version {version}, {}", npm_name(package, registry), super::npm::short(integrity)),
             Origin::Folder { path } => format!("Unsigned preview, copied from {}", crate::paths::tildify(path)),
+            Origin::Package { path, signer: Some(s), .. } => format!("Package {}, signed by key {}", file_of(path), s.key_id),
+            Origin::Package { path, signer: None, .. } => format!("Unsigned package, from {}", crate::paths::tildify(path)),
         }
     }
 
     /// An unsigned preview folder: marked so wherever it shows, never
     /// updated.
     pub fn is_preview(&self) -> bool {
-        matches!(self, Origin::Folder { .. })
+        matches!(self, Origin::Folder { .. } | Origin::Package { signer: None, .. })
     }
 
     /// Where it comes from, without the release: "with this Pitwall",
@@ -116,9 +128,14 @@ impl Origin {
             Origin::Bundled => "with this Pitwall".into(),
             Origin::Git { url, .. } => repo_name(url),
             Origin::Npm { package, registry, .. } => npm_name(package, registry),
-            Origin::Folder { path } => crate::paths::tildify(path),
+            Origin::Folder { path } | Origin::Package { path, .. } => crate::paths::tildify(path),
         }
     }
+}
+
+/// The last part of path `path`.
+fn file_of(path: &str) -> String {
+    Path::new(path).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 /// Repository `url` without `https://` and `.git`, for reading.
@@ -426,6 +443,13 @@ fn marker_origin(m: &Value) -> Origin {
     if let Some(path) = m["source"]["folder"].as_str() {
         return Origin::Folder { path: path.to_string() };
     }
+    if let Some(path) = m["source"]["package"].as_str() {
+        let signer = match (m["signer"]["key"].as_str(), m["signer"]["public"].as_str()) {
+            (Some(key_id), Some(public)) => Some(super::package::Signer { key_id: key_id.to_string(), public_key: public.to_string() }),
+            _ => None,
+        };
+        return Origin::Package { path: path.to_string(), sha256: m["sha256"].as_str().unwrap_or_default().to_string(), signer };
+    }
     if let (Some(package), Some(version), Some(integrity)) = (m["source"]["npm"].as_str(), m["version"].as_str(), m["integrity"].as_str()) {
         let registry = m["source"]["registry"].as_str().unwrap_or(super::NPM_REGISTRY);
         return Origin::Npm { package: package.to_string(), registry: registry.to_string(), version: version.to_string(), integrity: integrity.to_string() };
@@ -623,7 +647,7 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
     let usable = match &offer.origin {
         Origin::Bundled => read(&offer.folder, id).map(|_| ()).map_err(|e| format!("The bundled copy can't be used: {e}")),
         // A fetched folder isn't named after its id.
-        Origin::Git { .. } | Origin::Npm { .. } | Origin::Folder { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
+        Origin::Git { .. } | Origin::Npm { .. } | Origin::Folder { .. } | Origin::Package { .. } => match std::fs::read_to_string(offer.folder.join(super::MANIFEST)).map_err(|e| e.to_string()).and_then(|t| super::parse(&t)) {
             Ok(m) if m.id == *id => Ok(()),
             Ok(m) => Err(format!("The fetched copy is “{}”, not “{id}”", m.id)),
             Err(e) => Err(format!("The fetched copy can't be used: {e}")),
@@ -639,6 +663,11 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
             // The package's version, which its manifest's must equal.
             Origin::Npm { package, registry, version, integrity } => json!({ "version": version, "digest": d, "source": { "npm": package, "registry": registry }, "integrity": integrity }),
             Origin::Folder { path } => json!({ "version": offer.manifest.version, "digest": d, "source": { "folder": path }, "trust": "preview" }),
+            Origin::Package { path, sha256, signer } => {
+                let signer = signer.as_ref().map(|s| json!({ "key": s.key_id, "public": s.public_key }));
+                let trust = if signer.is_some() { "signed" } else { "preview" };
+                json!({ "version": offer.manifest.version, "digest": d, "source": { "package": path }, "sha256": sha256, "signer": signer, "trust": trust })
+            }
         };
         std::fs::write(staged.join(MARKER), format!("{marker:#}\n")).map_err(|e| e.to_string())
     });
