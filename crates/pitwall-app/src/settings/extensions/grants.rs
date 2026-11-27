@@ -404,9 +404,67 @@ impl SettingsView {
         Some(col)
     }
 
-    /// The footer's Activity button: an extension with an adapter.
+    /// "Agents can use <tile>", in a card that is on: a switch per tile
+    /// agents may open (agent-tools.md §11.5), with its tools; off, its
+    /// tools are gone from every agent's list at once.
+    pub(super) fn agent_tiles_view(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<Div> {
+        let tiles: Vec<_> = m.contributes.tiles.iter().filter(|t| t.agents).cloned().collect();
+        if tiles.is_empty() {
+            return None;
+        }
+        let all_on = crate::tiles::agents::enabled(cx);
+        let sel = format!("extension-agents-{}", m.id);
+        let mut col = div().debug_selector(move || sel).flex().flex_col().gap(px(10.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(crate::kit::label("Agents", ui.t.text_3, 11.));
+        if !all_on {
+            col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child("Off for every tile: Settings → Agents → Agents can use tiles."));
+        }
+        for t in tiles {
+            let on = crate::tiles::agents::tile_on(&m.id, &t.id, cx);
+            let mut names = vec![pitwall_proto::tile_tools::mcp_name(&m.id, None)];
+            names.extend(t.tools.iter().map(|d| pitwall_proto::tile_tools::mcp_name(&m.id, Some(&d.name))));
+            let detail = if on {
+                format!("Agents can open {} next to their terminal and show you things in it. They get nothing of it back and can’t replace what you edited.", t.title)
+            } else {
+                "Off: agents don’t get its tools.".to_string()
+            };
+            let (ext, tile) = (m.id.clone(), t.id.clone());
+            col = col.child(
+                div()
+                    .flex()
+                    .gap(px(12.))
+                    .items_start()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.t.text).child(format!("Agents can use {}", t.title)))
+                            .child(crate::kit::hint(detail, &ui.t))
+                            .child(crate::kit::mono_text(names.join("  "), &ui.t).text_color(ui.t.text_3)),
+                    )
+                    .child(
+                        div().flex_none().mt(px(2.)).child(
+                            switch(format!("extension-agents-{}-{}", m.id, t.id), on && all_on, ui)
+                                .tooltip(crate::kit::tooltip(if on { "On: press to take its tools from agents" } else { "Off: press to give agents its tools" }))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    crate::tiles::agents::set_tile_on(&ext, &tile, !on, cx);
+                                    cx.notify();
+                                })),
+                        ),
+                    ),
+            );
+        }
+        Some(col)
+    }
+
+    /// The footer's Activity button: an extension with an adapter, or
+    /// tiles agents may use (their calls).
     pub(super) fn activity_button(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<AnyElement> {
-        m.adapter.as_ref()?;
+        if m.adapter.is_none() && !m.contributes.tiles.iter().any(|t| t.agents) {
+            return None;
+        }
         let shown = self.exts.activity.contains(&m.id);
         let id = m.id.clone();
         Some(
@@ -475,6 +533,7 @@ impl SettingsView {
                 Via::Pitwall => "Pitwall",
                 Via::View => "button",
                 Via::Tile => "tile",
+                Via::Agent => "agent",
             };
             let (word, color) = match &e.outcome {
                 Outcome::Ok => ("ok".to_string(), ui.t.green),

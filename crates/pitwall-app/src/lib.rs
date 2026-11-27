@@ -395,6 +395,9 @@ fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>
         engine.set_show_settings(crate::main_screen::settings_tile::enabled(cx));
         // `agents.showDevice` and `general.devicePreviews`: `show_device`.
         engine.set_show_device(crate::main_screen::device_auto::show_enabled(cx), crate::main_screen::device_tile::enabled(cx));
+        // `agents.tileTools` and the tiles' switches: the tile tools
+        // allowed at launch (agent-tools.md §11.4).
+        engine.set_tile_tools(crate::tiles::agents::tool_names(cx));
     };
     follow(&engine, cx);
     let store = ui_state::store(cx);
