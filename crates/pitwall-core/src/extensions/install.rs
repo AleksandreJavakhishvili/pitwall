@@ -50,7 +50,10 @@ pub enum Origin {
     /// A tile package (`.pwtile`, docs/spec/tile-sdk/packaging.md §6):
     /// the file it was installed from, the file's SHA-256 and the key that
     /// signed it (`None`: unsigned, a developer preview as a folder is).
-    Package { path: String, sha256: String, signer: Option<super::package::Signer> },
+    /// `index`: the extensions index it was installed from (`owner/name`,
+    /// marketplace.md §7), so its updates come from there; `None`: a file
+    /// the user picked.
+    Package { path: String, sha256: String, signer: Option<super::package::Signer>, index: Option<String> },
 }
 
 impl Origin {
@@ -448,7 +451,8 @@ fn marker_origin(m: &Value) -> Origin {
             (Some(key_id), Some(public)) => Some(super::package::Signer { key_id: key_id.to_string(), public_key: public.to_string() }),
             _ => None,
         };
-        return Origin::Package { path: path.to_string(), sha256: m["sha256"].as_str().unwrap_or_default().to_string(), signer };
+        let index = m["index"].as_str().map(str::to_string);
+        return Origin::Package { path: path.to_string(), sha256: m["sha256"].as_str().unwrap_or_default().to_string(), signer, index };
     }
     if let (Some(package), Some(version), Some(integrity)) = (m["source"]["npm"].as_str(), m["version"].as_str(), m["integrity"].as_str()) {
         let registry = m["source"]["registry"].as_str().unwrap_or(super::NPM_REGISTRY);
@@ -663,10 +667,14 @@ fn stage(offer: &Offer, extensions: &Path) -> Result<PathBuf, String> {
             // The package's version, which its manifest's must equal.
             Origin::Npm { package, registry, version, integrity } => json!({ "version": version, "digest": d, "source": { "npm": package, "registry": registry }, "integrity": integrity }),
             Origin::Folder { path } => json!({ "version": offer.manifest.version, "digest": d, "source": { "folder": path }, "trust": "preview" }),
-            Origin::Package { path, sha256, signer } => {
+            Origin::Package { path, sha256, signer, index } => {
                 let signer = signer.as_ref().map(|s| json!({ "key": s.key_id, "public": s.public_key }));
                 let trust = if signer.is_some() { "signed" } else { "preview" };
-                json!({ "version": offer.manifest.version, "digest": d, "source": { "package": path }, "sha256": sha256, "signer": signer, "trust": trust })
+                let mut m = json!({ "version": offer.manifest.version, "digest": d, "source": { "package": path }, "sha256": sha256, "signer": signer, "trust": trust });
+                if let Some(i) = index {
+                    m["index"] = json!(i);
+                }
+                m
             }
         };
         std::fs::write(staged.join(MARKER), format!("{marker:#}\n")).map_err(|e| e.to_string())
