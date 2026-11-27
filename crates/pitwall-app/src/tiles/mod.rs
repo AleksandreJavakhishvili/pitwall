@@ -38,6 +38,8 @@ pub(crate) mod group_tests;
 mod group_shots;
 #[cfg(test)]
 mod notes_shots;
+#[cfg(test)]
+mod gallery_tests;
 pub mod view;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -106,6 +108,8 @@ pub struct Running {
     pub scroll_to: HashMap<String, (String, u64)>,
     /// Its badges and questions (kept while it is suspended or let go).
     pub group: group::Kept,
+    /// What its lists, tables and trees showed, and the images it put.
+    pub comps: view::Comps,
 }
 
 /// What hiding leads to, in turn.
@@ -551,6 +555,12 @@ impl Tiles {
         self.running.get(id).and_then(|r| r.handle.as_ref()).is_some_and(|h| h.send(event))
     }
 
+    /// Ask extension `id`'s component for rows of the list at `list` in
+    /// view `view`; they arrive in its [`view::Comps`].
+    pub fn ask_rows(&self, id: &str, view: &str, list: &str, start: u32, count: u32) -> bool {
+        self.running.get(id).and_then(|r| r.handle.as_ref()).is_some_and(|h| h.rows(view, list, start, count))
+    }
+
     /// Restart: a stopped component (or a running one) started again
     /// with its open views.
     pub fn restart(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -616,7 +626,7 @@ impl Tiles {
         let gen = self.next_gen;
         self.next_gen += 1;
         // It starts hidden (`visible: false`); shown, it is told.
-        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new(), group: Default::default() };
+        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new(), group: Default::default(), comps: Default::default() };
         // Its `agents` calls reach the daemon's method table as it is now.
         self.methods.set_server(cx.try_global::<crate::extensions::calls::Api>().and_then(|a| a.server.clone()));
         let started = (|| -> Result<TileHandle, String> {
@@ -695,6 +705,10 @@ impl Tiles {
                 r.group.replied(&ask, refused);
                 cx.defer(crate::float::sync);
             }
+            // Rows and images for its views ([`view::Comps`]).
+            TileOutput::Rows(u) => r.comps.rows_arrived(u),
+            TileOutput::Ui(UiRequest::PutImage { name, format, bytes }) => r.comps.put_image(name, format, &bytes),
+            TileOutput::Ui(UiRequest::DropImage(name)) => r.comps.drop_image(&name),
             TileOutput::Ui(req) => {
                 let id = id.to_string();
                 cx.defer(move |cx| ui_request(&id, req, cx));
@@ -787,7 +801,7 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
         UiRequest::OpenSettings => crate::windows::open_extension_settings(id, cx),
         // Kept for its view, the sidebar and the floating control in
         // `Tiles::apply`.
-        UiRequest::ScrollTo { .. } | UiRequest::Badges(_) | UiRequest::Asks(_) | UiRequest::AskResult { .. } => {}
+        UiRequest::ScrollTo { .. } | UiRequest::Badges(_) | UiRequest::Asks(_) | UiRequest::AskResult { .. } | UiRequest::PutImage { .. } | UiRequest::DropImage(_) => {}
     }
 }
 
