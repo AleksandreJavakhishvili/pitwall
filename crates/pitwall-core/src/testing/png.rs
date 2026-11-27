@@ -104,20 +104,15 @@ pub mod art {
                     if tile(x, y) > 0. {
                         continue;
                     }
-                    let mut c = [0f32; 3];
-                    for i in 0..3 {
-                        c[i] = top[i] + (bottom[i] - top[i]) * y;
-                    }
+                    let mut c: [f32; 3] = std::array::from_fn(|i| top[i] + (bottom[i] - top[i]) * y);
                     for l in layers {
                         if (l.shape)(x, y) <= 0. {
                             let a = l.color[3];
-                            for i in 0..3 {
-                                c[i] = c[i] * (1. - a) + l.color[i] * a;
-                            }
+                            c = std::array::from_fn(|i| c[i] * (1. - a) + l.color[i] * a);
                         }
                     }
-                    for i in 0..3 {
-                        acc[i] += c[i];
+                    for (s, v) in acc.iter_mut().zip(c) {
+                        *s += v;
                     }
                     acc[3] += 1.;
                 }

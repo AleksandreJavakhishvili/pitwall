@@ -10,11 +10,14 @@ use std::sync::{Arc, RwLock};
 
 use gpui::{div, img, px, svg, AnyElement, AssetSource, Hsla, IntoElement, ParentElement, Result, SharedString, Styled, StyledImage, Svg};
 
+/// An extension id → its icon's name and image.
+type ImageIcons = HashMap<String, (&'static str, Arc<gpui::Image>)>;
+
 /// Extensions' own icons (a PNG or WebP their manifest names, checked by
 /// `pitwall_core::extensions::media::check_icon`), by extension id: the
 /// name they go by where icon names are passed (`ext-icon/<id>`, kept
 /// for the life of the app) and the image.
-static IMAGE_ICONS: RwLock<Option<HashMap<String, (&'static str, Arc<gpui::Image>)>>> = RwLock::new(None);
+static IMAGE_ICONS: RwLock<Option<ImageIcons>> = RwLock::new(None);
 
 /// The prefix of an extension's own icon's name.
 pub const IMAGE_ICON_PREFIX: &str = "ext-icon/";
