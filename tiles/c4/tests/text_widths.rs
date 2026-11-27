@@ -71,3 +71,29 @@ fn table_matches_the_font_within_one_percent() {
         assert!(worst.0 <= 0.01,"{file}: {:.2} % off for {:?}", worst.0 * 100.0, worst.1);
     }
 }
+
+/// Gap G2: Pitwall now measures text for tiles (`ui.measure-text`), from
+/// the same font files with the same shaping. The tile keeps its own table
+/// (layout-lld.md §1: its core lays out without the SDK, and a layout
+/// measures thousands of strings, more than a tile's host calls allow);
+/// this pins the two together, so a font Pitwall changes fails here.
+#[test]
+fn table_is_what_pitwall_measures() {
+    use pitwall_extension_test::{text_width as pitwall, Font, Weight as W};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+    let data = std::fs::read(dir.join("Inter-Regular.ttf")).unwrap();
+    let face = rustybuzz::Face::from_slice(&data, 0).unwrap();
+    let mut worst = (0.0f64, String::new());
+    for label in samples(&face) {
+        for (ours, theirs, px) in [(Weight::Regular, W::Normal, 11.0), (Weight::SemiBold, W::Semibold, 14.0)] {
+            let table = text_width(&label, px, ours);
+            let measured = f64::from(pitwall(&label, Font::Ui, px as f32, theirs));
+            let error = (table - measured).abs() / measured.max(1.0);
+            if error > worst.0 {
+                worst = (error, label.clone());
+            }
+        }
+    }
+    eprintln!("table against Pitwall's measure: worst {:.4} % for {:?}", worst.0 * 100.0, worst.1);
+    assert!(worst.0 < 1e-4, "{:.3} % off for {:?}", worst.0 * 100.0, worst.1);
+}
