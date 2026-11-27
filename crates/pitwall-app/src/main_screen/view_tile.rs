@@ -350,7 +350,11 @@ pub(crate) fn agent_chip(ext: &str, item: &str, agent: &str, t: &Theme, cx: &mut
 impl ViewTile {
     fn title(&self, m: &Manifest) -> String {
         let view = m.contributes.view(&self.view).map(|d| d.title.clone()).or_else(|| m.contributes.tile(&self.view).map(|d| d.title.clone())).unwrap_or_else(|| self.view.clone());
-        format!("{view} · {}", m.name)
+        if crate::tiles::same_name(&view, &m.name) {
+            view
+        } else {
+            format!("{view} · {}", m.name)
+        }
     }
 
     fn header(&self, m: &Manifest, t: &Theme, cx: &mut Context<Self>) -> AnyElement {

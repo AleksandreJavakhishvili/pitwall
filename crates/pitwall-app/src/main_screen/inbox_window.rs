@@ -58,7 +58,14 @@ pub fn title(key: &str, cx: &App) -> String {
     let name = m.as_ref().map(|m| m.name.clone()).unwrap_or_else(|| s.ext().to_string());
     match &s {
         Surface::Inbox(_) => format!("{name} — Inbox"),
-        Surface::View(_, v) => format!("{name} — {}", m.as_ref().and_then(|m| m.contributes.view(v)).map_or(v.as_str(), |d| d.title.as_str())),
+        Surface::View(_, v) => {
+            let view = m.as_ref().and_then(|m| m.contributes.view(v).map(|d| d.title.as_str()).or_else(|| m.contributes.tile(v).map(|d| d.title.as_str()))).unwrap_or(v.as_str());
+            if crate::tiles::same_name(view, &name) {
+                view.to_string()
+            } else {
+                format!("{name} — {view}")
+            }
+        }
         Surface::Settings => "Settings".into(),
         Surface::Device(d) => super::device_tile::title(d, cx),
         Surface::Editor => "Editor".into(),

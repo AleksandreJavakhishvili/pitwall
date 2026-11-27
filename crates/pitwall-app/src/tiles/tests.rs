@@ -122,8 +122,8 @@ fn the_hello_tile_draws_and_answers(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("tile-settings").is_some(), "“Turn it on in Settings”");
 }
 
-/// "Open Hello (Hello)": a tile in the layout like any other, the
-/// extension's component drawing it.
+/// "Open Hello": a tile in the layout like any other, the extension's
+/// component drawing it, named once (its title is its extension's name).
 #[gpui::test]
 fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     use crate::agents::AgentStore;
@@ -147,6 +147,7 @@ fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     let tile = cx.update(|_, cx| crate::main_screen::view_tile::get("hello/main", cx)).and_then(|v| v.read_with(cx, |v, _| v.tile().cloned())).expect("the view tile draws the tile");
     until(cx, "its frame in the layout", |cx| has_text(&tile, "Clicked 0 times", cx));
     assert!(cx.debug_bounds("view-bar").is_some(), "the tile's own bar, as every view's");
+    assert_eq!(cx.update(|_, cx| crate::main_screen::inbox_window::title("hello/main", cx)), "Hello", "not “Hello — Hello”");
     assert!(cx.debug_bounds("tile-node-button").is_some());
     assert!(tile.read_with(cx, |t, _| t.shown()), "shown: it runs");
     cx.update(|_, cx| crate::main_screen::view_tile::close("hello/main", cx));
@@ -310,6 +311,15 @@ fn the_cli_loads_and_reloads_a_dev_folder(cx: &mut TestAppContext) {
     }
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
+/// A tile whose title is its extension's name is named once.
+#[test]
+fn a_title_equal_to_the_name_is_said_once() {
+    assert!(super::same_name("Hello", "hello "));
+    assert!(!super::same_name("Runs", "CI"));
+    assert_eq!(super::open_label("Hello", "Hello"), "Open Hello");
+    assert_eq!(super::open_label("Runs", "CI"), "Open Runs (CI)");
 }
 
 /// Why a tile stopped, as the tile says it: a sentence, a crash by its
