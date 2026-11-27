@@ -293,7 +293,12 @@ impl MyTile {
   at most 4 KiB.
 - Test with `tile.call("claude", Some("show_message"), Some("a"), json!({..}))`
   (`None`: `__open`), which returns `Called::Shown`, `Replied`, `Failed` or
-  `Refused`.
+  `Refused`. The harness refuses more than 10 calls in 10 s as Pitwall
+  does: advance its clock between calls, or start from stored data
+  (`Harness::stored_json`).
+- A worked `present` tool: the C4 tile's `c4__show` in Pitwall's
+  repository (`tiles/c4/src/tile.rs`, `extension.json`): input read all
+  or nothing, items per agent, an update in place, problems with lines.
 
 ## Services (no permission needed)
 

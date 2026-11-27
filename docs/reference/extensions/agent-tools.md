@@ -81,6 +81,30 @@ impl Hello {
 
 `__open` content and a declared tool's call both arrive as view content: `on_view_opened` and then the content when the view wasn't open, or only the content when it was. `Content::from_agent()`, `call()`, `tool()` and `caller()` say which call, tool and agent it came from. For `__open`, `on_content` gets it; for a declared tool, your method does.
 
+### An example: the C4 tile's `c4__show`
+
+The [C4 diagrams tile](seed-tiles.md#c4-diagrams-ask-an-agent-to-draw-it) has one `present` tool. An agent sends Mermaid and the tile draws it; the same item again updates the drawing in place. Its `extension.json`; the description tells agents the convention:
+
+```json
+{{#include tiles/c4/extension.json}}
+```
+
+Its input, and the start of the method: the whole source is read first, and a problem sends every problem back with its line, changing nothing.
+
+```rust
+{{#include tiles/c4/src/tile.rs#c4-show-input}}
+
+{{#include tiles/c4/src/tile.rs#c4-show}}
+```
+
+An agent's call, as Claude Code makes it (`mcp__pitwall__c4__show`):
+
+```json
+{ "item": "containers", "title": "Shop containers", "where": "right", "mermaid": "flowchart LR\n  buyer[\"Buyer [Person]\"]\n  subgraph shop[\"Shop [Software System]\"]\n    web[\"Web app [Container]\"]\n    api[\"Orders API [Container]\"]\n  end\n  buyer -->|uses| web\n  web -->|calls| api\n" }
+```
+
+The reply: `Showing “Shop containers” in the C4 tile (item “containers”): 3 boxes, 2 arrows, 1 boundary.` A later call with `"item": "containers"` answers `Updated “Shop containers” in place …` with what changed since the last show.
+
 ## Where it opens
 
 Next to the calling agent's terminal, on the right by default, as `show_web` places a web page. Pitwall adds `where` (`right`, `left`, `above`, `below`, `replace` or `window`) and `of` (another agent's terminal) to every tile tool. A tile already in the layout is reused wherever you moved it; with `where` it moves there. A window of its own never comes in front of your work or takes the keyboard. When the agent's terminal isn't in any open window, the tile opens in a window of its own and the agent is told why.
