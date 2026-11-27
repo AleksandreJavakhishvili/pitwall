@@ -1,0 +1,29 @@
+package pitwall:tile@0.1.0;
+
+/// Requests about the tile's own views (runtime.md §3.8). No permission:
+/// these act only inside the tile's own area of the window.
+interface ui {
+  use types.{view-id, tone};
+
+  /// Render `view` again once the current call returns (when it is
+  /// hidden: once it is shown). For changes that didn't come from an
+  /// event, since `handle` returning true already renders.
+  request-render: func(view: view-id);
+
+  /// Scroll the scroll containers around the node at `key-path` (keys
+  /// from the root down, joined by `/`, without the root's) so the node
+  /// is in sight, after the next render of `view`. A path with no node is
+  /// ignored.
+  scroll-to: func(view: view-id, key-path: string);
+
+  /// Show a short message in a toast, labelled with the tile's name. At
+  /// most 200 characters (longer text is cut); at most 3 toasts a
+  /// minute, more are dropped and noted in the Log.
+  toast: func(text: string, tone: tone);
+
+  /// Open one of the extension's tiles (an id from its manifest's
+  /// `contributes.tiles`) where Pitwall opens tiles, or focus its view
+  /// when one is already open; a `view-opened` event follows. An unknown
+  /// id is ignored and noted in the Log.
+  open-view: func(tile: string);
+}

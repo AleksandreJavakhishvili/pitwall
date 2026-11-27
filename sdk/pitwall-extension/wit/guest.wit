@@ -1,0 +1,35 @@
+package pitwall:tile@0.1.0;
+
+/// What Pitwall calls in a tile (runtime.md §3.2).
+///
+/// Pitwall calls these one at a time, from one thread per running tile,
+/// never the UI's: a tile is never called again while one of its calls
+/// runs, and a slow call slows only that tile. Every call has a deadline;
+/// a call that runs past it is stopped, the tile shows "stopped" with the
+/// reason, and the user can restart it.
+interface guest {
+  use types.{init-context, event, frame, view-id};
+
+  /// Start: called once, before anything else, with the theme, the
+  /// granted permissions and the state saved last time. An error stops
+  /// the tile and its text is shown to the user. Deadline: 2 s.
+  init: func(cx: init-context) -> result<_, string>;
+
+  /// The whole tree of view `view`. Called after `init`, after every
+  /// handled event that returned true, after `ui.request-render`, and
+  /// when a view is opened or shown again; several changes in one frame
+  /// make one render. Deadline: 250 ms; keep it under 8 ms so the tile
+  /// keeps up with the display.
+  render: func(view: view-id) -> frame;
+
+  /// Handle one event. Return true when what the tile shows changed, so
+  /// Pitwall renders its open views again. Deadline: 1 s; calls over
+  /// 50 ms are noted in the tile's Log.
+  handle: func(event: event) -> bool;
+
+  /// State to keep while the tile is dropped (to save memory after it was
+  /// hidden for a while) or reloaded during development; given back in
+  /// `init-context.state`. At most 1 MiB; deadline 50 ms. Data the user
+  /// must not lose belongs in `storage`, which is kept on disk at once.
+  save-state: func() -> list<u8>;
+}

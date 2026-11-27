@@ -1,0 +1,43 @@
+/// Pitwall's tile API, version 0.1 (docs/spec/tile-sdk/runtime.md §3).
+///
+/// A tile is a WebAssembly component that Pitwall runs in a sandbox and
+/// draws with its own UI code. The component describes what to show as a
+/// tree of elements ([`types`]); Pitwall lays it out, draws it in its own
+/// theme, and sends back what the user did as events. The component never
+/// draws pixels and never sees Pitwall's process.
+///
+/// Version 0.x worlds may change between minor versions; Pitwall keeps the
+/// last two 0.x worlds working (runtime.md §8.2). A component records the
+/// world it was built for in its manifest's tile entry (`"world":
+/// "pitwall:tile@0.1.0"`).
+package pitwall:tile@0.1.0;
+
+/// What a tile's component imports from Pitwall and exports to it.
+///
+/// Every import here works without a permission in 0.1: each one reaches
+/// only the tile's own things (its tree, its log, its timers, its stored
+/// data, its settings). Later versions add interfaces that need a
+/// permission the user grants (network, project files, agents); a tile
+/// that isn't granted one gets `host-error.denied` from it instead of
+/// failing to load.
+///
+/// Besides these, the host provides WASI 0.2 for what Rust's standard
+/// library needs: clocks, random numbers, and stdout and stderr, whose
+/// lines go to the tile's Log (stdout as info, stderr as warnings). There
+/// are no environment variables, arguments, files or sockets: keep data
+/// with [`storage`].
+world tile {
+  /// Ask for renders, scroll a node into view, show a toast, open a view.
+  import ui;
+  /// Lines for the tile's Log.
+  import log;
+  /// Timers.
+  import tasks;
+  /// The tile's own key-value store.
+  import storage;
+  /// The tile's settings, as the user set them in Settings.
+  import settings;
+
+  /// What Pitwall calls in the tile.
+  export guest;
+}

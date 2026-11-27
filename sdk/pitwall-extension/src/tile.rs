@@ -1,0 +1,863 @@
+//! The [`Tile`] trait, its context [`Cx`], views and their content, and
+//! the runtime that turns Pitwall's calls into calls on the tile.
+
+use std::any::Any;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
+use std::time::Duration;
+
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
+use crate::bindings::pitwall::tile::{tasks, types as wit};
+use crate::element::{AnyElement, Axis, ButtonKind, Handler, IntoElement, Kind, Listen};
+use crate::events::{Click, Event, Fired, Hover, InputChange, KeyPress, ListenerEvent, Pointer, PointerKind, ScrollPosition, Selection, Theme};
+use crate::host::log;
+
+/// A tile: its state, how it draws each view, and what it does when the
+/// user acts. One value of it runs per extension; every place in the
+/// layout showing one of the extension's tiles is a view of it, rendered
+/// with its own id.
+///
+/// ```ignore
+/// use pitwall_extension::prelude::*;
+///
+/// #[derive(Default)]
+/// struct Counter { clicks: u32 }
+///
+/// impl Tile for Counter {
+///     fn new(_cx: &mut Cx<Self>) -> Self {
+///         Counter::default()
+///     }
+///
+///     fn render(&mut self, _view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
+///         v_flex().gap_2().p_3()
+///             .child(text(format!("Clicked {} times", self.clicks)))
+///             .child(button("Click me").primary().on_click(cx.listener(|this, _, cx| {
+///                 this.clicks += 1;
+///                 cx.notify();
+///             })))
+///     }
+/// }
+///
+/// pitwall_extension::export!(Counter);
+/// ```
+pub trait Tile: Sized + 'static {
+    /// Start: make the tile's state. Called once, before any view opens.
+    /// Read what [`Tile::save_state`] kept with [`Cx::restore`], start
+    /// timers with [`Cx::every`]. Deadline: 2 s.
+    fn new(cx: &mut Cx<Self>) -> Self;
+
+    /// The whole tree of view `view` (`cx.view(view)` says which tile it
+    /// shows and its content). Called after the view opens, after a
+    /// listener or timer called [`Cx::notify`], and when the tile is shown
+    /// again. Keep it quick (under 8 ms; the deadline is 250 ms): read
+    /// state, don't compute it here.
+    fn render(&mut self, view: &str, cx: &mut Cx<Self>) -> impl IntoElement;
+
+    /// A view was opened (by the user, an agent, or
+    /// [`ui::open_view`](crate::ui::open_view)); its first render follows.
+    /// When it was opened with content, [`Tile::on_content`] follows too.
+    fn on_view_opened(&mut self, view: &ViewInfo, cx: &mut Cx<Self>) {
+        let _ = (view, cx);
+    }
+
+    /// A view was given content: when it opened with some, or later (an
+    /// agent showing something new in the same place). `view.content` is
+    /// set; parse it with [`Content::parse`]. The view renders again after.
+    fn on_content(&mut self, view: &ViewInfo, cx: &mut Cx<Self>) {
+        let _ = (view, cx);
+    }
+
+    /// A view was closed; it is no longer rendered.
+    fn on_view_closed(&mut self, view: &str, cx: &mut Cx<Self>) {
+        let _ = (view, cx);
+    }
+
+    /// Anything else that happened: shown or hidden, focus, a view's size,
+    /// the theme, settings or grants changed. By default the tile renders
+    /// again when the theme, its settings or its grants change.
+    fn on_event(&mut self, event: &Event, cx: &mut Cx<Self>) {
+        if matches!(event, Event::Theme(_) | Event::SettingsChanged | Event::GrantsChanged(_)) {
+            cx.notify();
+        }
+    }
+
+    /// State to keep while the tile is dropped (to save memory) or
+    /// reloaded during development, given back through [`Cx::restore`].
+    /// At most 1 MiB; deadline 50 ms. What the user must not lose belongs
+    /// in [`storage`](crate::storage) instead, which is on disk at once.
+    fn save_state(&self) -> Option<SavedState> {
+        None
+    }
+}
+
+/// What [`Tile::save_state`] returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedState(Vec<u8>);
+
+impl SavedState {
+    /// `value` as JSON, for [`Cx::restore`] to read back.
+    pub fn json<S: Serialize + ?Sized>(value: &S) -> Option<SavedState> {
+        match serde_json::to_vec(value) {
+            Ok(b) => Some(SavedState(b)),
+            Err(e) => {
+                log::warn(format!("the state couldn't be saved: {e}"));
+                None
+            }
+        }
+    }
+
+    /// Bytes of your own format (read back with [`Cx::saved_state`]).
+    pub fn bytes(bytes: Vec<u8>) -> SavedState {
+        SavedState(bytes)
+    }
+}
+
+/// Content given to a view when it opened or later, by the user or an
+/// agent. The manifest's tile entry names a JSON schema (`"input"`), and
+/// Pitwall checks the content against it before it arrives here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Content {
+    id: Option<String>,
+    json: Option<String>,
+    bytes: Option<Vec<u8>>,
+}
+
+/// Content that isn't what the tile expected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentError(String);
+
+impl std::fmt::Display for ContentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for ContentError {}
+
+impl Content {
+    /// Content with this JSON text (for tests of your own code).
+    pub fn from_json(json: impl Into<String>) -> Content {
+        Content { id: None, json: Some(json.into()), bytes: None }
+    }
+
+    /// The caller's id for this content: a later call with the same id
+    /// updates the same view.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// The payload as JSON text.
+    pub fn json_text(&self) -> Option<&str> {
+        self.json.as_deref()
+    }
+
+    /// A binary payload (an image, a file's bytes), when the schema says
+    /// so; at most 8 MiB.
+    pub fn bytes(&self) -> Option<&[u8]> {
+        self.bytes.as_deref()
+    }
+
+    /// The JSON payload as your input type (derive `serde::Deserialize`
+    /// for it, matching the tile's input schema).
+    pub fn parse<I: DeserializeOwned>(&self) -> Result<I, ContentError> {
+        let json = self.json.as_deref().ok_or_else(|| ContentError("the content has no JSON".into()))?;
+        serde_json::from_str(json).map_err(|e| ContentError(format!("the content isn't what this tile takes: {e}")))
+    }
+}
+
+impl From<wit::Content> for Content {
+    fn from(c: wit::Content) -> Content {
+        Content { id: c.id, json: c.json, bytes: c.bytes }
+    }
+}
+
+/// One open view: a place in the layout showing one of the extension's
+/// tiles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewInfo {
+    /// The view's id, chosen by Pitwall: the tile's id for a tile opened
+    /// once, another for each further place.
+    pub id: String,
+    /// Which of the manifest's tiles it shows.
+    pub tile: String,
+    /// Its content, if it was given any.
+    pub content: Option<Content>,
+}
+
+/// A running timer, from [`Cx::after`] or [`Cx::every`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Timer(u32);
+
+type Callback<T> = dyn FnMut(&mut T, &Fired, &mut Cx<T>);
+type TimerFn<T> = dyn FnMut(&mut T, &mut Cx<T>);
+
+/// What a listener stands for, by handler number.
+struct Entry<T> {
+    callback: Option<Rc<RefCell<Box<Callback<T>>>>>,
+    /// A text field's change listener: its view and key path, to keep
+    /// its value.
+    input: Option<(String, String)>,
+}
+
+/// What a handler number stands for in a view: a node's key path and the
+/// event, or a key binding.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Slot {
+    Node(String, Listen),
+    Key(String),
+}
+
+/// What the SDK knows of a text field's value.
+#[derive(Debug, Clone)]
+struct InputState {
+    value: String,
+    revision: u64,
+}
+
+struct TimerEntry<T> {
+    callback: Option<Box<TimerFn<T>>>,
+    repeat: bool,
+}
+
+/// The tile's context: passed to every call of [`Tile`], like GPUI's
+/// `Context`. Makes listeners and timers, asks for renders, and knows the
+/// open views, the theme and the grants.
+pub struct Cx<T> {
+    extension: String,
+    version: String,
+    theme: Theme,
+    granted: Vec<String>,
+    state: Option<Vec<u8>>,
+    visible: bool,
+    notified: bool,
+    views: BTreeMap<String, ViewInfo>,
+    // Rendering.
+    generation: u64,
+    pending: Vec<Rc<RefCell<Box<Callback<T>>>>>,
+    pending_keys: Vec<(String, u32, u64)>,
+    pending_focus: Option<String>,
+    // Handler numbers: stable per (view, slot), so an unchanged view
+    // renders an unchanged frame.
+    next_handler: u32,
+    ids: HashMap<String, HashMap<Slot, u32>>,
+    handlers: HashMap<u32, Entry<T>>,
+    inputs: HashMap<(String, String), InputState>,
+    timers: HashMap<u32, TimerEntry<T>>,
+    firing: Option<(u32, bool)>,
+}
+
+impl<T: 'static> Cx<T> {
+    fn new(init: wit::InitContext) -> Cx<T> {
+        Cx {
+            extension: init.extension,
+            version: init.version,
+            theme: init.theme.into(),
+            granted: init.granted,
+            state: init.state,
+            visible: true,
+            notified: false,
+            views: BTreeMap::new(),
+            generation: 0,
+            pending: Vec::new(),
+            pending_keys: Vec::new(),
+            pending_focus: None,
+            next_handler: 1,
+            ids: HashMap::new(),
+            handlers: HashMap::new(),
+            inputs: HashMap::new(),
+            timers: HashMap::new(),
+            firing: None,
+        }
+    }
+
+    /// A listener for an element: `f` runs with the tile, the event and
+    /// this context when the user acts. Make listeners while rendering
+    /// and hand them to the element at once:
+    /// `button("Save").on_click(cx.listener(|this, _, cx| this.save(cx)))`.
+    /// Call [`Cx::notify`] in it when what the tile shows changed.
+    pub fn listener<E: ListenerEvent + ?Sized + 'static>(&mut self, mut f: impl FnMut(&mut T, &E, &mut Cx<T>) + 'static) -> Handler<E> {
+        let cb: Box<Callback<T>> = Box::new(move |t, fired, cx| {
+            if let Some(e) = E::pick(fired) {
+                f(t, e, cx)
+            }
+        });
+        self.pending.push(Rc::new(RefCell::new(cb)));
+        Handler::new(self.pending.len() as u32 - 1, self.generation)
+    }
+
+    /// Render the tile's open views again after this call (in a listener,
+    /// a timer or `on_*`).
+    pub fn notify(&mut self) {
+        self.notified = true;
+    }
+
+    /// While rendering: when the view has focus, `keys` (`j`, `enter`,
+    /// `cmd-r`, `shift-tab`, `/`; `cmd` is ⌘ on macOS and Ctrl elsewhere)
+    /// call `handler`. Pitwall's own shortcuts always win.
+    pub fn bind_key(&mut self, keys: impl Into<String>, handler: Handler<KeyPress>) {
+        self.pending_keys.push((keys.into(), handler.slot, handler.generation));
+    }
+
+    /// While rendering: focus the node at `key_path` (keys from the root
+    /// down, joined by `/`), honoured only while the tile already has
+    /// focus.
+    pub fn focus(&mut self, key_path: impl Into<String>) {
+        self.pending_focus = Some(key_path.into());
+    }
+
+    /// Call `f` once, after `delay` (at least 100 ms). Timers pause while
+    /// the tile is hidden. `None` (and a Log line) when it can't be made:
+    /// at most 32 timers at once.
+    pub fn after(&mut self, delay: Duration, f: impl FnMut(&mut T, &mut Cx<T>) + 'static) -> Option<Timer> {
+        self.timer(delay, false, Box::new(f))
+    }
+
+    /// Call `f` every `period` (at least 100 ms) until cancelled. A period
+    /// missed while hidden fires once when shown again.
+    pub fn every(&mut self, period: Duration, f: impl FnMut(&mut T, &mut Cx<T>) + 'static) -> Option<Timer> {
+        self.timer(period, true, Box::new(f))
+    }
+
+    fn timer(&mut self, d: Duration, repeat: bool, f: Box<TimerFn<T>>) -> Option<Timer> {
+        let ms = d.as_millis().min(u32::MAX as u128) as u32;
+        match tasks::timer(ms, repeat) {
+            Ok(id) => {
+                self.timers.insert(id, TimerEntry { callback: Some(f), repeat });
+                Some(Timer(id))
+            }
+            Err(e) => {
+                log::warn(format!("a timer couldn't be started: {}", crate::HostError::from(e)));
+                None
+            }
+        }
+    }
+
+    /// Stop a timer (one already finished is ignored).
+    pub fn cancel(&mut self, timer: Timer) {
+        tasks::cancel(timer.0);
+        self.timers.remove(&timer.0);
+        if let Some((id, cancelled)) = &mut self.firing {
+            if *id == timer.0 {
+                *cancelled = true;
+            }
+        }
+    }
+
+    /// What [`Tile::save_state`] kept, read back as JSON. `None` on a fresh
+    /// start, or (with a note in the Log) when it can't be read as `S`.
+    pub fn restore<S: DeserializeOwned>(&self) -> Option<S> {
+        let bytes = self.state.as_deref()?;
+        match serde_json::from_slice(bytes) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                log::warn(format!("the saved state couldn't be read ({e}); starting fresh"));
+                None
+            }
+        }
+    }
+
+    /// What [`Tile::save_state`] kept, as bytes.
+    pub fn saved_state(&self) -> Option<&[u8]> {
+        self.state.as_deref()
+    }
+
+    /// The extension's id.
+    pub fn extension(&self) -> &str {
+        &self.extension
+    }
+
+    /// The extension's version, from its manifest.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The user's appearance settings.
+    pub fn theme(&self) -> Theme {
+        self.theme
+    }
+
+    /// Whether the user granted `permission`.
+    pub fn is_granted(&self, permission: &str) -> bool {
+        self.granted.iter().any(|g| g == permission)
+    }
+
+    /// The permissions the user granted, by name.
+    pub fn granted(&self) -> &[String] {
+        &self.granted
+    }
+
+    /// Whether the tile is shown.
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    /// The open views.
+    pub fn views(&self) -> impl Iterator<Item = &ViewInfo> {
+        self.views.values()
+    }
+
+    /// Open view `id`.
+    pub fn view(&self, id: &str) -> Option<&ViewInfo> {
+        self.views.get(id)
+    }
+
+    /// View `id`'s content, if it has some.
+    pub fn content(&self, id: &str) -> Option<&Content> {
+        self.views.get(id)?.content.as_ref()
+    }
+
+    // ---- The runtime's side ---------------------------------------------
+
+    fn intern(&mut self, view: &str, slot: Slot, fresh: &mut HashMap<Slot, u32>) -> u32 {
+        if let Some(id) = fresh.get(&slot) {
+            return *id;
+        }
+        let id = match self.ids.get(view).and_then(|m| m.get(&slot)) {
+            Some(id) => *id,
+            None => {
+                let id = self.next_handler;
+                self.next_handler = self.next_handler.wrapping_add(1).max(1);
+                id
+            }
+        };
+        fresh.insert(slot, id);
+        id
+    }
+
+    fn callback(&self, slot: u32, generation: u64) -> Option<Rc<RefCell<Box<Callback<T>>>>> {
+        if generation != self.generation {
+            log::warn("a listener made in an earlier render was used again and is ignored: make listeners with cx.listener while rendering");
+            return None;
+        }
+        self.pending.get(slot as usize).cloned()
+    }
+
+    /// The frame of `view` from its root element: keys made unique, key
+    /// paths, listeners numbered by (key path, event), text fields' values
+    /// sent only when they change.
+    fn frame(&mut self, view: &str, root: AnyElement) -> wit::Frame {
+        let mut b = Build { view: view.to_string(), nodes: Vec::new(), fresh: HashMap::new(), seen_inputs: HashSet::new() };
+        self.walk(&mut b, root, None, String::new(), "root".to_string());
+        let mut keymap = Vec::new();
+        for (keys, slot, generation) in std::mem::take(&mut self.pending_keys) {
+            let id = self.intern(view, Slot::Key(keys.clone()), &mut b.fresh);
+            let callback = self.callback(slot, generation);
+            self.handlers.insert(id, Entry { callback, input: None });
+            keymap.push(wit::Binding { keys, handler: id });
+        }
+        // Handler numbers no longer used in this view are forgotten.
+        let old = self.ids.insert(view.to_string(), b.fresh).unwrap_or_default();
+        let now = &self.ids[view];
+        for (slot, id) in old {
+            if now.get(&slot) != Some(&id) {
+                self.handlers.remove(&id);
+            }
+        }
+        self.inputs.retain(|(v, path), _| v != view || b.seen_inputs.contains(path));
+        wit::Frame { nodes: b.nodes, focus: self.pending_focus.take(), keymap }
+    }
+
+    fn walk(&mut self, b: &mut Build, el: AnyElement, parent: Option<u32>, path: String, key: String) {
+        let index = b.nodes.len() as u32;
+        let AnyElement { key: _, kind, style, listeners, focusable, tooltip, label, children } = el;
+        let mut on = Vec::new();
+        let mut has_change = false;
+        for (listen, slot, generation) in listeners {
+            let id = self.intern(&b.view, Slot::Node(path.clone(), listen), &mut b.fresh);
+            let callback = self.callback(slot, generation);
+            let input = (listen == Listen::Change && matches!(kind, Kind::Input(_))).then(|| (b.view.clone(), path.clone()));
+            has_change |= input.is_some();
+            self.handlers.insert(id, Entry { callback, input });
+            on.push(wit::Listener { on: listen.wit(), handler: id });
+        }
+        let element = match kind {
+            Kind::Box => wit::Element::Box,
+            Kind::Scroll(axis) => wit::Element::Scroll(wit::Scroll { axis: axis.wit() }),
+            Kind::Text(t) => wit::Element::Text(t),
+            Kind::Button { label, kind, icon, disabled } => wit::Element::Button(wit::Button {
+                label,
+                kind: kind.wit(),
+                icon: icon.map(|i| wit::Icon::Named(i.name().to_string())),
+                disabled,
+            }),
+            Kind::Icon(i) => wit::Element::Icon(wit::Icon::Named(i.name().to_string())),
+            Kind::Input(spec) => {
+                // Every field reports its edits, so the SDK knows what it
+                // holds and sends `value` only when it differs.
+                if !has_change {
+                    let id = self.intern(&b.view, Slot::Node(path.clone(), Listen::Change), &mut b.fresh);
+                    self.handlers.insert(id, Entry { callback: None, input: Some((b.view.clone(), path.clone())) });
+                    on.push(wit::Listener { on: wit::Listen::Change, handler: id });
+                }
+                b.seen_inputs.insert(path.clone());
+                let at = (b.view.clone(), path.clone());
+                let (value, revision) = match (spec.value, self.inputs.get(&at)) {
+                    (None, _) => (None, 0),
+                    (Some(v), Some(s)) if s.value == v => (None, 0),
+                    (Some(v), s) => {
+                        let seen = s.map_or(0, |s| s.revision);
+                        self.inputs.insert(at, InputState { value: v.clone(), revision: seen });
+                        (Some(v), seen + 1)
+                    }
+                };
+                let selection = match (&value, spec.selection) {
+                    (Some(_), Some(r)) => Some(wit::TextRange { start: r.start as u32, end: r.end as u32 }),
+                    _ => None,
+                };
+                wit::Element::Input(wit::Input {
+                    value,
+                    revision,
+                    selection,
+                    placeholder: spec.placeholder,
+                    multiline: spec.multiline,
+                    rows: spec.rows,
+                    disabled: spec.disabled,
+                })
+            }
+        };
+        b.nodes.push(wit::Node { parent, key, element, style: style.wit(), on, focusable, tooltip, label });
+        let mut used: HashSet<String> = HashSet::new();
+        for (i, child) in children.into_iter().enumerate() {
+            let mut key = clean_key(child.key.as_deref().unwrap_or(&i.to_string()));
+            if !used.insert(key.clone()) {
+                let base = key.clone();
+                let mut n = 2;
+                while !used.insert(format!("{base}~{n}")) {
+                    n += 1;
+                }
+                key = format!("{base}~{n}");
+                log::warn(format!("two children of “{path}” have the key “{base}”; keys must be unique among siblings"));
+            }
+            let child_path = if path.is_empty() { key.clone() } else { format!("{path}/{key}") };
+            self.walk(b, child, Some(index), child_path, key);
+        }
+    }
+
+    /// Call the listener with handler number `handler`.
+    fn fire(&mut self, tile: &mut T, view_input: Option<(u64, &InputChange)>, handler: u32, fired: Fired) {
+        let Some(entry) = self.handlers.get(&handler) else { return };
+        let callback = entry.callback.clone();
+        if let (Some(at), Some((revision, change))) = (entry.input.clone(), view_input) {
+            self.inputs.insert(at, InputState { value: change.value.clone(), revision });
+        }
+        if let Some(cb) = callback {
+            (cb.borrow_mut())(tile, &fired, self);
+        }
+    }
+
+    fn fire_timer(&mut self, tile: &mut T, id: u32) {
+        let Some(entry) = self.timers.get_mut(&id) else { return };
+        let repeat = entry.repeat;
+        let Some(mut f) = entry.callback.take() else { return };
+        if !repeat {
+            self.timers.remove(&id);
+        }
+        self.firing = Some((id, false));
+        f(tile, self);
+        let cancelled = matches!(self.firing.take(), Some((_, true)));
+        if repeat && !cancelled {
+            if let Some(e) = self.timers.get_mut(&id) {
+                e.callback = Some(f);
+            }
+        }
+    }
+
+    fn forget_view(&mut self, view: &str) {
+        if let Some(ids) = self.ids.remove(view) {
+            for id in ids.values() {
+                self.handlers.remove(id);
+            }
+        }
+        self.inputs.retain(|(v, _), _| v != view);
+        self.views.remove(view);
+    }
+}
+
+struct Build {
+    view: String,
+    nodes: Vec<wit::Node>,
+    fresh: HashMap<Slot, u32>,
+    seen_inputs: HashSet<String>,
+}
+
+/// A key as Pitwall takes it: no `/` (it joins key paths), at most 128
+/// bytes.
+fn clean_key(k: &str) -> String {
+    let mut k = k.replace('/', "∕");
+    if k.len() > 128 {
+        let mut end = 128;
+        while !k.is_char_boundary(end) {
+            end -= 1;
+        }
+        k.truncate(end);
+    }
+    k
+}
+
+impl Listen {
+    fn wit(self) -> wit::Listen {
+        match self {
+            Listen::Click => wit::Listen::Click,
+            Listen::Change => wit::Listen::Change,
+            Listen::Select => wit::Listen::Select,
+            Listen::Submit => wit::Listen::Submit,
+            Listen::Scroll => wit::Listen::Scroll,
+            Listen::Hover => wit::Listen::Hover,
+            Listen::Pointer => wit::Listen::Pointer,
+        }
+    }
+}
+
+impl Axis {
+    fn wit(self) -> wit::Axis {
+        match self {
+            Axis::Vertical => wit::Axis::Vertical,
+            Axis::Horizontal => wit::Axis::Horizontal,
+            Axis::Both => wit::Axis::Both,
+        }
+    }
+}
+
+impl ButtonKind {
+    fn wit(self) -> wit::ButtonKind {
+        match self {
+            ButtonKind::Primary => wit::ButtonKind::Primary,
+            ButtonKind::Ghost => wit::ButtonKind::Ghost,
+            ButtonKind::Danger => wit::ButtonKind::Danger,
+            ButtonKind::Small => wit::ButtonKind::Small,
+            ButtonKind::Link => wit::ButtonKind::Link,
+        }
+    }
+}
+
+// ---- The runtime: what `export!` calls -------------------------------------
+
+struct Runtime<T: Tile> {
+    tile: T,
+    cx: Cx<T>,
+}
+
+thread_local! {
+    static RUNTIME: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+}
+
+fn with<T: Tile, R>(f: impl FnOnce(&mut Runtime<T>) -> R) -> Option<R> {
+    RUNTIME.with_borrow_mut(|rt| rt.as_mut().and_then(|b| b.downcast_mut::<Runtime<T>>()).map(f))
+}
+
+#[doc(hidden)]
+pub fn init<T: Tile>(init: wit::InitContext) -> Result<(), String> {
+    let mut cx = Cx::<T>::new(init);
+    let tile = T::new(&mut cx);
+    cx.notified = false;
+    RUNTIME.with_borrow_mut(|rt| *rt = Some(Box::new(Runtime { tile, cx })));
+    Ok(())
+}
+
+#[doc(hidden)]
+pub fn render<T: Tile>(view: String) -> wit::Frame {
+    with::<T, _>(|rt| {
+        rt.cx.generation += 1;
+        rt.cx.pending.clear();
+        rt.cx.pending_keys.clear();
+        rt.cx.pending_focus = None;
+        let root = rt.tile.render(&view, &mut rt.cx).into_element();
+        let frame = rt.cx.frame(&view, root);
+        rt.cx.pending.clear();
+        frame
+    })
+    .unwrap_or(wit::Frame { nodes: vec![wit::Node { parent: None, key: "root".into(), element: wit::Element::Box, style: vec![], on: vec![], focusable: false, tooltip: None, label: None }], focus: None, keymap: vec![] })
+}
+
+#[doc(hidden)]
+pub fn handle<T: Tile>(event: wit::Event) -> bool {
+    with::<T, _>(|rt| {
+        let Runtime { tile, cx } = rt;
+        cx.notified = false;
+        let mods = |m| crate::events::Modifiers::from(m);
+        match event {
+            wit::Event::Click(c) => {
+                let fired = Fired::Click(Click { button: c.button.into(), modifiers: mods(c.modifiers), count: c.count, at: c.at.into() });
+                cx.fire(tile, None, c.handler, fired);
+            }
+            wit::Event::InputChanged(c) => {
+                let change = InputChange { value: c.value, selection: c.selection.start as usize..c.selection.end as usize };
+                cx.fire(tile, Some((c.revision, &change)), c.handler, Fired::Change(change.clone()));
+            }
+            wit::Event::InputSelected(s) => cx.fire(tile, None, s.handler, Fired::Select(Selection { range: s.selection.start as usize..s.selection.end as usize })),
+            wit::Event::Submit(h) => cx.fire(tile, None, h, Fired::Submit),
+            wit::Event::Key(k) => cx.fire(tile, None, k.handler, Fired::Key(KeyPress { keys: k.keys })),
+            wit::Event::Scroll(s) => {
+                let pos = ScrollPosition { x: s.x, y: s.y, content_width: s.content_width, content_height: s.content_height };
+                cx.fire(tile, None, s.handler, Fired::Scroll(pos));
+            }
+            wit::Event::Hover(h) => cx.fire(tile, None, h.handler, Fired::Hover(Hover { inside: h.inside, at: h.at.into() })),
+            wit::Event::Pointer(p) => {
+                let kind = match p.kind {
+                    wit::PointerKind::Down(b) => PointerKind::Down(b.into()),
+                    wit::PointerKind::Up(b) => PointerKind::Up(b.into()),
+                    wit::PointerKind::Move => PointerKind::Move,
+                };
+                cx.fire(tile, None, p.handler, Fired::Pointer(Pointer { kind, at: p.at.into(), modifiers: mods(p.modifiers) }));
+            }
+            wit::Event::Timer(id) => cx.fire_timer(tile, id),
+            wit::Event::ViewOpened(v) => {
+                let info = ViewInfo { id: v.view.clone(), tile: v.tile, content: v.content.map(Content::from) };
+                cx.views.insert(v.view, info.clone());
+                tile.on_view_opened(&info, cx);
+                if info.content.is_some() {
+                    tile.on_content(&info, cx);
+                }
+                cx.notified = true;
+            }
+            wit::Event::ViewContent(v) => {
+                let Some(info) = cx.views.get_mut(&v.view) else { return false };
+                info.content = Some(v.content.into());
+                let info = info.clone();
+                tile.on_content(&info, cx);
+                cx.notified = true;
+            }
+            wit::Event::ViewClosed(view) => {
+                cx.forget_view(&view);
+                tile.on_view_closed(&view, cx);
+            }
+            wit::Event::Visibility(v) => {
+                cx.visible = v;
+                tile.on_event(&Event::Visibility(v), cx);
+            }
+            wit::Event::Focus(f) => tile.on_event(&Event::Focus(f), cx),
+            wit::Event::Resize(r) => tile.on_event(&Event::Resize { view: r.view, width: r.size.width, height: r.size.height }, cx),
+            wit::Event::Theme(t) => {
+                cx.theme = t.into();
+                let theme = cx.theme;
+                tile.on_event(&Event::Theme(theme), cx);
+            }
+            wit::Event::SettingsChanged => tile.on_event(&Event::SettingsChanged, cx),
+            wit::Event::GrantsChanged(g) => {
+                cx.granted = g.clone();
+                tile.on_event(&Event::GrantsChanged(g), cx);
+            }
+        }
+        std::mem::take(&mut cx.notified)
+    })
+    .unwrap_or(false)
+}
+
+#[doc(hidden)]
+pub fn save_state<T: Tile>() -> Vec<u8> {
+    with::<T, _>(|rt| rt.tile.save_state().map(|s| s.0).unwrap_or_default()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::*;
+
+    #[derive(Default)]
+    struct T {
+        clicks: u32,
+        typed: String,
+    }
+
+    fn cx() -> Cx<T> {
+        Cx::new(wit::InitContext {
+            extension: "t".into(),
+            version: "0.1.0".into(),
+            theme: wit::ThemeInfo { mode: wit::ThemeMode::Dark, density: wit::Density::Compact, reduce_motion: false },
+            granted: vec![],
+            state: None,
+        })
+    }
+
+    fn view(t: &T, cx: &mut Cx<T>) -> AnyElement {
+        cx.generation += 1;
+        cx.pending.clear();
+        v_flex()
+            .child(text(format!("Clicked {}", t.clicks)))
+            .child(button("Click").id("go").on_click(cx.listener(|t: &mut T, _, cx| {
+                t.clicks += 1;
+                cx.notify();
+            })))
+            .child(input("field").value(t.typed.clone()).on_change(cx.listener(|t: &mut T, v: &str, _| t.typed = v.into())))
+            .child(div().p_2().px_4().border_b_1().border_l_1())
+            .child(text("dup").id("x"))
+            .child(text("dup").id("x"))
+            .into_element()
+    }
+
+    fn click(cx: &mut Cx<T>, t: &mut T, h: u32) {
+        cx.fire(t, None, h, Fired::Click(Click { button: crate::events::MouseButton::Left, modifiers: Default::default(), count: 1, at: Default::default() }));
+    }
+
+    #[test]
+    fn frames_keep_their_handler_numbers_and_inputs_their_text() {
+        let (mut cx, mut t) = (cx(), T::default());
+        let root = view(&t, &mut cx);
+        let f1 = cx.frame("main", root);
+        assert_eq!(f1.nodes[0].key, "root");
+        let keys: Vec<&str> = f1.nodes.iter().map(|n| n.key.as_str()).collect();
+        assert_eq!(keys, ["root", "0", "go", "field", "3", "x", "x~2"]);
+        // Padding merged per side, one border style.
+        let pad = f1.nodes[4].style.iter().filter(|s| matches!(s, wit::Style::Padding(_))).count();
+        let border = f1.nodes[4].style.iter().filter(|s| matches!(s, wit::Style::Border(_))).count();
+        assert_eq!((pad, border), (1, 1));
+        // The first frame gives the field its text ("" here) at revision 1.
+        let wit::Element::Input(i) = &f1.nodes[3].element else { panic!() };
+        assert_eq!((i.value.as_deref(), i.revision), (Some(""), 1));
+        let go = f1.nodes[2].on[0].handler;
+        click(&mut cx, &mut t, go);
+        assert_eq!(t.clicks, 1);
+        assert!(cx.notified);
+        // Same tree: same numbers, and the field's text isn't sent again.
+        let root = view(&t, &mut cx);
+        let f2 = cx.frame("main", root);
+        assert_eq!(f2.nodes[2].on[0].handler, go);
+        let wit::Element::Input(i) = &f2.nodes[3].element else { panic!() };
+        assert_eq!(i.value, None);
+        // The user types: the tile's copy follows, nothing is sent back.
+        let change_id = f2.nodes[3].on[0].handler;
+        let change = InputChange { value: "abc".into(), selection: 3..3 };
+        cx.fire(&mut t, Some((7, &change)), change_id, Fired::Change(change.clone()));
+        assert_eq!(t.typed, "abc");
+        let root = view(&t, &mut cx);
+        let f3 = cx.frame("main", root);
+        let wit::Element::Input(i) = &f3.nodes[3].element else { panic!() };
+        assert_eq!(i.value, None);
+        // The tile replaces the text: sent above the user's revision.
+        t.typed = "reset".into();
+        let root = view(&t, &mut cx);
+        let f4 = cx.frame("main", root);
+        let wit::Element::Input(i) = &f4.nodes[3].element else { panic!() };
+        assert_eq!((i.value.as_deref(), i.revision), (Some("reset"), 8));
+        // An unknown number is ignored.
+        click(&mut cx, &mut t, 9999);
+        assert_eq!(t.clicks, 1);
+    }
+
+    #[test]
+    fn views_have_their_own_numbers() {
+        let (mut cx, t) = (cx(), T::default());
+        let root = view(&t, &mut cx);
+        let a = cx.frame("a", root);
+        let root = view(&t, &mut cx);
+        let b = cx.frame("b", root);
+        assert_ne!(a.nodes[2].on[0].handler, b.nodes[2].on[0].handler);
+        cx.forget_view("a");
+        assert!(!cx.handlers.contains_key(&a.nodes[2].on[0].handler));
+        assert!(cx.handlers.contains_key(&b.nodes[2].on[0].handler));
+    }
+
+    #[test]
+    fn content_parses_into_the_tiles_type() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Input {
+            message: String,
+        }
+        let c = Content::from_json(r#"{"message":"hi"}"#);
+        assert_eq!(c.parse::<Input>().unwrap().message, "hi");
+        assert!(Content::from_json("[1]").parse::<Input>().unwrap_err().to_string().contains("isn't what this tile takes"));
+    }
+}

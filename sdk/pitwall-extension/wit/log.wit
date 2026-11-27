@@ -1,0 +1,17 @@
+package pitwall:tile@0.1.0;
+
+/// Lines for the tile's Log, which the user and `pitwall extension dev`
+/// can read (runtime.md §3.8). No permission. Each line is at most 4 KiB
+/// (longer lines are cut); lines over the host-call limit (200 calls a
+/// second) are dropped, and the Log says how many. `println!` and
+/// `eprintln!` reach the same Log through WASI's stdout and stderr.
+interface log {
+  /// Detail for whoever is debugging the tile.
+  debug: func(message: string);
+  /// Something worth knowing happened.
+  info: func(message: string);
+  /// Something went wrong, and the tile carried on.
+  warn: func(message: string);
+  /// Something failed.
+  error: func(message: string);
+}

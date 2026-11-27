@@ -1,37 +1,13 @@
 //! The hello tile: the host's test fixture for `pitwall:tile@0.1.0`, written
-//! against the raw WIT bindings (no SDK). A counter kept in `storage`, a
-//! greeting from `settings`, a text field, a timer, and test-only actions
-//! the host's tests trigger by handler number (see `tests/host.rs`).
+//! with the guest SDK (`pitwall-extension`). A counter kept in `storage`, a
+//! greeting from `settings`, a text field, a timer, content from views, and
+//! test-only buttons (under the key `test`) that the host's tests click to
+//! hang, crash or overflow it (see `tests/host.rs`).
 
-use std::cell::RefCell;
-
-wit_bindgen::generate!({
-    path: "../../../wit",
-    world: "tile",
-});
-
-use exports::pitwall::tile::guest::Guest;
-use pitwall::tile::types::{
-    Button, ButtonKind, Edges, Element, Event, Frame, Icon, InitContext, Input, Length, Listen, Listener, Node, Style,
-    TextSize, Token, Tone,
-};
-use pitwall::tile::{log, settings, storage, tasks, ui};
-
-/// Handlers, by number.
-const CLICK: u32 = 1;
-const SPIN: u32 = 2;
-const HUGE: u32 = 3;
-const PRINT: u32 = 4;
-const TIMER: u32 = 5;
-const TOAST: u32 = 6;
-const PANIC: u32 = 7;
-const GROW: u32 = 8;
-#[cfg(feature = "heavy")]
-const HEAVY: u32 = 9;
-const TYPED: u32 = 10;
+use pitwall_extension::prelude::*;
 
 #[derive(Default)]
-struct State {
+struct Hello {
     clicks: u32,
     ticks: u32,
     typed: String,
@@ -40,148 +16,95 @@ struct State {
     hoard: Vec<Vec<u8>>,
 }
 
-thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State::default());
-}
-
-struct Tile;
-
-impl Guest for Tile {
-    fn init(cx: InitContext) -> Result<(), String> {
+impl Tile for Hello {
+    fn new(cx: &mut Cx<Self>) -> Self {
         let clicks = match storage::get("clicks") {
             Ok(Some(b)) if b.len() == 4 => u32::from_le_bytes([b[0], b[1], b[2], b[3]]),
-            Ok(_) => 0,
-            Err(e) => return Err(format!("storage: {e:?}")),
+            _ => 0,
         };
-        STATE.with_borrow_mut(|s| s.clicks = clicks);
-        log::info(&format!("hello {} {} starts with {clicks} clicks", cx.extension, cx.version));
-        Ok(())
+        log::info(format!("hello {} {} starts with {clicks} clicks", cx.extension(), cx.version()));
+        Hello { clicks, ..Hello::default() }
     }
 
-    fn render(view: String) -> Frame {
-        STATE.with_borrow(|s| if s.huge { huge() } else { hello(&view, s) })
-    }
-
-    fn handle(event: Event) -> bool {
-        match event {
-            Event::Click(c) => match c.handler {
-                CLICK => {
-                    let clicks = STATE.with_borrow_mut(|s| {
-                        s.clicks += 1;
-                        s.clicks
-                    });
-                    storage::set("clicks", &clicks.to_le_bytes()).is_ok()
-                }
-                SPIN => {
-                    let mut n: u64 = 0;
-                    loop {
-                        n = std::hint::black_box(n.wrapping_add(1));
-                    }
-                }
-                HUGE => {
-                    STATE.with_borrow_mut(|s| s.huge = true);
-                    true
-                }
-                PRINT => {
-                    println!("hello from stdout");
-                    eprintln!("hello from stderr");
-                    log::debug("a debug line");
-                    false
-                }
-                TIMER => {
-                    if let Err(e) = tasks::timer(100, false) {
-                        log::error(&format!("timer: {e:?}"));
-                    }
-                    false
-                }
-                TOAST => {
-                    ui::toast("Saved", Tone::Good);
-                    false
-                }
-                PANIC => panic!("boom"),
-                GROW => {
-                    // 1 MiB at a time until the memory limit traps.
-                    STATE.with_borrow_mut(|s| loop {
-                        s.hoard.push(vec![1u8; 1 << 20]);
-                    })
-                }
-                #[cfg(feature = "heavy")]
-                HEAVY => {
-                    log::info(&heavy::work());
-                    false
-                }
-                other => {
-                    log::warn(&format!("unknown handler {other}"));
-                    false
-                }
-            },
-            Event::InputChanged(c) if c.handler == TYPED => {
-                STATE.with_borrow_mut(|s| s.typed = c.value);
-                true
-            }
-            Event::Timer(_) => {
-                STATE.with_borrow_mut(|s| s.ticks += 1);
-                true
-            }
-            Event::ViewOpened(v) => {
-                if let Some(json) = v.content.and_then(|c| c.json) {
-                    STATE.with_borrow_mut(|s| s.content = json);
-                }
-                true
-            }
-            Event::ViewContent(v) => {
-                STATE.with_borrow_mut(|s| s.content = v.content.json.unwrap_or_default());
-                true
-            }
-            Event::SettingsChanged => true,
-            _ => false,
+    fn render(&mut self, view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
+        if self.huge {
+            return huge();
         }
+        let greeting = settings::text("greeting").unwrap_or_else(|| "Hello".to_string());
+        v_flex()
+            .gap(px(8.0))
+            .p(px(12.0))
+            .bg(Token::Surface)
+            .child(text(format!("{greeting} from a tile ({view})")).id("title").text_lg().text_color(Token::Text))
+            .child(text(format!("Clicked {} times", self.clicks)).id("count").text_color(Token::Text2))
+            .child(text(format!("Ticks: {}", self.ticks)).id("ticks").text_color(Token::Text3))
+            .child(text(format!("Typed: {}", self.typed)).id("typed").text_color(Token::Text3))
+            .child(text(format!("Content: {}", self.content)).id("content").text_color(Token::Text3))
+            .child(button("Click me").id("button").primary().icon(Icon::Plus).on_click(cx.listener(|t: &mut Hello, _, cx| {
+                t.clicks += 1;
+                if storage::set("clicks", t.clicks.to_le_bytes()).is_ok() {
+                    cx.notify();
+                }
+            })))
+            .child(input("field").placeholder("Type here").on_change(cx.listener(|t: &mut Hello, v: &str, cx| {
+                t.typed = v.to_string();
+                cx.notify();
+            })))
+            .child(tests(cx))
+            .into_any()
     }
 
-    fn save_state() -> Vec<u8> {
-        STATE.with_borrow(|s| s.clicks.to_le_bytes().to_vec())
+    fn on_content(&mut self, view: &ViewInfo, _cx: &mut Cx<Self>) {
+        self.content = view.content.as_ref().and_then(|c| c.json_text()).unwrap_or_default().to_string();
+    }
+
+    fn save_state(&self) -> Option<SavedState> {
+        Some(SavedState::bytes(self.clicks.to_le_bytes().to_vec()))
     }
 }
 
-fn node(parent: Option<u32>, key: &str, element: Element, style: Vec<Style>) -> Node {
-    Node { parent, key: key.into(), element, style, on: vec![], focusable: false, tooltip: None, label: None }
-}
-
-fn edges(px: f32) -> Edges {
-    Edges { top: Length::Px(px), right: Length::Px(px), bottom: Length::Px(px), left: Length::Px(px) }
-}
-
-fn hello(view: &str, s: &State) -> Frame {
-    let greeting = match settings::get("greeting") {
-        Some(settings::SettingValue::Text(t)) => t,
-        _ => "Hello".to_string(),
-    };
-    let nodes = vec![
-        node(None, "root", Element::Box, vec![Style::FlexCol, Style::Gap(Length::Px(8.0)), Style::Padding(edges(12.0)), Style::Background(Token::Surface)]),
-        node(Some(0), "title", Element::Text(format!("{greeting} from a tile ({view})")), vec![Style::TextSize(TextSize::Lg), Style::Color(Token::Text)]),
-        node(Some(0), "count", Element::Text(format!("Clicked {} times", s.clicks)), vec![Style::Color(Token::Text2)]),
-        node(Some(0), "ticks", Element::Text(format!("Ticks: {}", s.ticks)), vec![Style::Color(Token::Text3)]),
-        node(Some(0), "typed", Element::Text(format!("Typed: {}", s.typed)), vec![Style::Color(Token::Text3)]),
-        node(Some(0), "content", Element::Text(format!("Content: {}", s.content)), vec![Style::Color(Token::Text3)]),
-        Node {
-            on: vec![Listener { on: Listen::Click, handler: CLICK }],
-            ..node(Some(0), "button", Element::Button(Button { label: "Click me".into(), kind: ButtonKind::Primary, icon: Some(Icon::Named("plus".into())), disabled: false }), vec![])
-        },
-        Node {
-            on: vec![Listener { on: Listen::Change, handler: TYPED }],
-            ..node(Some(0), "field", Element::Input(Input { value: None, revision: 0, selection: None, placeholder: Some("Type here".into()), multiline: false, rows: None, disabled: false }), vec![])
-        },
-    ];
-    Frame { nodes, focus: None, keymap: vec![] }
+/// The test-only buttons.
+fn tests(cx: &mut Cx<Hello>) -> AnyElement {
+    let row = h_flex()
+        .id("test")
+        .gap_1()
+        .child(button("Spin").id("spin").small().on_click(cx.listener(|_, _, _| {
+            let mut n: u64 = 0;
+            loop {
+                n = std::hint::black_box(n.wrapping_add(1));
+            }
+        })))
+        .child(button("Huge").id("huge").small().on_click(cx.listener(|t: &mut Hello, _, cx| {
+            t.huge = true;
+            cx.notify();
+        })))
+        .child(button("Print").id("print").small().on_click(cx.listener(|_, _, _| {
+            println!("hello from stdout");
+            eprintln!("hello from stderr");
+            log::debug("a debug line");
+        })))
+        .child(button("Timer").id("timer").small().on_click(cx.listener(|_, _, cx: &mut Cx<Hello>| {
+            cx.after(Duration::from_millis(100), |t, cx| {
+                t.ticks += 1;
+                cx.notify();
+            });
+        })))
+        .child(button("Toast").id("toast").small().on_click(cx.listener(|_, _, _| ui::toast("Saved", Tone::Good))))
+        .child(button("Panic").id("panic").small().on_click(cx.listener(|_, _, _| panic!("boom"))))
+        .child(button("Grow").id("grow").small().on_click(cx.listener(|t: &mut Hello, _, _| {
+            // 1 MiB at a time until the memory limit traps.
+            loop {
+                t.hoard.push(vec![1u8; 1 << 20]);
+            }
+        })));
+    #[cfg(feature = "heavy")]
+    let row = row.child(button("Heavy").id("heavy").small().on_click(cx.listener(|_, _, _| log::info(heavy::work()))));
+    row.into_any()
 }
 
 /// One node more than a frame may have.
-fn huge() -> Frame {
-    let mut nodes = vec![node(None, "root", Element::Box, vec![])];
-    for i in 0..20_000 {
-        nodes.push(node(Some(0), &i.to_string(), Element::Text(String::new()), vec![]));
-    }
-    Frame { nodes, focus: None, keymap: vec![] }
+fn huge() -> AnyElement {
+    div().children((0..20_000).map(|i| text("").id(i.to_string()))).into_any()
 }
 
 /// `--features heavy`: code the size of a real tile's (a JSON API client
@@ -204,4 +127,4 @@ mod heavy {
     }
 }
 
-export!(Tile);
+pitwall_extension::export!(Hello);
