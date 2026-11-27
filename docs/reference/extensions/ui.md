@@ -68,88 +68,185 @@ A row of the `list` template: a button that toggles the item, its text, and a bu
 
 ## Components
 
-Components are drawn by Pitwall as its own lists, menus and Preview are, so they look and behave like the rest of the app (theme, hover, keyboard, scrollbars), and work without a round trip to the tile while the user scrolls or hovers. The examples below come from the gallery tile Pitwall's tests run (`crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs`); `pitwall-extension-test` drives each one ([quick start](quick-start.md#test-it)).
+Components are drawn by Pitwall as its own lists, menus and Preview are, so they look and behave like the rest of the app (theme, hover, keyboard, scrollbars), and work without a round trip to the tile while the user scrolls or hovers. Prefer them to lists, tabs or menus built from boxes. The examples below come from the gallery tile Pitwall's tests run (`crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs`), and the screenshots are that tile drawn headless, dark and light (`gallery_shots` in `crates/pitwall-app/src/tiles/gallery_tests.rs`); `pitwall-extension-test` drives each one ([quick start](quick-start.md#test-it)).
+
+What every component shares:
+
+- **Key.** Each takes a key first (menus excepted: their button's label is it). Events and the test harness name it by its key path, like any element's.
+- **Accessibility.** A component's text (row text, column titles, tab, option and item labels) is its accessible name; `.label("…")` names one that has no text, such as an icon-only menu button or an image. `.tooltip("…")` works on all of them.
+- **Limits.** Over a limit, the tile stops with the reason, as for any frame ([Limits](#limits)).
 
 ### Virtual list
 
-`virtual_list(key, count, rows)` is a list of `count` rows that scrolls smoothly at 100 000 rows. The frame holds only the count; `rows`, made with `cx.rows(|tile, i, cx| …)`, renders row `i` when it comes into sight. Pitwall asks for rows a page (64) at a time and keeps what it has drawn until the list's data changes.
+![Virtual list, dark](images/components/components-virtual-list-dark.png) ![Virtual list, light](images/components/components-virtual-list-light.png)
+
+A long list: search results, log lines, a file's history, anything that may run past a few hundred rows. `virtual_list(key, count, rows)` is a list of `count` rows that scrolls smoothly at 100 000 rows. The frame holds only the count; `rows`, made with `cx.rows(|tile, i, cx| …)`, renders row `i` when it comes into sight. Pitwall asks for rows a page (64) at a time and keeps what it has drawn until the list's data changes. For a dozen rows that never grow, a column of boxes is simpler.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-virtual-list}}
 ```
 
-- **Rows.** A row is a small tree (at most 64 nodes) of boxes, text, icons, buttons, images and a context menu; no text fields or nested lists. Every row is `.row_height(px)` tall (default 28, Pitwall's own rows'; 12 to 200). Give each row its item's id with `.id(…)`, so the selection follows the item; a key has no `/`. Listeners in a row (a button's `on_click`, a context menu) work like any other.
-- **Selection.** `.on_select` hears a click, Up, Down, Home, End, Page Up and Page Down (with the row's key, or the whole `Picked` with its index and modifiers), and a double click or Enter with `activate`. `.selected(keys)` draws the selection; the tile keeps it.
-- **Changes.** By default every render counts as new data, and Pitwall asks for the rows in sight again. `.revision(n)` with a number that changes only when the rows do saves those calls.
+| Option | What it does |
+|---|---|
+| `.row_height(px)` | Every row's height: 12 to 200, default 28 (Pitwall's own rows') |
+| `.selected(keys)` | The selected rows' keys, drawn selected; the tile keeps the selection |
+| `.revision(n)` | A number that changes only when the rows do. Without it every render counts as new data and Pitwall asks for the rows in sight again |
+| `.on_select(listener)` | Hears a row chosen |
+
+- **Rows.** A row is a small tree (at most 64 nodes) of boxes, text, icons, buttons, images and a context menu; no text fields or nested lists. Give each row its item's id with `.id(…)`, so the selection follows the item; a key has no `/`. Listeners in a row (a button's `on_click`, a [context menu](#menus)) work like any other.
+- **Events.** `on_select` gets the row's key (`&str`), or the whole `Picked`: `key`, `index`, `modifiers` (⌘ or Shift for adding to a selection), and `activate`, true for a double click or Enter.
+- **Keyboard.** With the list focused (a click on it), Up and Down move the selection, Home and End go to the ends, Page Up and Page Down by a screen, and Enter activates; each sends `select`. A row that isn't loaded yet is selected when it arrives.
 - **Size.** It fills its parent: give the parent a height, or let it grow (`flex_1` in a column that has one).
 - **Speed.** Keep the row callback quick: a page of 64 rows in a few milliseconds. In Pitwall's measurement a page of 64 gallery rows took about 0.5 ms, and a jump to row 50 000 was drawn in about 20 ms ([runtime.md §2.7](../../spec/tile-sdk/runtime.md)).
+- **Limits.** 1 000 000 rows; a row 64 nodes; a `rows` call 256 rows and 250 ms.
 
 ### Table
 
-`table(key, columns, count, rows)` is a virtual list with a header. Each row's root holds its cells, one child per column in order. `column(key, title)` takes `.width(px)` (else it shares the rest), `.align_end()` or `.align_center()`, and `.sortable()`.
+![Table, dark](images/components/components-table-dark.png) ![Table, light](images/components/components-table-light.png)
+
+Rows with the same fields side by side: files with their size and date, test results, issues. `table(key, columns, count, rows)` is a virtual list with a header. Each row's root holds its cells, one child per column in order.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-table}}
 ```
 
-A click on a sortable title calls `.on_sort` with the column and the next direction (ascending first); the tile sorts and passes `.sort(column, direction)`, which draws the arrow. The user drags a title's right edge to resize the column; `.on_column_resize` hears the width at the end of the drag, to keep it. Selection works as in a list.
+| Option | What it does |
+|---|---|
+| `column(key, title)` | A column. `.width(px)` fixes its width (else it shares the room left); `.align_end()` (numbers) or `.align_center()`; `.sortable()` makes its title clickable |
+| `.sort(column, direction)` | Which column the rows are sorted by, drawn as an arrow in its title |
+| `.on_sort(listener)` | Hears a sortable title clicked: `SortChange` with the `column` and the next `direction` (ascending first). Sort the rows, pass `.sort(…)` |
+| `.on_column_resize(listener)` | Hears a column resized: `ColumnWidth` with the `column` and its `width`, once at the end of the drag, to keep it |
+| `.row_height`, `.selected`, `.revision`, `.on_select` | As in a [virtual list](#virtual-list) |
+
+- **Resizing.** The user drags the right edge of a title; Pitwall keeps that width until the column's own `.width` changes.
+- **Keyboard.** As in a virtual list.
+- **Limits.** 64 columns; rows as in a virtual list.
 
 ### Tree
 
-`tree(key, count, rows)` is a virtual list of the tree's visible rows, in order: the tile flattens its open branches. A row is a `tree_row(element)` with `.depth(n)` (its level, indented by Pitwall) and, for a branch, `.branch(open)` (drawn with a chevron).
+![Tree, dark](images/components/components-tree-dark.png) ![Tree, light](images/components/components-tree-light.png)
+
+Nested items: folders and files, symbols, an outline. `tree(key, count, rows)` is a virtual list of the tree's visible rows, in order: the tile flattens its open branches and keeps which are open. A row is a `tree_row(element)`.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-tree}}
 ```
 
-The chevron, a double click on a branch, and → and ← on the selected row call `.on_toggle` with the row's key and whether it opens. ← on a leaf or a closed branch moves to its parent. The tile opens or closes the branch and renders again.
+| Option | What it does |
+|---|---|
+| `tree_row(el).depth(n)` | The row's level, 0 at the top; Pitwall indents it |
+| `tree_row(el).branch(open)` | A branch, open or closed, drawn with a chevron. Leave it out for a leaf |
+| `.on_toggle(listener)` | Hears a branch opened or closed: `Toggled` with the row's `key`, its `index` and `on` (true: open it). Change your open set and render again |
+| `.row_height`, `.selected`, `.revision`, `.on_select` | As in a [virtual list](#virtual-list) |
+
+- **Opening.** A click on the chevron, or a double click on a branch, sends `toggle`.
+- **Keyboard.** As in a virtual list, and → opens the selected branch, ← closes it; ← on a leaf or a closed branch moves to its parent.
+- **Limits.** As in a virtual list (counting only the visible rows).
 
 ### Tabs
 
-`tabs(key, [tab(key, label), …])` is Pitwall's segmented control: a row of tabs, each with an optional `.icon(…)`. `.selected(key)` marks the current one; `.on_select` hears a click with the tab's key. Draw the tab's content yourself.
+![Tabs, a select and a menu button, dark](images/components/components-toolbar-dark.png) ![Tabs, a select and a menu button, light](images/components/components-toolbar-light.png)
+
+A few views of the same thing, one at a time: Overview, Files, Log. `tabs(key, [tab(key, label), …])` is Pitwall's segmented control. It only marks the choice: draw the tab's content yourself, by the key you keep. For more than about five choices, or ones that aren't views, use a [select](#select).
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-tabs}}
 ```
 
+| Option | What it does |
+|---|---|
+| `tab(key, label).icon(icon)` | An icon before the tab's label |
+| `.selected(key)` | The current tab |
+| `.on_select(listener)` | Hears a tab clicked, with its key (`&str`) or `Picked` |
+
+- **Keyboard.** Tabs are chosen with the pointer for now; bind keys with `cx.bind_key` to switch them ([Keyboard and focus](#keyboard-and-focus)).
+- **Limits.** 1 000 tabs.
+
 ### Select
 
-`select(key, [choice(key, label), …])` is a dropdown. `.selected(key)`, `.placeholder("…")` (shown while none is selected), `.disabled(true)`; `.on_select` hears the chosen option's key.
+![Select open, dark](images/components/components-select-dark.png) ![Select open, light](images/components/components-select-light.png)
+
+One value out of a list: a size, a sort order, a branch. `select(key, [choice(key, label), …])` is a dropdown: a button with the chosen label that opens Pitwall's menu of the options, the chosen one ticked.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-select}}
 ```
 
+| Option | What it does |
+|---|---|
+| `.selected(key)` | The chosen option |
+| `.placeholder("…")` | Shown while no option is chosen |
+| `.disabled(true)` | Dimmed; it doesn't open |
+| `.on_select(listener)` | Hears an option chosen, with its key (`&str`) or `Picked` |
+
+- **Keyboard.** Esc closes the open list; options are chosen with the pointer for now.
+- **Limits.** 1 000 options.
+
 ### Menus
 
-A menu is a list of `menu_item(key, label)` (with `.icon(…)`, `.hint("⌘C")`, `.disabled(true)`, `.danger()`) and `separator()`. Pitwall draws it as its own menus, above the tile (a glass pop-up under Liquid Glass), closes it on a click outside or Esc, and calls the listener with the chosen item's key.
+![A menu button's menu, dark](images/components/components-menu-button-dark.png) ![A menu button's menu, light](images/components/components-menu-button-light.png)
+
+Actions on a thing that don't need a button each: Copy, Rename, Delete. A menu is a list of `menu_item(key, label)` and `separator()`. Pitwall draws it as its own menus, above the tile (a glass pop-up under Liquid Glass), closes it on a click outside or Esc, and calls the listener with the chosen item's key.
 
 - `menu_button(label, entries)` is a button that opens it; `menu_icon_button(icon, label, entries)` an icon-only one, `label` being its accessible name.
-- `.context_menu(entries, listener)` on any element opens it on a right-click there, rows of lists included (a right-click selects the row first).
+- `.context_menu(entries, listener)` on any element opens it on a right-click there, rows of lists, tables and trees included (a right-click selects the row first). An element has at most one.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-menu-button}}
 ```
 
+| Option | What it does |
+|---|---|
+| `menu_item(…).icon(icon)` | An icon before the label |
+| `menu_item(…).hint("⌘C")` | A shortcut shown on the right (bind it yourself with `cx.bind_key`) |
+| `menu_item(…).disabled(true)` | Dimmed; it can't be chosen |
+| `menu_item(…).danger()` | Drawn in the danger colour, for destructive actions |
+| `menu_button(…).icon(icon)`, `.disabled(true)` | The button's icon; a disabled button doesn't open |
+| `.on_select(listener)` | Hears an item chosen, with its key (`&str`) or `Picked` |
+
+- **Keyboard.** Esc closes an open menu; items are chosen with the pointer for now.
+- **Limits.** 1 000 items in a menu.
+
 ### Markdown
 
-`markdown(text)` draws Markdown with Pitwall's Preview: headings, lists, tasks, code, tables, quotes. It is inert: no HTML, no remote images, nothing runs. Without listeners, `http`, `https` and `mailto` links open in the browser and task boxes can't be clicked. `.on_link` gets every link click instead (`LinkClick` with the target as written, so a relative link can open another of the tile's items); `.on_toggle` makes task boxes clickable and gets `Toggled` with the task's line (0-based) and whether it is ticked now, for the tile to change its text.
+![Markdown, dark](images/components/components-markdown-dark.png) ![Markdown, light](images/components/components-markdown-light.png)
+
+Text the user or an agent wrote: notes, a README, a description. `markdown(text)` draws it with Pitwall's Preview: headings, lists, tasks, code, tables, quotes. It is inert: no HTML, no remote images, nothing runs.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-markdown}}
 ```
 
-Given a height (or room to grow), it fills it and scrolls; otherwise it is as tall as its text. At most 1 MiB of text.
+| Option | What it does |
+|---|---|
+| `.on_link(listener)` | Gets every link click instead of Pitwall opening it: `LinkClick` with the `url` as written (a relative link can open another of the tile's items) and the `modifiers` |
+| `.on_toggle(listener)` | Makes task boxes clickable: `Toggled` with the task's line in `index` (0-based) and `on`, whether it is ticked now. Change the text and render again |
+
+- **Links.** Without `on_link`, `http`, `https` and `mailto` links open in the browser and other links do nothing; without `on_toggle`, task boxes can't be clicked.
+- **Size.** Given a height (or room to grow), it fills it and scrolls; otherwise it is as tall as its text.
+- **Keyboard.** Text can be selected and copied as in Preview.
+- **Limits.** 1 MiB of text.
 
 ### Images
 
-`image_asset("assets/logo.svg")` shows a file of the extension's folder (a path inside it, no `..`); `image_data(name)` shows bytes the tile handed over with `ui::put_image(name, &bytes)` ([Platform services](platform-services.md#ui)). PNG, JPEG, GIF, WebP and SVG; never fetched from the network. `.contain()` (the default), `.cover()` or `.fill()` say how it fits its box; give it a size with `w` and `h`.
+![Images, dark](images/components/components-image-dark.png) ![Images, light](images/components/components-image-light.png)
+
+A logo, an avatar, a thumbnail or a picture the tile made. `image_asset("assets/logo.svg")` shows a file of the extension's folder (a path inside it, no `..`); `image_data(name)` shows bytes the tile handed over with `ui::put_image(name, &bytes)` ([Platform services](platform-services.md#ui)) and can drop with `ui::drop_image(name)`. PNG, JPEG, GIF, WebP and SVG; never fetched from the network.
 
 ```rust
 {{#include crates/pitwall-tile-host/tests/fixtures/hello-tile/src/gallery.rs#gallery-image}}
 ```
 
-An asset is at most 16 MiB; a put image at most 8 MiB, and 64 MiB for all of a tile's. A missing or unreadable image draws an image icon in its place.
+| Option | What it does |
+|---|---|
+| `.contain()` | Fits inside its box, whole (the default) |
+| `.cover()` | Fills its box, cropped |
+| `.fill()` | Stretched to its box |
+| `.w(…)`, `.h(…)` | Its size: give it one |
+| `.label("…")` | What it shows, for screen readers |
+
+- **Missing.** A missing or unreadable image draws an image icon in its place.
+- **Limits.** An asset at most 16 MiB; a put image at most 8 MiB, and 64 MiB for all of a tile's.
 
 ## Styles
 
