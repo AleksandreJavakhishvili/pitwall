@@ -46,6 +46,8 @@ Agent tools that open a tile with content come in phase 2 of the SDK, and the ot
 
 - [Quick start](quick-start.md): from `pitwall extension new` to a tile running in Pitwall, and sharing it.
 - [Tiles and UI components](ui.md): the elements a tile is built from, styles, events and keys.
+- [Canvas and drag](canvas.md): drawing diagrams with zoom, pan and clickable regions; drag and drop inside a tile.
+- [Native building blocks](blocks.md): Pitwall's code view and diff view in a tile.
 - [Agent tools](agent-tools.md): tools a tile gives your agents (phases 2 and 3).
 - [Permissions](permissions.md): what each grant means.
 - [Platform services](platform-services.md): what Pitwall gives every tile.

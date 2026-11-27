@@ -1,6 +1,6 @@
 # Tiles and UI components
 
-**Preview.** A tile describes what to show as a tree of elements, and Pitwall lays it out and draws it in its own theme. This page covers the core elements of WIT 0.1, styles and theme colours, events and keys, the `Tile` trait, and opening a tile with content. Further components (lists, tables, trees, tabs, menus, Markdown, a canvas, images) come in phase 2.
+**Preview.** A tile describes what to show as a tree of elements, and Pitwall lays it out and draws it in its own theme. This page covers the core elements of WIT 0.1, styles and theme colours, events and keys, the `Tile` trait, and opening a tile with content. A canvas with drag and drop is on [Canvas and drag](canvas.md), and Pitwall's code and diff views on [Native building blocks](blocks.md). Further components (lists, tables, trees, tabs, menus, Markdown, images) come in phase 2.
 
 The names follow GPUI, the UI framework Pitwall is built with, so `div().flex().gap_2().child(…)` reads as it does there. Everything below comes from `use pitwall_extension::prelude::*;`.
 
@@ -113,6 +113,8 @@ A listener is made with `cx.listener` while rendering and handed to the element 
 | `on_change` | Text field | The new text (`&str`) or the whole `InputChange` with the selection |
 | `on_submit` | Text field | `Submit`: Enter (⌘Enter, Ctrl+Enter off macOS, in a multi-line field) |
 | `on_select` | Text field | `Selection`: the cursor or selection moved |
+| `on_wheel` | Any element | `Pointer` with `PointerKind::Wheel` or `PointerKind::Pinch`: for zooming and panning a [canvas](canvas.md#zoom-and-pan) |
+| `on_drop` | Any element | `Dropped`: something dragged with `.draggable` was dropped on it ([Drag and drop](canvas.md#drag-and-drop)) |
 | `on_scroll` | Scroll container | `ScrollPosition`: offset and content size, for loading more at the end |
 | `on_focus`, `on_blur` | Text field or focusable element | `Focused` / `Blur`: it took the keyboard, or lost it (to another element, or out of the tile). A field's blur is the moment to save it |
 
