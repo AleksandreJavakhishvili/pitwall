@@ -29,8 +29,16 @@ ones) with `rustybuzz` and the table is within 0.36 % of the font for
 both weights.
 
 `text_width(text, px, weight)` sums advances and pair kerning. The Sizer
-adds 8 % slack (hla §3.7) on top. When the SDK can measure text (gap G2)
-the Sizer calls it instead and the table goes.
+adds 8 % slack (hla §3.7) on top.
+
+Gap G2 is closed: the SDK measures text (`ui.measure-text`, from the
+app's own font files by the same method). The table stays all the same:
+the core (parse, layout) builds and is tested without the SDK
+(`--no-default-features`, the speed numbers below), and a layout measures
+thousands of strings while it wraps, where host calls are counted (200 a
+second). `tests/text_widths.rs` checks the table against Pitwall's
+measure for the 100 labels at both weights: equal, so a change to
+Pitwall's fonts fails there rather than drawing cut labels.
 
 ## 2. Sizes
 

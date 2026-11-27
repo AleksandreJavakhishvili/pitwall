@@ -128,13 +128,14 @@ A floating panel anchored to an element: filters, a small form, details on deman
 | `popover()` | A popover; its children are its content |
 | `.placement(Placement)` | `Below` (default), `Above`, `Start` or `End` of its anchor |
 | `.width(px)` | Its width (default: its content's, 160–480) |
+| `.at(x, y)` | Anchor it to that point of its parent (pixels from the parent's top-left corner, as a click's `at`) instead of the parent's edge |
 | `.on_dismiss(listener)` | Hears `Dismissed`: Esc, or a click outside it. Leave it out of the next render |
 
-- **Anchor.** It is open while it is in the frame, anchored to its parent: put it in a box with the button that opens it, as the example does.
+- **Anchor.** It is open while it is in the frame, anchored to its parent: put it in a box with the button that opens it, as the example does. With `.at(x, y)` it hangs from a point of the parent instead, on the side `.placement` says; on a canvas (`canvas.popover(…)`), under the box that was clicked ([Canvas](canvas.md#text)).
 - **Events.** `dismissed` on Esc or a click outside.
 - **Keyboard.** Esc closes it; Tab moves among its controls.
 - **Limits.** One popover a frame; it can't be the root.
-- **Test.** `t.key_on("key", "escape")`; `t.dismiss("key")`.
+- **Test.** `t.key_on("key", "escape")`; `t.dismiss("key")`. The snapshot says `popover at (x, y)` for one anchored to a point.
 
 ## Confirm sheet
 
