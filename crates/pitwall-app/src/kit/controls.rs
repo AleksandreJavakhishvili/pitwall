@@ -152,6 +152,8 @@ pub struct SegItem {
     pub label: SharedString,
     pub on: bool,
     pub tooltip: Option<SharedString>,
+    /// An icon before the label (a name of the icon set).
+    pub icon: Option<SharedString>,
 }
 
 impl SegItem {
@@ -160,13 +162,15 @@ impl SegItem {
             label: label.into(),
             on,
             tooltip: None,
+            icon: None,
         }
     }
 }
 
 /// `.seg`: a row of radio buttons; `on_pick` gets the chosen index. Under
 /// Glass it sits on glass surface-2 with a hairline ring.
-pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) -> Div {
+pub fn seg(id: impl Into<SharedString>, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) -> Div {
+    let id: SharedString = id.into();
     let (bg, on_bg) = if t.is_glass() {
         (t.g.surface_2, t.g.surface_3)
     } else {
@@ -189,13 +193,16 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
         })
         .children(items.into_iter().enumerate().map(move |(i, item)| {
             let pick = on_pick.clone();
-            let eid = ElementId::from((id, i));
+            let eid = ElementId::NamedInteger(id.clone(), i as u64);
+            let icon_color = if item.on { fg } else { fg3 };
             let el = div()
                 .id(eid.clone())
                 .h(px(24.))
                 .px(px(10.))
                 .flex()
                 .items_center()
+                .gap(px(5.))
+                .when_some(item.icon.clone(), |d, name| d.child(icon(&name, 12., icon_color)))
                 .rounded(RADIUS_SM)
                 .text_size(px(12.))
                 .cursor_pointer()
