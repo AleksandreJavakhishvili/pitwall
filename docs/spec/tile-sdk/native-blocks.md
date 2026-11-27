@@ -62,6 +62,21 @@ keeps its state across frames and sends its events to the tile's
 the block. A block not placed in the current frame keeps its state
 until dropped or the tile is suspended.
 
+**As built (phase 2): the read-only code and diff views are elements,
+not handles.** `element.code-view` (text, language, line marks, a line
+to reveal) and `element.diff-view` (two texts or a unified diff,
+language, side by side or inline, a line to reveal) carry their content
+in the frame, at most 1 MiB a text. The host keeps one `CodeView` per
+key path and reloads it only when the content, marks or layout change,
+so its scroll, selection and search survive other renders. Events:
+`event.line-clicked` (side, line) on `listen.line-click`, and
+`event.code-selected` (side, start, end, text cut at 64 KiB, at most
+every 100 ms) on `listen.select`. Why not handles yet: read-only views
+need no state from the tile beyond their text, and an element needs no
+new resource or interface in WIT 0.1. Editable views, which need
+`text()`, `revision()` and edits that don't round-trip through frames,
+keep the handle design below.
+
 The `code` element of [3.3](ui.md#33-the-ui-description) stays for short read-only snippets (an
 error, a request body). `code-view` is for files and anything the user
 edits.

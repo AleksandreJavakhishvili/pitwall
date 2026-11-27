@@ -123,6 +123,19 @@ pitwall_extension::export!(App);
 - **Text fields**: Pitwall owns what the user types. Keep your copy from
   `on_change` and pass it back with `.value(..)`: the SDK sends it only
   when it differs, so setting your copy to `""` clears the field.
+- **Canvas** (diagrams, charts): `canvas().id("d").flex_1().transform(self.viewport)`
+  with `.draw(Shape::rect(..).fill(Token::Surface2).stroke(Token::Line, 1.).radius(8.))`,
+  `Shape::line`/`Shape::path()` (`.dash([5., 4.])`) and
+  `Label::new(text, x, y).size(14.).center().middle().max_width(w)` (px sizes,
+  so text zooms). Clickable boxes are `.region(Region::new(key, x, y, w, h, label).on_click(..))`.
+  Keep a `Viewport` in the state and feed it from `.on_pointer` and `.on_wheel`
+  (`if t.viewport.on_pointer(p) { cx.notify() }`); `fit`, `zoom_at` for buttons.
+  No text-measuring call: measure with an Inter width table.
+- **Drag and drop** inside a tile: `.draggable(kind, data, label)` on the source,
+  `.on_drop([kind], handler)` (`Dropped { kind, data, at }`) on the target.
+- **Code and diff views** (read-only, Pitwall's own): `code_view(text).language("rust")`
+  with `.mark(range, Mark::Added)`, `.reveal(line)`, `.on_line_click`, `.on_select`;
+  `diff_view(old, new)` or `diff_view_unified(patch)`, `.inline()`. Give them a size.
 - **Render quickly** (under 8 ms; the deadline is 250 ms): compute in
   listeners and timers, read state in `render`. `handle` calls have 1 s,
   `new` 2 s. A tile over a deadline is stopped and the user sees why.
@@ -201,6 +214,9 @@ keyboard; `press("n")` a bound key; `resize(view, w, h)`, `light()`;
 `log_text()`, `toasts()`, `stored(key)`, `Harness::stored(key, value)`;
 `reload()` (save state, restart), `restart()` (no saved state),
 `set_setting`, `set_content`.
+Canvases and blocks: `canvas(key)`, `click_region(label)`, `hover_region`,
+`wheel`, `pinch`, `drag_pointer`, `drag(from, to)`, `code_view(key)`,
+`click_line(key, Side::New, n)`, `select_code`.
 
 ## Docs
 
