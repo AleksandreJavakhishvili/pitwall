@@ -4,9 +4,19 @@
   "name": "C4 diagrams",
   "version": "0.1.0",
   "pitwall": ">=0.8.0",
-  "icon": "grid",
+  "icon": "assets/icon.png",
   "description": "C4 diagrams your agents draw and your docs hold, shown next to their terminal, with click to zoom",
+  "tagline": "Architecture diagrams your agents draw",
+  "categories": ["docs"],
+  "homepage": "https://pitwalls.github.io/pitwall/",
+  "repository": "https://github.com/pitwalls/pitwall",
   "license": "Apache-2.0",
+  "screenshots": [
+    { "path": "screenshots/diagram.png", "caption": "A container diagram an agent drew, beside its terminal" },
+    { "path": "screenshots/changes.png", "caption": "Changes: what the agent's update added and changed" },
+    { "path": "screenshots/zoom.png", "caption": "Click a box to open the diagram that details it" },
+    { "path": "screenshots/errors.png", "caption": "Bad Mermaid changes nothing: each problem at its line" }
+  ],
   "settings": [
     { "key": "paths", "type": "text", "label": "Where diagrams are", "hint": "Markdown files to look in, from the project's folder, separated by commas. ** is any folders, * any name.", "default": "docs/**/*.md, **/hla.md, **/*-lld.md" }
   ],

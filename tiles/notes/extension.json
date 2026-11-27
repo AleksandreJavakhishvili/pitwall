@@ -4,9 +4,17 @@
   "name": "Notes",
   "version": "0.1.0",
   "pitwall": ">=0.8.0",
-  "icon": "page-right",
+  "icon": "assets/icon.png",
   "description": "Plain-text notes beside your agents, in your project or private, saved as you type",
+  "tagline": "Notes beside your agents, sent when you're ready",
+  "categories": ["notes"],
+  "homepage": "https://pitwalls.github.io/pitwall/",
+  "repository": "https://github.com/pitwalls/pitwall",
   "license": "Apache-2.0",
+  "screenshots": [
+    { "path": "screenshots/send.png", "caption": "Send a note to an agent's Next up" },
+    { "path": "screenshots/selection.png", "caption": "Or only the text you selected" }
+  ],
   "settings": [
     { "key": "folder", "type": "text", "label": "Notes folder", "hint": "Where project notes are kept, from the project's folder.", "default": "notes" }
   ],

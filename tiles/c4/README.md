@@ -1,5 +1,7 @@
 # C4 diagrams
 
+<img src="assets/icon.png" width="64" alt="C4 diagrams">
+
 Diagrams your agents draw, shown next to their terminal. **Preview** on
 the Tile SDK (WIT `pitwall:tile@0.1.0`), built on the public SDK alone:
 phases A and B of [the C4 tile plan](../../docs/spec/2026-11-27-c4-tile/plan.md).
@@ -29,7 +31,18 @@ diagram in place, with Now / Changes to see what changed.
 Diagrams in the project's Markdown files (plan phase C) wait for a
 `files.read` service.
 
-![A container diagram, dark](../../docs/reference/extensions/images/seed-tiles/c4-drawn-dark.png)
+![A container diagram an agent drew](screenshots/diagram-light.png#gh-light-mode-only)
+![A container diagram an agent drew](screenshots/diagram-dark.png#gh-dark-mode-only)
+
+**Changes** shows what an update added (green) and changed (amber):
+
+![What changed](screenshots/changes-light.png#gh-light-mode-only)
+![What changed](screenshots/changes-dark.png#gh-dark-mode-only)
+
+A box another diagram details opens it on a click:
+
+![Click to zoom](screenshots/zoom-light.png#gh-light-mode-only)
+![Click to zoom](screenshots/zoom-dark.png#gh-dark-mode-only)
 
 ## Develop
 
