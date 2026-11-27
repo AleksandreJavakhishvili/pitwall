@@ -18,7 +18,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use gpui::{div, prelude::*, px, AnyElement, Context, Div, Entity, SharedString};
+use gpui::{div, prelude::*, px, AnyElement, App, Context, Div, Entity, SharedString};
 use pitwall_core::accounts::Account;
 use pitwall_core::extensions::activity::{Outcome, Via};
 use pitwall_core::extensions::permissions::{self, Decision};
@@ -166,12 +166,12 @@ impl SettingsView {
 
     /// [`Self::permission_words`], with what `m` names for it: the
     /// servers `net` may reach, each as written.
-    pub(super) fn permission_words_of(ui: &Ui, m: &Manifest, name: &str, reason: &str) -> Div {
+    pub(super) fn permission_words_of(ui: &Ui, m: &Manifest, name: &str, reason: &str, cx: &App) -> Div {
         let col = Self::permission_words(ui, name, reason);
         let mut listed = permissions::listed(m, name);
         // `files.*`: the project folders its tiles are open in now.
         if name.starts_with("files.") {
-            let now = crate::tiles::scoped_folders(&m.id);
+            let now = crate::tiles::scoped_folders(&m.id, cx);
             if !now.is_empty() {
                 listed = now;
             }
@@ -269,7 +269,7 @@ impl SettingsView {
             col = col.child(preview_warning(&m.id, ui));
         }
         for p in &m.permissions {
-            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &p.name, &p.reason));
+            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &p.name, &p.reason, cx));
             match (permissions::unavailable_why(&p.name), permissions::amount(m, &p.name).filter(|_| permissions::shown_only(&p.name))) {
                 (Some(why), _) => row = row.child(div().flex_none().mt(px(1.)).child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t))),
                 // Granted with it, shown with its size.
@@ -374,7 +374,7 @@ impl SettingsView {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(text));
         }
         for p in &m.permissions {
-            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &p.name, &p.reason));
+            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, m, &p.name, &p.reason, cx));
             let (ext, name) = (m.id.clone(), p.name.clone());
             let right = match (permissions::unavailable_why(&p.name), decisions.get(&p.name)) {
                 (Some(why), _) => div().child(crate::kit::chip_tone(why, Tone::Subtle, &ui.t)),

@@ -78,11 +78,11 @@ impl SettingsView {
                 card = card.child(div().flex().gap(px(12.)).items_start().child(icon).child(text));
                 card = card.child(self.trust_view(ui, &m, &key, new_key, cx));
                 match &old {
-                    Some(old) => card = card.child(Self::permission_changes_view(ui, old, &m)),
+                    Some(old) => card = card.child(Self::permission_changes_view(ui, old, &m, cx)),
                     None if !m.permissions.is_empty() => {
                         let mut perms = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child("It asks for these permissions"));
                         for ask in &m.permissions {
-                            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, &m, &ask.name, &ask.reason));
+                            let mut row = div().flex().gap(px(12.)).items_start().child(Self::permission_words_of(ui, &m, &ask.name, &ask.reason, cx));
                             if let Some(amount) = permissions::amount(&m, &ask.name) {
                                 row = row.child(div().flex_none().mt(px(1.)).child(crate::kit::mono_text(amount, &ui.t).text_color(ui.t.text_2)));
                             }
@@ -175,7 +175,7 @@ impl SettingsView {
     /// An update's changes in what it asks for: new permissions (not
     /// granted until allowed), more of one (net hosts, sizes; asked again),
     /// and ones it no longer asks for.
-    fn permission_changes_view(ui: &Ui, old: &Manifest, new: &Manifest) -> AnyElement {
+    fn permission_changes_view(ui: &Ui, old: &Manifest, new: &Manifest, cx: &gpui::App) -> AnyElement {
         let changes = package::permission_changes(old, new);
         let mut col = div().debug_selector(|| "extension-add-file-permissions".into()).flex().flex_col().gap(px(10.)).child(div().text_size(px(13.)).font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child("Permission changes"));
         if changes.is_empty() {
@@ -190,7 +190,7 @@ impl SettingsView {
                 PermissionChange::Widened { lines, .. } => ("more", Tone::Warn, lines.clone()),
                 PermissionChange::Removed { .. } => ("removed", Tone::Subtle, vec![]),
             };
-            let mut words = Self::permission_words_of(ui, new, &name, &reason);
+            let mut words = Self::permission_words_of(ui, new, &name, &reason, cx);
             for l in lines {
                 words = words.child(crate::kit::mono_text(l, &ui.t).text_color(ui.t.text_2));
             }

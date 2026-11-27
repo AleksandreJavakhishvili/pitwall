@@ -68,6 +68,8 @@ mod gallery_tests;
 #[cfg(test)]
 mod services_shots;
 #[cfg(test)]
+mod files_shots;
+#[cfg(test)]
 mod agents_shots;
 #[cfg(test)]
 mod agent_tools_shots;
@@ -204,6 +206,12 @@ pub struct DataDir(pub PathBuf);
 impl Global for DataDir {}
 
 /// The tiles' runtime (made on first use).
+/// The project folders extension `id`'s open views are in now
+/// ([`Tiles::scoped_folders`]); none before any tile ran.
+pub fn scoped_folders(id: &str, cx: &App) -> Vec<String> {
+    cx.try_global::<Handle>().map(|h| h.0.read(cx).scoped_folders(id)).unwrap_or_default()
+}
+
 pub fn tiles(cx: &mut App) -> Entity<Tiles> {
     if let Some(h) = cx.try_global::<Handle>() {
         return h.0.clone();
@@ -681,16 +689,14 @@ impl Tiles {
             }
             self.view_projects.insert((id, v), p);
         }
-        let mut scoped = scoped().lock().unwrap_or_else(|e| e.into_inner());
-        scoped.clear();
-        for ((id, _), p) in &self.view_projects {
-            if let Some(p) = p {
-                let list = scoped.entry(id.clone()).or_default();
-                if !list.contains(&p.folder) {
-                    list.push(p.folder.clone());
-                }
-            }
-        }
+    }
+
+    /// The project folders extension `id`'s open views are in now: what
+    /// its `files.*` permissions reach, as the permission screen lists
+    /// them.
+    pub fn scoped_folders(&self, id: &str) -> Vec<String> {
+        let set: BTreeSet<String> = self.view_projects.iter().filter(|((e, _), _)| e == id).filter_map(|(_, p)| p.as_ref().map(|p| p.folder.clone())).collect();
+        set.into_iter().collect()
     }
 
     /// Every call of extension `id` waiting for an answer ends: `why`.
@@ -1191,19 +1197,6 @@ impl Tiles {
     pub fn views(&self, id: &str) -> Vec<String> {
         self.running.get(id).map(|r| r.views.iter().cloned().collect()).unwrap_or_default()
     }
-}
-
-fn scoped() -> &'static Mutex<HashMap<String, Vec<String>>> {
-    static S: std::sync::OnceLock<Mutex<HashMap<String, Vec<String>>>> = std::sync::OnceLock::new();
-    S.get_or_init(Default::default)
-}
-
-/// The project folders extension `id`'s open views are in now: what its
-/// `files.*` permissions reach, as the permission screen lists them.
-pub fn scoped_folders(id: &str) -> Vec<String> {
-    let mut v = scoped().lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().unwrap_or_default();
-    v.sort();
-    v
 }
 
 /// A line Pitwall writes in a tile's Log.
