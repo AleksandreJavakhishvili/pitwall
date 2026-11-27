@@ -538,7 +538,16 @@ impl Notes {
                     bar()
                         .when(!split, |h| h.child(back(cx)))
                         .child(text(title).text_sm().font_medium().truncate().flex_1())
-                        .when_some(file, |b, f| b.child(text(f).id("file").text_xs().font_mono().text_color(Token::Text3).truncate().flex_none()))
+                        .when_some(file.clone(), |b, f| b.child(text(f).id("file").text_xs().font_mono().text_color(Token::Text3).truncate().flex_none()))
+                        // A project note's file in Pitwall's editor (FR-10).
+                        .when_some(file.zip(self.notes.iter().find(|n| n.id == id).and_then(Note::folder).map(String::from)), |b, (f, folder)| {
+                            b.child(icon_button(Icon::External, "Open in the editor").id("open-editor").on_click(cx.listener(move |_: &mut Notes, _, _| {
+                                let path = format!("{}/{f}", folder.trim_end_matches('/'));
+                                if let Err(e) = pitwall_extension::show::file(&path, None) {
+                                    ui::toast(format!("It didn't open: {e}. Allow “Show you files and pages” for Notes in Settings → Extensions."), Tone::Warn);
+                                }
+                            })))
+                        })
                         .when(renamed, |b| b.child(button("Rename to the title").small().ghost().id("rename").on_click(cx.listener(move |this: &mut Notes, _, cx| this.rename(&vr, id, cx)))))
                         .child(text(saved).text_xs().text_color(Token::Text3).flex_none())
                         .child(mode)

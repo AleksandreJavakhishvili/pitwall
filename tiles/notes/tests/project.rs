@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use pitwall_extension_test::{agent, Harness, Session};
+use pitwall_extension_test::{agent, Harness, Session, UiRequest};
 
 const SAVE_AFTER: Duration = Duration::from_secs(1);
 
@@ -155,4 +155,13 @@ fn tile_row(tile: &Session, text: &str) -> String {
     let at = snap.find(text).expect("the row");
     let row = snap[..at].rfind("box #n").expect("its row");
     snap[row + 5..].split([' ', '\n']).next().unwrap().to_string()
+}
+
+#[test]
+fn a_project_note_opens_in_the_editor() {
+    let mut tile = shop().grant("files.read").grant("show").open("main");
+    tile.click_text("Login flickers").click_label("Open in the editor");
+    let want = tile.project_dir().join("notes/login-flicker.md");
+    let asked: Vec<_> = tile.ui_requests().iter().filter(|r| matches!(r, UiRequest::OpenFile { .. })).cloned().collect();
+    assert!(matches!(&asked[..], [UiRequest::OpenFile { path, line: None }] if std::path::Path::new(path) == want), "{asked:?}");
 }
