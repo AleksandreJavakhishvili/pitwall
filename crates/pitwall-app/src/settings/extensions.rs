@@ -42,6 +42,7 @@ use pitwall_core::accounts::Account;
 
 mod grants;
 pub use grants::{initial_picks, turn_on_with};
+mod package_ui;
 mod service_ui;
 mod stale_ui;
 mod updates;
@@ -106,6 +107,8 @@ pub struct Section {
     add_git: Option<AddGit>,
     /// "Install from folder…" open.
     add_folder: Option<AddFolder>,
+    /// "Install from file…" open.
+    add_file: Option<package_ui::AddFile>,
     /// Go back of a folder changed by hand asked to confirm.
     confirm_back: Option<String>,
     /// The permission screen: the extension being turned on, and each
@@ -1604,6 +1607,10 @@ mod service_tests;
 mod agent_tests;
 #[cfg(all(test, unix))]
 mod update_tests;
+#[cfg(test)]
+mod package_tests;
+#[cfg(test)]
+mod package_shots;
 
 #[cfg(test)]
 mod tests {

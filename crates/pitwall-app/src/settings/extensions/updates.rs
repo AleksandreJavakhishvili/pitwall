@@ -92,6 +92,7 @@ impl SettingsView {
         match &origin {
             Some(o @ (Origin::Git { .. } | Origin::Npm { .. })) => parts.push(format!("From {}", o.describe())),
             Some(o @ Origin::Folder { .. }) => parts.push(format!("{}. It gets no updates: install a newer folder to replace it", o.describe())),
+            Some(o @ Origin::Package { .. }) => parts.push(format!("{}. Update it with Install from file… and a newer package", o.describe())),
             Some(Origin::Bundled) => parts.push("Comes with Pitwall".into()),
             None => parts.push("Put here by hand".into()),
         }
@@ -508,6 +509,7 @@ impl SettingsView {
             .pt(px(8.))
             .child(crate::kit::label("Available", ui.t.text_3, 11.))
             .child(div().flex_1())
+            .child(self.add_file_button(ui, cx))
             .child(
                 btn("extension-add-folder".to_string(), "Install from folder…", BtnKind::GhostSm, folder_open, ui)
                     .tooltip(crate::kit::tooltip("Preview: install an extension of tiles from a folder on this computer. It is copied, unsigned, and never updated"))
@@ -519,6 +521,9 @@ impl SettingsView {
                     .on_click(cx.listener(|v, _, w, cx| v.open_add_git(w, cx))),
             );
         let mut col = div().flex().flex_col().gap(px(8.)).child(head);
+        if let Some(card) = self.add_file_view(ui, cx) {
+            col = col.child(card);
+        }
         if let Some(card) = self.add_folder_view(ui, cx) {
             col = col.child(card);
         }
