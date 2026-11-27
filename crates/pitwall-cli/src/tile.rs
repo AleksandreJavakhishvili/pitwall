@@ -135,7 +135,8 @@ pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Opti
     let name_str = &name_str[1..name_str.len() - 1];
     let files_rows = if f.schema.is_some() { "| `input.schema.json` | What the tile can be opened with (by you or an agent), as a JSON schema |\n" } else { "" };
     let fill = |s: &str| {
-        s.replace("{{id}}", &id)
+        without_docs_markers(s)
+            .replace("{{id}}", &id)
             .replace("{{name_str}}", name_str)
             .replace("{{name}}", &name)
             .replace("{{pitwall}}", extensions::PITWALL)
@@ -168,6 +169,18 @@ pub fn new_project(folder: &Path, name: Option<&str>, t: TileTemplate, sdk: Opti
         written.push(path);
     }
     Ok(written)
+}
+
+/// `s` without the lines that mark the website's examples
+/// (`// docs:start <name>`, `// docs:end`): the Extensions docs include
+/// regions of these templates, and a new project doesn't need the marks.
+fn without_docs_markers(s: &str) -> String {
+    s.split_inclusive('\n')
+        .filter(|l| {
+            let t = l.trim_start();
+            !(t.starts_with("// docs:start ") || t.trim_end() == "// docs:end")
+        })
+        .collect()
 }
 
 // ---- the toolchain and the build ---------------------------------------------
@@ -720,6 +733,9 @@ mod tests {
             assert!(cargo.contains("crate-type = [\"cdylib\"]") && cargo.contains("sdk/pitwall-extension\" }"), "{cargo}");
             let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
             assert!(!lib.contains("{{") && lib.contains("pitwall_extension::export!"), "{lib}");
+            // The website's example marks stay in the templates.
+            let test = std::fs::read_to_string(dir.join("tests/tile.rs")).unwrap();
+            assert!(!lib.contains("docs:") && !test.contains("docs:"), "{lib}{test}");
             // Before a build: only the component is missing.
             let r = check(&dir);
             let fails: Vec<&str> = r.findings.iter().filter(|f| f.level == Level::Fail).map(|f| f.text.as_str()).collect();

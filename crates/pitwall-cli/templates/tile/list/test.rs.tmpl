@@ -4,6 +4,7 @@
 use pitwall_extension_test::Harness;
 use serde_json::json;
 
+// docs:start list-test-content
 #[test]
 fn shows_a_list_it_is_opened_with() {
     let content = json!({
@@ -23,6 +24,7 @@ fn shows_a_list_it_is_opened_with() {
     assert!(tile.find_text("Announce it").is_some());
     assert!(tile.find_text("Write the changelog").is_none());
 }
+// docs:end
 
 #[test]
 fn adds_filters_and_removes_items() {
