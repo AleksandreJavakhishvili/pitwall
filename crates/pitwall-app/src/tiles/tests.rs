@@ -29,7 +29,7 @@ pub(super) fn copy_fixture(to: &Path) {
     copy_dir(&fixture(), to);
 }
 
-fn copy_dir(from: &Path, to: &Path) {
+pub(super) fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for e in std::fs::read_dir(from).unwrap() {
         let e = e.unwrap();

@@ -106,9 +106,19 @@ the tile).
   shown; the user can't turn it back on without removing and
   reinstalling a non-blocked version. Fetch failures change nothing.
 - **Grants:** each permission on the card with Granted/Refused, date
-  and a switch [today]; a revoke reaches the tile as
-  `grants-changed` and its next call is denied; `files.*` and
-  `net.ask` grants list each project or host with Remove.
+  and a switch [today]; a revoke reaches the running tile at once
+  as `grants-changed` (no restart) and its next call is denied;
+  `files.*` and `net.ask` grants list each project or host with
+  Remove. As built: every change to what a tile is granted (a switch
+  on the card, a permission an update added allowed there, a setting
+  that moves a `{setting:KEY}` host or its server's address) is sent
+  to the running component, which checks each call against the grants
+  of that moment. What it started under a grant that is gone ends: a
+  `net` request on its way when the reach shrank arrives `denied` and
+  its answer is dropped; project watches end without `files.read`;
+  badges on rows it may no longer see go. `memory` and `sql`'s size
+  are set at start (no switch; a new size after an update applies when
+  it starts again).
 - **Activity:** every call that acted, every denial, every stop with
   its reason, kept 30 days [today].
 
@@ -133,6 +143,7 @@ left, and how a test shows it. The outline:
 | Data exfiltration via `net` | Send what it may read to a granted host, a host the user approves through `net.ask`, or through redirects, DNS tricks or IDNA look-alikes | Host checks after IDNA normalisation and before DNS, redirects kept inside the allowed hosts ([5.2](#52-enforcement)); hosts shown as written ([5.1](#51-new-permissions-new)) | What can still leave through a granted host ([5.3](#53-what-a-hostile-tile-can-still-do)); how clear the `net.ask` prompt is |
 | Phishing UI | Look like Pitwall's settings, an approval or a sign-in form; misleading toolbar items, popovers, notifications or toasts | Host-drawn header with the extension's name; no dialogs or drawing over other tiles ([5.2](#52-enforcement)); secrets entered only in Settings; toolbar items drawn by Pitwall ([3.9](ui.md#39-toolbar-items)) | Every surface a tile's text reaches, and whether each names the tile |
 | Prompt injection through agent tools | Misleading `read` or `present` results, queued text to agents, an agent skill in the package that tells agents to do harm | Tools labelled with the tile's name, `act` approved each time ([11.5](agent-tools.md#115-permissions)); queued text marked and waiting for Send ([5.3](#53-what-a-hostile-tile-can-still-do)); skills through the rules path, per project ([11.11](agent-tools.md#1111-a-skill-for-agents)) | What reaches the agent unmarked; the skill review in Verified |
+| Grants kept after a revoke | Keep using a permission the user took back while it runs: start a request or a watch just before, or rely on the grants it started with | The app sends each change to the running component (`Tiles::sync_grants` on every `ui.json` change); every host call checks the grants of that moment; requests on their way when the reach shrank are refused and their answers dropped; project watches end with `files.read`; badges needing a grant go ([5.4](#54-kill-switches-and-revocation)) | A request already sent still reaches the server (only its answer is dropped); `memory` and `sql` size apply after a restart. Tests: `refusing_net_on_the_card_refuses_the_next_fetch_without_a_restart`, `refusing_files_read_on_the_card_refuses_the_next_read_without_a_restart` (app), `a_revoke_drops_the_fetch_on_its_way`, `a_revoke_ends_the_project_watches`, `a_revoke_takes_its_badges_on_agents_away` (harness), `a_revoke_applies_to_the_next_call`, `a_revoke_ends_the_project_watches`, `a_smaller_reach_narrows` (host) |
 | Malicious updates | A stolen author key, a compromised release or a takeover that ships harmful code with the same permissions | Signature and hash checks, key changes shown, new permissions off until Allow, auto-install only when nothing in the permission list changes ([6.4](packaging.md#64-updates-and-go-back)); the signed block list ([7.6](marketplace.md#76-takedown-and-yanking)); two index keys ([6.2](packaging.md#62-signing)) | Same-permission updates installed automatically; how fast a block reaches users |
 
 **The outside review** covers `pitwall-tile-host` (linker, limits,

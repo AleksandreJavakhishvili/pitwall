@@ -84,6 +84,8 @@ mod agent_tools_shots;
 mod agent_tools_finish_shots;
 #[cfg(test)]
 mod widgets_tests;
+#[cfg(test)]
+mod grants_live_tests;
 pub mod view;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -154,6 +156,8 @@ pub struct Running {
     pub group: group::Kept,
     /// What its lists, tables and trees showed, and the images it put.
     pub comps: view::Comps,
+    /// The grants its component was given last ([`Tiles::sync_grants`]).
+    grants: Grants,
 }
 
 /// What hiding leads to, in turn.
@@ -263,6 +267,9 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
         let _ = weak.update(cx, |t, cx| {
             // A view moved to another space: its project, told.
             t.sync_projects(cx);
+            // A grant changed on its card: the running component's next
+            // call is checked against it.
+            t.sync_grants(cx);
             let ui = crate::ui_state::get(cx);
             let off: Vec<String> = t.running.keys().filter(|id| !ui.extension_on(id)).cloned().collect();
             for id in off {
@@ -1000,10 +1007,22 @@ impl Tiles {
         self.settings_changed(id);
     }
 
-    /// The grants of extension `id` changed.
-    pub fn grants_changed(&self, id: &str, grants: Grants) {
-        if let Some(h) = self.running.get(id).and_then(|r| r.handle.as_ref()) {
-            h.set_grants(grants);
+    /// Give each running component its grants as they are now, when they
+    /// changed since it was last told (permissions.md §5.4): a switch on
+    /// the card, a permission an update added allowed there, a setting
+    /// that moves where `net` may reach. It applies to its next call, no
+    /// restart. Called on every change to `ui.json` (where the user's
+    /// decisions and settings are), so no place that changes them must
+    /// remember to.
+    pub fn sync_grants(&mut self, cx: &App) {
+        for (id, r) in self.running.iter_mut() {
+            let Some(h) = &r.handle else { continue };
+            let Some(m) = crate::extensions::manifest_of(id, cx) else { continue };
+            let now = grants_of(&m, cx);
+            if now != r.grants {
+                h.set_grants(now.clone());
+                r.grants = now;
+            }
         }
     }
 
@@ -1014,9 +1033,7 @@ impl Tiles {
         host.extension_data(id).set_setting(key, value).map_err(|e| format!("Can't save it: {e}"))?;
         // Where it may reach can follow a setting (a `{setting:KEY}` host
         // of `net`, its server's address): its grants again, first.
-        if let Some(m) = crate::extensions::manifest_of(id, cx) {
-            self.grants_changed(id, grants_of(&m, cx));
-        }
+        self.sync_grants(cx);
         self.settings_changed(id);
         Ok(())
     }
@@ -1025,7 +1042,7 @@ impl Tiles {
         let gen = self.next_gen;
         self.next_gen += 1;
         // It starts hidden (`visible: false`); shown, it is told.
-        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new(), group: Default::default(), comps: Default::default() };
+        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new(), group: Default::default(), comps: Default::default(), grants: Grants::default() };
         // Its `agents` calls reach the daemon's method table as it is now.
         self.methods.set_server(cx.try_global::<crate::extensions::calls::Api>().and_then(|a| a.server.clone()));
         let started = (|| -> Result<TileHandle, String> {
@@ -1039,7 +1056,9 @@ impl Tiles {
                 self.view_projects.insert((id.to_string(), v.clone()), p.clone());
             }
             let views: Vec<ViewSpec> = views.iter().zip(projects).filter_map(|(v, project)| spec_of(&m, v).map(|s| ViewSpec { content: self.pending.remove(&(id.to_string(), v.to_string())), project, ..s })).collect();
-            let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state, clock: Default::default() };
+            let grants = grants_of(&m, cx);
+            r.grants = grants.clone();
+            let options = StartOptions { views, grants, theme: theme_info(cx), visible: false, state, clock: Default::default() };
             let tx = self.tx.clone();
             let ext_id = id.to_string();
             let h = host
