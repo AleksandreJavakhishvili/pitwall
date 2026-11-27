@@ -559,7 +559,7 @@ impl C4 {
             }
         }
         if big > 0 {
-            note = Some(format!("{big} Markdown files over 1 MiB are left out."));
+            note = Some(if big == 1 { "A Markdown file over 1 MiB is left out.".to_string() } else { format!("{big} Markdown files over 1 MiB are left out.") });
         }
         d.note = note;
         if d.watch.is_none() {

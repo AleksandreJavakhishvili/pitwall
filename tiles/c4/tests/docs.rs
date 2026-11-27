@@ -141,3 +141,13 @@ fn the_open_input_takes_a_docs_diagram() {
     assert!(c.is_ok(), "{c:?}");
     assert!(draws(&tile, "tile.wasm"), "{:?}", drawn(&tile));
 }
+
+#[test]
+fn a_doc_over_the_size_limit_is_left_out_and_said() {
+    let big = format!("# Big\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n{}", "x".repeat(1 << 20));
+    let tile = open(project().project_file("docs/big.md", big).grant("files.read"));
+    let snap = tile.text_snapshot();
+    assert!(snap.contains("A Markdown file over 1 MiB is left out."), "{snap}");
+    assert!(!snap.contains("docs/big.md"), "{snap}");
+    assert!(snap.contains("docs/hla.md"), "the rest is read: {snap}");
+}
