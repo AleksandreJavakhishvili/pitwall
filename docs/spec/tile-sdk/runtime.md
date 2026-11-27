@@ -176,13 +176,23 @@ sequenceDiagram
 |---|---|---|
 | Linear memory | 64 MiB, manifest may ask up to 512 MiB (shown on the permission screen) | `StoreLimitsBuilder::memory_size` (S3; unlimited unless set). With `trap_on_grow_failure(true)` a grow past the limit traps instead of returning -1 (S3), so a runaway allocation ends the tile clearly |
 | Instances, tables | a handful of instances, 10 000 table elements | `StoreLimitsBuilder` (defaults are 10 000 instances/tables/memories, S3) |
-| Time per `handle` | 1 s hard; > 50 ms warned in the Log | epoch interruption (S4): a ticker thread increments the engine epoch every 10 ms; each call sets its deadline with `Store::set_epoch_deadline` and traps past it (`epoch_deadline_trap`) |
+| Time per `handle` | 1 s hard; > 50 ms warned in the Log | epoch interruption (S4) with a wall-clock check: a ticker thread increments the engine epoch every 10 ms; each call stores its deadline as an `Instant` and arms `Store::set_epoch_deadline(1)`; an `epoch_deadline_callback` runs on every tick and interrupts the call once the clock passes the deadline (or the user pressed Stop), else continues for one more tick |
 | Time per `render` / `rows` / `draw` | 250 ms hard; budget 8 ms ([2.7](#27-performance-budget)) | same |
 | `init` | 2 s; `save-state` 50 ms | same |
 | Background CPU while hidden | none (suspended) | lifecycle |
 | Tree size | 20 000 nodes, 2 MiB encoded per frame | checked in `tile::model` |
 | Host calls | 200 a second; 32 tasks in flight | host counters, `busy` |
 | Storage | 10 MiB key-value + 100 MiB data folder | host |
+
+**Deadlines are wall-clock** (decided after phase 0, [10.3](README.md#103-decisions)
+item 19). Counting ticks alone (`deadline / 10 ms` ticks with
+`epoch_deadline_trap`) overshoots, because the ticker's `sleep(10 ms)`
+often lasts longer: 200–430 ms late at 1 s on a Mac and seconds late
+on the macOS CI VM ([spike-results.md](spike-results.md#stopping-a-runaway-tile)).
+Checking the clock on each tick bounds the overshoot to one tick
+(≈ 7 ms measured, ≤ 13 ms). The callback runs about 100 times a
+second, only while the guest runs. The same check ends a call at once
+when the user presses Stop.
 
 Epoch interruption is chosen over fuel: Wasmtime's docs call fuel
 "somewhat expensive" and measure epochs as up to 2–3× faster, and
@@ -200,7 +210,12 @@ wants wall-clock deadlines, not determinism. Epochs need 64-bit atomics
   give an error, safely (S5). The mapped file must not change while
   loaded (S5). Wasmtime's own on-disk cache (`Config::cache`) exists
   but is off by default (S5); Pitwall manages its own files so it
-  controls where they live and when they go.
+  controls where they live and when they go. Pitwall builds Wasmtime
+  without its `cache` feature at all, and with Wasmtime's and
+  Cranelift's crates at `opt-level = "s"` in the release profile: the
+  lean build that keeps every architecture under the size gate
+  ([10.3](README.md#103-decisions) item 19; its own files also load 2–3× faster
+  than Wasmtime's cache, [spike-results.md](spike-results.md#cold-and-warm-start)).
 - Pitwall writes compiled files only itself, in
   `<data>/cache/tiles/<id>/<wasm-sha256>.cwasm`, mode 600 in a 700
   folder, never in the extension folder (so the install digest
@@ -212,9 +227,14 @@ wants wall-clock deadlines, not determinism. Epochs need 64-bit atomics
   to load is deleted and the wasm compiled again.
 - Compiled files are tied to the exact Wasmtime version, patch
   included (S1), so any Pitwall update that moves Wasmtime recompiles
-  each tile once, on first use, off the main thread. Compile times for
-  typical tiles aren't published (*unverified*); phase 0 measures them
-  against its start-time gates ([phase 0 gates](README.md#phase-0-gates)).
+  each tile once, on first use, off the main thread. Phase 0 measured
+  7.5 ms for a hello tile and 56–108 ms for a 1 MB tile on an 18-core
+  Mac; compile time grows with code size and uses every core, so a big
+  tile on a small machine may take several hundred milliseconds.
+  Compiling therefore always happens on the tile's worker thread,
+  never the main thread, with "Preparing…" shown, and phase 1 checks
+  that a 2–3 MB tile compiles in under 1 s on a 4-core CI runner
+  ([10.3](README.md#103-decisions) item 19).
 - Compile happens at "turn on" (and after an update), not at install,
   so nothing derived from the package runs, even the compiler, before
   the user agrees. Cranelift is not the guest's code; compiling at

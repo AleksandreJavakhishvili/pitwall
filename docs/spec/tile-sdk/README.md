@@ -43,6 +43,7 @@ in [sources.md](sources.md)) or the word *unverified*.
 - [extension-model.md](extension-model.md): Components as the one way an extension runs its own code; adapters removed.
 - [alternatives.md](alternatives.md): Alternatives considered.
 - [sources.md](sources.md): Sources (S1…) cited across the Tile SDK spec, and the claims not verified.
+- [spike-results.md](spike-results.md): Phase 0 measurements (binary size, cold and warm start, a 2 000-node frame, epoch kill, threading) against their gates.
 
 ## Decisions
 
@@ -368,7 +369,8 @@ whether to go on, change course or stop before phase 1 starts.
 
 ### 10.3 Decisions
 Each was an open question with a recommendation; the owner accepted
-every recommendation on 2026-11-26.
+every recommendation on 2026-11-26. Item 19 records the owner's
+decision after phase 0 (2026-11-27).
 
 1. **In process or a helper process?** In process is simpler and
    faster; a Wasmtime escape or crash then hits the app.
@@ -477,6 +479,27 @@ every recommendation on 2026-11-26.
     folder" ([2.6](runtime.md#26-compile-and-cache)) has no direct Windows meaning and needs a
     per-user equivalent there; and Wasmtime's per-OS trap handling is
     *unverified in detail* ([2.2](runtime.md#22-crates-new)), so phase 0 checks it on each.
+19. **After phase 0: go, with changes.** The spike ([spike-results.md](spike-results.md),
+    draft PR #107) passed every gate once three changes were made, two
+    of them the gates' own fallbacks. Decided (owner, 2026-11-27): go
+    on to phase 1 with these changes:
+    - **Size gate per architecture.** "Per platform" means per machine:
+      each architecture's binary stays under 10 MB of growth (lean:
+      +5.8 MB macOS arm64, +7.3 MB macOS x86-64, +8.4 MB Linux, +7.3 MB
+      Windows). The universal macOS download carries both slices, so it
+      grows about 13 MB; that is noted, not gated.
+    - **A lean Wasmtime build.** No Wasmtime `cache` feature (Pitwall's
+      own `.cwasm` files are the cache, [2.6](runtime.md#26-compile-and-cache)), and
+      Wasmtime's and Cranelift's crates built at `opt-level = "s"` in
+      the workspace's release profile (the rest of the app stays at 3).
+    - **Wall-clock deadlines.** A call's deadline is an `Instant`,
+      checked on each epoch tick by an `epoch_deadline_callback`, not a
+      number of ticks ([2.5](runtime.md#25-sandbox-and-limits-summary-details-in-5)): ticks alone ran 200–430 ms late
+      at 1 s on a Mac.
+    - **Compile off the main thread, and measure small machines.**
+      Compiling stays on the tile's worker with "Preparing…" shown; in
+      phase 1 a test checks that a 2–3 MB tile compiles in under 1 s on
+      a 4-core CI runner. Winch stays a candidate for dev reload.
 
 ### 10.4 What gets in the way in today's code
 - `contributes` keys are checked against a fixed list; `tiles` must be
