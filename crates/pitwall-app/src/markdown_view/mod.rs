@@ -1013,6 +1013,12 @@ impl Draw<'_> {
         };
         if let Some(media) = &self.media {
             use pitwall_core::extensions::media::{local_ref, Ref};
+            // GitHub's marks for an image of one theme only: the other
+            // theme's isn't drawn.
+            let dark = t.mode == crate::theme::Mode::Dark;
+            if (dark && src.ends_with("#gh-light-mode-only")) || (!dark && src.ends_with("#gh-dark-mode-only")) {
+                return div().into_any_element();
+            }
             return match local_ref(src) {
                 Ref::Local(rel) => match media.images.get(&rel) {
                     Some(i) => div()

@@ -1,5 +1,7 @@
 # Notes
 
+<img src="assets/icon.png" width="64" alt="Notes">
+
 Private plain-text notes beside your agents. **Preview** on the Tile SDK
 (WIT `pitwall:tile@0.1.0`), built on the public SDK alone: steps 0 and 1 of
 [the Notes plan](../../docs/spec/2026-11-27-notes-tile/plan.md).
@@ -34,8 +36,13 @@ permissions; without them, the rest works and Send says what to allow:
 | `agents.read` | To list the agents you can send a note to |
 | `agents.queue` | To put a note in an agent's Next up, waiting for your Send |
 
-![Send to an agent, dark](../../docs/reference/extensions/images/seed-tiles/notes-send-dark.png)
-![Send to an agent, light](../../docs/reference/extensions/images/seed-tiles/notes-send-light.png)
+![Send to an agent](screenshots/send-light.png#gh-light-mode-only)
+![Send to an agent](screenshots/send-dark.png#gh-dark-mode-only)
+
+Send only what you selected:
+
+![Send a selection](screenshots/selection-light.png#gh-light-mode-only)
+![Send a selection](screenshots/selection-dark.png#gh-dark-mode-only)
 
 A tile at least 560 px wide shows the list and the open note side by side;
 a narrower one shows one at a time.
