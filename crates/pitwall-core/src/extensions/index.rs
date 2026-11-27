@@ -462,6 +462,39 @@ pub fn refusal(index: &Index, blocked: &Blocked, id: &str, version: &str, sha256
     None
 }
 
+/// Download version `version` of `id` from the index for an install or
+/// an update: refused first as [`refusal`] says (blocked, withdrawn,
+/// unlisted); then the package (https, at most 50 MiB) and its
+/// `.minisig`, its SHA-256 the listed one and its signature by one of
+/// the author's keys in the index (only those). Written into folder
+/// `into` as `<id>-<version>.pwtile` with its signature beside it, for
+/// [`super::package::stage`]; the path.
+pub fn download(http: &dyn super::npm::Http, index: &Index, blocked: &Blocked, id: &str, version: &str, into: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    if let Some(why) = refusal(index, blocked, id, version, None) {
+        return Err(why);
+    }
+    let l = index.listing(id).ok_or("not listed")?;
+    let r = l.release(version).ok_or("not listed")?;
+    let get = |url: &str, limit: u64| {
+        http.get(url, "application/octet-stream", limit, std::time::Duration::from_secs(20), std::time::Duration::from_secs(300)).map_err(|e| match e {
+            super::npm::GetError::TooBig => format!("{url} is larger than Pitwall downloads."),
+            super::npm::GetError::Failed(why) => format!("{url} can't be downloaded: {why}"),
+        })
+    };
+    let bytes = get(&r.url, super::package::MAX_BYTES)?;
+    let sha = super::package::sha256(&bytes);
+    if let Some(why) = refusal(index, blocked, id, version, Some(&sha)) {
+        return Err(why);
+    }
+    let sig = String::from_utf8(get(&format!("{}.minisig", r.url), MAX_SIGNATURE_BYTES)?).map_err(|_| "Its signature isn't a minisign signature.".to_string())?;
+    let keys: Vec<Signer> = l.keys.iter().filter_map(|k| Signer::from_public_key(k).ok()).collect();
+    verify_by(&bytes, &sig, &keys).map_err(|why| format!("{} {version} isn't signed by its author's key in the index: {why} Not installed.", l.name))?;
+    std::fs::create_dir_all(into).map_err(|e| format!("Can't make {}: {e}", into.display()))?;
+    let path = into.join(format!("{id}-{version}.{}", super::package::EXTENSION));
+    std::fs::write(super::package::signature_path(&path), sig).and_then(|()| std::fs::write(&path, &bytes)).map_err(|e| format!("Can't write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
 /// What an installed copy that came from the index says about itself,
 /// when the index changed under it: blocked, withdrawn or no longer
 /// listed. `None`: nothing to say.

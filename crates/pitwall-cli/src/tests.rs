@@ -1655,6 +1655,9 @@ fn extension_commands_parse() {
     assert_eq!(parse(&["pack", "tiles/notes", "-o", "x.pwtile"]), E::Pack { folder: Some("tiles/notes".into()), out: Some("x.pwtile".into()) });
     assert_eq!(parse(&["sign", "x.pwtile", "--key", "k"]), E::Sign { file: "x.pwtile".into(), key: Some("k".into()) });
     assert!(parse(&["pack"]).offline() && parse(&["sign", "x.pwtile"]).offline());
+    let p = parse(&["publish", "x.pwtile", "--repository", "https://github.com/o/r", "--author", "o", "--category", "ci", "--category", "git"]);
+    assert!(matches!(&p, E::Publish { categories, index, update: false, .. } if categories == &["ci", "git"] && index == "pitwalls/pitwall-extensions"));
+    assert!(p.offline());
     assert_eq!(parse(&["on", "inbox"]), E::On { id: "inbox".into() });
     assert_eq!(parse(&["off", "inbox"]), E::Off { id: "inbox".into() });
     assert_eq!(parse(&["check-updates", "inbox"]), E::CheckUpdates { id: "inbox".into() });

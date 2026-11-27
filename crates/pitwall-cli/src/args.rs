@@ -264,6 +264,53 @@ pub enum ExtensionCmd {
         #[arg(long)]
         key: Option<PathBuf>,
     },
+    /// Prepare a signed .pwtile for the extensions index: writes its entry
+    /// (extensions/<id>.toml, and authors/<handle>.toml the first time),
+    /// beside the file or into your clone of the index with --index-dir,
+    /// and prints the link that opens the pull request on GitHub. Release
+    /// the .pwtile and its .minisig on GitHub first. Never pushes or
+    /// uploads anything. Offline.
+    Publish {
+        /// The signed package (its .minisig beside it).
+        file: PathBuf,
+        /// Its source on GitHub (https://github.com/<owner>/<name>), where
+        /// it is released.
+        #[arg(long)]
+        repository: String,
+        /// Your handle in the index (authors/<handle>.toml).
+        #[arg(long)]
+        author: String,
+        /// Your GitHub login (default: the repository's owner).
+        #[arg(long)]
+        github: Option<String>,
+        /// A category (git, ci, databases, apis, notes, monitoring, docs,
+        /// fun, other); up to 3. Needed for a new extension.
+        #[arg(long = "category")]
+        categories: Vec<String>,
+        /// Its licence as SPDX (MIT, Apache-2.0…). Needed for a new
+        /// extension.
+        #[arg(long)]
+        license: Option<String>,
+        /// The commit its component was built from (default: the folder's
+        /// git HEAD).
+        #[arg(long)]
+        commit: Option<String>,
+        /// The release asset's address (default:
+        /// <repository>/releases/download/v<version>/<file name>).
+        #[arg(long)]
+        url: Option<String>,
+        /// Your clone of the index (a fork): the entry is read and
+        /// written there; you commit and push it yourself.
+        #[arg(long)]
+        index_dir: Option<PathBuf>,
+        /// An update to a listed extension, without a clone: prints the
+        /// [[versions]] block to add and the link to edit the entry.
+        #[arg(long)]
+        update: bool,
+        /// The index repository on GitHub.
+        #[arg(long, default_value = pitwall_core::extensions::index::OFFICIAL_REPO)]
+        index: String,
+    },
     /// Turn it on, granting what its permission screen grants by default
     /// (reading; nothing that acts). The approval shows what it runs, sets
     /// and adds. Asks the user.
@@ -381,7 +428,7 @@ impl Command {
 impl ExtensionCmd {
     /// Works on a folder, without the app.
     pub fn offline(&self) -> bool {
-        matches!(self, ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Pack { .. } | ExtensionCmd::Sign { .. })
+        matches!(self, ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Pack { .. } | ExtensionCmd::Sign { .. } | ExtensionCmd::Publish { .. })
     }
 }
 

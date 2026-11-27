@@ -725,6 +725,11 @@ pub fn parse_entry(text: &str) -> Result<Entry, String> {
     toml::from_str(text).map_err(|e| format!("The entry can't be read: {}", e.to_string().trim()))
 }
 
+/// An `authors/<handle>.toml`, read.
+pub fn parse_author(text: &str) -> Result<Author, String> {
+    toml::from_str(text).map_err(|e| format!("The author file can't be read: {}", e.to_string().trim()))
+}
+
 /// `text` (an `extensions/<id>.toml`) with version `v` added: refused when
 /// it is listed already or isn't newer than the listed ones.
 pub fn add_version(text: &str, v: EntryVersion) -> Result<Entry, String> {

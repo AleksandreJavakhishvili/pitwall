@@ -1423,6 +1423,31 @@ pitwall extension sign [OPTIONS] <FILE>
 |---|---|
 | `--key <KEY>` | Your minisign secret key (default: ~/.minisign/minisign.key). |
 
+### extension publish
+
+Prepare a signed .pwtile for the extensions index: writes its entry (extensions/<id>.toml, and authors/<handle>.toml the first time), beside the file or into your clone of the index with --index-dir, and prints the link that opens the pull request on GitHub. Release the .pwtile and its .minisig on GitHub first. Never pushes or uploads anything. Offline.
+
+```bash
+pitwall extension publish [OPTIONS] --repository <REPOSITORY> --author <AUTHOR> <FILE>
+```
+
+| Argument | |
+|---|---|
+| `FILE` | The signed package (its .minisig beside it). |
+
+| Option | |
+|---|---|
+| `--repository <REPOSITORY>` | Its source on GitHub (https://github.com/<owner>/<name>), where it is released. Required. |
+| `--author <AUTHOR>` | Your handle in the index (authors/<handle>.toml). Required. |
+| `--github <GITHUB>` | Your GitHub login (default: the repository's owner). |
+| `--category <CATEGORIES>` | A category (git, ci, databases, apis, notes, monitoring, docs, fun, other); up to 3. Needed for a new extension. |
+| `--license <LICENSE>` | Its licence as SPDX (MIT, Apache-2.0…). Needed for a new extension. |
+| `--commit <COMMIT>` | The commit its component was built from (default: the folder's git HEAD). |
+| `--url <URL>` | The release asset's address (default: <repository>/releases/download/v<version>/<file name>). |
+| `--index-dir <INDEX_DIR>` | Your clone of the index (a fork): the entry is read and written there; you commit and push it yourself. |
+| `--update` | An update to a listed extension, without a clone: prints the [[versions]] block to add and the link to edit the entry. |
+| `--index <INDEX>` | The index repository on GitHub. |
+
 ### extension on
 
 Turn it on, granting what its permission screen grants by default (reading; nothing that acts). The approval shows what it runs, sets and adds. Asks the user.
