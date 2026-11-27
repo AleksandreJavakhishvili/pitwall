@@ -34,6 +34,14 @@
 //! `focus` request is honoured while the tile has focus. A key binding
 //! without ⌘/Ctrl/Alt doesn't fire while a field has focus, and Pitwall's
 //! reserved keys are dropped from the keymap, as in Pitwall.
+//!
+//! **Services are fakes.** `net` requests never leave the test: they are
+//! answered from a table ([`Harness::respond`], [`Session::respond`]; a 404
+//! otherwise) and kept ([`Session::requests`]). The `sql` database is in
+//! the test's temporary data folder. Notifications, files and pages to
+//! open, and toolbar changes are captured ([`Session::notifications`],
+//! [`Session::ui_requests`], [`Session::toolbar`]). The extension's own
+//! server is said to be up at an address you give ([`Harness::own_server`]).
 
 mod canvas;
 
@@ -49,7 +57,8 @@ mod agents;
 pub use agents::{agent, waiting_agent, Queued};
 
 use pitwall_tile_host::ui::{self, Event, Modifiers, MouseButton, Point};
-use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec};
+use pitwall_tile_host::net::{FakeFetcher, FetchError, Outgoing};
+use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, ToolbarRequest, UiRequest, ViewSpec, POPOVER_VIEW};
 
 /// A frame's types, as the tile sent them (for checks the helpers don't
 /// cover): a [`Frame`] is a list of [`Node`]s, each an [`Element`].
@@ -60,6 +69,11 @@ pub use pitwall_tile_host::ui::{Canvas, CodeView, DiffSide as Side, DiffView, Dr
 /// The agents' questions group's types: an agent of `agents::list`, a
 /// badge and its row, a question and its suggestions.
 pub use pitwall_tile_host::ui::{Agent, AgentState, Ask, Badge, Row, Suggestion};
+/// The toolbar button's and the extension's own server's types
+/// ([`Session::toolbar`], [`Session::set_service`]).
+pub use pitwall_tile_host::ui::{BadgeTone, ServiceInfo, ServiceState, ToolbarBadge};
+/// Why a faked `net` request failed ([`Harness::respond_error`]).
+pub use pitwall_tile_host::net::FetchError as NetError;
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 
 mod components;
@@ -149,13 +163,30 @@ pub struct Harness {
     wall: bool,
     stored: BTreeMap<String, Vec<u8>>,
     methods: Arc<agents::FakeMethods>,
+    net: Arc<FakeFetcher>,
+    own_server: Option<std::net::SocketAddr>,
+}
+
+/// The toolbar button as the tile left it ([`Session::toolbar`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolbarState {
+    /// The badge everywhere, and its tone.
+    pub badge: Option<(ToolbarBadge, BadgeTone)>,
+    /// Each project's badge, by project id.
+    pub project_badges: BTreeMap<String, (ToolbarBadge, BadgeTone)>,
+    /// The tooltip, when the tile changed it.
+    pub tooltip: Option<String>,
+    /// Shown or hidden by the tile (`None`: as the manifest says).
+    pub shown: Option<bool>,
+    /// The popover is open.
+    pub popover_open: bool,
 }
 
 impl Harness {
     /// The extension in `dir`, already built (its component where its
     /// manifest names it).
     pub fn load(dir: impl AsRef<Path>) -> Harness {
-        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new(), methods: agents::methods() }
+        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new(), methods: agents::methods(), net: FakeFetcher::new(), own_server: None }
     }
 
     /// The extension in `dir`, built first with [`build`]. Panics with the
@@ -202,6 +233,30 @@ impl Harness {
         self.stored(key, bytes)
     }
 
+    /// Answer `net` requests to `url` (the whole address, query included)
+    /// with `status` and `body`. Requests to addresses with no answer get
+    /// a 404; none leaves the test. The tile still needs the `net` grant
+    /// and the host in its manifest, as in Pitwall.
+    pub fn respond(self, url: &str, status: u16, body: impl Into<Vec<u8>>) -> Harness {
+        self.net.respond(url, status, body);
+        self
+    }
+
+    /// Answer `net` requests to `url` with an error (offline, timed out).
+    pub fn respond_error(self, url: &str, error: FetchError) -> Harness {
+        self.net.fail(url, error);
+        self
+    }
+
+    /// Its own server (the manifest's `service`) is up at `addr`
+    /// (`127.0.0.1:8790`): `service.info` says so and requests to it are
+    /// allowed without `net`, as in Pitwall. Answer them with
+    /// [`Harness::respond`].
+    pub fn own_server(mut self, addr: &str) -> Harness {
+        self.own_server = Some(addr.parse().unwrap_or_else(|_| panic!("“{addr}” isn't an address like 127.0.0.1:8790")));
+        self
+    }
+
     /// Start with this saved state (what `save_state` returned).
     pub fn state(mut self, state: Vec<u8>) -> Harness {
         self.state = Some(state);
@@ -237,6 +292,7 @@ impl Harness {
         let data = tempfile::tempdir().expect("a temporary data folder");
         let ext = Extension::load(&self.dir).unwrap_or_else(|e| panic!("{} can't be loaded: {e}", self.dir.display()));
         let host = TileHost::new(HostConfig { data_dir: data.path().to_path_buf(), secrets: Arc::new(FakeSecrets(self.secrets.clone())), methods: self.methods.clone() }).expect("the tile runtime starts");
+        host.set_fetcher(self.net.clone());
         let store = host.extension_data(ext.id());
         for (key, value) in &self.settings {
             check_setting(&ext, key);
@@ -247,8 +303,12 @@ impl Harness {
         }
         let clock = if self.wall { Clock::Wall } else { Clock::manual() };
         let theme = ui::default_theme();
-        let options = StartOptions { views: vec![view.clone()], grants: Grants::new(self.grants.clone()), theme, visible: self.visible, state: self.state.clone(), clock: clock.clone() };
+        let grants = Grants::for_extension(ext.manifest(), self.grants.clone()).with_own_server(self.own_server);
+        let options = StartOptions { views: vec![view.clone()], grants, theme, visible: self.visible, state: self.state.clone(), clock: clock.clone() };
         let (handle, rx) = launch(&host, &ext, options);
+        if let Some(info) = service_info(&ext, self.own_server) {
+            handle.set_service(info);
+        }
         let mut s = Session {
             _data: data,
             host,
@@ -275,6 +335,9 @@ impl Harness {
             unknown_icons: Vec::new(),
             methods: self.methods,
             got_rows: Vec::new(),
+            net: self.net,
+            net_seen: 0,
+            own_server: self.own_server,
         };
         s.settle();
         s
@@ -287,6 +350,16 @@ fn check_setting(ext: &Extension, key: &str) {
         Some(_) => {}
         None => panic!("its extension.json has no setting “{key}”"),
     }
+}
+
+/// What `service.info` says in the harness: up at `own` when given, else
+/// off; nothing for an extension without a service.
+fn service_info(ext: &Extension, own: Option<std::net::SocketAddr>) -> Option<ServiceInfo> {
+    ext.manifest().service.as_ref()?;
+    Some(match own {
+        Some(a) => ServiceInfo { state: ServiceState::Up, address: Some(format!("http://{a}")), version: None, why: None },
+        None => ServiceInfo { state: ServiceState::Off, address: None, version: None, why: Some("not started in the test".into()) },
+    })
 }
 
 fn launch(host: &TileHost, ext: &Extension, options: StartOptions) -> (TileHandle, Receiver<TileOutput>) {
@@ -421,6 +494,10 @@ pub struct Session {
     methods: Arc<agents::FakeMethods>,
     /// Rows the tile sent since [`Session::rows`] asked.
     got_rows: Vec<pitwall_tile_host::RowsUpdate>,
+    net: Arc<FakeFetcher>,
+    /// The fake requests already waited for in [`Session::settle`].
+    net_seen: usize,
+    own_server: Option<std::net::SocketAddr>,
 }
 
 impl Session {
@@ -564,6 +641,12 @@ impl Session {
                 panic!("the tile didn't answer within {WAIT:?}");
             }
             if std::mem::take(&mut self.sent) {
+                rounds = 0;
+            }
+            // A request the fake answered: its answer arrives as an event.
+            let asked = self.net.requests().len();
+            if asked != self.net_seen {
+                self.net_seen = asked;
                 rounds = 0;
             }
         }
@@ -801,6 +884,12 @@ impl Session {
     pub fn click_key(&mut self, key_path: &str) -> &mut Self {
         let f = self.find_key(key_path);
         self.click_found(f, &format!("node “{key_path}”"))
+    }
+
+    /// Click the node at key path `key_path` in view `view`.
+    pub fn click_key_in(&mut self, view: &str, key_path: &str) -> &mut Self {
+        let f = self.find_key_in(view, key_path);
+        self.click_found(f, &format!("node “{key_path}” in view “{view}”"))
     }
 
     /// Click the node with accessible name `label` (an icon button).
@@ -1060,8 +1149,11 @@ impl Session {
         self.handle.stop();
         self.pump(Instant::now() + WAIT, |s| s.stopped.is_some());
         let ext = Extension::load(self.ext.dir()).unwrap_or_else(|e| panic!("it can't be loaded again: {e}"));
-        let options = StartOptions { views: vec![ViewSpec::tile(&self.main_tile())], grants: Grants::new(self.grants.clone()), theme: self.theme, visible: self.visible, state, clock: self.clock.clone() };
+        let options = StartOptions { views: vec![ViewSpec::tile(&self.main_tile())], grants: self.grants_now(&ext), theme: self.theme, visible: self.visible, state, clock: self.clock.clone() };
         let (handle, rx) = launch(&self.host, &ext, options);
+        if let Some(info) = service_info(&ext, self.own_server) {
+            handle.set_service(info);
+        }
         (self.handle, self.rx, self.ext, self.stopped) = (handle, rx, ext, None);
         self.frames.clear();
         self.texts.clear();
@@ -1122,9 +1214,133 @@ impl Session {
     }
 
     /// Everything it asked of Pitwall's UI (toasts, views to open, scrolls,
-    /// opening its Settings).
+    /// opening its Settings, notifications, files and pages to open,
+    /// toolbar changes).
     pub fn ui_requests(&self) -> &[UiRequest] {
         &self.ui
+    }
+
+    // ---- Services -----------------------------------------------------------
+
+    fn grants_now(&self, ext: &Extension) -> Grants {
+        Grants::for_extension(ext.manifest(), self.grants.clone()).with_own_server(self.own_server)
+    }
+
+    /// The user grants permission `name` now; the tile hears
+    /// `grants-changed` and its next call may use it.
+    pub fn grant(&mut self, name: &str) -> &mut Self {
+        if !self.grants.iter().any(|g| g == name) {
+            self.grants.push(name.to_string());
+        }
+        self.check_running();
+        self.handle.set_grants(self.grants_now(&self.ext));
+        self.settle()
+    }
+
+    /// The user takes permission `name` back; the tile's next call is
+    /// refused.
+    pub fn revoke(&mut self, name: &str) -> &mut Self {
+        self.grants.retain(|g| g != name);
+        self.check_running();
+        self.handle.set_grants(self.grants_now(&self.ext));
+        self.settle()
+    }
+
+    /// Answer `net` requests to `url` from now on.
+    pub fn respond(&mut self, url: &str, status: u16, body: impl Into<Vec<u8>>) -> &mut Self {
+        self.net.respond(url, status, body);
+        self
+    }
+
+    /// The `net` requests it made (that passed the checks), oldest first.
+    pub fn requests(&self) -> Vec<Outgoing> {
+        self.net.requests()
+    }
+
+    /// The notifications it sent (title, text), oldest first.
+    pub fn notifications(&self) -> Vec<(String, String)> {
+        self.ui
+            .iter()
+            .filter_map(|r| match r {
+                UiRequest::Notify { title, body } => Some((title.clone(), body.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The toolbar button as the tile has set it so far.
+    pub fn toolbar(&self) -> ToolbarState {
+        let mut t = ToolbarState { badge: None, project_badges: BTreeMap::new(), tooltip: None, shown: None, popover_open: self.frames.contains_key(POPOVER_VIEW) };
+        for r in &self.ui {
+            match r {
+                UiRequest::Toolbar(ToolbarRequest::Badge { project: None, badge, tone }) => t.badge = Some((*badge, *tone)),
+                UiRequest::Toolbar(ToolbarRequest::Badge { project: Some(p), badge, tone }) => {
+                    t.project_badges.insert(p.clone(), (*badge, *tone));
+                }
+                UiRequest::Toolbar(ToolbarRequest::Tooltip(s)) => t.tooltip = Some(s.clone()),
+                UiRequest::Toolbar(ToolbarRequest::Shown(b)) => t.shown = Some(*b),
+                _ => {}
+            }
+        }
+        t
+    }
+
+    /// The user clicks its toolbar button: with a `popover` action the
+    /// popover opens (view [`POPOVER_VIEW`]), or closes when open; with
+    /// `tile` or `popover` the tile hears `toolbar-clicked` (`project`:
+    /// the window's project space, if any).
+    pub fn click_toolbar(&mut self, project: Option<&str>) -> &mut Self {
+        use pitwall_core::extensions::toolbar::Action;
+        self.check_running();
+        let Some(tb) = self.ext.manifest().contributes.toolbar.clone() else { panic!("its extension.json declares no toolbar item") };
+        match tb.action {
+            Action::Popover { tile, .. } => {
+                if self.frames.contains_key(POPOVER_VIEW) {
+                    return self.close_view(POPOVER_VIEW);
+                }
+                self.send(Event::ToolbarClicked(project.map(String::from)));
+                assert!(self.handle.open_view(ViewSpec { id: POPOVER_VIEW.to_string(), tile, content: None }));
+            }
+            Action::Tile(_) => {
+                self.send(Event::ToolbarClicked(project.map(String::from)));
+            }
+            Action::Command(_) | Action::Menu(_) => panic!("its toolbar item runs commands, which go to its adapter, not the tile"),
+        }
+        self.settle();
+        self.apply_close_popover()
+    }
+
+    /// A `close-popover` it asked for since the last action closes the
+    /// popover, as Pitwall would.
+    fn apply_close_popover(&mut self) -> &mut Self {
+        let asked = self.ui.iter().rposition(|r| matches!(r, UiRequest::Toolbar(ToolbarRequest::ClosePopover)));
+        if let Some(i) = asked {
+            self.ui.remove(i);
+            if self.frames.contains_key(POPOVER_VIEW) {
+                return self.close_view(POPOVER_VIEW);
+            }
+        }
+        self
+    }
+
+    /// Click the node at `key_path` in the popover (opened with
+    /// [`Session::click_toolbar`]).
+    pub fn click_in_popover(&mut self, key_path: &str) -> &mut Self {
+        self.click_key_in(POPOVER_VIEW, key_path);
+        self.apply_close_popover()
+    }
+
+    /// Its own server's state changes: the tile hears `service-changed`.
+    pub fn set_service(&mut self, info: ServiceInfo) -> &mut Self {
+        self.check_running();
+        self.handle.set_service(info);
+        self.settle()
+    }
+
+    /// The tile's database file, in the test's data folder (open it with
+    /// any SQLite library to check what it keeps).
+    pub fn database(&self) -> PathBuf {
+        pitwall_tile_host::sql::db_file(&self.store.dir())
     }
 }
 
