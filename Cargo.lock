@@ -4789,7 +4789,10 @@ name = "pitwall-tile-host"
 version = "0.8.0"
 dependencies = [
  "bytes",
+ "notify",
+ "objc2-foundation 0.3.2",
  "pitwall-core",
+ "regex",
  "rusqlite",
  "rustybuzz",
  "serde_json",
@@ -4800,6 +4803,7 @@ dependencies = [
  "url",
  "wasmtime",
  "wasmtime-wasi",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

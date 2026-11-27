@@ -42,6 +42,21 @@ url = "2.5"
 # itself is public domain, compiled in (`bundled`) so every OS has the same
 # version and nothing depends on a system library.
 rusqlite = { version = "0.37", features = ["bundled", "hooks", "limits"] }
+# `files` (src/files.rs): following changes in a project with notify (CC0
+# OR Artistic-2.0, already in the tree through pitwall-core), and its
+# `.gitignore` patterns as regexes (regex, MIT OR Apache-2.0, in the tree).
+notify = "8"
+regex = "1"
+
+# `files.delete` moves to the system's Trash (src/platform/): NSFileManager
+# on macOS (objc2-foundation, Zlib OR Apache-2.0 OR MIT, in the tree through
+# the app), SHFileOperationW on Windows (windows-sys, MIT OR Apache-2.0, in
+# the tree); the freedesktop.org Trash folder elsewhere, with std only.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSFileManager", "NSString", "NSURL"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell"] }
 
 [build-dependencies]
 # Reads the app's Inter and JetBrains Mono files into advance-width tables

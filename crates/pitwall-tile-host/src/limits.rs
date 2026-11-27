@@ -162,3 +162,16 @@ pub const TOOLBAR_SHOWN_EVERY: Duration = Duration::from_secs(5);
 /// `toolbar`: badge changes a second the app draws (newer ones replace
 /// the one waiting).
 pub const TOOLBAR_BADGES_PER_SECOND: u32 = 4;
+
+/// `files`: the most a file read or written may hold.
+pub const MAX_FILE_BYTES: usize = 8 << 20;
+/// `files.list`: the most entries one call gives.
+pub const MAX_LIST_ENTRIES: usize = 10_000;
+/// `files.watch`: the most watches a tile has at once.
+pub const MAX_WATCHES: usize = 8;
+/// `files`: the most the extension's own files folder holds.
+pub const FILES_DATA_BYTES: u64 = 100 << 20;
+/// `files.watch`: changes are told this long after the last one…
+pub const WATCH_QUIET: Duration = Duration::from_millis(250);
+/// …or this long after the first, while they keep coming.
+pub const WATCH_MOST: Duration = Duration::from_secs(1);

@@ -24,9 +24,11 @@ mod cache;
 mod clock;
 pub mod components;
 mod data;
+pub mod files;
 pub mod frame;
 mod group;
 mod host;
+mod ignore;
 pub mod keys;
 pub mod limits;
 pub mod measure;
@@ -67,6 +69,8 @@ pub mod ui {
     pub use crate::bindings::pitwall::tile::settings::SettingValue;
     pub use crate::bindings::pitwall::tile::service::{ServiceInfo, State as ServiceState};
     pub use crate::bindings::pitwall::tile::toolbar::{Badge as ToolbarBadge, BadgeTone};
+    /// The project a view is open in (`files.project`).
+    pub use crate::bindings::pitwall::tile::files::ProjectInfo as Project;
     pub use crate::bindings::pitwall::tile::types::*;
 
     /// The appearance a tile starts with when the app gives none: dark,
@@ -87,6 +91,10 @@ pub const SQL_PERMISSION: &str = "sql";
 pub const NOTIFY_PERMISSION: &str = "notify";
 /// The permission for `show`.
 pub const SHOW_PERMISSION: &str = "show";
+/// The permission for reading a project's files (`files`).
+pub const FILES_READ_PERMISSION: &str = "files.read";
+/// The permission for changing a project's files (`files`).
+pub const FILES_WRITE_PERMISSION: &str = "files.write";
 /// The view id of the toolbar popover (ui.md §3.9): a view of the tile
 /// the manifest's popover action names. Tile ids can't hold a `:`.
 pub const POPOVER_VIEW: &str = "toolbar:popover";
@@ -186,11 +194,11 @@ impl Grants {
 
     /// These grants without the acting ones (`net` and the tile's own
     /// server, `show`, `notify`, `agents.queue`, `agents.start`,
-    /// `agents.focus`): what an agent's `show`, `present` or `read` call
+    /// `agents.focus`, `files.write`): what an agent's `show`, `present` or `read` call
     /// runs with (agent-tools.md §11.2).
     pub fn without_acting(&self) -> Grants {
         use pitwall_core::extensions::permissions as p;
-        let acting = [p::NET, p::SHOW, p::NOTIFY, p::AGENTS_QUEUE, p::AGENTS_START, p::AGENTS_FOCUS];
+        let acting = [p::NET, p::SHOW, p::NOTIFY, p::AGENTS_QUEUE, p::AGENTS_START, p::AGENTS_FOCUS, p::FILES_WRITE];
         Grants { granted: self.granted.iter().filter(|g| !acting.contains(&g.as_str()) && !g.starts_with("net.")).cloned().collect(), own_server: None, ..self.clone() }
     }
 
@@ -386,13 +394,22 @@ pub struct ViewSpec {
     /// What it opens with (checked by the app against the tile's
     /// `input` schema); at most 8 MiB of JSON and bytes.
     pub content: Option<ui::Content>,
+    /// The project it is open in (its space's, or the agent's it opened
+    /// next to): the only project folder `files` reaches for it. Later
+    /// moves go to [`TileHandle::set_project`].
+    pub project: Option<ui::Project>,
 }
 
 impl ViewSpec {
     /// Tile `tile` opened once, with no content: its view id is the tile's
     /// id.
     pub fn tile(tile: &str) -> ViewSpec {
-        ViewSpec { id: tile.to_string(), tile: tile.to_string(), content: None }
+        ViewSpec { id: tile.to_string(), tile: tile.to_string(), content: None, project: None }
+    }
+
+    /// This view, open in `project`.
+    pub fn in_project(self, project: Option<ui::Project>) -> ViewSpec {
+        ViewSpec { project, ..self }
     }
 }
 
@@ -459,6 +476,10 @@ pub enum UiRequest {
     /// Show `path` in the tile's file viewer at `line` (`show.view`,
     /// granted `show`).
     ViewFile { path: String, line: Option<u32> },
+    /// A line for the extension's Activity: a call that changed a
+    /// project's files (`files.write`, `files.rename`…; `detail` names
+    /// the project and the path), or one that was refused and why.
+    Activity { method: String, detail: String, refused: Option<String> },
 }
 
 /// Rows of a virtual list, table or tree, as the tile returned them for
@@ -588,6 +609,10 @@ pub(crate) struct Inner {
     pub fetcher: std::sync::RwLock<Arc<dyn net::Fetcher>>,
     /// Large inputs of agents' calls ([`TileHost::large_inputs`]).
     pub large: agent::LargeInputs,
+    /// Follows changes for `files.watch` ([`TileHost::set_watcher`]).
+    pub watcher: std::sync::RwLock<Arc<dyn files::Watcher>>,
+    /// Where `files.delete` puts a project's files ([`TileHost::set_trash`]).
+    pub trash: std::sync::RwLock<Arc<dyn files::Trash>>,
     _ticker: EpochTicker,
 }
 
@@ -603,7 +628,7 @@ impl TileHost {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(|e| LoadError::Host(format!("{e:#}")))?;
         bindings::Tile::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(|e| LoadError::Host(format!("{e:#}")))?;
         let ticker = EpochTicker::start(&engine).map_err(|e| LoadError::Host(e.to_string()))?;
-        Ok(TileHost { inner: Arc::new(Inner { engine, linker, config, fetcher: std::sync::RwLock::new(Arc::new(net::HttpFetcher)), large: agent::LargeInputs::default(), _ticker: ticker }) })
+        Ok(TileHost { inner: Arc::new(Inner { engine, linker, config, fetcher: std::sync::RwLock::new(Arc::new(net::HttpFetcher)), large: agent::LargeInputs::default(), watcher: std::sync::RwLock::new(Arc::new(files::FsWatcher)), trash: std::sync::RwLock::new(Arc::new(files::SystemTrash)), _ticker: ticker }) })
     }
 
     /// [`Extension::load`].
@@ -684,6 +709,32 @@ impl TileHost {
         if let Ok(mut f) = self.inner.fetcher.write() {
             *f = fetcher;
         }
+    }
+
+    /// Follow `files.watch` changes with `watcher` from now on (tiles
+    /// started after this): the harness's [`files::FakeWatcher`]. The
+    /// system's events ([`files::FsWatcher`]) are the default.
+    pub fn set_watcher(&self, watcher: Arc<dyn files::Watcher>) {
+        if let Ok(mut w) = self.inner.watcher.write() {
+            *w = watcher;
+        }
+    }
+
+    /// Put what `files.delete` removes from a project in `trash` from now
+    /// on (tiles started after this): tests' [`files::FolderTrash`], so
+    /// they never fill the user's Trash. The system's is the default.
+    pub fn set_trash(&self, trash: Arc<dyn files::Trash>) {
+        if let Ok(mut t) = self.inner.trash.write() {
+            *t = trash;
+        }
+    }
+
+    pub(crate) fn watcher(&self) -> Arc<dyn files::Watcher> {
+        self.inner.watcher.read().map(|w| w.clone()).unwrap_or_else(|_| Arc::new(files::FsWatcher))
+    }
+
+    pub(crate) fn trash(&self) -> Arc<dyn files::Trash> {
+        self.inner.trash.read().map(|t| t.clone()).unwrap_or_else(|_| Arc::new(files::SystemTrash))
     }
 
     pub(crate) fn fetcher(&self) -> Arc<dyn net::Fetcher> {

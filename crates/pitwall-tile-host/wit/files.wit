@@ -1,0 +1,162 @@
+package pitwall:tile@0.1.0;
+
+/// Files in the project a view is open in, and in the extension's own
+/// files folder (platform-services.md §14.3, permissions.md §5.1).
+///
+/// **The project.** Every view is open somewhere in Pitwall's layout: in
+/// a project's space, next to an agent working in a project, or opened
+/// from a project's menu in the sidebar. That project is the view's
+/// (`project`), and the only project folder its tile may reach: a tile
+/// never names a folder of its own choosing, and never reaches a project
+/// none of its views is in. A view moved to another project's space, or
+/// out of every project, sends `project-changed` with its id.
+///
+/// **Permissions.** Reading a project (`read`, `stat`, `list`, `watch`)
+/// needs `files.read`; changing it (`write`, `create`, `make-folder`,
+/// `rename`, `delete`) needs `files.write`, off until the user turns it
+/// on. The extension's own files folder (`root.data`,
+/// `<data>/extension-data/<id>/files/`) needs neither: it is its own,
+/// like its key-value store, and holds at most 100 MiB.
+///
+/// **What is never reached.** Paths are relative to the root, with `/`
+/// between parts. Absolute paths and `..` are refused (`not-allowed`);
+/// links are followed and refused when they lead out of the root. A
+/// `.git` folder is neither listed, read nor changed, and Pitwall's own
+/// files in a project (`.pitwall.json`, `.pitwall/`) are never changed.
+/// `list` and `watch` leave out what the project's `.gitignore` files
+/// (and `.git/info/exclude`) ignore; `read` and `stat` still reach those
+/// files by name.
+///
+/// **Limits.** A file read or written is at most 8 MiB; `list` gives at
+/// most 10 000 entries; a tile has at most 8 watches at once. Changing
+/// calls (and refusals) are listed in the extension's Activity.
+interface files {
+  /// A project, as Pitwall shows it.
+  record project-info {
+    /// Its name, as the sidebar shows it (`checkout-web`).
+    name: string,
+    /// Its folder, absolute, as this computer writes it.
+    folder: string,
+  }
+
+  /// Where a call's path starts.
+  variant root {
+    /// The folder of the project the view with this id is open in
+    /// (`project`). `no-project` when the view isn't open, or isn't in a
+    /// project.
+    project(string),
+    /// The extension's own files folder: no permission needed, kept
+    /// across updates, at most 100 MiB.
+    data,
+  }
+
+  /// What an entry is.
+  enum entry-kind {
+    file,
+    folder,
+  }
+
+  /// A file or folder.
+  record entry {
+    /// Its path from the root, with `/` between parts (`docs/arch.md`).
+    path: string,
+    /// A file or a folder (a link is what it leads to).
+    kind: entry-kind,
+    /// Its size in bytes (0 for a folder).
+    size: u64,
+    /// When it last changed, in milliseconds since 1970 (UTC).
+    modified: u64,
+  }
+
+  /// Why a call didn't do what was asked.
+  variant file-error {
+    /// The tile isn't granted `files.read` (to read) or `files.write` (to
+    /// change), or an agent's call runs without the tile's acting
+    /// permissions (writing needs an act call).
+    denied,
+    /// The view isn't open, or isn't in a project.
+    no-project,
+    /// Nothing is at that path.
+    not-found,
+    /// Something is already at that path (`create`, `make-folder`,
+    /// `rename`'s target).
+    exists,
+    /// The path is outside the root (an absolute path, `..`, a link that
+    /// leads out), inside `.git`, or one of Pitwall's own files; the text
+    /// says which.
+    not-allowed(string),
+    /// Over a limit: a file over 8 MiB, more than 10 000 entries, the
+    /// files folder over 100 MiB.
+    too-large,
+    /// Too many calls this second, or 8 watches already.
+    busy,
+    /// A path that isn't valid (empty where a file is needed, a NUL);
+    /// the text says why.
+    invalid(string),
+    /// The disk said no (a permission of the system, a full disk); the
+    /// text says what happened.
+    failed(string),
+  }
+
+  /// A watch's number, unique while the tile runs.
+  type watch-id = u32;
+
+  /// What `files-changed` carries.
+  record files-changed {
+    /// The watch.
+    watch: watch-id,
+    /// The paths that changed (were written, made, renamed or removed),
+    /// from the watch's root, each once, sorted. Changes close together
+    /// arrive as one event, about a quarter of a second after the last.
+    paths: list<string>,
+  }
+
+  /// The project view `view` is open in, if any. Needs `files.read` (or
+  /// `projects.read`); without either, `none`.
+  project: func(view: string) -> option<project-info>;
+
+  /// A file's bytes (at most 8 MiB).
+  read: func(root: root, path: string) -> result<list<u8>, file-error>;
+
+  /// A file or folder: what it is, its size and last change. `""` is the
+  /// root itself.
+  stat: func(root: root, path: string) -> result<entry, file-error>;
+
+  /// What folder `folder` holds (`""`: the root): its files and folders,
+  /// sorted by path; with `deep`, everything under it too. Ignored
+  /// entries and `.git` are left out. At most 10 000 entries, else
+  /// `too-large`: list a smaller folder.
+  %list: func(root: root, folder: string, deep: bool) -> result<list<entry>, file-error>;
+
+  /// Follow changes under folder `folder` (`""`: the root), everything
+  /// under it: each change arrives as a `files-changed` event with the
+  /// number returned here. Ignored paths and `.git` are left out. At most
+  /// 8 watches at once (`busy`). A watch ends with `unwatch`, when its
+  /// view closes or leaves the project, or when the tile stops.
+  watch: func(root: root, folder: string) -> result<watch-id, file-error>;
+
+  /// Stop watch `id`; a number that isn't watching is ignored.
+  unwatch: func(id: watch-id);
+
+  /// Write `contents` to file `path`, replacing what is there; its
+  /// folders are made when missing. The file is written whole or not at
+  /// all (a reader never sees half of it). Needs `files.write` for a
+  /// project.
+  write: func(root: root, path: string, contents: list<u8>) -> result<_, file-error>;
+
+  /// Make a new file `path` with `contents`; `exists` when something is
+  /// there already. Its folders are made when missing.
+  create: func(root: root, path: string, contents: list<u8>) -> result<_, file-error>;
+
+  /// Make folder `path` (and the folders above it); `exists` when
+  /// something is there already.
+  make-folder: func(root: root, path: string) -> result<_, file-error>;
+
+  /// Move or rename `from` to `to`, in the same root; `exists` when
+  /// something is at `to`.
+  rename: func(root: root, %from: string, to: string) -> result<_, file-error>;
+
+  /// Move file or folder `path` of a project to the system's Trash, where
+  /// the user can put it back. In the files folder it is deleted.
+  delete: func(root: root, path: string) -> result<_, file-error>;
+}

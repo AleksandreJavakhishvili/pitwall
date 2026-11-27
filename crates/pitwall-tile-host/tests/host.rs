@@ -250,13 +250,13 @@ fn views_open_with_content_and_take_updates() {
     let run = start(&host(t.path()), StartOptions::view("main"));
     run.frame_with("main", "Clicked 0 times");
     let content = |json: &str| ui::Content { id: Some("note-1".into()), json: Some(json.into()), bytes: None, call: None, tool: None, caller: None, append: false, large: None };
-    assert!(run.handle.open_view(ViewSpec { id: "agent-1".into(), tile: "second".into(), content: Some(content(r#"{"message":"first"}"#)) }));
+    assert!(run.handle.open_view(ViewSpec { id: "agent-1".into(), tile: "second".into(), content: Some(content(r#"{"message":"first"}"#)), project: None }));
     let f = run.frame_with("agent-1", r#"Content: {"message":"first"}"#);
     assert_eq!(f.tile, "second");
     assert!(run.handle.set_content("agent-1", content(r#"{"message":"again"}"#)));
     run.frame_with("agent-1", r#"Content: {"message":"again"}"#);
     // The same view id again with content is an update, not a new view.
-    run.handle.open_view(ViewSpec { id: "agent-1".into(), tile: "second".into(), content: Some(content(r#"{"message":"third"}"#)) });
+    run.handle.open_view(ViewSpec { id: "agent-1".into(), tile: "second".into(), content: Some(content(r#"{"message":"third"}"#)), project: None });
     run.frame_with("agent-1", r#"Content: {"message":"third"}"#);
     run.handle.close_view("agent-1");
     run.click("button");

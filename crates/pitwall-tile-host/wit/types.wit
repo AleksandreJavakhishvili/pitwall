@@ -17,6 +17,8 @@ interface types {
   // The payloads of `fetched` and `service-changed` (net.wit, service.wit).
   use net.{fetched};
   use service.{service-info};
+  // The payload of `files-changed` (files.wit).
+  use files.{files-changed};
 
   /// One open view of the tile: a place in Pitwall's layout showing one
   /// of the manifest's tiles (`contributes.tiles`). Chosen by Pitwall and
@@ -1290,6 +1292,12 @@ interface types {
     /// (the agent was told): stop working on it; a `reply` to it is
     /// dropped.
     tool-cancelled(u64),
+    /// Files changed under a folder the tile watches (`files.watch`).
+    files-changed(files-changed),
+    /// The view with this id is now in another project, or in none (it
+    /// was moved to another space): read `files.project` again. Its
+    /// watches on the old project ended.
+    project-changed(view-id),
   }
 
   /// What the tile gets when it starts.
