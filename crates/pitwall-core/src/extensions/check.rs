@@ -347,6 +347,11 @@ pub fn check(folder: &Path, path: Option<&str>) -> Report {
             r.add(Level::Ok, format!("update: {w}"));
         }
     }
+    match super::agent_skill::read(folder, &m.id) {
+        Some(Ok(s)) => r.add(Level::Ok, format!("{} is there: agents get its description with its tools (“{}”)", super::agent_skill::FILE, s.description)),
+        Some(Err(why)) => r.add(Level::Fail, why),
+        None => {}
+    }
     if folder.join("README.md").is_file() {
         r.add(Level::Ok, "README.md is there");
     } else {
