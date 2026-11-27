@@ -11,15 +11,23 @@ name = "c4-tile"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Pitwall's C4 diagram tile: finds Mermaid C4 diagrams in Markdown, parses, links and lays them out."
+description = "Pitwall's C4 diagram tile: agents show Mermaid C4 diagrams, drawn natively next to their terminal."
 publish = false
 
+[lib]
+# A WebAssembly component (`cargo build --release --target wasm32-wasip2`;
+# Pitwall runs the copy beside extension.json, tile.wasm), and a library
+# for the core's own tests.
+crate-type = ["cdylib", "rlib"]
+
 [features]
+default = ["tile"]
 # The rust-sugiyama layout, kept to compare with dagre (layout-lld.md §7).
 sugiyama = ["dep:rust-sugiyama", "dep:petgraph"]
-# The Painter (src/paint.rs) and the shop demo tile (examples/shop_tile.rs):
-# drawing on the Tile SDK canvas (hla.md §3.8, phase B).
-tile = ["dep:pitwall-extension"]
+# The tile itself (src/tile.rs) and the Painter (src/paint.rs): drawing on
+# the Tile SDK canvas (hla.md §3.8). Without it, the core alone
+# (`--no-default-features`), which needs no SDK.
+tile = ["dep:pitwall-extension", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 # Markdown fences and headings; default features (html, getopts) aren't needed.
@@ -29,8 +37,12 @@ pulldown-cmark = { version = "0.13", default-features = false }
 dagre = "0.1.2"
 rust-sugiyama = { version = "0.4", optional = true }
 petgraph = { version = "0.8", optional = true }
-# The public Tile SDK, for drawing (the `tile` feature).
+# The public Tile SDK (the `tile` feature). Until it is on crates.io it
+# comes from this repository (later: pitwall-extension = "0.1").
 pitwall-extension = { path = "../../sdk/pitwall-extension", optional = true }
+# The shown diagrams kept in the tile's storage, and the tool's input.
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [build-dependencies]
 # Reads Inter's advances and kerning into a table at build time
@@ -40,9 +52,14 @@ rustybuzz = "0.20"
 [dev-dependencies]
 # Shapes sample labels to check the width table (layout-lld.md §1).
 rustybuzz = "0.20"
+# Runs the built tile.wasm in Pitwall's own tile runtime (tests/tile.rs).
+pitwall-extension-test = { path = "../../crates/pitwall-extension-test" }
+serde_json = "1"
 
-# The shop fixture's diagrams drawn as a tile, for wasm32-wasip2 (phase B demo).
-[[example]]
-name = "shop_tile"
-crate-type = ["cdylib"]
-required-features = ["tile"]
+# Small and quick to load: Pitwall compiles the component on first start.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

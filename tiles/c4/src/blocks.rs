@@ -55,6 +55,17 @@ impl Block {
     pub fn heading(&self) -> Option<&str> {
         self.headings.last().map(|h| h.text.as_str())
     }
+
+    /// A block that is not in a file: Mermaid an agent sent (a shown
+    /// diagram, frd.md §5.1), under `title` as its one heading. Its
+    /// positions are the text's own (line 1 is the text's first line).
+    pub fn from_text(id: impl Into<String>, text: &str, title: Option<&str>) -> Block {
+        let text = text.replace('\r', "");
+        let count = text.split('\n').count() as u32;
+        let lines = (1..=count).map(|line| LineStart { line, column_offset: 0 }).collect();
+        let headings = title.map(|t| Heading { level: 1, text: t.to_string(), line: 0 }).into_iter().collect();
+        Block { id: id.into(), text, fence_line: 0, end_line: count + 1, headings, lines }
+    }
 }
 
 /// A heading's slug: lowercase, letters, digits, `-` and `_` kept, spaces
