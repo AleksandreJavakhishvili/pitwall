@@ -126,6 +126,8 @@ pub struct Content {
     call: Option<u64>,
     tool: Option<String>,
     caller: Option<crate::tools::Caller>,
+    append: bool,
+    large: Option<u64>,
 }
 
 /// Content that isn't what the tile expected.
@@ -143,7 +145,7 @@ impl std::error::Error for ContentError {}
 impl Content {
     /// Content with this JSON text (for tests of your own code).
     pub fn from_json(json: impl Into<String>) -> Content {
-        Content { id: None, json: Some(json.into()), bytes: None, call: None, tool: None, caller: None }
+        Content { id: None, json: Some(json.into()), bytes: None, call: None, tool: None, caller: None, append: false, large: None }
     }
 
     /// The same content as agent `caller`'s call `call` with item `item`
@@ -181,6 +183,25 @@ impl Content {
         self.caller.as_ref()
     }
 
+    /// The agent's call adds to its item instead of replacing it (`"mode":
+    /// "append"`): the JSON is the part to add.
+    pub fn is_append(&self) -> bool {
+        self.append
+    }
+
+    /// The call named a file instead of inline text (`"from_file"`): its
+    /// size in bytes; read it with [`tools::large_input`](crate::tools::large_input)
+    /// while the call is handled.
+    pub fn large(&self) -> Option<u64> {
+        self.large
+    }
+
+    /// The same content as an append (for tests of your own code).
+    pub fn appending(mut self) -> Content {
+        self.append = true;
+        self
+    }
+
     /// The payload as JSON text.
     pub fn json_text(&self) -> Option<&str> {
         self.json.as_deref()
@@ -202,7 +223,7 @@ impl Content {
 
 impl From<wit::Content> for Content {
     fn from(c: wit::Content) -> Content {
-        Content { id: c.id, json: c.json, bytes: c.bytes, call: c.call, tool: c.tool, caller: c.caller.map(Into::into) }
+        Content { id: c.id, json: c.json, bytes: c.bytes, call: c.call, tool: c.tool, caller: c.caller.map(Into::into), append: c.append, large: c.large }
     }
 }
 
@@ -1091,10 +1112,24 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
             }
             wit::Event::ToolbarClicked(project) => tile.on_event(&Event::ToolbarClicked { project }, cx),
             wit::Event::ServiceChanged(info) => tile.on_event(&Event::ServiceChanged(info.into()), cx),
+            wit::Event::UndoPresent(call) => tile.on_event(&Event::UndoPresent(call), cx),
+            wit::Event::ToolCancelled(call) => tile.on_event(&Event::ToolCancelled(call), cx),
         }
         std::mem::take(&mut cx.notified)
     })
     .unwrap_or(false)
+}
+
+/// A `read` or `act` call, from the guest's `tool` export: the tile's
+/// `#[tools]` method for it, its answer now or later.
+#[doc(hidden)]
+pub fn tool<T: Tile>(call: crate::bindings::pitwall::tile::agent_tools::ToolCall) -> Option<crate::bindings::pitwall::tile::agent_tools::ToolOutput> {
+    with::<T, _>(|rt| {
+        let Runtime { tile, cx, tools } = rt;
+        cx.notified = false;
+        crate::tools::run_tool(tile, cx, *tools, call)
+    })
+    .unwrap_or_else(|| Some(crate::tools::no_tile()))
 }
 
 #[doc(hidden)]

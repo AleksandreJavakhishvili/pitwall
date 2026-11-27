@@ -2,8 +2,8 @@
 //! §11.3): the `tools` of a manifest's tile entry, read and checked, and
 //! the JSON Schema subset their input (and a tile's `"input"`) is written
 //! in, with the check Pitwall makes of an agent's input before the tile
-//! sees it ([`check_input`]). Phase 2 has the show-only kinds, `show` and
-//! `present`.
+//! sees it ([`check_input`]). The four kinds: `show` and `present`
+//! (show-only), `read` and `act`; and where each is offered (`expose`).
 
 use serde_json::{Map, Value};
 
@@ -34,6 +34,10 @@ pub fn check_mcp_name(id: &str, tool: Option<&str>) -> Result<(), String> {
 /// input can't use them.
 pub const RESERVED: [&str; 2] = ["where", "of"];
 
+/// Property names Pitwall adds to every `present` tool's input (appends
+/// and large inputs, agent-tools.md §11.7).
+pub const RESERVED_PRESENT: [&str; 2] = ["mode", "from_file"];
+
 /// What a tool does (agent-tools.md §11.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolKind {
@@ -42,6 +46,12 @@ pub enum ToolKind {
     /// Puts content into the tile or changes content the same agent put
     /// there.
     Present,
+    /// Returns what the tile has now, with the user's edits (the user
+    /// allows each agent).
+    Read,
+    /// Has effects outside the tile (the user approves each call, unless
+    /// they allowed that agent always).
+    Act,
 }
 
 impl ToolKind {
@@ -49,9 +59,39 @@ impl ToolKind {
         match self {
             ToolKind::Show => "show",
             ToolKind::Present => "present",
+            ToolKind::Read => "read",
+            ToolKind::Act => "act",
+        }
+    }
+
+    /// `show` or `present`: changes only what the tile shows, returns no
+    /// tile data, needs no approval.
+    pub fn show_only(self) -> bool {
+        matches!(self, ToolKind::Show | ToolKind::Present)
+    }
+}
+
+/// Where a tool is offered (agent-tools.md §11.12): to agents through
+/// MCP, to `pitwall extension run`, in the command palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Expose {
+    Agents,
+    Cli,
+    Palette,
+}
+
+impl Expose {
+    pub fn word(self) -> &'static str {
+        match self {
+            Expose::Agents => "agents",
+            Expose::Cli => "cli",
+            Expose::Palette => "palette",
         }
     }
 }
+
+/// The longest palette title.
+pub const MAX_TITLE: usize = 60;
 
 /// A tool a tile declares.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +103,25 @@ pub struct ToolDef {
     pub description: String,
     /// Its input's JSON Schema, as compact JSON text (an object schema).
     pub input: String,
+    /// An `act` tool says it can't destroy anything (`"destructive":
+    /// false`, MCP's `destructiveHint`); `None`: not said (MCP reads it as
+    /// destructive).
+    pub destructive: Option<bool>,
+    /// Calling it again with the same input does nothing more
+    /// (`"idempotent": true`, MCP's `idempotentHint`).
+    pub idempotent: Option<bool>,
+    /// Where it is offered; default agents and the CLI.
+    pub expose: Vec<Expose>,
+    /// Its name in the command palette ("Export diagram as SVG"); needed
+    /// with `palette`.
+    pub title: Option<String>,
+}
+
+impl ToolDef {
+    /// Whether it is offered at `e`.
+    pub fn exposed(&self, e: Expose) -> bool {
+        self.expose.contains(&e)
+    }
 }
 
 impl ToolDef {
@@ -92,10 +151,43 @@ pub fn parse_tools(tile: &str, v: &Value) -> Result<Vec<ToolDef>, String> {
         let kind = match o.get("kind").and_then(Value::as_str) {
             Some("show") => ToolKind::Show,
             Some("present") => ToolKind::Present,
-            Some(k @ ("read" | "act")) => return Err(at(&format!("kind “{k}” needs a newer Pitwall (this one has show and present)"))),
-            Some(k) => return Err(at(&format!("kind “{k}” is show or present"))),
-            None => return Err(at("needs \"kind\": show or present")),
+            Some("read") => ToolKind::Read,
+            Some("act") => ToolKind::Act,
+            Some(k) => return Err(at(&format!("kind “{k}” is show, present, read or act"))),
+            None => return Err(at("needs \"kind\": show, present, read or act")),
         };
+        let hint = |k: &str| -> Result<Option<bool>, String> {
+            match o.get(k) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::Bool(b)) if kind == ToolKind::Act => Ok(Some(*b)),
+                Some(Value::Bool(_)) => Err(at(&format!("\"{k}\" is for act tools only (the other kinds change nothing outside the tile)"))),
+                Some(_) => Err(at(&format!("\"{k}\" must be true or false"))),
+            }
+        };
+        let (destructive, idempotent) = (hint("destructive")?, hint("idempotent")?);
+        let expose = match o.get("expose") {
+            None | Some(Value::Null) => vec![Expose::Agents, Expose::Cli],
+            Some(Value::Array(list)) => {
+                let mut out = Vec::new();
+                for e in list {
+                    let e = match e.as_str() {
+                        Some("agents") => Expose::Agents,
+                        Some("cli") => Expose::Cli,
+                        Some("palette") => Expose::Palette,
+                        _ => return Err(at(&format!("\"expose\" lists agents, cli and palette, not {e}"))),
+                    };
+                    if !out.contains(&e) {
+                        out.push(e);
+                    }
+                }
+                out
+            }
+            Some(_) => return Err(at("\"expose\" must be a list (agents, cli, palette)")),
+        };
+        let title = o.get("title").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+        if title.as_ref().is_some_and(|t| t.chars().count() > MAX_TITLE) {
+            return Err(at(&format!("\"title\" is at most {MAX_TITLE} characters")));
+        }
         let description = o.get("description").and_then(Value::as_str).map(str::trim).unwrap_or("");
         if description.is_empty() || description.chars().count() > MAX_DESCRIPTION {
             return Err(at(&format!("needs a \"description\" of at most {MAX_DESCRIPTION} characters: what an agent reads to choose it")));
@@ -105,12 +197,36 @@ pub fn parse_tools(tile: &str, v: &Value) -> Result<Vec<ToolDef>, String> {
         if schema.get("type").and_then(Value::as_str) != Some("object") {
             return Err(at("\"input\" must be an object schema (\"type\": \"object\")"));
         }
-        if let Some(p) = schema.get("properties").and_then(Value::as_object).and_then(|p| RESERVED.iter().find(|r| p.contains_key(**r))) {
+        let reserved: Vec<&str> = if kind == ToolKind::Present { RESERVED.iter().chain(RESERVED_PRESENT.iter()).copied().collect() } else { RESERVED.to_vec() };
+        if let Some(p) = schema.get("properties").and_then(Value::as_object).and_then(|p| reserved.iter().find(|r| p.contains_key(**r))) {
             return Err(at(&format!("\"input\" can't have a property “{p}”: Pitwall adds it")));
         }
-        out.push(ToolDef { name: name.to_string(), kind, description: description.to_string(), input: schema.to_string() });
+        if expose.contains(&Expose::Palette) {
+            if title.is_none() {
+                return Err(at("\"expose\" has palette: it needs a \"title\" for the palette entry"));
+            }
+            if let Some(why) = palette_form(&schema) {
+                return Err(at(&format!("\"expose\" has palette, but {why}")));
+            }
+        }
+        out.push(ToolDef { name: name.to_string(), kind, description: description.to_string(), input: schema.to_string(), destructive, idempotent, expose, title });
     }
     Ok(out)
+}
+
+/// Why the palette can't ask for `schema`'s input in its small form (its
+/// properties must be strings, numbers, booleans or enums, nothing
+/// nested); `None` when it can.
+pub fn palette_form(schema: &Value) -> Option<String> {
+    let props = schema.get("properties").and_then(Value::as_object)?;
+    for (k, p) in props {
+        let t = p.get("type").and_then(Value::as_str);
+        let flat = p.get("enum").is_some() || matches!(t, Some("string" | "number" | "integer" | "boolean"));
+        if !flat {
+            return Some(format!("its input's “{k}” isn't a string, number, true/false or a choice (the palette asks in a small form)"));
+        }
+    }
+    None
 }
 
 /// Why `schema` isn't in the subset tools are written in (draft 2020-12:
@@ -285,7 +401,15 @@ mod tests {
         let err = |v: Value| parse_tools("main", &v).unwrap_err();
         assert!(err(json!([{ "name": "Show", "kind": "show", "description": "x" }])).contains("lowercase"));
         assert!(err(json!([{ "name": "open", "kind": "show", "description": "x" }])).contains("Pitwall's own"));
-        assert!(err(json!([{ "name": "a", "kind": "read", "description": "x" }])).contains("newer Pitwall"));
+        let rw = parse_tools("main", &json!([{ "name": "current", "kind": "read", "description": "x" }, { "name": "export_svg", "kind": "act", "description": "x", "destructive": false, "idempotent": true, "expose": ["agents", "palette"], "title": "Export as SVG", "input": { "type": "object", "properties": { "path": { "type": "string" }, "dark": { "type": "boolean" } } } }])).unwrap();
+        assert_eq!((rw[0].kind, rw[0].destructive, rw[0].expose.as_slice()), (ToolKind::Read, None, &[Expose::Agents, Expose::Cli][..]));
+        assert_eq!((rw[1].kind, rw[1].destructive, rw[1].idempotent, rw[1].title.as_deref()), (ToolKind::Act, Some(false), Some(true), Some("Export as SVG")));
+        assert!(rw[1].exposed(Expose::Palette) && !rw[1].exposed(Expose::Cli));
+        assert!(err(json!([{ "name": "a", "kind": "edit", "description": "x" }])).contains("show, present, read or act"));
+        assert!(err(json!([{ "name": "a", "kind": "read", "description": "x", "destructive": true }])).contains("act tools only"));
+        assert!(err(json!([{ "name": "a", "kind": "act", "description": "x", "expose": ["palette"] }])).contains("needs a \"title\""));
+        assert!(err(json!([{ "name": "a", "kind": "act", "description": "x", "expose": ["palette"], "title": "A", "input": { "type": "object", "properties": { "o": { "type": "object" } } } }])).contains("small form"));
+        assert!(err(json!([{ "name": "a", "kind": "act", "description": "x", "expose": ["shell"] }])).contains("agents, cli and palette"));
         assert!(err(json!([{ "name": "a", "kind": "show" }])).contains("description"));
         assert!(err(json!([{ "name": "a", "kind": "show", "description": "x", "input": { "type": "object", "properties": { "where": { "type": "string" } } } }])).contains("Pitwall adds it"));
         assert!(err(json!([{ "name": "a", "kind": "show", "description": "x", "input": { "type": "object", "oneOf": [] } }])).contains("oneOf"));
