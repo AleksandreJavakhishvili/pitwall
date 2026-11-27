@@ -18,6 +18,8 @@ crate-type = ["cdylib"]
 [dependencies]
 # The guest SDK, from this repository.
 pitwall-extension = { path = "../../../../../sdk/pitwall-extension" }
+# An agent tool's input.
+serde = { version = "1", features = ["derive"] }
 regex = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 chrono = { version = "0.4", optional = true }
