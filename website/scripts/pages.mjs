@@ -15,7 +15,7 @@
 // source. A split parent keeps its old #anchors working: a small script sends
 // them on to the child page that now holds them.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { render, sections, slug, inline } from "./markdown.mjs";
 import { resolveIncludes } from "./includes.mjs";
 import { witMarkdown, WIT_DIR } from "./wit-docs.mjs";
@@ -273,6 +273,22 @@ function anchored(name, hash) {
   return anchorMap(name).get(hash) ?? `${path}#${hash}`;
 }
 
+/**
+ * The Extensions pages' pictures (headless screenshots of components):
+ * `source` in the repository, served at `/<path>/` with the same names.
+ */
+export const DOC_IMAGES = { source: "docs/reference/extensions/images", path: "docs/extensions/images" };
+
+/** Every picture under DOC_IMAGES.source, as paths relative to it. */
+export function docImages() {
+  const dir = resolve(ROOT, DOC_IMAGES.source);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && /\.(png|svg|jpe?g|webp)$/i.test(e.name))
+    .map((e) => relative(dir, join(e.parentPath, e.name)).split(sep).join("/"))
+    .sort();
+}
+
 const NAME_OF = Object.fromEntries(Object.entries(SOURCES).map(([name, file]) => [file, name]));
 
 // Relative links are read from the Markdown file's own folder, as GitHub reads
@@ -288,6 +304,7 @@ function linker(repoUrl, source = resolve(ROOT, "docs/reference/index.md")) {
     const path = posix.normalize(posix.join(dir, rel)).replace(/^(\.\.\/)+/, "");
     const site = ON_SITE[path];
     if (site) return anchored(NAME_OF[resolve(ROOT, path)], hash);
+    if (path.startsWith(DOC_IMAGES.source + "/")) return `/${DOC_IMAGES.path}/${path.slice(DOC_IMAGES.source.length + 1)}`;
     return `${repoUrl}/blob/main/${path}${hash && "#" + hash}`;
   };
 }

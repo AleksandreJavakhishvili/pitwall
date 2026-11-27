@@ -1,7 +1,7 @@
 // A small Markdown → HTML converter for the subset CHANGELOG.md (git-cliff),
 // ROADMAP.md and docs/reference/*.md use: headings, paragraphs, "-" / "*" / "1."
 // lists (one level, with indented continuation lines), fenced code, pipe tables
-// (`\|` for a pipe inside a cell), inline code, links, **bold**, *emphasis* and <kbd>. Other inline HTML is escaped; HTML comments are dropped.
+// (`\|` for a pipe inside a cell), inline code, links, images, **bold**, *emphasis* and <kbd>. Other inline HTML is escaped; HTML comments are dropped.
 // No dependency on purpose; if the files start needing more, swap in `marked`.
 
 const esc = (s) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -17,6 +17,8 @@ export function inline(text, link = (h) => h) {
   const hold = (html) => `\u0000${held.push(html) - 1}\u0000`;
   let s = text.replace(/`([^`]+)`/g, (_, code) => hold(`<code>${esc(code)}</code>`));
   s = esc(s).replace(/&lt;(\/?)kbd&gt;/g, "<$1kbd>");
+  // ![alt](src): a picture, its src mapped as a link is.
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => hold(`<img class="shot" src="${esc(link(src.replaceAll("&amp;", "&")))}" alt="${alt}" loading="lazy">`));
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
     const target = link(href.replaceAll("&amp;", "&"));
     return `<a href="${esc(target)}">${label}</a>`;
