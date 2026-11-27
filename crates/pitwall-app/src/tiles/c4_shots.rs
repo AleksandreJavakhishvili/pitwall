@@ -79,7 +79,7 @@ fn c4_shots() {
         let req = TileShow { agent_id: "api".into(), agent_name: "api".into(), extension: "c4".into(), tile: "main".into(), tool: Some("show".into()), item: Some(item.into()), input: Some(input.to_string()), ..Default::default() };
         let id = cx.update(|cx| {
             super::tiles(cx).update(cx, |t, cx| {
-                let c = ShowCall { tool: Some("show".into()), tile: "main".into(), item: Some(item.into()), input: Some(input.to_string()), caller: Caller { agent_id: "api".into(), agent_name: "api".into(), project: None } };
+                let c = ShowCall { tool: Some("show".into()), tile: "main".into(), item: Some(item.into()), input: Some(input.to_string()), caller: Caller { agent_id: "api".into(), agent_name: "api".into(), project: None }, append: false, large: None };
                 let (id, content) = t.calls("c4").begin(&c, Instant::now()).unwrap();
                 t.deliver("c4", "main", id, content, tx, cx).unwrap();
                 id
