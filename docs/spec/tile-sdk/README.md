@@ -88,8 +88,9 @@ model and IME. The tile's code never touches a window.
    A tile follows Dark, Light, Flat, Glass and Reduce motion by itself.
 4. **Rich components are Pitwall's.** Text input (with IME), lists,
    virtual lists, tables, trees, tabs, a read-only code view,
-   Markdown, menus, tooltips, splits: drawn by the host's kit, driven
-   by the tile. A canvas covers charts and custom drawing.
+   Markdown, menus, tooltips, splits, form controls, feedback, charts:
+   drawn by the host's kit, driven by the tile ("kit parity", item
+   21). A canvas covers custom drawing.
 5. **No re-entrancy.** GPUI handlers never call the guest. They post an
    event to the tile's worker; the worker calls the guest and posts the
    new tree back; the app applies it on the main thread. Anything the
@@ -202,6 +203,15 @@ model and IME. The tile's code never touches a window.
     agent's terminal, with `where` and `of` as `show_web`, and a later
     call with the same item updates it in place. These show-only tools
     come in phase 2; `read`, `act`, approvals and Undo stay in phase 3.
+21. **Kit parity** ([3.10](ui.md#310-components-batch-2-as-built),
+    asked for by the owner 2026-11-27: "as rich an SDK as possible,
+    proper components"). Anything Pitwall's own UI draws, a tile can
+    draw, with the same look: components are built from the app's kit
+    (`crates/pitwall-app/src/kit/`) and the same theme tokens, and a
+    control the kit lacks is added to the kit in its style, not drawn
+    for tiles alone. Charts are native and data-only (series and
+    options, not drawing operations). The catalogue of every component
+    is in [ui.md](ui.md#component-catalogue).
 
 **Phases**, in order; each needs the one before it unless it says
 otherwise. Durations are left out on purpose: agents do the work, so

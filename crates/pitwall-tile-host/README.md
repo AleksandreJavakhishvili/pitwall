@@ -141,7 +141,14 @@ answer to a question goes back as an event, `handle.send(ui::Event::AskAnswered(
 
 `frame::check`, `frame::diff` and `frame::frame_bytes` are public for the
 test harness; `components` has the components' checks and helpers
-(`rows_of`, `list_at`, `key_paths`, `asset_path`, `image_format`); `limits`
+(`rows_of`, `list_at`, `key_paths`, `asset_path`, `image_format`);
+`widgets` has batch 2's (form controls, feedback, layout, data display,
+charts; ui.md §3.10): their frame checks (`check`, `check_tree`), and
+the rules the app and the harness share so both behave the same:
+`on_click` and `on_key` (what a click or a key does to a component, as an
+`Outcome`), `focusable`, `snap`, `parse_number`, `step_number`,
+`split_share`, `relative_time` and `relative_time_next`, `initials`,
+`avatar_tokens`, `series_token`, `axis` and `chart_summary`; `limits`
 has every limit as a constant.
 
 `agent` (agent-tools.md §11.6–11.7): `ShowCalls` gives each agent's call an
