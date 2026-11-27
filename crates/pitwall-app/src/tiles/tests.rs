@@ -369,6 +369,74 @@ fn a_hidden_tile_is_suspended_then_let_go(cx: &mut TestAppContext) {
     assert!(log.iter().any(|l| l.from_host && l.message.contains("let go")) && log.iter().any(|l| l.from_host && l.message.contains("state it saved")), "{log:?}");
 }
 
+/// Tab and Shift-Tab in the hello tile: its button, its field, then its
+/// test row's buttons, in tree order, wrapping both ways.
+#[gpui::test]
+fn tab_moves_focus_in_tree_order(cx: &mut TestAppContext) {
+    let t = TempDir::new("tile-tab");
+    let root = t.path().join("data");
+    copy_fixture(&root.join("extensions/hello"));
+    init(&root, cx);
+    cx.update(|cx| crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("hello", true)));
+    let (tile, cx) = cx.add_window_view(|_, cx| TileView::new("hello", "main", cx));
+    cx.simulate_resize(gpui::size(gpui::px(600.), gpui::px(400.)));
+    until(cx, "first frame", |cx| has_text(&tile, "Clicked 0 times", cx));
+    let tab = |back: bool, cx: &mut VisualTestContext| {
+        let moved = tile.update_in(cx, |t, window, cx| t.move_focus(back, window, cx));
+        frame(cx);
+        let focused = tile.update_in(cx, |t, window, cx| t.focused(window, cx));
+        assert_eq!(moved, focused, "focus is where it moved");
+        focused.unwrap_or_default()
+    };
+    assert_eq!(tab(false, cx), "button", "the first stop");
+    assert_eq!(tab(false, cx), "field", "the field next");
+    assert_eq!(tab(false, cx), "test/spin", "then the test row");
+    assert_eq!(tab(true, cx), "field", "Shift-Tab goes back");
+    assert_eq!(tab(true, cx), "button");
+    let last = tab(true, cx);
+    assert!(last.starts_with("test/") && last != "test/spin", "Shift-Tab from the first wraps to the last: {last}");
+    assert_eq!(tab(false, cx), "button", "Tab from the last wraps to the first");
+    // `ui.scroll-to` reaches the view (the hello tile has no scroll: it
+    // is taken and let go).
+    let r = tiles(cx);
+    r.update(cx, |r, cx| {
+        let gen = r.generation("hello").unwrap();
+        r.apply("hello", gen, pitwall_tile_host::TileOutput::Ui(pitwall_tile_host::UiRequest::ScrollTo { view: "main".into(), key_path: "button".into() }), cx);
+    });
+    frame(cx);
+    assert_eq!(r.read_with(cx, |r, _| r.get("hello").and_then(|x| x.scroll_to.get("main").map(|(p, _)| p.clone()))).as_deref(), Some("button"));
+}
+
+/// Tab's order and `ui.scroll-to`'s steps, on a frame made here: a list
+/// in a scroll in a box, and a scroll in it.
+#[test]
+fn tree_order_and_scroll_steps() {
+    use pitwall_tile_host::ui::{Axis, Element, Node, Scroll};
+    let node = |parent: Option<u32>, key: &str, element: Element| Node { parent, key: key.into(), element, style: vec![], on: vec![], focusable: false, tooltip: None, label: None };
+    let scroll = || Element::Scroll(Scroll { axis: Axis::Vertical });
+    // 0 root ─ 1 list (scroll) ─ 2 a, 3 b ─ 5 inner (scroll) ─ 6 deep
+    //        └ 4 footer
+    let nodes = vec![
+        node(None, "", Element::Box),
+        node(Some(0), "list", scroll()),
+        node(Some(1), "a", Element::Text("a".into())),
+        node(Some(1), "b", Element::Box),
+        node(Some(0), "footer", Element::Box),
+        node(Some(3), "inner", scroll()),
+        node(Some(5), "deep", Element::Text("deep".into())),
+    ];
+    let kids = vec![vec![1, 4], vec![2, 3], vec![], vec![5], vec![], vec![6], vec![]];
+    assert_eq!(super::view::tree_order(&kids), [0, 1, 2, 3, 5, 6, 4]);
+    assert_eq!(super::view::scroll_steps(&nodes, &kids, 6), [(5, 0), (1, 1)], "innermost first, by child");
+    assert_eq!(super::view::scroll_steps(&nodes, &kids, 2), [(1, 0)]);
+    assert!(super::view::scroll_steps(&nodes, &kids, 4).is_empty(), "in no scroll");
+    assert_eq!(super::view::step(3, None, false), Some(0));
+    assert_eq!(super::view::step(3, None, true), Some(2));
+    assert_eq!(super::view::step(3, Some(2), false), Some(0));
+    assert_eq!(super::view::step(3, Some(0), true), Some(2));
+    assert_eq!(super::view::step(0, None, false), None);
+}
+
 /// A tile whose title is its extension's name is named once.
 #[test]
 fn a_title_equal_to_the_name_is_said_once() {
