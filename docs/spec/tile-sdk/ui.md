@@ -132,7 +132,8 @@ differs from the sketch above in these ways:
   Selection is by row key and kept by the tile (`selection` event with
   `activate` for a double click or Enter).
 - **Tabs** are drawn as `kit::seg`, the segmented control Pitwall uses
-  for its own view switches; there is no separate `segmented` element.
+  for its own view switches. Batch 2's `segmented` element is the same
+  control as a form value ([3.10](#310-components-batch-2-as-built)).
 - **Menus.** A `context-menu(list<menu-entry>)` node applies to its
   parent (it isn't drawn where it is) and uses its own `select`
   listener; a `menu-button` is a button with entries. Both are drawn
@@ -146,11 +147,10 @@ differs from the sketch above in these ways:
   to stay inside it, ≤ 16 MiB) or from bytes put with
   `ui.put-image(name, bytes)` (≤ 8 MiB, 64 MiB a tile), sniffed as PNG,
   JPEG, GIF, WebP or SVG. Never from the network.
-- Not in this cut: `checkbox`, `toggle`, `radio`, `chip`, `status`,
-  `spinner`, `divider`, `split`, `icon-button` as elements (the SDK
-  builds buttons; form controls and the rest come in their own phase 2
-  change). `code`, `canvas` and drag are the native blocks
-  ([native-blocks.md](native-blocks.md)).
+- Not in this cut: form controls, feedback, layout, data display and
+  charts came in batch 2 ([3.10](#310-components-batch-2-as-built));
+  `icon-button` is a button the SDK builds. `code`, `canvas` and drag
+  are the native blocks ([native-blocks.md](native-blocks.md)).
 - **Keyboard.** Lists, tables and trees take Up, Down, Home, End, Page
   Up, Page Down and Enter, and a tree ← and →; tabs, selects and menus
   are pointer-only for now (Esc closes a menu).
@@ -538,3 +538,155 @@ interface toolbar {
 built in phase 2. They are cheap, and useful for inbox-style
 extensions that show unread counts. The website's Tiles and UI components page
 documents them in the same phase ([9.6](authoring.md#96-website-docs)).
+
+
+### 3.10 Components, batch 2 (as built)
+
+**Kit parity** (decided by the owner, 2026-11-27: "we need to provide
+as rich an SDK as possible, proper components"). Anything Pitwall's own
+UI draws, a tile can draw, with the same look. Components are drawn
+from the app's kit (`crates/pitwall-app/src/kit/`: `checkbox_box`,
+`toggle`, `radio`, `seg`, `spinner`, `chip_tone`, `kbd`, `divider`,
+`tooltip`, `menu_panel`, the dialog look) with the same theme tokens;
+a control the kit lacks (slider, progress, skeleton, banner, avatar,
+charts) is added to the kit in its style, so Pitwall's own screens can
+use it too. Tiles never get a second look of their own.
+
+Batch 2 adds, to WIT 0.1 in place (cases at the end of `element`,
+`listen` and `event`; records at the end of `types`):
+
+- **Form controls**: `checkbox(check)`, `switch(check)`,
+  `radio-group(choice-group)`, `segmented(choice-group)`,
+  `slider(slider)`, `number-field(number-field)`,
+  `search-field(search-field)`, `form-row(form-row)`.
+- **Feedback**: `progress(progress)`, `spinner`, `skeleton(skeleton)`,
+  `empty-state(empty-state)`, `banner(banner)`, `badge(badge)`,
+  `chip(chip)`, `kbd(string)`. Tooltips were already on every node.
+- **Layout**: `split(split)`, `disclosure(disclosure)`, `card(card)`,
+  `divider(orientation)`, `breadcrumbs(list<crumb>)`, `toolbar`,
+  `popover(popover)`, `confirm-sheet(confirm-sheet)`.
+- **Data display**: `key-values(list<key-value>)`, `avatar(avatar)`,
+  `relative-time(relative-time)`, `copyable(copyable)`, `link(link)`.
+- **Charts**: `sparkline(sparkline)`, `bar-chart(bar-chart)`,
+  `line-chart(line-chart)`, `status-timeline(status-timeline)`.
+- **Listeners and events**: `listen.value` with
+  `event.value-changed(value-change { handler, value: control-value })`,
+  where `control-value` is `on(bool)`, `number(f64)`, `choice(string)`
+  or `empty`; `listen.dismiss` with `event.dismissed(handler)`.
+
+How it works:
+
+- **Controlled.** A control shows the value in the frame; the user's
+  change arrives as `value-changed` and the next frame shows it. A
+  search field is a text field (host-owned text with a revision, as
+  `input`). A slider is drawn live by the host while dragged and sends
+  at most one value every 50 ms, and the last on release; a number
+  field sends on Enter or blur, clamped and rounded, or nothing when
+  the text isn't a number.
+- **One set of rules.** What a click or a key does to a component
+  (`on_click`, `on_key`, `focusable`, `snap`, `parse_number`,
+  `split_share`, `relative_time`, `initials`, `avatar_tokens`, `axis`,
+  `chart_summary`) lives in `pitwall_tile_host::widgets`; the app and
+  the harness both call it, so tests see what users get.
+- **Keyboard.** Every enabled control is a Tab stop with the focus
+  ring; disabled ones are not. Space toggles a checkbox or switch;
+  arrows, Home and End move a radio group's or segmented control's
+  choice (skipping disabled options, wrapping) and a slider (Page Up
+  and Page Down by a tenth); Up and Down step a number field; Enter or
+  Space opens a disclosure and clicks a card, link, copyable or chip;
+  Backspace or Delete removes a chip; Enter confirms a confirm sheet;
+  Esc cancels it and closes a popover.
+- **Split.** Exactly two children. The user's share is kept per view
+  by key path, across restarts, and `value-changed` (`number`) goes
+  to the tile once a drag ends.
+- **Popover** is open while it is in the frame, anchored to its parent
+  node, drawn by the host inside the tile; Esc or a click outside sends
+  `dismissed`. One a frame; never the root.
+- **Confirm sheet** replaces the OS dialogs tiles can't open: a sheet
+  over the tile, the rest dimmed and inert. `click` confirms,
+  `dismissed` cancels (Cancel, Esc, a click outside). One a frame.
+- **Relative time** is updated by the host (`relative_time_next` says
+  when its words change), so a tile needs no timer.
+- **Copyable** writes the clipboard in the host, only on the user's
+  click; a tile has no clipboard API.
+- **Link** opens through the existing open-web path (as `show_web`)
+  only with the `show` grant and a valid `http(s)` address; otherwise
+  the click is sent to the tile.
+- **Avatar** colours come from the token set, chosen by a stable hash
+  of the name; no pictures.
+- **Charts** are data-only: labels, up to 8 series and options (unit,
+  stacked, min, max, colours as tokens), never drawing operations. The
+  host draws axes, legends and tooltips in theme colours, and names a
+  chart by its `label` and a summary of its data.
+- **Limits** (checked with the frame): 64 choices, 32 crumbs, 500
+  key-value lines, 8 series, 200 bar labels, 1 000 line points and
+  sparkline values, 500 timeline segments, a badge's text 32 bytes, a
+  copyable's 64 KiB, a link's address 2 048 bytes, a skeleton 20 lines;
+  a slider's range and a number field's bounds and step finite and in
+  order.
+- **Gallery.** The hello fixture's `gallery` tile shows every component
+  of both batches on its pages (tabs at the top); a view opened with
+  `{"component": "<name>"}` shows one alone. The website's component
+  pages include its `docs:start gallery-<name>` regions, and their
+  screenshots are that tile drawn headless, dark and light.
+
+#### Component catalogue
+
+Every component a tile can use, its WIT shape (element case and
+record) and its status. Batch 1 is #126; batch 2 is PR #TBD.
+
+| Component | WIT | SDK | Status |
+|---|---|---|---|
+| Box | `box` | `div`, `h_flex`, `v_flex` | Phase 1 |
+| Text | `text(string)` | `text` | Phase 1 |
+| Button | `button(button)` | `button`, `icon_button` | Phase 1 |
+| Icon | `icon(icon)` | `icon` | Phase 1 |
+| Scroll | `scroll(scroll)` | `.overflow_y_scroll()` | Phase 1 |
+| Text field | `input(input)` | `input` | Phase 1 |
+| Tooltip | `node.tooltip` | `.tooltip` | Phase 1 |
+| Canvas | `canvas(canvas)` | `canvas` | Phase 2, native blocks |
+| Drag and drop | `style.drag`, `style.drop-target` | `.draggable`, `.on_drop` | Phase 2, native blocks |
+| Code view | `code-view(code-view)` | `code_view` | Phase 2, native blocks |
+| Diff view | `diff-view(diff-view)` | `diff_view` | Phase 2, native blocks |
+| Virtual list | `virtual-list(virtual-list)` | `virtual_list` | Phase 2, batch 1 |
+| Table | `table(table)` | `table`, `column` | Phase 2, batch 1 |
+| Tree | `tree(tree)` | `tree`, `tree_row` | Phase 2, batch 1 |
+| Tabs | `tabs(tabs)` | `tabs`, `tab` | Phase 2, batch 1 |
+| Select | `select(select)` | `select`, `choice` | Phase 2, batch 1 |
+| Menu button | `menu-button(menu-button)` | `menu_button`, `menu_item` | Phase 2, batch 1 |
+| Context menu | `context-menu(list<menu-entry>)` | `.context_menu` | Phase 2, batch 1 |
+| Markdown | `markdown(markdown)` | `markdown` | Phase 2, batch 1 |
+| Image | `image(image)` | `image_asset`, `image_data` | Phase 2, batch 1 |
+| Checkbox | `checkbox(check)` | `checkbox` | Phase 2, batch 2 |
+| Switch | `switch(check)` | `switch` | Phase 2, batch 2 |
+| Radio group | `radio-group(choice-group)` | `radio_group` | Phase 2, batch 2 |
+| Segmented control | `segmented(choice-group)` | `segmented` | Phase 2, batch 2 |
+| Slider | `slider(slider)` | `slider` | Phase 2, batch 2 |
+| Number field | `number-field(number-field)` | `number_field` | Phase 2, batch 2 |
+| Search field | `search-field(search-field)` | `search_field` | Phase 2, batch 2 |
+| Form row | `form-row(form-row)` | `form_row` | Phase 2, batch 2 |
+| Progress bar | `progress(progress)` | `progress` | Phase 2, batch 2 |
+| Spinner | `spinner` | `spinner` | Phase 2, batch 2 |
+| Skeleton | `skeleton(skeleton)` | `skeleton` | Phase 2, batch 2 |
+| Empty state | `empty-state(empty-state)` | `empty_state` | Phase 2, batch 2 |
+| Banner | `banner(banner)` | `banner` | Phase 2, batch 2 |
+| Badge | `badge(badge)` | `badge` | Phase 2, batch 2 |
+| Chip | `chip(chip)` | `chip` | Phase 2, batch 2 |
+| Key hint | `kbd(string)` | `kbd` | Phase 2, batch 2 |
+| Split pane | `split(split)` | `h_split`, `v_split` | Phase 2, batch 2 |
+| Disclosure | `disclosure(disclosure)` | `disclosure` | Phase 2, batch 2 |
+| Card | `card(card)` | `card` | Phase 2, batch 2 |
+| Divider | `divider(orientation)` | `divider`, `vertical_divider` | Phase 2, batch 2 |
+| Breadcrumbs | `breadcrumbs(list<crumb>)` | `breadcrumbs` | Phase 2, batch 2 |
+| Toolbar row | `toolbar` | `toolbar` | Phase 2, batch 2 |
+| Popover | `popover(popover)` | `popover` | Phase 2, batch 2 |
+| Confirm sheet | `confirm-sheet(confirm-sheet)` | `confirm_sheet` | Phase 2, batch 2 |
+| Key-value list | `key-values(list<key-value>)` | `key_values` | Phase 2, batch 2 |
+| Avatar | `avatar(avatar)` | `avatar` | Phase 2, batch 2 |
+| Relative time | `relative-time(relative-time)` | `relative_time`, `relative_time_ms` | Phase 2, batch 2 |
+| Copyable text | `copyable(copyable)` | `copyable` | Phase 2, batch 2 |
+| Link | `link(link)` | `link` | Phase 2, batch 2 |
+| Sparkline | `sparkline(sparkline)` | `sparkline` | Phase 2, batch 2 |
+| Bar chart | `bar-chart(bar-chart)` | `bar_chart` | Phase 2, batch 2 |
+| Line chart | `line-chart(line-chart)` | `line_chart` | Phase 2, batch 2 |
+| Status timeline | `status-timeline(status-timeline)` | `status_timeline` | Phase 2, batch 2 |

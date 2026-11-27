@@ -47,6 +47,7 @@ The other kinds of tools (reading back what a tile shows, acting outside it) com
 
 - [Quick start](quick-start.md): from `pitwall extension new` to a tile running in Pitwall, and sharing it.
 - [Tiles and UI components](ui.md): the elements a tile is built from, styles, events and keys.
+- Pitwall's components for tiles, by group: [Form controls](components-forms.md), [Feedback](components-feedback.md), [Layout](components-layout.md), [Data display](components-data.md) and [Charts](components-charts.md).
 - [Canvas and drag](canvas.md): drawing diagrams with zoom, pan and clickable regions; drag and drop inside a tile.
 - [Native building blocks](blocks.md): Pitwall's code view and diff view in a tile.
 - [Agent tools](agent-tools.md): tools a tile gives your agents: opening it with content and show tools (phase 3: reading and acting).
