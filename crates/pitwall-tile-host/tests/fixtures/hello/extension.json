@@ -15,9 +15,26 @@
   },
   "contributes": {
     "tiles": [
-      { "id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json" },
-      { "id": "second", "title": "Hello again", "wasm": "tile.wasm" },
-      { "id": "gallery", "title": "Gallery", "icon": "list", "wasm": "tile.wasm" }
+      {
+        "id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json",
+        "tools": [
+          {
+            "name": "show_message",
+            "kind": "present",
+            "description": "Show a short message in the Hello tile, under the agent's item id (the same item again replaces it).",
+            "input": {
+              "type": "object",
+              "required": ["message"],
+              "properties": {
+                "item": { "type": "string", "description": "Your id for the message" },
+                "message": { "type": "string", "maxLength": 200, "description": "The message" }
+              }
+            }
+          }
+        ]
+      },
+      { "id": "second", "title": "Hello again", "wasm": "tile.wasm", "agents": false },
+      { "id": "gallery", "title": "Gallery", "icon": "list", "wasm": "tile.wasm", "agents": false }
     ]
   }
 }
