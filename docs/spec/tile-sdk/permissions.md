@@ -116,9 +116,19 @@ the tile).
   shown; the user can't turn it back on without removing and
   reinstalling a non-blocked version. Fetch failures change nothing.
 - **Grants:** each permission on the card with Granted/Refused, date
-  and a switch [today]; a revoke reaches the tile as
-  `grants-changed` and its next call is denied; `files.*` and
-  `net.ask` grants list each project or host with Remove.
+  and a switch [today]; a revoke reaches the running tile at once
+  as `grants-changed` (no restart) and its next call is denied;
+  `files.*` and `net.ask` grants list each project or host with
+  Remove. As built: every change to what a tile is granted (a switch
+  on the card, a permission an update added allowed there, a setting
+  that moves a `{setting:KEY}` host or its server's address) is sent
+  to the running component, which checks each call against the grants
+  of that moment. What it started under a grant that is gone ends: a
+  `net` request on its way when the reach shrank arrives `denied` and
+  its answer is dropped; project watches end without `files.read`;
+  badges on rows it may no longer see go. `memory` and `sql`'s size
+  are set at start (no switch; a new size after an update applies when
+  it starts again).
 - **Activity:** every call that acted, every denial, every stop with
   its reason, kept 30 days [today].
 
@@ -146,6 +156,7 @@ left, and how a test shows it. The outline:
 | Programs | Run something the user didn't mean to allow: a broad pattern, an argument that changes meaning (`--config=evil`), a program found earlier on PATH, a setting changed to alter a command, a downloaded binary swapped | Declared patterns, refused without asking when they don't match ([13.2](services.md#132-a-programs-the-component-starts)); each exact line, with the program's resolved path, confirmed once and asked again when it changes; shells and interpreters with `**` refused by `check`; no `sh -c`; downloads only from declared URL patterns and checked against the SHA-256 the component pins; settings used in a pattern changed only through a host-drawn setting field; `programs` off until Allow; Verified covers the patterns | Everything a confirmed program does after it starts (it isn't sandboxed); users allowing "Always" without reading; PATH changes after a line was allowed (the resolved path is part of the line, so a different path asks again) |
 | Agent environment | Put a variable on agents that changes how they behave (`NODE_OPTIONS`, `LD_PRELOAD`, a proxy, a different API base) | `agents.env` names the variables in the manifest; names Pitwall or the agent uses for its own setup and loader/runtime variables (`PATH`, `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `*_PROXY`, `PITWALL_*`, an agent kind's own API keys and base URLs) are refused by `check` and the host; values only literals, non-secret settings or the agent's identity, never secrets; only agents Pitwall starts in the extension's projects; values shown on the page; off until Allow | A variable its agent's plugin trusts (by design: that is why it exists) |
 | Prompt injection through agent tools | Misleading `read` or `present` results, queued text to agents, an agent skill in the package that tells agents to do harm | Tools labelled with the tile's name, `act` approved each time ([11.5](agent-tools.md#115-permissions)); queued text marked and waiting for Send ([5.3](#53-what-a-hostile-tile-can-still-do)); skills through the rules path, per project ([11.11](agent-tools.md#1111-a-skill-for-agents)) | What reaches the agent unmarked; the skill review in Verified |
+| Grants kept after a revoke | Keep using a permission the user took back while it runs: start a request or a watch just before, or rely on the grants it started with | The app sends each change to the running component (`Tiles::sync_grants` on every `ui.json` change); every host call checks the grants of that moment; requests on their way when the reach shrank are refused and their answers dropped; project watches end with `files.read`; badges needing a grant go ([5.4](#54-kill-switches-and-revocation)) | A request already sent still reaches the server (only its answer is dropped); `memory` and `sql` size apply after a restart. Tests: `refusing_net_on_the_card_refuses_the_next_fetch_without_a_restart`, `refusing_files_read_on_the_card_refuses_the_next_read_without_a_restart` (app), `a_revoke_drops_the_fetch_on_its_way`, `a_revoke_ends_the_project_watches`, `a_revoke_takes_its_badges_on_agents_away` (harness), `a_revoke_applies_to_the_next_call`, `a_revoke_ends_the_project_watches`, `a_smaller_reach_narrows` (host) |
 | Malicious updates | A stolen author key, a compromised release or a takeover that ships harmful code with the same permissions | Signature and hash checks, key changes shown, new permissions off until Allow, auto-install only when nothing in the permission list changes ([6.4](packaging.md#64-updates-and-go-back)); the signed block list ([7.6](marketplace.md#76-takedown-and-yanking)); two index keys ([6.2](packaging.md#62-signing)) | Same-permission updates installed automatically; how fast a block reaches users |
 
 **The outside review** covers `pitwall-tile-host` (linker, limits,

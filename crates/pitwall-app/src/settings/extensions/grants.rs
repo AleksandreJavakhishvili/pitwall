@@ -212,7 +212,7 @@ impl SettingsView {
             .flex_none()
             .mt(px(1.))
             .debug_selector(move || sel)
-            .child(div().id(SharedString::from(format!("extension-permission-amount-{}-{name}", m.id))).tooltip(crate::kit::tooltip("Granted with the extension: not a switch")).child(crate::kit::mono_text(amount, &ui.t).text_color(ui.t.text_2)))
+            .child(div().id(SharedString::from(format!("extension-permission-amount-{}-{name}", m.id))).tooltip(crate::kit::tooltip("Granted with the extension, not a switch. Set when its tiles start: a new size applies when they start again")).child(crate::kit::mono_text(amount, &ui.t).text_color(ui.t.text_2)))
     }
 
     /// Whether installed extension `id` came from a preview folder
