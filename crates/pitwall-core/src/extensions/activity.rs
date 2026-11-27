@@ -32,6 +32,9 @@ pub enum Via {
     /// A button of its view the user pressed that Pitwall ran itself
     /// (open a file or a page, focus an agent), checked as its own call.
     View,
+    /// Its tiles' component (docs/spec/tile-sdk/, the `agents`
+    /// interface).
+    Tile,
 }
 
 /// How a call went.

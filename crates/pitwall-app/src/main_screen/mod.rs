@@ -519,6 +519,7 @@ impl MainScreen {
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let accounts = crate::accounts::model(cx);
         let ext_hub = crate::extensions::hub::hub(cx);
+        let tiles = crate::tiles::tiles(cx);
         let subs = vec![
             // Any change of the screen: the sidebar's rows are made again
             // (a scroll step of its list alone keeps them).
@@ -555,6 +556,8 @@ impl MainScreen {
             cx.subscribe_in(&accounts, window, |this, _, e: &crate::accounts::PicksChanged, window, cx| this.picks_changed(e, window, cx)),
             // Extensions' threads: the ask badges on agents' rows.
             cx.observe(&ext_hub, |_, _, cx| cx.notify()),
+            // Tiles' badges on agents' and projects' rows.
+            cx.subscribe(&tiles, |_, _, _: &crate::tiles::group::MarksChanged, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 // Leaving the window cancels a drag and closes a popup menu
                 // (`dnd.ts` and `Menu.tsx` listen for `blur`). Not when the

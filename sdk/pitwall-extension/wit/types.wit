@@ -861,6 +861,13 @@ interface types {
     /// The selection in a code or diff view with a `select` listener
     /// changed (coalesced: the newest, at most one every 100 ms).
     code-selected(code-selection),
+    /// Pitwall's agents changed (one came or went; a name, a state or a
+    /// Next up changed): read them again with `agents.list`. Only with
+    /// `agents.read`; changes close together arrive as one.
+    agents-changed,
+    /// The user answered one of the tile's questions (`asks.set`), in the
+    /// floating control. Reply with `asks.reply`.
+    ask-answered(ask-answer),
   }
 
   /// What the tile gets when it starts.
@@ -1226,5 +1233,17 @@ interface types {
     end: text-pos,
     /// The selected text, cut at 64 KiB.
     text: string,
+  }
+
+  /// An answer to one of the tile's questions (`asks.set`).
+  record ask-answer {
+    /// The question's id.
+    id: string,
+    /// The suggestions picked, by their place in its list (from 0).
+    picks: list<u32>,
+    /// What the user typed, when anything.
+    text: option<string>,
+    /// The user declined to answer.
+    declined: bool,
   }
 }

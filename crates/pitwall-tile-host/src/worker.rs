@@ -252,6 +252,7 @@ impl<'a> Worker<'a> {
             stdout,
             stderr,
             clock: options.clock.clone(),
+            group: crate::group::Group::new(manifest.contributes.badges, manifest.contributes.asks, inner.config.methods.clone()),
         });
         let mut store = Store::new(&inner.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -346,6 +347,8 @@ impl<'a> Worker<'a> {
 
     fn apply(&mut self, msg: Msg) -> Result<(), StopReason> {
         match msg {
+            // Only a tile that may read the agents hears they changed.
+            Msg::Event(Event::AgentsChanged) if !self.store.data().grants.has(pitwall_core::extensions::permissions::AGENTS_READ) => Ok(()),
             Msg::Event(e) => self.handle(e),
             Msg::OpenView(v) => self.open_view(v),
             Msg::SetContent(view, content) => self.set_content(view, content),
@@ -557,6 +560,7 @@ fn coalesce(batch: &mut Vec<Msg>) {
                 Event::Hover(h) => Some((4, h.handler.to_string())),
                 Event::Resize(r) => Some((5, r.view.clone())),
                 Event::Pointer(p) if matches!(p.kind, PointerKind::Move) => Some((6, p.handler.to_string())),
+                Event::AgentsChanged => Some((8, String::new())),
                 _ => None,
             },
             Msg::Theme(_) => Some((7, String::new())),

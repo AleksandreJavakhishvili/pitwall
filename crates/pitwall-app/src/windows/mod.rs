@@ -597,6 +597,29 @@ pub fn focus_in_front(agent: &str, cx: &mut App) -> pitwall_proto::AgentFocused 
     pitwall_proto::AgentFocused { agent_id: agent.to_string(), focused: true, note: None }
 }
 
+/// Bring Pitwall forward on extension `ext`'s tile `view` (the floating
+/// control's "Open <tile>" on a tile's question): focused where it is,
+/// else placed as "Open <tile>" places it.
+pub fn show_extension_view(ext: &str, view: &str, cx: &mut App) {
+    let (ext, view) = (ext.to_string(), view.to_string());
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(MAIN, cx) else { return };
+        // (A bench instance never comes forward.)
+        if !crate::bench::enabled() {
+            cx.activate(true);
+        }
+        let _ = handle.update(cx, |main, window, cx| {
+            if !crate::bench::enabled() {
+                crate::platform::unhide(window);
+                window.activate_window();
+            }
+            if let Some(screen) = main.screen.clone() {
+                screen.update(cx, |s, cx| s.open_view(&ext, &view, None, window, cx));
+            }
+        });
+    });
+}
+
 /// Bring Pitwall forward on extension `ext`'s inbox at `thread` (the
 /// floating control's "Open in inbox"): where the inbox is, else placed in
 /// the main window as ⌘I places it.

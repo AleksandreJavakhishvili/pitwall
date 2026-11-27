@@ -1,0 +1,29 @@
+# The questions tile, a test fixture of the agents' questions group
+# (docs/spec/tile-sdk/platform-services.md §14.2): it reads the agents,
+# puts a badge on the one it asks about, asks a question in the floating
+# control and queues a prompt in an agent's Next up. Written with the guest
+# SDK (sdk/pitwall-extension) and built for wasm32-wasip2; its own
+# workspace (the empty [workspace] below). The built component is
+# committed as ../questions/tile.wasm; rebuild it with
+# ../build-questions-tile.sh.
+[package]
+name = "questions-tile"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pitwall-extension = { path = "../../../../../sdk/pitwall-extension" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]

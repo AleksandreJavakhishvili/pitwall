@@ -1,0 +1,20 @@
+{
+  "v": 2,
+  "id": "questions",
+  "name": "Release desk",
+  "version": "0.1.0",
+  "icon": "inbox",
+  "description": "A test fixture of the agents' questions group: agents, badges, questions and Next up",
+  "license": "Apache-2.0",
+  "permissions": {
+    "agents.read": "To list your agents and show which one it asks about",
+    "agents.queue": "To put a prompt in an agent's Next up, waiting for your Send"
+  },
+  "contributes": {
+    "tiles": [
+      { "id": "main", "title": "Release desk", "icon": "inbox", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0" }
+    ],
+    "badges": true,
+    "asks": true
+  }
+}

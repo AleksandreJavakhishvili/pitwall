@@ -6,7 +6,9 @@
 //! what the user did. This crate is the tile's side of the
 //! `pitwall:tile@0.1.0` world: elements that read like GPUI's, a [`Tile`]
 //! trait, typed events, and Pitwall's services ([`log`], [`storage`],
-//! [`settings`], [`ui`] and timers on [`Cx`]).
+//! [`settings`], [`ui`] and timers on [`Cx`]; Pitwall's agents and their
+//! Next up in [`agents`], sidebar [`badges`] and questions in the floating
+//! control, [`asks`]).
 //!
 //! ```ignore
 //! use pitwall_extension::prelude::*;
@@ -63,6 +65,7 @@ pub mod blocks;
 pub mod canvas;
 pub mod element;
 pub mod events;
+mod group;
 mod host;
 pub mod style;
 mod tile;
@@ -71,6 +74,7 @@ pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, A
 pub use blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView};
 pub use canvas::{canvas, Canvas, Viewport};
 pub use events::{Blur, Event, Focused};
+pub use group::{agents, asks, badges};
 pub use host::{log, settings, storage, ui, HostError, Tone};
 pub use style::{px, relative, rems, Align, Length, Styled, Token};
 pub use tile::{Content, ContentError, Cx, SavedState, Tile, Timer, ViewInfo};
@@ -85,6 +89,9 @@ pub mod prelude {
     pub use crate::blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView, Mark};
     pub use crate::canvas::{canvas, Canvas, Label, Paint, Region, Shape, Viewport};
     pub use crate::events::{Blur, Click, CodeSelection, Dropped, Event, Focused, Hover, InputChange, KeyPress, LineClick, Pointer, PointerKind, Side, Submit, Theme, ThemeMode};
+    pub use crate::group::agents::{self, Agent};
+    pub use crate::group::asks::{self, Answer, Ask};
+    pub use crate::group::badges::{self, Badge, Row};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};

@@ -44,6 +44,10 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod agents;
+
+pub use agents::{agent, waiting_agent, Queued};
+
 use pitwall_tile_host::ui::{self, Event, Modifiers, MouseButton, Point};
 use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, UiRequest, ViewSpec};
 
@@ -53,6 +57,9 @@ pub use pitwall_tile_host::ui::{Density, Element, Frame, Input, Listen, Node, Th
 /// A canvas's, a code view's and a diff view's types, as the tile sent
 /// them ([`Session::canvas`], [`Session::code_view`]).
 pub use pitwall_tile_host::ui::{Canvas, CodeView, DiffSide as Side, DiffView, DrawOp, HitRegion, Paint, PointerKind, Token};
+/// The agents' questions group's types: an agent of `agents::list`, a
+/// badge and its row, a question and its suggestions.
+pub use pitwall_tile_host::ui::{Agent, AgentState, Ask, Badge, Row, Suggestion};
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 
 /// The Rust target tiles are built for.
@@ -138,13 +145,14 @@ pub struct Harness {
     visible: bool,
     wall: bool,
     stored: BTreeMap<String, Vec<u8>>,
+    methods: Arc<agents::FakeMethods>,
 }
 
 impl Harness {
     /// The extension in `dir`, already built (its component where its
     /// manifest names it).
     pub fn load(dir: impl AsRef<Path>) -> Harness {
-        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new() }
+        Harness { dir: dir.as_ref().to_path_buf(), settings: Vec::new(), secrets: HashMap::new(), grants: Vec::new(), state: None, visible: true, wall: false, stored: BTreeMap::new(), methods: agents::methods() }
     }
 
     /// The extension in `dir`, built first with [`build`]. Panics with the
@@ -225,7 +233,7 @@ impl Harness {
     fn start(self, view: ViewSpec) -> Session {
         let data = tempfile::tempdir().expect("a temporary data folder");
         let ext = Extension::load(&self.dir).unwrap_or_else(|e| panic!("{} can't be loaded: {e}", self.dir.display()));
-        let host = TileHost::new(HostConfig { data_dir: data.path().to_path_buf(), secrets: Arc::new(FakeSecrets(self.secrets.clone())) }).expect("the tile runtime starts");
+        let host = TileHost::new(HostConfig { data_dir: data.path().to_path_buf(), secrets: Arc::new(FakeSecrets(self.secrets.clone())), methods: self.methods.clone() }).expect("the tile runtime starts");
         let store = host.extension_data(ext.id());
         for (key, value) in &self.settings {
             check_setting(&ext, key);
@@ -262,6 +270,7 @@ impl Harness {
             asked: HashMap::new(),
             sent: false,
             unknown_icons: Vec::new(),
+            methods: self.methods,
         };
         s.settle();
         s
@@ -404,6 +413,8 @@ pub struct Session {
     /// An event was sent while taking outputs: settle once more.
     sent: bool,
     unknown_icons: Vec<String>,
+    /// The fake method table: the agents and what the tile queued.
+    methods: Arc<agents::FakeMethods>,
 }
 
 impl Session {
