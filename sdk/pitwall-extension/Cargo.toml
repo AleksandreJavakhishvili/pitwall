@@ -16,6 +16,8 @@ categories = ["wasm", "gui"]
 include = ["src/**", "wit/**", "skills/**", "README.md", "Cargo.toml"]
 
 [dependencies]
+# `#[tools]` (agent tools), re-exported as `pitwall_extension::tools`.
+pitwall-extension-macros = { version = "0.1.0", path = "../pitwall-extension-macros" }
 # The WIT glue (an internal detail: authors never see its types). Only the
 # bindings macro and the allocator hook: no async runtime.
 wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc", "std"] }

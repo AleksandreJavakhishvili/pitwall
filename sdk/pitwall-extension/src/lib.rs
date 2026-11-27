@@ -55,6 +55,11 @@
 //! schema (`"input"`); the user or an agent then opens a view of the tile
 //! with content matching it. The tile hears [`Tile::on_content`] and reads
 //! the payload with [`Content::parse`] into its own `serde` type.
+//!
+//! **Agents.** Pitwall registers every tile's tools with every agent it
+//! starts, through its MCP server: `<extension-id>__open` (the tile's
+//! `"input"` as content, no code needed) and the show tools a tile
+//! declares with [`tools`] (`#[pitwall_extension::tools]`).
 
 // So the WIT glue's paths resolve inside this crate as they do in a tile's.
 extern crate self as pitwall_extension;
@@ -71,6 +76,14 @@ mod host;
 mod services;
 pub mod style;
 mod tile;
+pub mod tools;
+
+/// Write a tile's declared agent tools from an impl block: each method
+/// marked `#[tool(kind = "show")]` or `#[tool(kind = "present")]`, taking
+/// `(&mut self, call: Call<Input>, cx: &mut Cx<Self>)` and returning
+/// `Result<Reply, ToolError>`, becomes the tool of that name (see
+/// [`tools`]). `export!` finds it.
+pub use pitwall_extension_macros::tools;
 
 pub use element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
 pub use blocks::{code_view, diff_view, diff_view_unified, CodeView, DiffView};
@@ -117,7 +130,10 @@ macro_rules! export {
 
         impl $crate::__private::Guest for __PitwallTile {
             fn init(cx: $crate::__private::InitContext) -> ::core::result::Result<(), ::std::string::String> {
-                $crate::__private::init::<$tile>(cx)
+                #[allow(unused_imports)]
+                use $crate::tools::{__HasTools as _, __NoTools as _};
+                let tools = (&$crate::tools::__Probe::<$tile>(::core::marker::PhantomData)).__dispatch();
+                $crate::__private::init_with::<$tile>(cx, tools)
             }
             fn render(view: ::std::string::String) -> $crate::__private::Frame {
                 $crate::__private::render::<$tile>(view)
@@ -144,7 +160,7 @@ pub mod __private {
     pub use crate::bindings::exports::pitwall::tile::guest::Guest;
     pub use crate::bindings::pitwall::tile::types::{Event as WitEvent, Frame, InitContext};
     pub use crate::bindings::pitwall::tile::types::Row;
-    pub use crate::tile::{handle, init, render, save_state};
+    pub use crate::tile::{handle, init, init_with, render, save_state};
     pub use crate::tile::rows;
     pub use wit_bindgen;
 }
