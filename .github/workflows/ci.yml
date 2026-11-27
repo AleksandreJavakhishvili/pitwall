@@ -290,8 +290,12 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
-      - name: Website build (with the live demo)
+      # The build also renders the Extensions docs (includes, WIT reference,
+      # /sdk/llms.txt) and checks every internal link and anchor in dist/
+      # (website/README.md, "Docs pipeline"); external links are not requested.
+      - name: Website build (with the live demo) and link check
         working-directory: website
         run: |
           pnpm install --frozen-lockfile --ignore-workspace
+          pnpm test
           pnpm build --base /${{ github.event.repository.name }}/
