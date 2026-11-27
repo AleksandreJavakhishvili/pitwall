@@ -25,11 +25,27 @@ pub struct TileTool {
     /// What the extension is, in one line (its manifest's description).
     #[serde(default)]
     pub summary: String,
+    /// Its skill for agents' description (`agents/SKILL.md`): when to use
+    /// its tools, added to the server's instructions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
     /// The declared tool's name; `None`: the open every tile has.
     #[serde(default)]
     pub tool: Option<String>,
-    /// `show` or `present`.
+    /// `show`, `present`, `read` or `act`.
     pub kind: String,
+    /// An `act` tool's `destructive` and `idempotent` (MCP's hints).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotent: Option<bool>,
+    /// Where it is offered: `agents`, `cli`, `palette` (agent-tools.md
+    /// §11.12). Empty: agents and the CLI.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expose: Vec<String>,
+    /// Its palette title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// A declared tool's description (the open's is Pitwall's).
     #[serde(default)]
     pub description: String,
@@ -74,6 +90,20 @@ impl TileTool {
         self.kind == "present"
     }
 
+    /// `show` or `present`: changes only what the tile shows, gives the
+    /// agent nothing of it back, needs no approval.
+    pub fn show_only(&self) -> bool {
+        self.kind == "show" || self.kind == "present"
+    }
+
+    /// Whether it is offered at `place` (`agents`, `cli`, `palette`).
+    pub fn exposed(&self, place: &str) -> bool {
+        if self.expose.is_empty() {
+            return place == "agents" || place == "cli";
+        }
+        self.expose.iter().any(|e| e == place)
+    }
+
     /// The schema its content is checked against for tile `tile`.
     pub fn content_schema(&self, tile: &str) -> Option<&Value> {
         match &self.tool {
@@ -87,10 +117,15 @@ const WHERE: &str = "Where the user sees the tile: right, left, above or below (
 const OF: &str = "Whose terminal `where` is next to: another agent in the same Pitwall space, by name. Default: yours.";
 const ITEM: &str = "Your id for what you show (\"auth-flow\"): a later call with the same item updates it in place, a new item adds one. Items are yours: other agents' items with the same id are theirs. When the user has changed an item you showed, a call with its id is refused: show it under a new id.";
 
+const MODE: &str = "replace (the default): what you give replaces the item. append: it adds to the item with the same `item` id (stream a long result in parts; the user sees it drawn a few times a second).";
+const FROM_FILE: &str = "Instead of putting a large text inline, the path of a file in your project (relative to it, at most 16 MiB) whose text is the content; the other properties still go inline.";
+
 /// The open's or tool's description, as agents read it.
 pub fn description(t: &TileTool) -> String {
     let name = &t.extension_name;
     match &t.tool {
+        Some(_) if t.kind == "read" => format!("{name} (a Pitwall tile): {} It returns what the tile has now, with the user's edits. The user allows this in Pitwall: a call may wait for them, and is refused if they say no.", t.description.trim()),
+        Some(_) if t.kind == "act" => format!("{name} (a Pitwall tile): {} Each call waits for the user to approve it in Pitwall (up to 2 minutes), unless they allowed you always; a denial changes nothing.", t.description.trim()),
         Some(_) => format!("{name} (a Pitwall tile): {}", t.description.trim()),
         None => {
             let what = if t.tiles.len() == 1 { format!("the {name} tile") } else { format!("a {name} tile (`tile` says which)") };
@@ -117,6 +152,15 @@ fn is_object_schema(schema: &Value) -> bool {
 /// The MCP input schema: the content's own properties (a multi-tile
 /// open: `tile` and `content`), then `item`, `where` and `of`.
 pub fn input_schema(t: &TileTool) -> Value {
+    // read and act take only their declared input: they never open the
+    // tile.
+    if !t.show_only() {
+        let mut s = t.input.clone().unwrap_or_else(|| json!({ "type": "object", "properties": {} }));
+        if s.get("properties").is_none() {
+            s["properties"] = json!({});
+        }
+        return s;
+    }
     let mut props = Map::new();
     let mut required: Vec<Value> = Vec::new();
     let mut takes_content = true;
@@ -154,6 +198,10 @@ pub fn input_schema(t: &TileTool) -> Value {
     if takes_content && !props.contains_key("item") {
         props.insert("item".into(), json!({ "type": "string", "maxLength": 200, "description": ITEM }));
     }
+    if t.presents() {
+        props.insert("mode".into(), json!({ "type": "string", "enum": ["replace", "append"], "description": MODE }));
+        props.insert("from_file".into(), json!({ "type": "string", "description": FROM_FILE }));
+    }
     props.insert("where".into(), json!({ "type": "string", "enum": ViewerPlace::WORDS, "description": WHERE }));
     props.insert("of".into(), json!({ "type": "string", "description": OF }));
     let mut s = json!({ "type": "object", "properties": props });
@@ -163,19 +211,28 @@ pub fn input_schema(t: &TileTool) -> Value {
     s
 }
 
-/// The tool as MCP's `tools/list` gives it: read-only (it changes nothing
-/// outside the tile, so agents that ask per tool don't).
+/// The tool as MCP's `tools/list` gives it. Show-only and `read` tools
+/// are read-only (nothing outside the tile changes, so agents that ask
+/// per tool don't); an `act` tool isn't, with `destructiveHint` and
+/// `idempotentHint` as its manifest says (MCP's defaults, destructive and
+/// not idempotent, when it doesn't).
 pub fn mcp_tool(t: &TileTool) -> Value {
-    let title = match &t.tool {
-        Some(name) => format!("{}: {name}", t.extension_name),
-        None => format!("Open {} in Pitwall", t.extension_name),
+    let title = match (&t.tool, &t.title) {
+        (Some(_), Some(title)) => format!("{}: {title}", t.extension_name),
+        (Some(name), None) => format!("{}: {name}", t.extension_name),
+        (None, _) => format!("Open {} in Pitwall", t.extension_name),
+    };
+    let annotations = if t.kind == "act" {
+        json!({ "title": title, "readOnlyHint": false, "destructiveHint": t.destructive.unwrap_or(true), "idempotentHint": t.idempotent.unwrap_or(false), "openWorldHint": true })
+    } else {
+        json!({ "title": title, "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false })
     };
     json!({
         "name": t.name(),
         "title": title,
         "description": description(t),
         "inputSchema": input_schema(t),
-        "annotations": { "title": title, "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+        "annotations": annotations
     })
 }
 
@@ -192,7 +249,8 @@ pub fn instructions(tools: &[TileTool]) -> String {
         seen.push(&t.extension);
         let names: Vec<String> = tools.iter().filter(|x| x.extension == t.extension).map(TileTool::name).collect();
         let summary = if t.summary.trim().is_empty() { String::new() } else { format!(": {}", t.summary.trim().trim_end_matches('.')) };
-        let line = format!(" {}{summary} ({}).", t.extension_name, names.join(", "));
+        let when = t.skill.as_deref().map(|s| format!(" {}", s.trim())).unwrap_or_default();
+        let line = format!(" {}{summary} ({}).{when}", t.extension_name, names.join(", "));
         if lines.len() + line.len() > BUDGET {
             lines.push_str(" …and more: see the tools list.");
             break;
@@ -202,7 +260,12 @@ pub fn instructions(tools: &[TileTool]) -> String {
     if lines.is_empty() {
         return String::new();
     }
-    format!(" Extensions' tiles in Pitwall have tools too, named <extension>__<tool>: each only shows something to the user in a tile next to your terminal and gives you nothing of the tile back.{lines}")
+    let more = if tools.iter().any(|t| !t.show_only()) {
+        " Their open and show tools only show something to the user in a tile next to your terminal and give you nothing of the tile back; their read tools return what the tile has (with the user's edits) and their act tools change something outside it, and the user allows both in Pitwall first."
+    } else {
+        " Each only shows something to the user in a tile next to your terminal and gives you nothing of the tile back."
+    };
+    format!(" Extensions' tiles in Pitwall have tools too, named <extension>__<tool>.{more}{lines}")
 }
 
 /// A tile tool call, read from its arguments.
@@ -214,6 +277,10 @@ pub struct TileCall {
     pub content: Option<Value>,
     pub place: Option<ViewerPlace>,
     pub of: Option<String>,
+    /// `"mode": "append"`.
+    pub append: bool,
+    /// `"from_file"`: a path in the agent's project.
+    pub from_file: Option<String>,
 }
 
 /// Read a call of `t` with `args`: Pitwall's own arguments taken out, the
@@ -239,6 +306,19 @@ pub fn parse(t: &TileTool, args: &Value) -> Result<TileCall, String> {
     };
     let of = text("of")?;
     let item = text("item")?;
+    let (append, from_file) = if t.presents() {
+        let append = match text("mode")?.as_deref() {
+            None | Some("replace") => false,
+            Some("append") => true,
+            Some(m) => return Err(format!("`mode` is replace or append, not {m}")),
+        };
+        if append && item.is_none() {
+            return Err("`mode`: append adds to an item: give its `item` id".into());
+        }
+        (append, text("from_file")?)
+    } else {
+        (false, None)
+    };
     if item.as_ref().is_some_and(|i| i.chars().count() > 200) {
         return Err("`item` is longer than 200 characters".into());
     }
@@ -266,12 +346,16 @@ pub fn parse(t: &TileTool, args: &Value) -> Result<TileCall, String> {
         for k in ["where", "of"] {
             rest.remove(k);
         }
+        if t.presents() {
+            rest.remove("mode");
+            rest.remove("from_file");
+        }
         if !keeps_item {
             rest.remove("item");
         }
         Some(Value::Object(rest))
     };
-    Ok(TileCall { tile, item, content, place, of })
+    Ok(TileCall { tile, item, content, place, of, append, from_file })
 }
 
 /// `tile.show`: what the server asks the app to show, the agent resolved
@@ -300,6 +384,77 @@ pub struct TileShow {
     /// The agent whose terminal `place` is next to (resolved id).
     #[serde(default)]
     pub of: Option<String>,
+    /// A `present` call that adds to its item (`"mode": "append"`).
+    #[serde(default)]
+    pub append: bool,
+    /// The file it names instead of inline text, inside the agent's
+    /// project (`"from_file"`, as the agent wrote it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_file: Option<String>,
+    /// That file's text, read by the server (in-process only).
+    #[serde(skip)]
+    pub large: Option<String>,
+}
+
+/// `tile.run`: a `read` or `act` call the server asks the app to make,
+/// the caller resolved and the input checked. The app asks the user
+/// first (agent-tools.md §11.5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TileRun {
+    /// The agent that called; empty with `by_user`.
+    pub agent_id: String,
+    pub agent_name: String,
+    #[serde(default)]
+    pub project: Option<String>,
+    /// The user ran it (in one of Pitwall's own terminals).
+    #[serde(default)]
+    pub by_user: bool,
+    pub extension: String,
+    pub tile: String,
+    pub tool: String,
+    /// `read` or `act`.
+    pub kind: String,
+    /// The input, as JSON text.
+    pub input: String,
+    /// Wait less than the kind's time (ms; `pitwall extension run --timeout`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+/// How a [`TileRun`] ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TileRan {
+    /// The tile answered without an error.
+    pub ok: bool,
+    /// What the agent reads: the tile's text, its error, or why it didn't
+    /// run.
+    pub text: String,
+    #[serde(default)]
+    pub json: Option<String>,
+    /// It didn't run: the user denied it, or a setting is off.
+    #[serde(default)]
+    pub refused: bool,
+    /// It ran out of time.
+    #[serde(default)]
+    pub timed_out: bool,
+}
+
+/// A [`TileRan`] as MCP's `tools/call` result: its text, its JSON as
+/// `structuredContent` (an object) or a second text block, `isError` when
+/// it didn't run or failed.
+pub fn ran_result(r: &TileRan) -> Value {
+    let mut content = vec![json!({ "type": "text", "text": r.text })];
+    let mut out = json!({ "isError": !r.ok });
+    if let Some(j) = &r.json {
+        if let Ok(v @ Value::Object(_)) = serde_json::from_str::<Value>(j) {
+            out["structuredContent"] = v;
+        }
+        content.push(json!({ "type": "text", "text": j }));
+    }
+    out["content"] = Value::Array(content);
+    out
 }
 
 /// What the tile answered.
@@ -408,7 +563,7 @@ mod tests {
         assert!(["message", "item", "where", "of"].iter().all(|k| props.contains_key(*k)), "{props:?}");
         assert!(t["description"].as_str().unwrap().starts_with("Hello (a Pitwall tile): open the Hello tile"));
         let c = parse(&hello(), &json!({ "message": "hi", "item": "greeting", "where": "left", "of": "web" })).unwrap();
-        assert_eq!(c, TileCall { tile: "main".into(), item: Some("greeting".into()), content: Some(json!({ "message": "hi" })), place: Some(ViewerPlace::Left), of: Some("web".into()) });
+        assert_eq!(c, TileCall { tile: "main".into(), item: Some("greeting".into()), content: Some(json!({ "message": "hi" })), place: Some(ViewerPlace::Left), of: Some("web".into()), append: false, from_file: None });
         assert!(parse(&hello(), &json!({ "where": "up" })).unwrap_err().contains("`where`"));
     }
 
@@ -430,7 +585,39 @@ mod tests {
         assert_eq!(mcp_tool(&t)["inputSchema"]["required"], json!(["mermaid"]));
         let c = parse(&t, &json!({ "item": "a", "mermaid": "flowchart LR" })).unwrap();
         assert_eq!(c.content, Some(json!({ "item": "a", "mermaid": "flowchart LR" })));
-        assert!(instructions(&[hello(), t]).contains("Hello: A counter and a greeting (hello__open, hello__show_diagram)."));
+        assert!(instructions(&[hello(), t.clone()]).contains("Hello: A counter and a greeting (hello__open, hello__show_diagram)."));
         assert_eq!(instructions(&[]), "");
+        // A present tool takes appends and a file; its own content without
+        // them.
+        let s = mcp_tool(&t)["inputSchema"].clone();
+        assert_eq!(s["properties"]["mode"]["enum"], json!(["replace", "append"]));
+        assert!(s["properties"]["from_file"].is_object());
+        let c = parse(&t, &json!({ "item": "a", "mermaid": "B-->C", "mode": "append", "from_file": "docs/x.mmd" })).unwrap();
+        assert_eq!((c.append, c.from_file.as_deref(), c.content), (true, Some("docs/x.mmd"), Some(json!({ "item": "a", "mermaid": "B-->C" }))));
+        assert!(parse(&t, &json!({ "mode": "append" })).unwrap_err().contains("give its `item`"));
+    }
+
+    /// read and act (agent-tools.md §11.4): their declared input only,
+    /// read-only for a read, an act's own hints (MCP's defaults when it
+    /// gives none), and words that say the user approves.
+    #[test]
+    fn read_and_act_tools_carry_their_hints() {
+        let read = TileTool { tool: Some("current".into()), kind: "read".into(), description: "The diagrams.".into(), input: Some(json!({ "type": "object", "properties": { "item": { "type": "string" } } })), ..hello() };
+        let m = mcp_tool(&read);
+        assert_eq!((m["annotations"]["readOnlyHint"].clone(), m["inputSchema"]["properties"].as_object().map(|p| p.len())), (json!(true), Some(1)), "no where, of or item added");
+        assert!(m["description"].as_str().unwrap().contains("The user allows this in Pitwall"));
+        let act = TileTool { tool: Some("export_svg".into()), kind: "act".into(), description: "Export.".into(), title: Some("Export as SVG".into()), ..hello() };
+        let m = mcp_tool(&act);
+        assert_eq!((m["annotations"]["readOnlyHint"].clone(), m["annotations"]["destructiveHint"].clone(), m["annotations"]["idempotentHint"].clone()), (json!(false), json!(true), json!(false)));
+        assert_eq!(m["title"], "Hello: Export as SVG");
+        let m = mcp_tool(&TileTool { destructive: Some(false), idempotent: Some(true), ..act.clone() });
+        assert_eq!((m["annotations"]["destructiveHint"].clone(), m["annotations"]["idempotentHint"].clone()), (json!(false), json!(true)));
+        assert!(m["description"].as_str().unwrap().contains("approve it in Pitwall"));
+        assert!(instructions(&[hello(), act.clone()]).contains("the user allows both in Pitwall first"));
+        let skilled = TileTool { skill: Some("Use it for greetings.".into()), ..hello() };
+        assert!(instructions(&[skilled]).contains("(hello__open). Use it for greetings."));
+        assert!(act.exposed("cli") && !act.exposed("palette"));
+        let r = ran_result(&TileRan { ok: true, text: "2 diagrams".into(), json: Some(r#"{"a":1}"#.into()), ..Default::default() });
+        assert_eq!((r["isError"].clone(), r["structuredContent"]["a"].clone()), (json!(false), json!(1)));
     }
 }

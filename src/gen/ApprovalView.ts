@@ -29,4 +29,10 @@ createdAt: number,
 /**
  * Unix ms; unanswered by then = denied.
  */
-expiresAt: number, };
+expiresAt: number, 
+/**
+ * A third answer, "Always for <agent>" (a tile tool's grant,
+ * kept until the user revokes it): its label. Answered as `allow`
+ * with `remember`.
+ */
+always?: string, };
