@@ -158,6 +158,33 @@ pub fn open_label(title: &str, name: &str) -> String {
     }
 }
 
+/// A tile that can be opened now (its extension is on): what the palette
+/// and the sidebar's project menu offer.
+pub struct Openable {
+    pub ext: String,
+    pub tile: String,
+    /// The tile's title and its extension's name.
+    pub title: String,
+    pub name: String,
+    /// "Open <title> (<extension>)".
+    pub label: String,
+    pub icon: &'static str,
+}
+
+/// The tiles of the extensions that are on, in folder order (their
+/// component starts when one opens).
+pub fn openable(cx: &App) -> Vec<Openable> {
+    let ui = crate::ui_state::get(cx);
+    let mut out = Vec::new();
+    for m in crate::extensions::enabled(&crate::extensions::found(cx), &ui) {
+        for t in &m.contributes.tiles {
+            let icon = t.icon.as_deref().and_then(crate::kit::icons::known).or_else(|| crate::kit::icons::known(crate::extensions::icon_of(&m))).unwrap_or("extension");
+            out.push(Openable { ext: m.id.clone(), tile: t.id.clone(), title: t.title.clone(), name: m.name.clone(), label: open_label(&t.title, &m.name), icon });
+        }
+    }
+    out
+}
+
 /// The user's appearance as a tile sees it.
 pub fn theme_info(cx: &App) -> ui::ThemeInfo {
     let a = crate::theme::appearance(cx);

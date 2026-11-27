@@ -1,6 +1,7 @@
 //! One of an extension's views in a tile (docs/extensions/views.md), a
 //! peer of the inbox tile: opened with "Open <view>" in the command
-//! palette (or a badge, a note or a notification that names it), placed,
+//! palette (a component's tile also from a project's menu in the sidebar;
+//! or a badge, a note or a notification that names it), placed,
 //! moved, maximised and put in a window of its own as the inbox is
 //! ([`super::inbox_window`], which takes either), and back after a
 //! restart (`ui.json`: the pane's `view`, `<extension>/<view>`; a window's

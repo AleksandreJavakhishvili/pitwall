@@ -122,8 +122,9 @@ fn the_hello_tile_draws_and_answers(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("tile-settings").is_some(), "“Turn it on in Settings”");
 }
 
-/// "Open Hello": a tile in the layout like any other, the extension's
-/// component drawing it, named once (its title is its extension's name).
+/// "Open Hello" in the sidebar's project menu: a tile in the layout like
+/// any other, the extension's component drawing it, named once (its title
+/// is its extension's name).
 #[gpui::test]
 fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     use crate::agents::AgentStore;
@@ -142,7 +143,12 @@ fn a_tile_opens_in_the_layout(cx: &mut TestAppContext) {
     cx.simulate_resize(gpui::size(gpui::px(1400.), gpui::px(900.)));
     view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
     frame(cx);
-    view.update_in(cx, |s, window, cx| s.open_view("hello", "main", None, window, cx));
+    // From the sidebar: the project's menu offers it, as the palette does.
+    view.update_in(cx, |s, window, cx| s.demo_project_menu("/work/alpha", window, cx));
+    let labels = view.read_with(cx, |s, _| s.menu_labels());
+    let at = labels.iter().position(|l| l == "Tiles").expect("a Tiles section");
+    assert_eq!(labels[at + 1..], ["Open Hello", "Open Hello again (Hello)"], "{labels:?}");
+    view.update_in(cx, |s, window, cx| s.run_menu_label("Open Hello", window, cx));
     frame(cx);
     let tile = cx.update(|_, cx| crate::main_screen::view_tile::get("hello/main", cx)).and_then(|v| v.read_with(cx, |v, _| v.tile().cloned())).expect("the view tile draws the tile");
     until(cx, "its frame in the layout", |cx| has_text(&tile, "Clicked 0 times", cx));
