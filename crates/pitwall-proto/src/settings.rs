@@ -310,6 +310,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "agents.tileTools",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Agents can open extensions' tiles and show you things in them when you ask (\"draft that as a note\", \"show me the diagram\"): every tile's `<extension>__open` and the show tools a tile declares, in Pitwall's `pitwall` MCP server (the agents that get it for files get these too). They only change what the tile shows: the agent gets nothing of the tile back, and it can't replace what you edited. Each tile has its own switch on its card in Settings → Extensions. false: no tile tools in any agent's list.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "agentsTileTools", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "agents.editFiles",
         kind: Kind::Bool,
         default: DefaultValue::Bool(true),
@@ -782,7 +792,7 @@ mod tests {
         assert!(agent.validate(&json!(3)).is_err());
         assert_eq!(find("engineer.command").unwrap().sensitivity, Sensitivity::Approval, "it runs a command");
         // Web pages for agents are as sensitive as showing them files.
-        for k in ["agents.showWeb", "general.webPages", "agents.showSettings", "agents.showDevice"] {
+        for k in ["agents.showWeb", "general.webPages", "agents.showSettings", "agents.showDevice", "agents.tileTools"] {
             assert_eq!(find(k).unwrap().sensitivity, find("agents.showFiles").unwrap().sensitivity, "{k}");
             assert_eq!(find(k).unwrap().sensitivity, Sensitivity::Safe, "{k}");
             assert_eq!(find(k).unwrap().default_value(), json!(true), "{k}");
