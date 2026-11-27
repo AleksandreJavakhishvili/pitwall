@@ -36,8 +36,11 @@ function cells(line) {
     .map((c) => c.trim().replaceAll("\\|", "|"));
 }
 
-/** Block Markdown → HTML. Heading ids get `idPrefix`, so repeated headings stay unique. */
-export function render(md, { link, idPrefix = "" } = {}) {
+/**
+ * Block Markdown → HTML. Heading ids get `idPrefix`, so repeated headings stay unique;
+ * pass a Set as `ids` to share ids across calls (a repeated id then gets "-2", "-3", …).
+ */
+export function render(md, { link, idPrefix = "", ids = new Set() } = {}) {
   const lines = md.replace(/<!--[\s\S]*?-->/g, "").replace(/\r\n?/g, "\n").split("\n");
   const out = [];
   let para = [];
@@ -76,7 +79,11 @@ export function render(md, { link, idPrefix = "" } = {}) {
     } else if ((m = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/))) {
       flush();
       const level = m[1].length;
-      out.push(`<h${level} id="${idPrefix}${slug(m[2])}">${inline(m[2], link)}</h${level}>`);
+      const base = idPrefix + slug(m[2]);
+      let id = base;
+      for (let i = 2; ids.has(id); i++) id = `${base}-${i}`;
+      ids.add(id);
+      out.push(`<h${level} id="${id}">${inline(m[2], link)}</h${level}>`);
     } else if ((m = line.match(/^\s{0,3}([-*]|\d+\.)\s+(.*)$/))) {
       flushPara();
       const tag = /\d/.test(m[1]) ? "ol" : "ul";
