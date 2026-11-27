@@ -82,6 +82,14 @@ pub fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyView> {
     Some(dialog.into())
 }
 
+/// Answer request `id` from elsewhere than the dialog (its card in the
+/// floating control): Allow once, "Always for <agent>" (`remember`), or
+/// Deny.
+pub fn answer(id: &str, allow: bool, remember: bool, cx: &mut App) -> Result<(), String> {
+    let d = cx.try_global::<Global_>().map(|g| g.0.clone()).ok_or("Pitwall can't answer approvals here")?;
+    d.update(cx, |d, cx| d.reply_to(id, allow, remember, cx))
+}
+
 /// Answer the request shown, as its buttons do (debug builds' `approval`).
 pub fn debug_answer(allow: bool, cx: &mut App) {
     if let Some(d) = cx.try_global::<Global_>().map(|g| g.0.clone()) {
@@ -167,15 +175,24 @@ impl ApprovalDialog {
         let Some((a, _)) = self.pending(cx) else {
             return;
         };
+        if let Err(e) = self.reply_to(&a.id, allow, remember, cx) {
+            self.error = Some(e);
+        }
+        cx.notify();
+    }
+
+    /// Answer request `id`, wherever it is in the list (the floating
+    /// control's card answers the one it shows); `remember` only where it
+    /// is offered. The dialog and the card both follow the list, so the
+    /// other one closes.
+    pub fn reply_to(&mut self, id: &str, allow: bool, remember: bool, cx: &mut Context<Self>) -> Result<(), String> {
+        let a = self.store.read(cx).approvals.iter().find(|a| a.id == id).cloned().ok_or("it was already answered, or ran out of time")?;
         let reply = ApprovalAnswer {
             id: a.id,
             allow,
             remember: allow && remember && (a.rememberable || a.always.is_some()),
         };
-        if let Err(e) = (self.answer)(&reply) {
-            self.error = Some(e);
-        }
-        cx.notify();
+        (self.answer)(&reply)
     }
 
     pub fn set_remember(&mut self, on: bool, cx: &mut Context<Self>) {

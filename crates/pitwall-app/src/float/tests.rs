@@ -1043,3 +1043,107 @@ fn its_threads_are_let_go_while_pitwall_is_in_front(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(said(&h, cx), [json!({"type": "open", "thread": "t1"})]);
 }
+
+/// An agent's `read` or `act` call of a tile, as Pitwall asks it (in a
+/// thread, as the socket's `run_tile` does): its decision and whether
+/// "Always" was chosen.
+fn ask_tile(a: &Arc<pitwall_daemon::Approvals>, kind: &str, always: Option<&str>) -> std::thread::JoinHandle<(pitwall_daemon::approvals::Decision, bool)> {
+    let (a, kind, always) = (a.clone(), kind.to_string(), always.map(str::to_string));
+    std::thread::spawn(move || {
+        let ask = pitwall_daemon::approvals::Ask {
+            action: pitwall_proto::tile_tools::approval_action(&kind, "hello"),
+            summary: format!("{} (Hello: send_message)", if kind == "read" { "read what Hello has" } else { "send a message" }),
+            details: vec!["Send a message from the Hello tile.".into(), "Project: ~/work/alpha".into(), "text: hi".into()],
+            requester: pitwall_proto::Requester { kind: pitwall_proto::RequesterKind::Agent, agent_id: Some("api".into()), name: "api".into(), pid: None, process: None },
+            caller_key: "agent:api".into(),
+            risk: pitwall_proto::Risk::High,
+        };
+        match always {
+            Some(label) => a.ask_always(ask, label),
+            None => (a.ask(ask), false),
+        }
+    })
+}
+
+/// The store follows the approvals, as the bridge makes it.
+fn follow(store: &Entity<AgentStore>, a: &Arc<pitwall_daemon::Approvals>, want: usize, cx: &mut TestAppContext) {
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let list = loop {
+        let list = a.pending();
+        if list.len() == want || std::time::Instant::now() > end {
+            break list;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    store.update(cx, |s, cx| {
+        s.approvals = list;
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
+fn sel(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
+}
+
+#[gpui::test]
+fn a_tiles_approval_is_a_card_answered_here_or_in_the_dialog(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (store, calls) = setup(vec![agent("api", "working", None)], None, cx);
+    let approvals = pitwall_daemon::Approvals::new(std::time::Duration::from_secs(30));
+    cx.update(|cx| crate::approvals::init(&store, approvals.clone(), cx));
+    // Another approval (an agw session, say) is the dialog's alone.
+    store.update(cx, |s, cx| {
+        s.approvals = vec![crate::approvals::text::tests::view("other", pitwall_proto::RequesterKind::Agent)];
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(!up(cx), "not a tile's");
+    store.update(cx, |s, cx| {
+        s.approvals.clear();
+        cx.notify();
+    });
+
+    // An act, with "Always for api": a card with the dialog's three answers.
+    let h = ask_tile(&approvals, "act", Some("Always for api"));
+    follow(&store, &approvals, 1, cx);
+    assert!(up(cx), "the user is away: the control is up");
+    let id = approvals.pending()[0].id.clone();
+    let q = cx.update(|cx| asks(cx));
+    assert_eq!(q.len(), 1);
+    assert_eq!((q[0].who(), q[0].ask.question.as_str()), ("api", "api wants to send a message (Hello: send_message)."));
+    assert_eq!(q[0].ask.suggestions.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["Allow once", "Always for api", "Deny"]);
+    let mut v = window(cx);
+    click(&mut v, "float-puck");
+    let mut v = window(cx);
+    for what in [format!("float-ask-{id}-0"), format!("float-approval-details-{id}-0"), format!("float-pick-1-{id}-0")] {
+        assert!(v.debug_bounds(sel(what.clone())).is_some(), "{what}");
+    }
+    assert!(v.debug_bounds(sel(format!("float-own-{id}-0"))).is_none(), "no field for words of its own");
+    // "Always for api" here: allowed, the grant chosen.
+    click(&mut window(cx), sel(format!("float-pick-1-{id}-0")));
+    assert_eq!(h.join().unwrap(), (pitwall_daemon::approvals::Decision::Allowed, true));
+    follow(&store, &approvals, 0, cx);
+    assert!(!up(cx), "answered: the card goes");
+
+    // A read answered in Pitwall's dialog: the card goes from here too.
+    let h = ask_tile(&approvals, "read", Some("Always for api"));
+    follow(&store, &approvals, 1, cx);
+    assert!(up(cx));
+    cx.update(|cx| crate::approvals::debug_answer(false, cx));
+    assert_eq!(h.join().unwrap().0, pitwall_daemon::approvals::Decision::Denied);
+    follow(&store, &approvals, 0, cx);
+    assert!(cx.update(|cx| asks(cx)).is_empty() && !up(cx));
+
+    // No "Always" offered (a tile that can make agents act): Allow once
+    // and Deny; Deny here denies.
+    let h = ask_tile(&approvals, "act", None);
+    follow(&store, &approvals, 1, cx);
+    let q = cx.update(|cx| asks(cx));
+    assert_eq!(q[0].ask.suggestions.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["Allow once", "Deny"]);
+    cx.update(|cx| pick_ask(&q[0].key(), 1, cx));
+    assert_eq!(h.join().unwrap(), (pitwall_daemon::approvals::Decision::Denied, false));
+    follow(&store, &approvals, 0, cx);
+    assert!(!up(cx));
+    assert!(calls.answers.lock().unwrap().is_empty() && calls.typed.lock().unwrap().is_empty(), "nothing typed into an agent");
+}
