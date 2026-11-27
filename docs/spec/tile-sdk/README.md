@@ -40,7 +40,7 @@ in [sources.md](sources.md)) or the word *unverified*.
 - [packaging.md](packaging.md): The `.pwtile` file, signing, install, update and uninstall.
 - [marketplace.md](marketplace.md): The index repository, submitting, Verified, Browse, reports and takedown.
 - [authoring.md](authoring.md): The SDK crate, its examples, the CLI, dev reload, the test harness and docs for authors and their agents.
-- [extension-model.md](extension-model.md): Components as the one way an extension runs its own code; adapters removed.
+- [extension-model.md](extension-model.md): Self-contained extensions: everything visible comes from the component, Pitwall gives generic pieces only; adapters, the inbox and declarative setup removed, and the migration.
 - [alternatives.md](alternatives.md): Alternatives considered.
 - [sources.md](sources.md): Sources (S1…) cited across the Tile SDK spec, and the claims not verified.
 - [spike-results.md](spike-results.md): Phase 0 measurements (binary size, cold and warm start, a 2 000-node frame, epoch kill, threading) against their gates.
@@ -50,13 +50,15 @@ in [sources.md](sources.md)) or the word *unverified*.
 Every open question was decided by the owner on 2026-11-26, each as
 recommended. On 2026-11-27 the owner added agent-opened tiles and
 show-only tools in phase 2 ([10.3](#103-decisions) item 20,
-[11.13](agent-tools.md#1113-decisions) items 9 and 10). Unverified claims stay unverified: they are facts to
+[11.13](agent-tools.md#1113-decisions) items 9 and 10). On 2026-11-28 the
+owner decided on **self-contained extensions** ([10.3](#103-decisions)
+item 21, [15.9](extension-model.md#159-decisions) item 8). Unverified claims stay unverified: they are facts to
 check, not decisions ([sources.md](sources.md#not-verified)).
 
 - [10.3](#103-decisions): Runtime, packaging and marketplace
 - [11.13](agent-tools.md#1113-decisions): Tools for agents
 - [13.6](services.md#136-decisions): Tile apps with a server
-- [15.8](extension-model.md#158-decisions): One extension model
+- [15.8](extension-model.md#159-decisions): One extension model
 - [16.4](native-blocks.md#164-decisions): Native building blocks and ports
 
 ## Summary (one page)
@@ -240,19 +242,21 @@ only the order and the dependencies mean something.
    `files.read`; its agent edits need 3), with on-demand services as they trigger them.
    The review port as a proof tile also starts after phase 2,
    alongside them, pulling `git` and `files` into the plan; the files
-   tree and inbox ports come after it.
+   tree port comes after it (the inbox is removed, not ported).
 7. **WIT 1.0**, once the seed tiles ship.
-8. **Port or hand over the bundled extensions** (one extension model,
-   decided), after 7.
-9. **Remove adapters**, once each bundled extension has a component
-   version.
+8. **Self-contained extensions** (decided 2026-11-28,
+   [15](extension-model.md#15-one-extension-model)): the platform pieces (Setup view, secure field,
+   settings, programs, agent environment), Agention rebuilt fresh, then
+   the removal of adapters, the inbox and declarative setup; not
+   waiting for 7 ([plan](plan.md) item 8). Replaces the old steps 8
+   (port or hand over) and 9 (remove adapters).
 
 Headless wasm services come after phase 7. Each phase also publishes
 or updates its website docs pages ([9.6](authoring.md#96-website-docs))
 before it counts as done.
 
 **Owner decisions** (2026-11-26, every recommendation accepted) are
-recorded in [10.3](#103-decisions), [11.13](agent-tools.md#1113-decisions), [13.6](services.md#136-decisions), [15.8](extension-model.md#158-decisions) and [16.4](native-blocks.md#164-decisions).
+recorded in [10.3](#103-decisions), [11.13](agent-tools.md#1113-decisions), [13.6](services.md#136-decisions), [15.8](extension-model.md#159-decisions) and [16.4](native-blocks.md#164-decisions).
 
 
 ## 1. Goals, non-goals, user stories
@@ -363,8 +367,9 @@ shipped: the pages in its "Website docs" cell are published or
 updated in the same pull requests as the features ([9.6](authoring.md#96-website-docs)).
 Phase 1 also builds the docs pipeline (pages from Markdown, examples
 from source, a link check).
-Steps 8 and 9 ([15.7](extension-model.md#157-effect-on-the-plan))
-publish Migrating from adapters and replace the adapter pages.
+Step 8 ([15.7](extension-model.md#157-migration)) publishes the Setup view,
+secure field and Programs pages, then Migrating from adapters, and
+removes the adapter pages.
 
 The table gives the order; it has no durations, since agents do the
 work. What must come before what is in the summary's phase list
@@ -553,6 +558,39 @@ decision after phase 0 (2026-11-27).
     ([11.2](agent-tools.md#112-four-kinds)). `act`, approvals, Undo, the
     skill and commands stay in phase 3 too. Details in
     [11.13](agent-tools.md#1113-decisions), items 9 and 10.
+21. **Self-contained extensions.** Decided (owner, 2026-11-28):
+    "everything should be coming from extensions webassembly right? when
+    we install the extension it should come with everything right?
+    nothing custom should be done there, forget previous agention
+    implementation". An extension is one package, and everything it
+    shows comes from its component: tiles, its own **Setup view** on its
+    page in the Extensions tile, its toolbar item, its palette commands.
+    Pitwall gives only generic, permission-gated pieces: install, trust,
+    permissions and updates; settings and a secure store with a
+    **host-drawn secure field** the component places (it learns only
+    "set" or "not set"; the value reaches only host APIs that use it, a
+    `net` header or a program's environment); the platform services;
+    and **programs**: the component names a command and Pitwall starts
+    and supervises it behind a permission that shows the exact command,
+    with a download helper pinned by hash
+    ([13.2](services.md#132-a-programs-the-component-starts)). Removed: adapters and their
+    protocol, the built-in inbox and `contributes.inbox`, checklists,
+    setup actions, `agentEnv`, `matchAgents`, the managed `service`
+    block, connections, and the settings form Pitwall generated from the
+    manifest ([15.5](extension-model.md#155-removed)). Agention is rebuilt fresh on this model.
+    *Why this shape.* VS Code (S27) runs extensions as unsandboxed
+    JavaScript with Node's full access, draws their settings in its own
+    editor from `contributes.configuration`, and hands them their
+    secrets; custom screens are webviews. Zed (S25, S26) runs extension
+    code as wasm with no ambient access; anything native is a command the
+    wasm returns and Zed runs, granted by `process:exec` patterns, with
+    helpers to download a release binary into the extension's own
+    folder. Pitwall takes Zed's split (sandboxed code, native programs
+    only through the host, by pattern) and goes one step further on UI
+    and secrets: the extension draws its own setup with Pitwall's
+    components instead of a generated form, while secret entry and the
+    exact command line stay host-drawn, so a sandboxed extension can't
+    read a key or run something the user didn't see.
 
 ### 10.4 What gets in the way in today's code
 - `contributes` keys are checked against a fixed list; `tiles` must be
@@ -592,3 +630,7 @@ decision after phase 0 (2026-11-27).
 - "Later: agents as callers" (extension commands as MCP tools): for
   tiles, [section 11](agent-tools.md#11-tools-for-agents) is that design. Adapters' commands could later be
   listed the same way, as `act` tools.
+- Settings and secrets, setup actions, `agentEnv`, the local service,
+  the inbox and Pitwall-drawn views: replaced by self-contained
+  extensions ([15](extension-model.md#15-one-extension-model)): the extension's Setup view, secrets by
+  reference, the program capability, agent environment.

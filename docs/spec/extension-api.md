@@ -2,6 +2,14 @@ Status: proposal. Phases 1 to 5 are built (see "Phased plan"); phase 6 is not.
 
 # Extension API
 
+> **Superseded in part (owner, 2026-11-28): self-contained extensions**
+> ([tile-sdk/extension-model.md](tile-sdk/extension-model.md)). The adapter process, its protocol,
+> the inbox, Pitwall-drawn views, setup actions, `agentEnv`, the managed
+> service and the generated settings form described here are removed
+> ([15.5](tile-sdk/extension-model.md#155-removed)); sections marked **Superseded** are history once plan
+> item 8c lands. Still current: named permissions, grants and Activity;
+> distribution and updates; versioning; trust levels.
+
 What other people can build on Pitwall, how they ship it, and how it
 updates without waiting for a Pitwall release. It grows the extensions
 that exist today (docs/spec/extensions.md: one manifest, one adapter
@@ -113,6 +121,8 @@ curated list.
 ## Principles
 
 ### A separate process, not code in the app
+*Superseded: extension code is a sandboxed component in the app; native code runs only as programs Pitwall starts ([13.2](tile-sdk/services.md#132-a-programs-the-component-starts)).*
+
 *Changed (owner, 2026-11-26): see [tile-sdk/extension-model.md](tile-sdk/extension-model.md) (sandboxed
 wasm components in the app; native code only in a managed service).
 The principle now reads "no third-party code with access to Pitwall's
@@ -128,6 +138,8 @@ already built and tested [today]. The cost is that the process runs as
 the user, with no sandbox; see "Security".
 
 ### Pitwall draws the UI
+*Superseded: the component draws its UI, its Setup view included, with Pitwall's components; Pitwall draws only the secure and setting fields, headers and the generic page ([3.12](tile-sdk/ui.md#312-the-setup-view-and-host-drawn-fields)).*
+
 For, with one escape hatch. Native drawing keeps the look (Flat and
 Glass, themes, density), the keyboard model (a tile like the others,
 ⌘⏎, Esc), accessibility and the inert Markdown renderer, and nothing
@@ -247,6 +259,8 @@ Everything an extension draws carries its icon and name, so its text
 can't pass for Pitwall's.
 
 ### 1. Inbox [today]
+*Superseded: removed with the built-in inbox.*
+
 Threads, messages, asks with suggestions, replies. Unchanged. It stays a
 dedicated surface because it does more than generic components can (the
 ask card, number keys, optimistic sending with take-back). Two additions
@@ -255,6 +269,8 @@ and the inbox's ⌘I going to the most recently used inbox instead of the
 first one on.
 
 ### 2. View tile [built, phase 4]
+*Superseded: Pitwall-drawn views are removed; a tile draws its own.*
+
 A tile of the layout (a peer of files, web and inbox tiles, placed and
 moved as the inbox is), built from components. One per declared view.
 
@@ -303,6 +319,8 @@ open a file, focus an agent) are `{"id":"…","open":{"url":"…"}}` /
 grants.
 
 ### 3. Commands [built, phase 4]
+*Superseded in part: commands are answered by the component ([11.12](tile-sdk/agent-tools.md#1112-commands-for-the-shell-and-the-palette)), not an adapter.*
+
 Manifest: `"commands": [{"id","title","context":"none|agent"}]` (≤ 20).
 They appear in the command palette as "<Extension>: <title>"; `agent`
 ones only while an agent is focused, and their message names it (only
@@ -337,6 +355,8 @@ minute per extension (more are dropped and counted in its log); a
 replaces rather than repeats.
 
 ### 6. Right-panel sections [built, phase 5]
+*Superseded: removed with the right panel (2026-11-26).*
+
 *Removed with the right Details panel (owner, 2026-11-26). Next up stays, as a chip and popover on the agent's terminal tile.*
 Manifest: `"panels": [{"id","title","view"}]`. A folded section in the
 right panel (with Next up, Changes, Last sent [today]) for the focused
@@ -355,6 +375,8 @@ suggestions. Its card: the question, up to 4 suggestions, Open. Not a
 general notification surface.
 
 ### 8. Web view [built, phase 5]
+*Superseded: a tile opens a web tile with `show.web`.*
+
 `"webViews": [{"id":"dash","title":"Dashboard","url":"{setting:server}/dash"}]`,
 or the adapter's `{"type":"webView","view":"dash","url":"http://127.0.0.1:43123/"}`
 for a page it serves itself. A web tile [today: web.md] with its rules:
@@ -364,6 +386,8 @@ of its own; wrong as a way to skip components, which is why there is no
 bridge to Pitwall: a page can't call the API.
 
 ### 9. Settings [today, extended in phase 3]
+*Superseded: settings are a schema; the UI is the extension's Setup view ([14.6](tile-sdk/platform-services.md#146-settings-secrets-and-the-setup-view)).*
+
 Today `url` and `secret`, per connection. Add `text` (≤ 500), `choice`
 (`options`), `bool`, `number` (`min`, `max`), all per connection, all
 with `default`. Plain values may go into `agentEnv` and action
@@ -382,6 +406,8 @@ arguments as `url` ones do; secrets still never.
   [today], unknown names draw the puzzle piece.
 
 ### 10. A local service [built, beyond the phases]
+*Superseded: the program capability replaces it ([13.2](tile-sdk/services.md#132-a-programs-the-component-starts)).*
+
 One long-running program per extension, such as the server its agents
 talk to (docs/spec/extensions.md, "A service";
 [docs/extensions/service.md](../extensions/service.md)). It came from the
@@ -453,6 +479,7 @@ itself. Why this shape:
 ---
 
 ## What Pitwall gives an extension [built, phase 3]
+*Superseded in part: the method table stays, reached through the component's typed interfaces; adapters' `call`s go.*
 
 ### One method table
 The daemon already has every method with its access level in one table
@@ -717,6 +744,8 @@ draws can say which permission made it ("Shown because CI status may
 read your agents").
 
 ### Secrets [today, kept]
+*Superseded in part: the component never gets a secret's value; it is entered in a host-drawn field and used by reference ([14.6](tile-sdk/platform-services.md#146-settings-secrets-and-the-setup-view)).*
+
 In the system's secure store, given to the adapter only in `hello`,
 never to agents, never in argv or the environment, never in forms, never
 shown. The log view redacts `hello`'s secrets. An extension never
@@ -728,6 +757,8 @@ for every extension with an adapter. Pitwall makes no requests on an
 extension's behalf, so there is nothing to scope.
 
 ### Process sandboxing, per OS
+*Superseded: no adapters to sandbox; programs run as the user, behind `programs` ([13.2](tile-sdk/services.md#132-a-programs-the-component-starts)).*
+
 - **Today**: none. The adapter runs as the user in its folder.
 - **Realistic next** (phase 6, opt-in per extension, "Restricted"):
   - macOS: a Seatbelt profile via `sandbox-exec` (deprecated by Apple
@@ -819,6 +850,8 @@ scripted exchanges from `test/pitwall.json`, e.g. "after `show runs` a
 `view` with ≥ 1 item"). Third parties run the same checks in their CI.
 
 ### Any executable, a tiny Node SDK
+*Superseded: Rust components only ([15.9](tile-sdk/extension-model.md#159-decisions) item 5).*
+
 The adapter is any program (`adapter.command` [today]). Node is the
 reference, as the demo and Agention adapters are. `pitwall-extension.mjs`
 (≈ 200 lines, no dependencies, vendored rather than installed):

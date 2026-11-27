@@ -522,7 +522,7 @@ Pages that exist today and change [today]:
   `/docs/settings/`): its Extensions section describes adapters ("runs
   an adapter per connection"). It gains install and update in phase 4
   and Browse in 5, and its adapter wording is replaced in the release
-  that removes adapters (step 9).
+  that removes adapters ([plan](plan.md) item 8c, docs in 8d).
 - **How it works** (`/docs/how-it-works/`, hand-written HTML): gains a
   short part on extensions for users in phase 4, linking to the
   Permissions page.
@@ -554,9 +554,9 @@ Pages that exist today and change [today]:
   on the site. So nothing on the site needs a Preview mark now. The
   new pages carry a "Preview" label until WIT 1.0 (phase 7). Pages and
   wording about adapters (the repository's `docs/extensions/`, the
-  Settings reference) get a "being replaced" note in step 8 ([15.7](extension-model.md#157-effect-on-the-plan)). They are
+  Settings reference) get a "being replaced" note with plan item 8a ([15.7](extension-model.md#157-migration)). They are
   replaced, with a link to Migrating from adapters, in the release
-  that removes adapters (step 9).
+  that removes adapters ([plan](plan.md) item 8c, docs in 8d).
 
 **Release checklist.** This reuses CONTRIBUTING.md's rules [today]:
 - "Update the docs (`README.md`, `docs/spec/`) when you change what

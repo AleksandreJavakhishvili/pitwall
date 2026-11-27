@@ -137,6 +137,20 @@ own repository unless marked.
   extensions directly as shared libraries"; wasm is "cross-platform,
   and it's designed for running untrusted code safely" (Max Brunsfeld,
   2024-04-18). https://zed.dev/blog/language-extensions-part-1
+- **S26** Zed's extensions and programs: an extension's wasm returns a
+  command (program, args, env) for a language server or other tool, and
+  Zed runs it; `extension.toml` grants `process:exec` capabilities with
+  a command and argument patterns (`*`, `**`); the extension API has
+  `latest_github_release`, `download_file` (into the extension's own
+  work folder) and `make_file_executable`. Read from the docs, not
+  tried. https://zed.dev/docs/extensions/capabilities,
+  https://docs.rs/zed_extension_api
+- **S27** VS Code's extensions: JavaScript in an extension host process
+  with Node's full access; settings declared in
+  `contributes.configuration` and drawn by VS Code's own settings
+  editor; secrets through `SecretStorage`, which hands the extension the
+  value; custom screens as webviews. https://code.visualstudio.com/api,
+  https://code.visualstudio.com/api/references/contribution-points
 
 ### Not verified
 - That WIT has no recursive types ([3](runtime.md#3-the-wit-interface)).
