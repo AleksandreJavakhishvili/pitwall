@@ -173,7 +173,7 @@ impl SettingsView {
         let now = prefs(cx).sidebar_group;
         let seg = crate::kit::seg(
             "sidebar-group",
-            ALL.iter().map(|(g, label, tip)| SegItem { label: (*label).into(), on: now == *g, tooltip: Some((*tip).into()) }).collect(),
+            ALL.iter().map(|(g, label, tip)| SegItem { label: (*label).into(), on: now == *g, tooltip: Some((*tip).into()), icon: None }).collect(),
             &ui.t,
             Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.sidebar_group = ALL[i].0)),
         );
@@ -741,6 +741,7 @@ impl SettingsView {
                     label: v.label().into(),
                     on: p.theme == v,
                     tooltip: (v == ThemePref::System).then(|| SharedString::from(if cfg!(target_os = "macos") { "Follow macOS" } else { "Follow the system" })),
+                    icon: None,
                 })
                 .collect(),
             &ui.t,
@@ -757,6 +758,7 @@ impl SettingsView {
                     },
                     on: p.look == v,
                     tooltip: (v == Look::Glass).then(|| ap.offer.hint().into()),
+                    icon: None,
                 })
                 .collect(),
             &ui.t,
@@ -790,6 +792,7 @@ impl SettingsView {
                         label: d.label().into(),
                         on: p.density == d,
                         tooltip: Some(format!("Smallest tile {} cols × {} rows", c.cols, c.rows).into()),
+                        icon: None,
                     }
                 })
                 .collect(),
