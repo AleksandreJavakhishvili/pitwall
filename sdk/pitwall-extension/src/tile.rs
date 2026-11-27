@@ -123,6 +123,9 @@ pub struct Content {
     id: Option<String>,
     json: Option<String>,
     bytes: Option<Vec<u8>>,
+    call: Option<u64>,
+    tool: Option<String>,
+    caller: Option<crate::tools::Caller>,
 }
 
 /// Content that isn't what the tile expected.
@@ -140,13 +143,42 @@ impl std::error::Error for ContentError {}
 impl Content {
     /// Content with this JSON text (for tests of your own code).
     pub fn from_json(json: impl Into<String>) -> Content {
-        Content { id: None, json: Some(json.into()), bytes: None }
+        Content { id: None, json: Some(json.into()), bytes: None, call: None, tool: None, caller: None }
     }
 
-    /// The caller's id for this content: a later call with the same id
-    /// updates the same view.
+    /// The same content as agent `caller`'s call `call` with item `item`
+    /// brought it (for tests of your own code).
+    pub fn from_agent(mut self, call: u64, item: Option<&str>, caller: crate::tools::Caller) -> Content {
+        self.call = Some(call);
+        self.id = item.map(String::from);
+        self.caller = Some(caller);
+        self
+    }
+
+    /// The caller's id for this content (an agent's `item`): a later call
+    /// with the same id updates what it shows in place.
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
+    }
+
+    /// The agent's call that brought it (also the origin of what it
+    /// shows); `None`: the user opened the view. Answer it with
+    /// [`tools::reply`](crate::tools::reply) to return problems in the
+    /// input.
+    pub fn call(&self) -> Option<u64> {
+        self.call
+    }
+
+    /// The declared tool called; `None` for the open every tile has
+    /// (`<extension-id>__open`), or when the user opened the view.
+    pub fn tool(&self) -> Option<&str> {
+        self.tool.as_deref()
+    }
+
+    /// The agent that called, as Pitwall identified it; `None`: the user
+    /// opened the view.
+    pub fn caller(&self) -> Option<&crate::tools::Caller> {
+        self.caller.as_ref()
     }
 
     /// The payload as JSON text.
@@ -170,7 +202,7 @@ impl Content {
 
 impl From<wit::Content> for Content {
     fn from(c: wit::Content) -> Content {
-        Content { id: c.id, json: c.json, bytes: c.bytes }
+        Content { id: c.id, json: c.json, bytes: c.bytes, call: c.call, tool: c.tool, caller: c.caller.map(Into::into) }
     }
 }
 
@@ -893,6 +925,7 @@ impl ButtonKind {
 struct Runtime<T: Tile> {
     tile: T,
     cx: Cx<T>,
+    tools: Option<crate::tools::Dispatch<T>>,
 }
 
 thread_local! {
@@ -905,10 +938,16 @@ fn with<T: Tile, R>(f: impl FnOnce(&mut Runtime<T>) -> R) -> Option<R> {
 
 #[doc(hidden)]
 pub fn init<T: Tile>(init: wit::InitContext) -> Result<(), String> {
+    init_with::<T>(init, None)
+}
+
+/// [`init`], with the tile's `#[tools]` (`export!` finds them).
+#[doc(hidden)]
+pub fn init_with<T: Tile>(init: wit::InitContext, tools: Option<crate::tools::Dispatch<T>>) -> Result<(), String> {
     let mut cx = Cx::<T>::new(init);
     let tile = T::new(&mut cx);
     cx.notified = false;
-    RUNTIME.with_borrow_mut(|rt| *rt = Some(Box::new(Runtime { tile, cx })));
+    RUNTIME.with_borrow_mut(|rt| *rt = Some(Box::new(Runtime { tile, cx, tools })));
     Ok(())
 }
 
@@ -931,7 +970,7 @@ pub fn render<T: Tile>(view: String) -> wit::Frame {
 #[doc(hidden)]
 pub fn handle<T: Tile>(event: wit::Event) -> bool {
     with::<T, _>(|rt| {
-        let Runtime { tile, cx } = rt;
+        let Runtime { tile, cx, tools } = rt;
         cx.notified = false;
         let mods = |m| crate::events::Modifiers::from(m);
         match event {
@@ -970,17 +1009,34 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
                 cx.fire(tile, None, s.handler, Fired::CodeSelect(sel));
             }
             wit::Event::ViewOpened(v) => {
-                let info = ViewInfo { id: v.view.clone(), tile: v.tile, content: v.content.map(Content::from) };
-                cx.views.insert(v.view, info.clone());
+                let content = v.content.map(Content::from);
+                // A declared tool's call is the tool's, not the view's
+                // content.
+                let declared = content.as_ref().filter(|c| c.tool().is_some()).cloned();
+                let info = ViewInfo { id: v.view.clone(), tile: v.tile, content: content.filter(|c| c.tool().is_none()) };
+                cx.views.insert(v.view.clone(), info.clone());
                 tile.on_view_opened(&info, cx);
                 if info.content.is_some() {
                     tile.on_content(&info, cx);
                 }
+                if let Some(c) = declared {
+                    crate::tools::run(tile, cx, *tools, &v.view, &c);
+                }
                 cx.notified = true;
             }
             wit::Event::ViewContent(v) => {
+                let content = Content::from(v.content);
+                if content.tool().is_some() {
+                    if !cx.views.contains_key(&v.view) {
+                        return false;
+                    }
+                    if crate::tools::run(tile, cx, *tools, &v.view, &content) {
+                        cx.notified = true;
+                    }
+                    return std::mem::take(&mut cx.notified);
+                }
                 let Some(info) = cx.views.get_mut(&v.view) else { return false };
-                info.content = Some(v.content.into());
+                info.content = Some(content);
                 let info = info.clone();
                 tile.on_content(&info, cx);
                 cx.notified = true;
@@ -1035,7 +1091,7 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
 #[doc(hidden)]
 pub fn rows<T: Tile>(view: String, key_path: String, start: u32, count: u32) -> Vec<wit::Row> {
     with::<T, _>(|rt| {
-        let Runtime { tile, cx } = rt;
+        let Runtime { tile, cx, .. } = rt;
         cx.rows_of(tile, &view, &key_path, start, count)
     })
     .unwrap_or_default()

@@ -1,0 +1,21 @@
+# The `#[tools]` attribute of the guest SDK (sdk/pitwall-extension): writes
+# a tile's declared agent tools from its `#[tool(kind = …)]` methods.
+# Re-exported as `pitwall_extension::tools`; authors never depend on it
+# directly. Its own workspace, like the SDK.
+[package]
+name = "pitwall-extension-macros"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The #[tools] attribute of pitwall-extension (Pitwall tiles' agent tools)"
+repository = "https://github.com/pitwalls/pitwall"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+
+[workspace]
