@@ -209,6 +209,27 @@ impl TileView {
         self.shown
     }
 
+    /// "from <agent>", in the tile's bottom right corner: the agent whose
+    /// call it shows last; pressed, that agent's terminal is focused.
+    fn origin_chip(&self, id: &str, agent: &str, t: &crate::theme::Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let id = id.to_string();
+        div()
+            .absolute()
+            .bottom(px(6.))
+            .right(px(8.))
+            .child(
+                div()
+                    .id(SharedString::from(format!("tile-origin-{}-{}", self.ext, self.tile)))
+                    .debug_selector(|| "tile-origin".into())
+                    .cursor_pointer()
+                    .tooltip(crate::kit::tooltip(format!("Shown by {agent}: press to go to its terminal")))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        crate::windows::focus_in_front(&id, cx);
+                    }))
+                    .child(crate::kit::chip_tone(format!("from {agent}"), crate::kit::Tone::Subtle, t)),
+            )
+    }
+
     fn send(&self, event: Event, cx: &App) -> bool {
         self.tiles.read(cx).send(&self.ext, event)
     }
@@ -1148,6 +1169,14 @@ impl Render for TileView {
         }
         let body = self.build(0, Inherit::root(&t), window, &t, cx);
         let menu = self.menu_overlay(window, &t, cx);
-        root.child(div().flex_1().min_h_0().min_w_0().flex().flex_col().child(body)).children(menu).into_any_element()
+        let root = root.child(div().flex_1().min_h_0().min_w_0().flex().flex_col().child(body));
+        // What an agent showed in it says so (agent-tools.md §11.6): its
+        // name, a press away from its terminal.
+        let origin = self.tiles.read(cx).origin(&self.ext, &self.tile).cloned();
+        let root = match origin {
+            Some((id, agent)) => root.child(self.origin_chip(&id, &agent, &t, cx)),
+            None => root,
+        };
+        root.children(menu).into_any_element()
     }
 }
