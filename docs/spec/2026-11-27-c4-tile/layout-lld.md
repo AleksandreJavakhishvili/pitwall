@@ -102,6 +102,15 @@ Activations are 10 px bars from activate to deactivate.
   a boundary it isn't in (`layout::check`).
 - How long layout takes in Wasmtime is measured in phase B (NFR-2); the
   300-box limit moves to match. Native numbers are in §7.
+- **Measured in Wasmtime** (phase B, the release `tile.wasm` in the
+  harness on an Apple M5 Max; one `c4__show` each: parse, C4 reading,
+  layout, the reply and the first draw; boundaries of ten boxes with a
+  chain of labelled arrows in each; `cargo test --release --test tile
+  speed -- --ignored --nocapture` in `tiles/c4`): 50 boxes 24 ms, 150
+  boxes 76 ms, 300 boxes 164 ms. NFR-2's 100 ms for 50 boxes holds with
+  room; 300 boxes is well inside a tool call's 10 s, so **the limit stays
+  at 300 boxes** (FR-21). Pan and zoom don't lay out again: they redraw
+  the kept drawing under a new transform.
 
 ## 7. dagre against rust-sugiyama
 

@@ -77,6 +77,20 @@ tile and show content in it, and the pages below match.
 - [ ] **4. Packages:** `.pwtile`, minisign, signed install, updates, Go back, remove ([6](packaging.md))
 - [ ] **5. Marketplace:** index repo, Browse, Verified, report flow, `pitwall extension pack`/`sign`/`publish`; exit gate: threat model written and outside security review done ([7](marketplace.md), [5.5](permissions.md#55-threat-model-and-outside-review))
 - [ ] **6. Seed tiles:** C4 diagrams (flagship, [spec](../2026-11-27-c4-tile/plan.md)) and Notes ([spec](../2026-11-27-notes-tile/)) first, then CI, API client, git client, database browser ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only))
+  - [x] C4, shown diagrams ([C4 plan](../2026-11-27-c4-tile/plan.md) phase B): `c4__show` (an agent's Mermaid drawn next to its terminal, all or nothing, updated in place by item, the problems with their lines), the list by agent, click to zoom with a menu for a box several diagrams detail, Now / Changes, kept across restarts with 50 a project, dark and light, the built `tile.wasm` committed; harness tests, a headless test of an agent calling `c4__show` through Pitwall's MCP server, headless screenshots (#PR)
+  - [ ] C4, diagrams in the project's docs (phase C): waits for `files.read` with `list` and `watch` (gap below)
+  - [x] Notes: Send to an agent (a picker from `agents::list`, the whole note or a section, the 4 000-character check, `agents::queue_add`, Pitwall's refusals shown), ⌘/ for Edit and Preview, the `agents.read` and `agents.queue` permissions with reasons, README with screenshots (#PR)
+  - [ ] Notes: project notes, open in the editor, per-project private notes: wait for `files.*`, `viewer.open` and a tile's project (gaps below)
+  - [ ] CI, API client, git client, database browser
+  - SDK gaps the seed tiles found (each to be raised in the SDK's design, not reached around):
+    - [ ] `files.read` (`list`, `watch`) and `files.write`: C4 phase C and D, Notes' project notes. Tiles have no file access at all (WASI has no preopens)
+    - [ ] A tile's project (Notes G5): which project a view is in, for per-project notes and lists; agents name theirs in a call's `caller`, the user's own views don't
+    - [ ] `viewer.open` from a tile (Notes FR-10, open in the editor)
+    - [ ] A popover at a point of a canvas: the C4 tile's "which diagram?" menu is anchored to the bar, not to the box clicked
+    - [ ] Problem lines in the code view: `Mark` has added, changed and deleted only, so the C4 tile marks a bad line as changed; an error (and warning) mark, with its message, would say what it is
+    - [ ] Text measurement (C4 G2): the tile carries its own table of Inter's advance widths to size boxes
+    - [ ] The selection of an input (Notes G2): Send sends the whole note or a section, not the selected text
+    - [ ] In the app's headless tests, a way to choose a segmented control's option or press a key on a tile (`TileView` has click, pointer and region clicks only), for screenshots of the C4 tile's Changes view
 - [ ] **6a. Native blocks and ports:** the review port as proof tile, then the files tree and inbox ([16.3](native-blocks.md#163-which-built-in-tiles-move-to-the-sdk))
 - [ ] **On demand:** services from [14.3](platform-services.md#143-later-on-demand), each when a seed tile needs it
 - [ ] **7. Stabilise:** WIT 1.0, Preview label removed, deprecation policy

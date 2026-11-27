@@ -51,6 +51,7 @@ The other kinds of tools (reading back what a tile shows, acting outside it) com
 - [Canvas and drag](canvas.md): drawing diagrams with zoom, pan and clickable regions; drag and drop inside a tile.
 - [Native building blocks](blocks.md): Pitwall's code view and diff view in a tile.
 - [Agent tools](agent-tools.md): tools a tile gives your agents: opening it with content and show tools (phase 3: reading and acting).
+- [C4 diagrams and Notes](seed-tiles.md): two tiles built on the SDK alone: diagrams your agents draw, and notes you send them.
 - [Permissions](permissions.md): what each grant means.
 - [Platform services](platform-services.md): what Pitwall gives every tile.
 - [Servers in extensions](servers.md): a tile and a server the extension keeps running.
