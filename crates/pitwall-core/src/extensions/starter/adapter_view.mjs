@@ -57,7 +57,7 @@ const detail = () => {
     fields: [
       { label: "Id", value: i.id },
       { label: "State", value: i.done ? "done" : "to do" },
-      { label: "Docs", value: "Components", link: "https://github.com/AleksandreJavakhishvili/pitwall/blob/main/docs/extensions/views.md" },
+      { label: "Docs", value: "Components", link: "https://github.com/pitwalls/pitwall/blob/main/docs/extensions/views.md" },
     ],
     body: `**${i.subtitle}.**\n\nRefreshed ${refreshed} time(s) from the command palette.`,
     actions: i.done ? [] : [{ id: "done", label: "Mark done" }],

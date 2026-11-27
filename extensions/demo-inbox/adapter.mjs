@@ -204,7 +204,7 @@ function runDetail() {
       { label: "Branch", value: r.branch },
       { label: "State", value: r.state },
       { label: "Started", value: new Date(r.time).toLocaleString() },
-      { label: "Docs", value: "How views work", link: "https://github.com/AleksandreJavakhishvili/pitwall/blob/main/docs/extensions/views.md" },
+      { label: "Docs", value: "How views work", link: "https://github.com/pitwalls/pitwall/blob/main/docs/extensions/views.md" },
     ],
     body:
       r.state === "failed"

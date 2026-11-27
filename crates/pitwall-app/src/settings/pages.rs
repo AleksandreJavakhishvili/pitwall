@@ -58,11 +58,11 @@ fn status_chip(ui: &Ui, installed: Option<bool>) -> Div {
 }
 
 /// External links on About.
-pub const WEBSITE: &str = "https://aleksandrejavakhishvili.github.io/pitwall/";
-pub const SOURCE: &str = "https://github.com/AleksandreJavakhishvili/pitwall";
-pub const ISSUES: &str = "https://github.com/AleksandreJavakhishvili/pitwall/issues";
-pub const LICENSE: &str = "https://github.com/AleksandreJavakhishvili/pitwall/blob/main/LICENSE";
-pub const THIRD_PARTY: &str = "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/LICENSES";
+pub const WEBSITE: &str = "https://pitwalls.github.io/pitwall/";
+pub const SOURCE: &str = "https://github.com/pitwalls/pitwall";
+pub const ISSUES: &str = "https://github.com/pitwalls/pitwall/issues";
+pub const LICENSE: &str = "https://github.com/pitwalls/pitwall/blob/main/LICENSE";
+pub const THIRD_PARTY: &str = "https://github.com/pitwalls/pitwall/tree/main/LICENSES";
 
 impl SettingsView {
     /// The parts of `page`: what builds each section (cheap; a part is

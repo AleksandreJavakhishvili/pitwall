@@ -28,11 +28,11 @@ see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 # Links are spelled out (not [remote.github]) so rendering never calls the GitHub API.
 body = """
 {%- macro commit_link(commit) -%}
-  [`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/AleksandreJavakhishvili/pitwall/commit/{{ commit.id }})
+  [`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/pitwalls/pitwall/commit/{{ commit.id }})
 {%- endmacro -%}
 
 {% if version %}\
-  ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+  ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/pitwalls/pitwall/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
   ## Unreleased
 {% endif %}\
@@ -72,7 +72,7 @@ topo_order = false
 sort_commits = "oldest"
 commit_preprocessors = [
   # Link "#123" issue / PR references.
-  { pattern = '\(#(\d+)\)', replace = "([#${1}](https://github.com/AleksandreJavakhishvili/pitwall/issues/${1}))" },
+  { pattern = '\(#(\d+)\)', replace = "([#${1}](https://github.com/pitwalls/pitwall/issues/${1}))" },
 ]
 # The HTML comments only fix the order of the groups; they're stripped on output.
 commit_parsers = [

@@ -1,24 +1,24 @@
 # Homebrew cask for Pitwall: a template, not published yet.
 #
 # To publish (once a release exists):
-#   1. Create the tap repository github.com/AleksandreJavakhishvili/homebrew-tap
+#   1. Create the tap repository github.com/pitwalls/homebrew-tap
 #      with a Casks/ folder.
 #   2. Copy this file to Casks/pitwall.rb there and set `version` and `sha256`
 #      from the release's SHA256SUMS.txt (the line for the .dmg).
-#   3. Check it: brew audit --cask --new aleksandrejavakhishvili/tap/pitwall
-#                brew install --cask aleksandrejavakhishvili/tap/pitwall
+#   3. Check it: brew audit --cask --new pitwalls/tap/pitwall
+#                brew install --cask pitwalls/tap/pitwall
 #   Users then install with:
-#      brew install --cask aleksandrejavakhishvili/tap/pitwall
+#      brew install --cask pitwalls/tap/pitwall
 #
 # Bump version + sha256 for every release (or automate it from release.yml).
 cask "pitwall" do
   version "0.1.0"
   sha256 "REPLACE_WITH_SHA256_OF_THE_DMG"
 
-  url "https://github.com/AleksandreJavakhishvili/pitwall/releases/download/v#{version}/Pitwall_#{version}_universal.dmg"
+  url "https://github.com/pitwalls/pitwall/releases/download/v#{version}/Pitwall_#{version}_universal.dmg"
   name "Pitwall"
   desc "Hosts terminal coding agents and shows which one needs you"
-  homepage "https://aleksandrejavakhishvili.github.io/pitwall/"
+  homepage "https://pitwalls.github.io/pitwall/"
 
   livecheck do
     url :url

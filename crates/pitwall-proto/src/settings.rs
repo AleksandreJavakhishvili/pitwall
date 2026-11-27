@@ -862,7 +862,7 @@ mod tests {
             "# Settings reference\n\n\
              Every setting Pitwall has, by Settings page. Change them in Settings (⌘,), with `pitwall settings set <key> <value>`, or by editing `~/.pitwall/ui.json`. This page is generated from the same list the app and `pitwall settings list` use.\n\n\
              ## How settings apply\n\n\
-             - **Live.** Pitwall watches `ui.json`: an edit applies at once, and a value that isn't allowed is reported while the last good one stays. The file also holds spaces, layouts and windows; its settings have a [JSON Schema](https://github.com/AleksandreJavakhishvili/pitwall/blob/main/docs/settings.schema.json) for editors.\n\
+             - **Live.** Pitwall watches `ui.json`: an edit applies at once, and a value that isn't allowed is reported while the last good one stays. The file also holds spaces, layouts and windows; its settings have a [JSON Schema](https://github.com/pitwalls/pitwall/blob/main/docs/settings.schema.json) for editors.\n\
              - **From the CLI.** `pitwall settings list` shows every key with its value, allowed values and default; `get`, `set` and `reset` work on one. With Pitwall closed, `settings` edits `ui.json` directly (settings kept there only).\n\
              - **Approval.** Settings that change something outside Pitwall (installing the CLI link or Codex hooks, running rulesync through npx) ask for your OK in Pitwall when an agent changes them, and need Pitwall running.\n\
              - **Kept elsewhere.** A few settings are state Pitwall reads from outside `ui.json` (an installed link, hooks in another tool's file); only a running Pitwall changes them.\n",

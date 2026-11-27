@@ -314,7 +314,7 @@ an npm package's versions. Code: `pitwall_core::extensions::npm`
   optionally `registry`, an `https://` address (a Pitwall from before
   npm sources refuses such a manifest).
   ```json
-  "source": { "git": "https://github.com/AleksandreJavakhishvili/pitwall", "dir": "extensions/agention", "tags": "agention-v{version}" }
+  "source": { "git": "https://github.com/pitwalls/pitwall", "dir": "extensions/agention", "tags": "agention-v{version}" }
   "source": { "npm": "@me/my-ext" }
   ```
 - **Templates** use `{project}` (the last part of the agent's project

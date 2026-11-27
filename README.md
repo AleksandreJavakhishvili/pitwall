@@ -11,17 +11,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AleksandreJavakhishvili/pitwall/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/AleksandreJavakhishvili/pitwall?label=release&amp;color=e8a33d" /></a>
+  <a href="https://github.com/pitwalls/pitwall/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/pitwalls/pitwall?label=release&amp;color=e8a33d" /></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-3b82f6" /></a>
   <a href="#install"><img alt="Platforms: macOS, Linux, Windows (preview)" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20preview-6b7280" /></a>
 </p>
 
 <p align="center">
-  <a href="https://aleksandrejavakhishvili.github.io/pitwall/">Website</a> ·
-  <a href="https://aleksandrejavakhishvili.github.io/pitwall/download/">Download</a> ·
-  <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/quick-start/">Quick start</a> ·
-  <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/how-it-works/">How it works</a> ·
-  <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/cli/">CLI reference</a> ·
+  <a href="https://pitwalls.github.io/pitwall/">Website</a> ·
+  <a href="https://pitwalls.github.io/pitwall/download/">Download</a> ·
+  <a href="https://pitwalls.github.io/pitwall/docs/quick-start/">Quick start</a> ·
+  <a href="https://pitwalls.github.io/pitwall/docs/how-it-works/">How it works</a> ·
+  <a href="https://pitwalls.github.io/pitwall/docs/cli/">CLI reference</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
   <a href="https://www.reddit.com/r/pitwalls/">Reddit</a>
@@ -30,7 +30,7 @@
 <p align="center">
   <img src="docs/media/demo.webp" alt="Pitwall with several agents: one flagged amber because it needs you, the Wall of live terminals, Next up and Review" width="900" />
 </p>
-<p align="center"><sub>Recorded from the web demo of the UI, with made-up projects. <a href="https://aleksandrejavakhishvili.github.io/pitwall/">Try it live on the website.</a></sub></p>
+<p align="center"><sub>Recorded from the web demo of the UI, with made-up projects. <a href="https://pitwalls.github.io/pitwall/">Try it live on the website.</a></sub></p>
 
 ## Why Pitwall
 
@@ -130,7 +130,7 @@ The CLI does what the UI does: agents (new, stop, restart, remove, rename, statu
 
 ## Install
 
-Download from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest), or use the [download page](https://aleksandrejavakhishvili.github.io/pitwall/download/), which picks your system. Builds aren't code-signed yet, so the first launch takes one extra click on macOS and Windows.
+Download from the [latest release](https://github.com/pitwalls/pitwall/releases/latest), or use the [download page](https://pitwalls.github.io/pitwall/download/), which picks your system. Builds aren't code-signed yet, so the first launch takes one extra click on macOS and Windows.
 
 | Platform | Download | First launch |
 |---|---|---|
@@ -143,7 +143,7 @@ Every release has one `SHA256SUMS.txt` covering all downloads. Shortcuts in this
 <details>
 <summary><strong>macOS: first launch, quarantine and folder access</strong></summary>
 
-1. Get the `.dmg` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest) and drag Pitwall to Applications.
+1. Get the `.dmg` from the [latest release](https://github.com/pitwalls/pitwall/releases/latest) and drag Pitwall to Applications.
 2. Open it the first time with right-click → **Open**, then **Open** in the dialog (or System Settings → Privacy & Security → **Open Anyway** after a blocked launch).
 
 Releases aren't signed with an Apple Developer ID or notarized yet, so Gatekeeper blocks a plain double-click on first launch. If macOS says the app "is damaged", clear the quarantine flag instead:
@@ -159,7 +159,7 @@ Reading projects in Desktop or Documents makes macOS ask for folder access; the 
 <details>
 <summary><strong>Linux: AppImage or .deb, and where things live</strong></summary>
 
-Get the `.AppImage` or the `.deb` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest).
+Get the `.AppImage` or the `.deb` from the [latest release](https://github.com/pitwalls/pitwall/releases/latest).
 
 ```bash
 # Debian, Ubuntu and derivatives: installs Pitwall and the libraries it needs
@@ -188,9 +188,9 @@ Settings → **Install command-line tool** links `pitwall` into `~/.local/bin`. 
 <details>
 <summary><strong>Windows (preview): SmartScreen, PowerShell and the tray</strong></summary>
 
-Get the installer (`Pitwall_<version>_x64-setup.exe`, per user, no admin rights) or the `.msi` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest). Windows 10 1809 or newer (Pitwall's terminals use ConPTY).
+Get the installer (`Pitwall_<version>_x64-setup.exe`, per user, no admin rights) or the `.msi` from the [latest release](https://github.com/pitwalls/pitwall/releases/latest). Windows 10 1809 or newer (Pitwall's terminals use ConPTY).
 
-Windows is a preview since 0.1.1: CI tests pass, but it has seen little use on real PCs yet; please [report problems](https://github.com/AleksandreJavakhishvili/pitwall/issues). The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
+Windows is a preview since 0.1.1: CI tests pass, but it has seen little use on real PCs yet; please [report problems](https://github.com/pitwalls/pitwall/issues). The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
 
 Where things live and how it differs from macOS:
 
@@ -205,7 +205,7 @@ Where things live and how it differs from macOS:
 <details>
 <summary><strong>Homebrew (coming)</strong></summary>
 
-Coming. A cask is ready in [`packaging/homebrew/pitwall.rb`](packaging/homebrew/pitwall.rb) and will be published as `brew install --cask aleksandrejavakhishvili/tap/pitwall` once the tap exists.
+Coming. A cask is ready in [`packaging/homebrew/pitwall.rb`](packaging/homebrew/pitwall.rb) and will be published as `brew install --cask pitwalls/tap/pitwall` once the tap exists.
 
 </details>
 
@@ -215,7 +215,7 @@ Coming. A cask is ready in [`packaging/homebrew/pitwall.rb`](packaging/homebrew/
 You need Rust (`rustup`; the toolchain is pinned in `rust-toolchain.toml` and installed automatically), plus at least one agent CLI you're logged in to. Pitwall is a Cargo workspace; `scripts/package-app.sh` builds the app and its helpers (`pitwall-hold`, the `pitwall` CLI and, on Windows, the `pitwall-hook` relay) in release mode and bundles them into `target/package/`.
 
 ```bash
-git clone https://github.com/AleksandreJavakhishvili/pitwall.git
+git clone https://github.com/pitwalls/pitwall.git
 cd pitwall
 scripts/package-app.sh                     # macOS: Pitwall.app + .dmg · Linux: AppImage + .deb · Windows: .exe + .msi
 scripts/package-app.sh --formats app       # only some formats
@@ -255,7 +255,7 @@ PITWALL_SIGN_IDENTITY="My Identity" scripts/install-local.sh path/to/Pitwall.app
 5. **Review** with `⌘R`: comment on lines, send them back as one prompt, commit and merge when you're happy.
 6. **Quit any time.** `⌘Q` closes the UI only; **Quit and Stop Agents** ends everything.
 
-The [quick start on the website](https://aleksandrejavakhishvili.github.io/pitwall/docs/quick-start/) has every shortcut and where Pitwall keeps its files.
+The [quick start on the website](https://pitwalls.github.io/pitwall/docs/quick-start/) has every shortcut and where Pitwall keeps its files.
 
 ## Performance
 
@@ -276,7 +276,7 @@ Carried over from v0.1: terminals are parsed in Rust (`alacritty_terminal`), and
 
 ## Roadmap
 
-[ROADMAP.md](ROADMAP.md) (also [on the website](https://aleksandrejavakhishvili.github.io/pitwall/roadmap/)) says what's being worked on now, what's next and what comes later: signed builds, Windows out of preview, agents that keep running while the app is closed, and plain SSH machines.
+[ROADMAP.md](ROADMAP.md) (also [on the website](https://pitwalls.github.io/pitwall/roadmap/)) says what's being worked on now, what's next and what comes later: signed builds, Windows out of preview, agents that keep running while the app is closed, and plain SSH machines.
 
 ## Contributing
 
