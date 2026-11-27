@@ -1,0 +1,30 @@
+# Merges an update when check.yml says every check passed and nothing
+# needs a maintainer (the author's own login, no new permission, host or
+# key, no review or takedown change; marketplace.md §7.2 step 5). Runs
+# after check.yml, in the base repository's context, and reads only the
+# result check.yml wrote: it never checks out or runs the pull request.
+name: auto-merge
+on:
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  merge:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: check-result, run-id: "${{ github.event.workflow_run.id }}", github-token: "${{ github.token }}" }
+      - name: Merge when the check allows it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          grep -qx 'auto-merge=true' result.txt || { echo "a maintainer merges this one"; exit 0; }
+          pr=$(sed -n 's/^pr=\([0-9]\+\)$/\1/p' result.txt)
+          [ -n "$pr" ] || exit 0
+          gh pr merge "$pr" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"

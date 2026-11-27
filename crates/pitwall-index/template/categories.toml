@@ -1,0 +1,35 @@
+[[categories]]
+id = "git"
+name = "Git"
+
+[[categories]]
+id = "ci"
+name = "CI"
+
+[[categories]]
+id = "databases"
+name = "Databases"
+
+[[categories]]
+id = "apis"
+name = "APIs"
+
+[[categories]]
+id = "notes"
+name = "Notes"
+
+[[categories]]
+id = "monitoring"
+name = "Monitoring"
+
+[[categories]]
+id = "docs"
+name = "Docs"
+
+[[categories]]
+id = "fun"
+name = "Fun"
+
+[[categories]]
+id = "other"
+name = "Other"

@@ -4729,6 +4729,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pitwall-index"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "minisign",
+ "pitwall-core",
+ "pitwall-extension-test",
+ "serde_json",
+ "tempfile",
+ "ureq",
+]
+
+[[package]]
 name = "pitwall-peer"
 version = "0.8.0"
 dependencies = [
