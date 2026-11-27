@@ -845,6 +845,8 @@ pub fn handle<T: Tile>(event: wit::Event) -> bool {
                 cx.granted = g.clone();
                 tile.on_event(&Event::GrantsChanged(g), cx);
             }
+            wit::Event::AgentsChanged => tile.on_event(&Event::AgentsChanged, cx),
+            wit::Event::AskAnswered(a) => tile.on_event(&Event::AskAnswered(a.into()), cx),
         }
         std::mem::take(&mut cx.notified)
     })

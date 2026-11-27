@@ -76,7 +76,7 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 7] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles"];
+pub const CONTRIBUTES: [&str; 8] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks"];
 
 /// A contribution an older Pitwall drew and this one no longer does: read
 /// and never drawn, so a manifest that has it still installs (its check
@@ -203,6 +203,9 @@ pub struct Contributes {
     /// Tiles drawn from what its WebAssembly component renders
     /// (docs/spec/tile-sdk/).
     pub tiles: Vec<TileDef>,
+    /// Questions its tiles ask in the floating control
+    /// (docs/spec/tile-sdk/platform-services.md §14.2).
+    pub asks: bool,
 }
 
 /// A tile a manifest declares: its id (the view its component renders),
@@ -279,6 +282,9 @@ impl Contributes {
         }));
         if self.badges {
             out.push("badges and short notes on agents' and projects' rows in the sidebar".to_string());
+        }
+        if self.asks {
+            out.push("questions in the floating control, answered there or in its tile".to_string());
         }
         if self.notifications {
             out.push("notifications (a few a minute at most)".to_string());
@@ -870,8 +876,13 @@ pub fn parse_for(text: &str, pitwall: &str) -> Result<Manifest, String> {
     if contributes.inbox && adapter.is_none() {
         return Err("\"contributes.inbox\" needs an \"adapter\": the inbox shows what it sends".into());
     }
+    if contributes.asks && contributes.tiles.is_empty() {
+        return Err("\"contributes.asks\" needs \"tiles\": a tile asks the questions and hears the answers".into());
+    }
     if adapter.is_none() {
-        let what = [("views", !contributes.views.is_empty()), ("commands", !contributes.commands.is_empty()), ("badges", contributes.badges), ("notifications", contributes.notifications), ("webViews", contributes.web_views.iter().any(|w| w.url.is_none()))].into_iter().find(|(_, has)| *has);
+        // A tile sets badges itself (`badges.set`).
+        let badges = contributes.badges && contributes.tiles.is_empty();
+        let what = [("views", !contributes.views.is_empty()), ("commands", !contributes.commands.is_empty()), ("badges", badges), ("notifications", contributes.notifications), ("webViews", contributes.web_views.iter().any(|w| w.url.is_none()))].into_iter().find(|(_, has)| *has);
         if let Some((what, _)) = what {
             return Err(format!("\"contributes.{what}\" needs an \"adapter\": Pitwall draws what it sends"));
         }
@@ -972,6 +983,7 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             retired if RETIRED_CONTRIBUTIONS.contains(&retired) => c.retired_panels = true,
             "webViews" => c.web_views = parse_web_views(val)?,
             "tiles" => c.tiles = parse_tiles(val)?,
+            "asks" => c.asks = switch(k, val)?,
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
             other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
         }
@@ -1851,7 +1863,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles)"));
+        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));
@@ -1893,6 +1905,12 @@ mod tests {
         assert!(err(r#", "contributes": {"badges": "yes"}"#).contains("true or false"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"views": [{"id": "a", "title": "A"}]}}"#).unwrap_err().contains("\"contributes.views\" needs an \"adapter\""));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"badges": true}}"#).unwrap_err().contains("\"contributes.badges\" needs an \"adapter\""));
+        // A tile sets its own badges and asks its own questions.
+        let tile = r#""tiles": [{"id": "main", "title": "Main", "wasm": "tile.wasm"}]"#;
+        let m = parse(&format!(r#"{{"v": 2, "id": "x", "name": "X", "contributes": {{{tile}, "badges": true, "asks": true}}}}"#)).unwrap();
+        assert!(m.contributes.badges && m.contributes.asks);
+        assert!(m.contributes.lines().iter().any(|l| l.starts_with("questions in the floating control")), "{:?}", m.contributes.lines());
+        assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"asks": true}}"#).unwrap_err().contains("\"contributes.asks\" needs \"tiles\""));
     }
 
     /// Text, choice, switch and number settings: each with its checks and

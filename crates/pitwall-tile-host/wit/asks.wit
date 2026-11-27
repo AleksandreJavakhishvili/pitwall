@@ -1,0 +1,54 @@
+package pitwall:tile@0.1.0;
+
+/// Questions in Pitwall's floating control (platform-services.md §14.2),
+/// shown as an inbox's are: a card with who asks, the question, the
+/// suggestions, a field, Send, Decline and "Open <tile>". Only when the
+/// manifest says `"asks": true` in `contributes`. The answer comes back
+/// as the `ask-answered` event.
+interface asks {
+  use types.{host-error};
+
+  /// An answer the user can pick with one click.
+  record suggestion {
+    /// Its words (at most 80 characters).
+    label: string,
+    /// A line under it (at most 200 characters).
+    description: option<string>,
+  }
+
+  /// A question the tile asks the user.
+  record ask {
+    /// The tile's own id for it, stable while it is open (1 to 128
+    /// characters): `ask-answered` names it.
+    id: string,
+    /// Who asks: an agent by Pitwall's id (needs `agents.read`), shown by
+    /// its name; `none`: the extension asks.
+    %from: option<string>,
+    /// What it is about, after who asks (at most 200 characters).
+    title: string,
+    /// The question (at most 2 000 characters).
+    question: string,
+    /// Answers to pick (at most 8).
+    suggestions: list<suggestion>,
+    /// Several suggestions may be picked.
+    multiple: bool,
+    /// It holds an agent or a job up: shown first, marked "Waiting on
+    /// you".
+    blocking: bool,
+  }
+
+  /// The whole set of open questions, each time (an empty list clears
+  /// them). At most 50 (`host-error.too-large` over that); the control
+  /// shows them after agents' own prompts. `denied` when the manifest
+  /// doesn't contribute `asks`; `invalid` for an ask with no id, two with
+  /// the same id, or no question. Longer text is cut. Pitwall keeps the
+  /// set while the tile is hidden or let go to save memory, so the
+  /// questions stay in the control; an answer to a tile that was let go
+  /// starts it again first.
+  set: func(open: list<ask>) -> result<_, host-error>;
+
+  /// After `ask-answered`: `none` when the answer was taken (send a set
+  /// without the question), or why it wasn't, which the card shows under
+  /// its buttons ("Not sent: …"), letting the user answer again.
+  reply: func(id: string, refused: option<string>);
+}

@@ -764,6 +764,8 @@ fn asks(cx: &App) -> Vec<AskItem> {
             from: &from,
         }]));
     }
+    // Tiles' questions, after the inboxes' (platform-services.md §14.2).
+    out.extend(crate::tiles::group::float_asks(agents, cx));
     // Blocking ones first across the inboxes too (stable).
     out.sort_by_key(|a| !a.ask.blocking);
     out
@@ -846,8 +848,11 @@ pub fn sync(cx: &mut App) {
         let f = cx.global::<Float>();
         let h = hub::try_hub(cx);
         let result = |key: &str, req: u64| {
-            let ext = questions.iter().find(|a| a.key() == key).map(|a| a.ext.as_str())?;
-            h.as_ref()?.read(cx).get(ext)?.result(req)
+            let a = questions.iter().find(|a| a.key() == key)?;
+            if a.tile.is_some() {
+                return crate::tiles::group::ask_result(&a.ext, req, cx);
+            }
+            h.as_ref()?.read(cx).get(&a.ext)?.result(req)
         };
         f.sent.iter().filter(|(k, req)| result(k, **req) == Some(false)).map(|(k, _)| k.clone()).collect()
     };
@@ -895,7 +900,7 @@ pub fn sync(cx: &mut App) {
         crate::platform::float_cursor(FloatCursor::Arrow);
     }
     // Watch who is in front only while it can matter.
-    let watching = (!list.is_empty() || inboxes(cx).iter().any(|(_, st)| st.threads.iter().any(|t| t.open_asks > 0))) && enabled(cx);
+    let watching = (!list.is_empty() || !questions.is_empty() || inboxes(cx).iter().any(|(_, st)| st.threads.iter().any(|t| t.open_asks > 0))) && enabled(cx);
     if !watching {
         cx.global_mut::<Float>().watch = None;
     } else if cx.global::<Float>().watch.is_none() {
@@ -1269,7 +1274,11 @@ fn send_ask(a: &AskItem, picks: Vec<u32>, text: Option<String>, declined: bool, 
         return false;
     }
     log(|| format!("answer to {key}: picks {picks:?}, own words {}, declined {declined}", text.as_deref().is_some_and(|t| !t.trim().is_empty())));
-    let req = crate::main_screen::inbox_tile::answer_ask(&a.ext, &a.thread, &a.ask, picks, text, declined, cx);
+    let req = if a.tile.is_some() {
+        crate::tiles::group::answer(&a.ext, &a.thread, picks, text, declined, cx)
+    } else {
+        crate::main_screen::inbox_tile::answer_ask(&a.ext, &a.thread, &a.ask, picks, text, declined, cx)
+    };
     if let Some(req) = req {
         let f = cx.global_mut::<Float>();
         f.sent.insert(key.clone(), req);
@@ -1279,8 +1288,13 @@ fn send_ask(a: &AskItem, picks: Vec<u32>, text: Option<String>, declined: bool, 
     req.is_some()
 }
 
-/// Bring Pitwall forward on question `a`'s thread in its inbox.
+/// Bring Pitwall forward on question `a`'s thread in its inbox, or on the
+/// tile that asks it.
 fn open_ask(a: &AskItem, cx: &mut App) {
+    if let Some((tile, _)) = &a.tile {
+        crate::windows::show_extension_view(&a.ext, tile, cx);
+        return;
+    }
     let opener = cx.global::<Float>().open_inbox.clone();
     opener(&a.ext, &a.thread, cx);
 }
@@ -2439,7 +2453,7 @@ impl FloatView {
                 format!("decline-{key}"),
             )))
             .child(no_drag(hot(
-                kit::text_button(SharedString::from(sel("open")), "Open in inbox", kit::BtnKind::Ghost, false, t)
+                kit::text_button(SharedString::from(sel("open")), a.tile.as_ref().map_or_else(|| "Open in inbox".to_string(), |(_, title)| format!("Open {title}")), kit::BtnKind::Ghost, false, t)
                     .debug_selector(named("open"))
                     .on_click(move |_, _, cx| open_ask(&open_a, cx)),
                 format!("open-{key}"),

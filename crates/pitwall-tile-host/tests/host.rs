@@ -183,7 +183,7 @@ impl Secrets for OneSecret {
 #[test]
 fn settings_are_read_and_changes_reach_the_tile() {
     let t = tempfile::tempdir().unwrap();
-    let host = TileHost::new(HostConfig { data_dir: t.path().into(), secrets: std::sync::Arc::new(OneSecret) }).unwrap();
+    let host = TileHost::new(HostConfig { secrets: std::sync::Arc::new(OneSecret), ..HostConfig::new(t.path()) }).unwrap();
     let data = host.extension_data("hello");
     data.set_setting("greeting", Some("Howdy")).unwrap();
     let run = start(&host, StartOptions::view("main"));

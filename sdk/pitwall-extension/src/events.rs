@@ -322,6 +322,15 @@ pub enum Event {
     /// The user granted or took back permissions; the list is what is
     /// granted now.
     GrantsChanged(Vec<String>),
+    /// Pitwall's agents changed (one came or went; a name, a state or a
+    /// Next up changed): read them again with
+    /// [`agents::list`](crate::agents::list). Only with `agents.read`;
+    /// changes close together arrive as one.
+    AgentsChanged,
+    /// The user answered one of the tile's questions
+    /// ([`asks::set`](crate::asks::set)) in the floating control; reply
+    /// with [`asks::reply`](crate::asks::reply).
+    AskAnswered(crate::asks::Answer),
 }
 
 /// A listener's event: what the SDK hands a closure made with
