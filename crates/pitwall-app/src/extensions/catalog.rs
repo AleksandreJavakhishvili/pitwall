@@ -908,8 +908,10 @@ mod tests {
     }
 
     /// What the packaging script bundles (`scripts/stage-extensions.sh`):
-    /// every extension folder of the repo, usable as shipped, without its
-    /// test files or node_modules.
+    /// every extension folder of the repo, usable as shipped, with only
+    /// what it needs at run time: no sources or build files (a tile's
+    /// `src/`, `Cargo.toml`, `Cargo.lock`, `scripts/`), test files or
+    /// node_modules.
     #[cfg(unix)]
     #[test]
     fn bundling_lists_the_right_folders() {
@@ -927,11 +929,27 @@ mod tests {
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).unwrap().flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
-                assert!(!["test", "tests", "node_modules", "target", ".DS_Store"].contains(&name.as_str()), "{} is bundled", e.path().display());
+                assert!(!["test", "tests", "node_modules", "target", ".DS_Store", "src", "Cargo.toml", "Cargo.lock", "scripts"].contains(&name.as_str()), "{} is bundled", e.path().display());
+                assert!(!name.starts_with('.'), "{} is bundled", e.path().display());
                 if e.path().is_dir() {
                     stack.push(e.path());
                 }
             }
+        }
+        // One with tiles holds what a tile package would, and the files
+        // its manifest names.
+        for id in &ids {
+            let m = pitwall_core::extensions::read_in_place(&dest.join(id)).unwrap();
+            if m.contributes.tiles.is_empty() {
+                continue;
+            }
+            let mut may: Vec<String> = ["extension.json", "tile.wasm", "README.md", "CHANGELOG.md", "LICENSE", "LICENSE.md", "LICENSE.txt", "NOTICE", "agents", "assets", "icons", "screenshots"].map(String::from).to_vec();
+            may.extend(m.contributes.tiles.iter().flat_map(|t| [Some(t.wasm.clone()), t.input.clone()]).flatten());
+            for e in std::fs::read_dir(dest.join(id)).unwrap().flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                assert!(may.contains(&name), "{id}: {name} isn't needed at run time");
+            }
+            assert!(dest.join(id).join("extension.json").is_file() && dest.join(id).join("README.md").is_file(), "{id}: its manifest and README");
         }
         // Each as shipped still has the files its manifest names.
         for id in &ids {
