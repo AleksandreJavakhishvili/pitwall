@@ -16,7 +16,8 @@
   "contributes": {
     "tiles": [
       { "id": "main", "title": "Hello", "icon": "grid", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json" },
-      { "id": "second", "title": "Hello again", "wasm": "tile.wasm" }
+      { "id": "second", "title": "Hello again", "wasm": "tile.wasm" },
+      { "id": "gallery", "title": "Gallery", "icon": "list", "wasm": "tile.wasm" }
     ]
   }
 }

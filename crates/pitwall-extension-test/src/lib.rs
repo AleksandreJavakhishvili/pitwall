@@ -62,6 +62,9 @@ pub use pitwall_tile_host::ui::{Canvas, CodeView, DiffSide as Side, DiffView, Dr
 pub use pitwall_tile_host::ui::{Agent, AgentState, Ask, Badge, Row, Suggestion};
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 
+mod components;
+pub use components::ListRow;
+
 /// The Rust target tiles are built for.
 pub const WASM_TARGET: &str = "wasm32-wasip2";
 
@@ -271,6 +274,7 @@ impl Harness {
             sent: false,
             unknown_icons: Vec::new(),
             methods: self.methods,
+            got_rows: Vec::new(),
         };
         s.settle();
         s
@@ -415,6 +419,8 @@ pub struct Session {
     unknown_icons: Vec<String>,
     /// The fake method table: the agents and what the tile queued.
     methods: Arc<agents::FakeMethods>,
+    /// Rows the tile sent since [`Session::rows`] asked.
+    got_rows: Vec<pitwall_tile_host::RowsUpdate>,
 }
 
 impl Session {
@@ -437,19 +443,22 @@ impl Session {
                         }
                         self.texts.entry(at).or_default();
                     }
-                    let icon = match &n.element {
-                        Element::Icon(ui::Icon::Named(name)) => Some(name),
-                        Element::Button(b) => b.icon.as_ref().map(|ui::Icon::Named(name)| name),
-                        _ => None,
+                    let mut icons: Vec<&str> = match &n.element {
+                        Element::Icon(ui::Icon::Named(name)) => vec![name.as_str()],
+                        Element::Button(b) => b.icon.as_ref().map(|ui::Icon::Named(name)| name.as_str()).into_iter().collect(),
+                        _ => vec![],
                     };
-                    if let Some(name) = icon.filter(|n| !pitwall_core::extensions::ICON_NAMES.contains(&n.as_str())) {
-                        if !self.unknown_icons.contains(name) {
+                    icons.extend(components::icons(&n.element));
+                    for name in icons.into_iter().filter(|n| !pitwall_core::extensions::ICON_NAMES.contains(n)) {
+                        if !self.unknown_icons.iter().any(|u| u == name) {
                             println!("[harness] “{}” names the icon “{name}”, which Pitwall doesn't have: it draws nothing (see the SDK's Icon)", paths[i]);
-                            self.unknown_icons.push(name.clone());
+                            self.unknown_icons.push(name.to_string());
                         }
                     }
                 }
                 self.texts.retain(|(v, p), _| v != &view || live.contains(p));
+                // A field that went away comes back new, as in Pitwall.
+                self.revisions.retain(|(v, p), _| v != &view || live.contains(p));
                 // The focused node went away: its blur.
                 if self.focused.get(&view).is_some_and(|p| !paths.contains(p)) {
                     self.move_focus(&view, None);
@@ -472,6 +481,7 @@ impl Session {
             TileOutput::StateSaved(b) => self.saved = Some(b),
             TileOutput::Stopped(r) => self.stopped = Some(r),
             TileOutput::Preparing | TileOutput::Started { .. } => {}
+            TileOutput::Rows(u) => self.got_rows.push(u),
         }
     }
 
@@ -699,6 +709,7 @@ impl Session {
                         if input.multiline { " multiline" } else { "" }
                     )
                 }
+                e => components::describe(e).unwrap_or_else(|| pitwall_tile_host::components::kind(e).to_string()),
             };
             let what = if focused == Some(&paths[i]) { format!("{what} focused") } else { what };
             let key = if n.key.chars().all(|c| c.is_ascii_digit()) || i == 0 { String::new() } else { format!(" #{}", n.key) };
@@ -715,6 +726,10 @@ impl Session {
                     Listen::Pointer => "pointer",
                     Listen::Wheel => "wheel",
                     Listen::LineClick => "line-click",
+                    Listen::Toggle => "toggle",
+                    Listen::Link => "link",
+                    Listen::Sort => "sort",
+                    Listen::ColumnResized => "column-resized",
                 })
                 .collect();
             let on = if on.is_empty() { String::new() } else { format!(" [{}]", on.join(", ")) };
