@@ -42,6 +42,12 @@
 //! open, and toolbar changes are captured ([`Session::notifications`],
 //! [`Session::ui_requests`], [`Session::toolbar`]). The extension's own
 //! server is said to be up at an address you give ([`Harness::own_server`]).
+//! **Agents' calls.** [`Session::call`] calls a tile's tool as an agent
+//! would through Pitwall's MCP server (`<extension>__open`, or a show
+//! tool the manifest declares): the input checked against its schema,
+//! item ids per agent, the refusal of an item the user edited, the
+//! content delivered as `view-opened` or `view-content`, and what the
+//! agent is told back ([`Called`]).
 
 mod canvas;
 
@@ -338,6 +344,8 @@ impl Harness {
             net: self.net,
             net_seen: 0,
             own_server: self.own_server,
+            calls: pitwall_tile_host::agent::ShowCalls::new(),
+            answers: HashMap::new(),
         };
         s.settle();
         s
@@ -373,7 +381,7 @@ fn launch(host: &TileHost, ext: &Extension, options: StartOptions) -> (TileHandl
 }
 
 fn json_content(v: &serde_json::Value) -> ui::Content {
-    ui::Content { id: None, json: Some(v.to_string()), bytes: None }
+    ui::Content { id: None, json: Some(v.to_string()), bytes: None, call: None, tool: None, caller: None }
 }
 
 struct FakeSecrets(HashMap<String, String>);
@@ -498,6 +506,44 @@ pub struct Session {
     /// The fake requests already waited for in [`Session::settle`].
     net_seen: usize,
     own_server: Option<std::net::SocketAddr>,
+    /// Agents' calls so far (as Pitwall keeps them).
+    calls: pitwall_tile_host::agent::ShowCalls,
+    /// Answers to calls, by call id, not taken yet.
+    answers: HashMap<u64, pitwall_tile_host::agent::Answer>,
+}
+
+/// How an agent's call ended ([`Session::call`]): what the agent is told.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Called {
+    /// The tile showed it without a reply of its own (Pitwall tells the
+    /// agent where it opened).
+    Shown,
+    /// The tile replied: its short text, its JSON (a `present` tool's
+    /// result), the item id it settled on.
+    Replied { text: String, json: Option<serde_json::Value>, item: Option<String> },
+    /// The tile answered with an error (problems included, as the agent
+    /// reads them): nothing was shown.
+    Failed(String),
+    /// Pitwall refused it before the tile saw it (an input that doesn't
+    /// fit the schema, an item the user edited, too many calls), or it
+    /// never reached the tile; why, as the agent reads it.
+    Refused(String),
+}
+
+impl Called {
+    /// What the agent reads (empty for [`Called::Shown`]).
+    pub fn text(&self) -> &str {
+        match self {
+            Called::Shown => "",
+            Called::Replied { text, .. } => text,
+            Called::Failed(t) | Called::Refused(t) => t,
+        }
+    }
+
+    /// It showed (with or without a reply).
+    pub fn is_ok(&self) -> bool {
+        matches!(self, Called::Shown | Called::Replied { .. })
+    }
 }
 
 impl Session {
@@ -559,6 +605,12 @@ impl Session {
             TileOutput::Stopped(r) => self.stopped = Some(r),
             TileOutput::Preparing | TileOutput::Started { .. } => {}
             TileOutput::Rows(u) => self.got_rows.push(u),
+            TileOutput::Answered { call, answer } => {
+                self.answers.insert(call, answer);
+            }
+            TileOutput::UserEdited(call) => {
+                self.calls.user_edited(call);
+            }
         }
     }
 
@@ -1085,6 +1137,59 @@ impl Session {
         self.check_running();
         assert!(self.handle.set_content(view, json_content(&content)));
         self.settle()
+    }
+
+    /// Agent `agent` calls a tool of this extension's tiles as it would
+    /// through Pitwall's MCP server: `tool` `None` is `<extension>__open`
+    /// of the main tile, else a show tool a tile declares. `item` is the
+    /// agent's item id (the content's id), `input` the tile's input
+    /// (without Pitwall's own `where` and `of`).
+    ///
+    /// Like Pitwall, it checks the input against the schema first (an
+    /// input that doesn't fit never reaches the tile), refuses an item
+    /// the user edited since (the tile called `user_edited`), then gives
+    /// the tile's view (its id is the tile's) the content: `view-opened`
+    /// when it isn't open, `view-content` when it is.
+    pub fn call(&mut self, agent: &str, tool: Option<&str>, item: Option<&str>, input: serde_json::Value) -> Called {
+        use pitwall_tile_host::agent::{error_text, Answer, Caller, ShowCall, ToolOutput};
+        self.check_running();
+        let m = self.ext.manifest().clone();
+        let def = match tool {
+            Some(t) => m.contributes.tiles.iter().find(|d| d.tools.iter().any(|x| x.name == t)).unwrap_or_else(|| panic!("no tile of its extension.json declares a tool “{t}”")),
+            // The main view's id is its tile's.
+            None => m.contributes.tile(&self.main).unwrap_or_else(|| panic!("its extension.json has no tile “{}”", self.main)),
+        };
+        assert!(def.agents, "tile “{}” has \"agents\": false: agents get no tools of it", def.id);
+        let schema = match tool {
+            Some(t) => def.tools.iter().find(|x| x.name == t).map(|x| x.schema()),
+            None => def.input.as_deref().and_then(|rel| std::fs::read_to_string(self.ext.dir().join(rel)).ok()).and_then(|s| serde_json::from_str(&s).ok()),
+        };
+        if let Some(schema) = &schema {
+            let problems = pitwall_core::extensions::tools::check_input(schema, &input);
+            if !problems.is_empty() {
+                return Called::Refused(format!("Nothing was shown: the input doesn't fit.\n{}", problems.join("\n")));
+            }
+        }
+        let caller = Caller { agent_id: agent.to_string(), agent_name: agent.to_string(), project: None };
+        let call = ShowCall { tool: tool.map(str::to_string), tile: def.id.clone(), item: item.map(str::to_string), input: Some(input.to_string()), caller };
+        let (id, content) = match self.calls.begin(&call, Instant::now()) {
+            Ok(v) => v,
+            Err(refused) => return Called::Refused(refused.to_string()),
+        };
+        let view = def.id.clone();
+        if self.frames.contains_key(&view) {
+            assert!(self.handle.set_content(&view, content));
+        } else {
+            assert!(self.handle.open_view(ViewSpec { id: view.clone(), tile: def.id.clone(), content: Some(content) }));
+        }
+        self.settle();
+        match self.answers.remove(&id) {
+            Some(Answer::Handled) => Called::Shown,
+            Some(Answer::Reply(ToolOutput::Ok(ok))) => Called::Replied { text: ok.text, json: ok.json.and_then(|j| serde_json::from_str(&j).ok()), item: ok.item },
+            Some(Answer::Reply(ToolOutput::Error(e))) => Called::Failed(error_text(&e)),
+            Some(Answer::NotDelivered(why)) => Called::Refused(format!("It didn't get it: {why}. Nothing was shown.")),
+            None => panic!("the tile didn't answer call {id}"),
+        }
     }
 
     /// Close view `view`.
