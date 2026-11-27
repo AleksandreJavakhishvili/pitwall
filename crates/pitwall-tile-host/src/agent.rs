@@ -9,9 +9,114 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
 
-pub use crate::bindings::pitwall::tile::agent_tools::{Problem, ToolError, ToolOk, ToolOutput};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+pub use crate::bindings::pitwall::tile::agent_tools::{Problem, ToolCall, ToolError, ToolKind, ToolOk, ToolOutput};
 pub use crate::bindings::pitwall::tile::types::Caller;
 use crate::ui::Content;
+
+/// How long a `read` call may take, start to answer.
+pub const READ_TIME: Duration = Duration::from_secs(10);
+/// How long an `act` call may take once the user approved it.
+pub const ACT_TIME: Duration = Duration::from_secs(120);
+/// The largest file a `present` call may name (`from_file`).
+pub const MAX_LARGE: usize = 16 << 20;
+/// The most one `input-part` returns.
+pub const MAX_PART: u32 = 1 << 20;
+/// How often an item that appends arrive for is drawn again, at most.
+pub const APPEND_EVERY: Duration = Duration::from_millis(250);
+
+/// Large inputs (`from_file`) of calls on their way, by extension and
+/// call: the app (or the harness) puts the file's text here before it
+/// delivers the call, the tile reads it in parts (`input-part`) while it
+/// handles it, and the text is let go when the call ends.
+#[derive(Debug, Clone, Default)]
+pub struct LargeInputs(Arc<Mutex<HashMap<(String, u64), Arc<String>>>>);
+
+impl LargeInputs {
+    /// Keep `text` for call `call` of extension `ext`.
+    pub fn put(&self, ext: &str, call: u64, text: String) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert((ext.to_string(), call), Arc::new(text));
+    }
+
+    /// The text of call `call`, if it named a file.
+    pub fn get(&self, ext: &str, call: u64) -> Option<Arc<String>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).get(&(ext.to_string(), call)).cloned()
+    }
+
+    /// Call `call` ended: its text goes.
+    pub fn forget(&self, ext: &str, call: u64) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&(ext.to_string(), call));
+    }
+}
+
+/// Up to `len` bytes of `text` from byte `offset` (at most [`MAX_PART`]),
+/// both ends moved back to a character boundary.
+pub fn part(text: &str, offset: u64, len: u32) -> String {
+    let floor = |mut i: usize| {
+        i = i.min(text.len());
+        while !text.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    };
+    let start = floor(offset.min(text.len() as u64) as usize);
+    let end = floor(start.saturating_add(len.min(MAX_PART) as usize));
+    text[start..end].to_string()
+}
+
+/// A `read` or `act` call's answer within the limits: text and JSON up to
+/// [`MAX_REPLY_JSON`] each (more is cut and says `truncated`), messages
+/// as [`capped`].
+pub fn capped_data(out: ToolOutput) -> ToolOutput {
+    match out {
+        ToolOutput::Ok(ok) => {
+            let too_big = ok.json.as_ref().is_some_and(|j| j.len() > MAX_REPLY_JSON);
+            let mut text = crate::host::cut(&ok.text, MAX_REPLY_JSON);
+            if ok.text.len() > MAX_REPLY_JSON {
+                text.push_str(" (truncated: more than 256 KiB of text)");
+            }
+            if too_big {
+                text.push_str(" (its JSON was over 256 KiB and was left out: truncated; ask for less, with a range or a cursor)");
+            }
+            ToolOutput::Ok(ToolOk { text, json: ok.json.filter(|_| !too_big), item: ok.item.map(|i| crate::host::cut(&i, 200)) })
+        }
+        e => capped(e),
+    }
+}
+
+impl ToolKind {
+    /// Its word in manifests and the docs.
+    pub fn word(self) -> &'static str {
+        match self {
+            ToolKind::Show => "show",
+            ToolKind::Present => "present",
+            ToolKind::Read => "read",
+            ToolKind::Act => "act",
+        }
+    }
+
+    /// The kind of that word.
+    pub fn parse(word: &str) -> Option<ToolKind> {
+        Some(match word {
+            "show" => ToolKind::Show,
+            "present" => ToolKind::Present,
+            "read" => ToolKind::Read,
+            "act" => ToolKind::Act,
+            _ => return None,
+        })
+    }
+
+    /// How long a call of this kind may take.
+    pub fn time(self) -> Duration {
+        match self {
+            ToolKind::Act => ACT_TIME,
+            ToolKind::Read => READ_TIME,
+            _ => CALL_TIME,
+        }
+    }
+}
 
 /// The most JSON a call's input may carry inline (agent-tools.md §11.7).
 pub const MAX_INPUT: usize = 1 << 20;
@@ -84,6 +189,11 @@ pub struct ShowCall {
     /// schema; without Pitwall's own `where` and `of`).
     pub input: Option<String>,
     pub caller: Caller,
+    /// `"mode": "append"`: the input adds to the item.
+    pub append: bool,
+    /// The size of the file it named (`from_file`), whose text is in
+    /// [`LargeInputs`].
+    pub large: Option<u64>,
 }
 
 /// Why Pitwall refused a call before the tile saw it.
@@ -139,7 +249,26 @@ impl ShowCalls {
                 return Err(Refused::Edited { item: item.clone() });
             }
         }
-        let recent = self.recent.entry((agent.clone(), c.tile.clone())).or_default();
+        let id = self.next_id(&agent, &c.tile, now)?;
+        if let Some(item) = &c.item {
+            self.items.insert(id, (agent, c.tile.clone(), item.clone()));
+        }
+        let content = Content { id: c.item.clone(), json: c.input.clone(), bytes: None, call: Some(id), tool: c.tool.clone(), caller: Some(c.caller.clone()), append: c.append, large: c.large };
+        Ok((id, content))
+    }
+
+    /// A `read` or `act` call of agent `agent` (`None`: the user) to tile
+    /// `tile` at `now`: its id, or busy (the same rate limit as show
+    /// calls).
+    pub fn begin_tool(&mut self, agent: Option<&str>, tile: &str, input: &str, now: Instant) -> Result<u64, Refused> {
+        if input.len() > MAX_INPUT {
+            return Err(Refused::TooLarge(input.len()));
+        }
+        self.next_id(agent.unwrap_or(""), tile, now)
+    }
+
+    fn next_id(&mut self, agent: &str, tile: &str, now: Instant) -> Result<u64, Refused> {
+        let recent = self.recent.entry((agent.to_string(), tile.to_string())).or_default();
         while recent.front().is_some_and(|t| now.saturating_duration_since(*t) >= RATE_WINDOW) {
             recent.pop_front();
         }
@@ -148,12 +277,7 @@ impl ShowCalls {
         }
         recent.push_back(now);
         self.next += 1;
-        let id = self.next;
-        if let Some(item) = &c.item {
-            self.items.insert(id, (agent, c.tile.clone(), item.clone()));
-        }
-        let content = Content { id: c.item.clone(), json: c.input.clone(), bytes: None, call: Some(id), tool: c.tool.clone(), caller: Some(c.caller.clone()) };
-        Ok((id, content))
+        Ok(self.next)
     }
 
     /// The tile said the user changed what call `call` showed
@@ -191,7 +315,7 @@ mod tests {
     }
 
     fn call(agent: &str, item: Option<&str>) -> ShowCall {
-        ShowCall { tool: Some("show".into()), tile: "main".into(), item: item.map(String::from), input: Some("{}".into()), caller: caller(agent) }
+        ShowCall { tool: Some("show".into()), tile: "main".into(), item: item.map(String::from), input: Some("{}".into()), caller: caller(agent), append: false, large: None }
     }
 
     #[test]

@@ -42,4 +42,14 @@ interface guest {
   /// `revision` moves. At most 256 rows a call, each at most 64 nodes.
   /// Deadline: 250 ms, as `render`.
   rows: func(view: view-id, key-path: string, start: u32, count: u32) -> list<row>;
+
+  use agent-tools.{tool-call, tool-output};
+
+  /// A `read` or `act` call of one of the tile's declared tools
+  /// (agent-tools.md §11.2). Return the answer, or `none` and call
+  /// `agent-tools.reply` later (an `act` that waits on the network),
+  /// within the call's time limit: 10 s for `read`, 120 s for `act`.
+  /// Deadline of this call itself: 1 s, as `handle`. Calls arrive one at
+  /// a time, in order, like events.
+  tool: func(call: tool-call) -> option<tool-output>;
 }

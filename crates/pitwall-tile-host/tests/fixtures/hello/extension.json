@@ -24,10 +24,31 @@
             "description": "Show a short message in the Hello tile, under the agent's item id (the same item again replaces it).",
             "input": {
               "type": "object",
-              "required": ["message"],
               "properties": {
                 "item": { "type": "string", "description": "Your id for the message" },
                 "message": { "type": "string", "maxLength": 200, "description": "The message" }
+              }
+            }
+          },
+          {
+            "name": "current_messages",
+            "kind": "read",
+            "description": "The messages the Hello tile shows now, with the user's edits, as JSON by item.",
+            "input": { "type": "object", "properties": {} }
+          },
+          {
+            "name": "send_message",
+            "kind": "act",
+            "description": "Send a message from the Hello tile.",
+            "destructive": false,
+            "expose": ["agents", "cli", "palette"],
+            "title": "Send a message",
+            "input": {
+              "type": "object",
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string", "maxLength": 200, "description": "What to send" },
+                "wait_ms": { "type": "integer", "description": "Answer after this many milliseconds" }
               }
             }
           }

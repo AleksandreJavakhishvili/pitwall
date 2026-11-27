@@ -46,6 +46,10 @@ pub(crate) enum Msg {
     Fetched(crate::net::Fetched),
     /// Its own server's state ([`TileHandle::set_service`]).
     Service(crate::ui::ServiceInfo),
+    /// A `read` or `act` call ([`TileHandle::tool_call`]).
+    Tool(crate::agent::ToolCall),
+    /// A call that wasn't answered in time ([`TileHandle::cancel_tool`]).
+    CancelTool(u64),
 }
 
 /// A running tile, as the app holds it. Every method only posts a message
@@ -128,6 +132,20 @@ impl TileHandle {
         self.post(Msg::Service(info))
     }
 
+    /// Deliver a `read` or `act` call (checked and allowed already) to the
+    /// guest's `tool` export. Its answer arrives as
+    /// [`TileOutput::Answered`]: at once, or when the tile replies later.
+    /// A `read` runs without the tile's acting permissions.
+    pub fn tool_call(&self, call: crate::agent::ToolCall) -> bool {
+        self.post(Msg::Tool(call))
+    }
+
+    /// Give up call `call` (it took too long): the guest gets
+    /// `tool-cancelled`, and a later reply is dropped.
+    pub fn cancel_tool(&self, call: u64) -> bool {
+        self.post(Msg::CancelTool(call))
+    }
+
     /// With a virtual clock ([`Clock::manual`]): let `time` pass. Timers
     /// due meanwhile fire in order, each at its own time (while shown),
     /// and the views render after. Ignored, with a Log line, on the wall
@@ -208,6 +226,11 @@ struct Worker<'a> {
     told_keys: HashSet<String>,
     /// Rows the app asked for in this batch (view, list, start, count).
     row_asks: Vec<(String, String, u32, u32)>,
+    /// When each view was last drawn for an append (agent-tools.md §11.7:
+    /// at most 4 times a second while appends arrive), and the views
+    /// held back until then.
+    appended: BTreeMap<String, Instant>,
+    held: BTreeMap<String, Instant>,
 }
 
 struct View {
@@ -284,6 +307,7 @@ impl<'a> Worker<'a> {
             db: crate::sql::Db::new(&extension_data_dir(data_dir, ext.id()), options.grants.sql_quota()),
             toolbar: manifest.contributes.toolbar.clone(),
             has_service: manifest.service.is_some(),
+            large: inner.large.clone(),
         });
         let mut store = Store::new(&inner.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -305,7 +329,7 @@ impl<'a> Worker<'a> {
             StopReason::Crashed(why) => StopReason::LoadFailed(why),
             other => other,
         })?;
-        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new(), row_asks: Vec::new() };
+        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new(), row_asks: Vec::new(), appended: BTreeMap::new(), held: BTreeMap::new() };
         let cx = InitContext {
             extension: ext.id().to_string(),
             version: manifest.version.clone().unwrap_or_default(),
@@ -344,6 +368,7 @@ impl<'a> Worker<'a> {
             // Images put during the calls go out before the frames that
             // show them.
             self.flush();
+            self.release_held();
             self.render_dirty()?;
             self.answer_rows()?;
             self.flush();
@@ -352,7 +377,12 @@ impl<'a> Worker<'a> {
             }
             // A virtual clock's timers fire only when it is moved.
             let manual = self.store.data().clock.is_manual();
-            let due = if self.visible && !manual { self.store.data().next_due() } else { None };
+            let timer = if self.visible && !manual { self.store.data().next_due() } else { None };
+            let held = if manual { None } else { self.held.values().min().copied() };
+            let due = match (timer, held) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
             let first = match due {
                 Some(at) => match self.rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(m) => Some(m),
@@ -448,6 +478,14 @@ impl<'a> Worker<'a> {
                     Ok(())
                 }
             }
+            Msg::Tool(call) => self.tool(call),
+            Msg::CancelTool(call) => {
+                if self.store.data_mut().open_calls.remove(&call) {
+                    self.handle(Event::ToolCancelled(call))
+                } else {
+                    Ok(())
+                }
+            }
             Msg::Service(info) => {
                 let s = self.store.data_mut();
                 if !s.has_service || s.service == info {
@@ -539,18 +577,95 @@ impl<'a> Worker<'a> {
     }
 
     /// Handle `event`, which delivers agent call `call` when there is one,
-    /// then say how the call ended (the tile's reply, or handled).
+    /// then say how the call ended (the tile's reply, or handled). The
+    /// call runs without the tile's acting permissions.
     fn delivering(&mut self, call: Option<u64>, event: Event) -> Result<(), StopReason> {
         let Some(call) = call else { return self.handle(event) };
+        let append = match &event {
+            Event::ViewOpened(v) => v.content.as_ref().is_some_and(|c| c.append).then(|| v.view.clone()),
+            Event::ViewContent(v) => v.content.append.then(|| v.view.clone()),
+            _ => None,
+        };
         let s = self.store.data_mut();
         s.awaiting = Some(call);
         s.reply = None;
+        s.gate("show or present");
         let r = self.handle(event);
         let s = self.store.data_mut();
+        s.ungate();
         s.awaiting = None;
         let reply = s.reply.take();
         r?;
+        if let Some(view) = append {
+            self.hold_append(view);
+        }
         self.answer(call, reply.map_or(Answer::Handled, Answer::Reply));
+        Ok(())
+    }
+
+    /// An append was handled for view `view`: drawn now unless it was
+    /// drawn for one less than [`APPEND_EVERY`] ago, else held until then.
+    fn hold_append(&mut self, view: String) {
+        let now = self.store.data().clock.now();
+        match self.appended.get(&view) {
+            Some(last) if now.saturating_duration_since(*last) < crate::agent::APPEND_EVERY => {
+                if self.dirty.remove(&view) || self.held.contains_key(&view) {
+                    self.held.insert(view, *last + crate::agent::APPEND_EVERY);
+                }
+            }
+            _ => {
+                self.appended.insert(view, now);
+            }
+        }
+    }
+
+    /// Views held back for appends whose time came: drawn now.
+    fn release_held(&mut self) {
+        let now = self.store.data().clock.now();
+        let due: Vec<String> = self.held.iter().filter(|(_, at)| **at <= now).map(|(v, _)| v.clone()).collect();
+        for v in due {
+            self.held.remove(&v);
+            self.appended.insert(v.clone(), now);
+            if self.views.contains_key(&v) {
+                self.dirty.insert(v);
+            }
+        }
+        // Held views aren't drawn before their time, even when something
+        // else changed.
+        for v in self.held.keys() {
+            self.dirty.remove(v);
+        }
+    }
+
+    /// A `read` or `act` call: given to the guest's `tool` export (a
+    /// `read` without the tile's acting permissions), answered at once or
+    /// left open for a later `reply`.
+    fn tool(&mut self, call: crate::agent::ToolCall) -> Result<(), StopReason> {
+        let id = call.id;
+        let gated = call.kind != crate::agent::ToolKind::Act;
+        if gated {
+            self.store.data_mut().gate(call.kind.word());
+        }
+        arm(&mut self.store, HANDLE_DEADLINE);
+        let t = Instant::now();
+        let r = self.tile.pitwall_tile_guest().call_tool(&mut self.store, &call);
+        let s = self.store.data_mut();
+        s.ungate();
+        let out = r.map_err(|e| self.fail(&e, "tool", HANDLE_DEADLINE))?;
+        self.store.data_mut().end_call();
+        let took = t.elapsed();
+        if took > HANDLE_WARN {
+            self.store.data_mut().host_log(LogLevel::Warn, format!("answering the call of “{}” took {} ms (keep it under {} ms; answer later with reply)", call.tool, took.as_millis(), HANDLE_WARN.as_millis()));
+        }
+        match out {
+            Some(out) => self.answer(id, Answer::Reply(crate::agent::capped_data(out))),
+            None => {
+                self.store.data_mut().open_calls.insert(id);
+            }
+        }
+        // What it shows may have changed (an act that exported, a read
+        // that marked what it returned).
+        self.dirty.extend(self.views.keys().cloned());
         Ok(())
     }
 
