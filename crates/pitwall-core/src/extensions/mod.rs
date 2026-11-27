@@ -320,6 +320,8 @@ impl Contributes {
             out.extend(t.tools.iter().map(|d| match d.kind {
                 tools::ToolKind::Show => format!("a tool for agents, {}: they show you things in “{}”", d.name, t.title),
                 tools::ToolKind::Present => format!("a tool for agents, {}: they present their results in “{}”", d.name, t.title),
+                tools::ToolKind::Read => format!("a tool for agents, {}: they read what “{}” has, with your edits, once you allow them", d.name, t.title),
+                tools::ToolKind::Act => format!("a tool for agents, {}: it acts outside “{}”, and you approve each call", d.name, t.title),
             }));
         }
         if let Some(t) = &self.toolbar {

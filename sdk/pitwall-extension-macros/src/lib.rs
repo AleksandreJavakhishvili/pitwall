@@ -1,6 +1,6 @@
 //! `#[pitwall_extension::tools]`: a tile's declared agent tools from an
 //! impl block (docs/spec/tile-sdk/agent-tools.md §11.3). Each method
-//! marked `#[tool(kind = "show")]` or `#[tool(kind = "present")]` becomes
+//! marked `#[tool(kind = "show")]` (or `"present"`, `"read"`, `"act"`) becomes
 //! the tool of its name; the attribute writes
 //! `impl pitwall_extension::tools::Tools for <Type>`, which calls it with
 //! the call's input read as the method's `Call<Input>`.
@@ -39,15 +39,16 @@ fn expand(block: &mut ItemImpl) -> syn::Result<proc_macro2::TokenStream> {
                 kind = Some(k);
                 Ok(())
             } else {
-                Err(m.error("#[tool] takes kind = \"show\" or \"present\""))
+                Err(m.error("#[tool] takes kind = \"show\", \"present\", \"read\" or \"act\""))
             }
         })?;
-        let kind = kind.ok_or_else(|| Error::new(attr.span(), "#[tool] needs kind = \"show\" or \"present\""))?;
+        let kind = kind.ok_or_else(|| Error::new(attr.span(), "#[tool] needs kind = \"show\", \"present\", \"read\" or \"act\""))?;
         let k = match kind.value().as_str() {
             "show" => quote!(::pitwall_extension::tools::Kind::Show),
             "present" => quote!(::pitwall_extension::tools::Kind::Present),
-            "read" | "act" => return Err(Error::new(kind.span(), "read and act tools come in a later SDK (agent-tools.md §11.2); this one has show and present")),
-            other => return Err(Error::new(kind.span(), format!("no kind “{other}”: show or present"))),
+            "read" => quote!(::pitwall_extension::tools::Kind::Read),
+            "act" => quote!(::pitwall_extension::tools::Kind::Act),
+            other => return Err(Error::new(kind.span(), format!("no kind “{other}”: show, present, read or act"))),
         };
         let name = f.sig.ident.clone();
         let text = name.to_string();
