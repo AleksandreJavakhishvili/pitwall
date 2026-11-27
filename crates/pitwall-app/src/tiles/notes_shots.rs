@@ -169,3 +169,118 @@ fn notes_shots() {
     settle(&mut cx, "side by side", &mut |cx| tile.read(cx).texts().iter().any(|t| t == "Release checklist") && tile.read(cx).texts().iter().any(|t| t == "Draft, not saved"));
     shot(&mut cx, wide.into(), "split");
 }
+
+/// Notes' Send picker over a note, with the agents a daemon server lists
+/// (`web` and `api`), granted `agents.read` and `agents.queue`. Run by
+/// hand as [`notes_shots`] (`notes_send_shots`).
+#[test]
+#[ignore]
+fn notes_send_shots() {
+    use std::sync::Arc;
+    use pitwall_core::extensions::permissions::Decision;
+    let Ok(out) = std::env::var("PITWALL_TILE_SHOTS") else { return };
+    let out = PathBuf::from(out);
+    std::fs::create_dir_all(&out).unwrap();
+    assert!(notes_dir().join("tile.wasm").is_file(), "build tiles/notes first (its cargo test)");
+    let t = TempDir::new("notes-send-shots");
+    let root = t.path().join("data");
+    let dst = root.join("extensions/notes");
+    std::fs::create_dir_all(&dst).unwrap();
+    for f in ["extension.json", "input.schema.json", "tile.wasm"] {
+        std::fs::copy(notes_dir().join(f), dst.join(f)).unwrap();
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let note = "Release 0.9\n## Today\n- rebase api on main\n- fix the Safari flicker\n## Tomorrow\n- tag 0.9.0\n- release notes";
+    let mut kv = std::collections::BTreeMap::new();
+    kv.insert("p/_/1".to_string(), serde_json::to_vec(&serde_json::json!({ "text": note, "updated": now - 60_000 })).unwrap());
+    pitwall_tile_host::ExtensionData::new(&root, "notes").set_storage(&kv).unwrap();
+    let (engine, server) = agents_server(&t);
+
+    let text: Arc<dyn gpui::PlatformTextSystem> = Arc::new(gpui_apple::AppleTextSystem::new());
+    let mut cx = HeadlessAppContext::with_platform(text, Arc::new(crate::kit::Assets), gpui_platform::current_headless_renderer);
+    cx.allow_parking();
+    let r2 = root.clone();
+    cx.update(|cx| {
+        super::group_tests::init(&r2, &engine, server, cx);
+        crate::ui_state::update(cx, |u| {
+            *u = std::mem::take(u).with_extension("notes", |e| {
+                e.enabled = true;
+                e.grants.insert("agents.read".into(), Decision { granted: true, at: 1 });
+                e.grants.insert("agents.queue".into(), Decision { granted: true, at: 1 });
+            })
+        });
+        crate::extensions::calls::sync(cx);
+    });
+    let settle = |cx: &mut HeadlessAppContext, what: &str, done: &mut dyn FnMut(&mut gpui::App) -> bool| {
+        let end = Instant::now() + WAIT;
+        loop {
+            cx.run_until_parked();
+            if cx.update(|cx| done(cx)) {
+                return;
+            }
+            assert!(Instant::now() < end, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let vt = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let vt2 = vt.clone();
+    let win = cx
+        .open_window(size(px(460.), px(520.)), move |_, cx| {
+            let v = crate::main_screen::view_tile::view("notes/main", cx);
+            *vt2.borrow_mut() = Some(v.clone());
+            cx.new(|_| super::tests::Shell(v.into(), true))
+        })
+        .unwrap();
+    let vtile: Entity<crate::main_screen::view_tile::ViewTile> = vt.borrow().clone().unwrap();
+    settle(&mut cx, "the tile", &mut |cx| vtile.read(cx).tile().is_some());
+    let tile = cx.update(|cx| vtile.read(cx).tile().cloned()).unwrap();
+    settle(&mut cx, "the list", &mut |cx| tile.read(cx).texts().iter().any(|t| t == "Release 0.9"));
+    let click = |cx: &mut HeadlessAppContext, path: &str| {
+        let p = path.to_string();
+        let ok = cx.update(|cx| tile.read(cx).click(&p, ui::MouseButton::Left, ui::Modifiers::empty(), 1, ui::Point { x: 1., y: 1. }, cx));
+        assert!(ok, "no node {path} to click: {:?}", cx.update(|cx| tile.read(cx).texts()));
+    };
+    click(&mut cx, "list/rows/n1");
+    settle(&mut cx, "the editor", &mut |cx| tile.read(cx).field_of("editor/n1/text").is_some());
+    click(&mut cx, "editor/head/send-at/send");
+    settle(&mut cx, "the picker", &mut |cx| tile.read(cx).texts().iter().any(|t| t == "Send to an agent"));
+    let texts = cx.update(|cx| tile.read(cx).texts());
+    assert!(texts.iter().any(|t| t == "api"), "{texts:?}");
+    for (theme, light) in [("dark", false), ("light", true)] {
+        cx.update(|cx| cx.set_global(if light { crate::theme::Theme::light() } else { crate::theme::Theme::dark() }));
+        cx.run_until_parked();
+        let _ = cx.update_window(win.into(), |_, window, _| window.refresh());
+        cx.run_until_parked();
+        let img = cx.capture_screenshot(win.into()).expect("rendered");
+        img.save(out.join(format!("notes-send-{theme}.png"))).expect("saved");
+    }
+}
+
+/// An engine with agents `web` (Claude Code) and `api` (Codex), and a
+/// daemon server for extensions' calls on it.
+fn agents_server(t: &TempDir) -> (pitwall_core::engine::Shared, std::sync::Arc<pitwall_daemon::Server>) {
+    use pitwall_core::testing::{record, FakeProvider, ManualClock, MemStore, RecordingSink};
+    use std::sync::Arc;
+    let proj = t.path().join("api").to_string_lossy().to_string();
+    let mut web = record("a1", &proj);
+    web.name = "web".into();
+    web.kind = "claude".into();
+    web.kind_name = "Claude Code".into();
+    let mut api = record("a2", &proj);
+    api.name = "api".into();
+    api.kind = "codex".into();
+    api.kind_name = "Codex".into();
+    let events = pitwall_daemon::Hub::new(RecordingSink::new());
+    let engine = pitwall_core::Engine::open(pitwall_core::Deps {
+        paths: pitwall_core::paths::Paths::new(t.path().join("engine")),
+        events: events.clone(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![web, api]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(pitwall_core::exec::LocalExec))],
+    });
+    let reg = pitwall_daemon::Registry::new();
+    let identify = pitwall_daemon::ProcessIdentity::with_extensions(engine.clone(), reg.clone());
+    let cfg = pitwall_daemon::Config { socket: t.path().join("unused.sock"), version: "test".into(), settings: None, workspace: None, viewer: None, events: Some(events), extensions: Some(reg), ext_backend: None };
+    let server = pitwall_daemon::build(engine.clone(), pitwall_daemon::Approvals::new(Duration::from_secs(5)), identify, cfg);
+    (engine, server)
+}
