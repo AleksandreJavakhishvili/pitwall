@@ -1650,7 +1650,11 @@ fn extension_commands_parse() {
     assert_eq!(parse(&["list"]), E::List);
     assert_eq!(parse(&["status", "inbox", "--connection", "Work"]), E::Status { id: "inbox".into(), connection: Some("Work".into()) });
     assert_eq!(parse(&["log", "inbox", "--lines", "20"]), E::Log { id: "inbox".into(), lines: 20 });
-    assert_eq!(parse(&["install", "inbox"]), E::Install { id: "inbox".into() });
+    assert_eq!(parse(&["install", "inbox"]), E::Install { id: "inbox".into(), unsigned: false, new_key: false });
+    assert_eq!(parse(&["install", "./notes-1.0.0.pwtile", "--new-key"]), E::Install { id: "./notes-1.0.0.pwtile".into(), unsigned: false, new_key: true });
+    assert_eq!(parse(&["pack", "tiles/notes", "-o", "x.pwtile"]), E::Pack { folder: Some("tiles/notes".into()), out: Some("x.pwtile".into()) });
+    assert_eq!(parse(&["sign", "x.pwtile", "--key", "k"]), E::Sign { file: "x.pwtile".into(), key: Some("k".into()) });
+    assert!(parse(&["pack"]).offline() && parse(&["sign", "x.pwtile"]).offline());
     assert_eq!(parse(&["on", "inbox"]), E::On { id: "inbox".into() });
     assert_eq!(parse(&["off", "inbox"]), E::Off { id: "inbox".into() });
     assert_eq!(parse(&["check-updates", "inbox"]), E::CheckUpdates { id: "inbox".into() });
