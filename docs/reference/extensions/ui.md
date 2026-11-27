@@ -360,6 +360,35 @@ Keep the schema small and describe each field: agents read it. In this preview, 
 
 `ui::open_view("main")` opens one of the extension's own tiles, or focuses it when it is open ([Platform services](platform-services.md#ui)).
 
+## Toolbar button
+
+An extension may add one button to Pitwall's top bar. Its buttons sit in a group of their own after the agent counts, behind a hairline, in the order of the extensions. Ask only when the button is worth a place there: a count that needs attention, or a quick look.
+
+```json
+"contributes": {
+  "toolbar": {
+    "icon": "server",
+    "tooltip": "Builds",
+    "badge": true,
+    "visibleByDefault": true,
+    "action": { "kind": "popover", "tile": "main", "size": { "w": 320, "h": 400 } }
+  }
+}
+```
+
+| Field | |
+|---|---|
+| `icon` | One of Pitwall's icon names ([Icons](#icons)) |
+| `tooltip` | What it does, in a few words, at most 80 characters (needed); the tile can change it |
+| `badge` | `true`: the tile sets a badge, and Pitwall keeps the tile running for it |
+| `scope` | `window` (the default), or `project`: the badge of the project the window shows |
+| `visibleByDefault` | Shown when the extension is turned on (the default); `false`: the user turns it on from the card |
+| `action` | What a press does: `{ "kind": "tile", "tile": "main" }` opens the tile; `popover` opens the tile's popover, `size` from 200×100 to 420×560 (320×400 when not given); `{ "kind": "command", "command": "sync" }` runs a command; `{ "kind": "menu", "commands": […] }` shows a menu of up to 10 commands |
+
+The user hides the button with Hide from toolbar (its right-click menu), or with Show in toolbar on the extension's card. What they choose is kept: an update never shows a hidden button again.
+
+The popover is a view of the tile with the id `toolbar::POPOVER_VIEW`: draw it in `render` when `view` is that id. Esc, a press outside it, a press on the button or `toolbar::close_popover()` closes it. The badge shows only while the tile runs ([Platform services](platform-services.md#toolbar-button)).
+
 ## Limits
 
 | | Limit |

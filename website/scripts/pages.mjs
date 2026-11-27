@@ -37,6 +37,7 @@ export const EXTENSION_PAGES = [
   ["extensions-agent-tools", "agent-tools.md", "/docs/extensions/agent-tools/", "Agent tools"],
   ["extensions-permissions", "permissions.md", "/docs/extensions/permissions/", "Permissions"],
   ["extensions-platform-services", "platform-services.md", "/docs/extensions/platform-services/", "Platform services"],
+  ["extensions-servers", "servers.md", "/docs/extensions/servers/", "Servers in extensions"],
   ["extensions-wit", "wit.md", "/docs/extensions/wit/", "WIT reference 0.1"],
   ["extensions-for-agents", "for-agents.md", "/docs/extensions/for-agents/", "For coding agents"],
 ];

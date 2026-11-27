@@ -1,8 +1,8 @@
 # Platform services
 
-**Preview.** What Pitwall gives every tile, so authors don't build it themselves. In WIT 0.1 these are timers (`tasks`), a key-value store (`storage`), settings and secrets (`settings`), the Log (`log`) and requests about the tile's own views (`ui`), which need no permission because each reaches only the tile's own things; and the agents' questions group: your agents and their Next up (`agents`), badges on sidebar rows (`badges`) and questions in the floating control (`asks`) ([below](#agents-badges-and-questions)).
+**Preview.** What Pitwall gives every tile, so authors don't build it themselves. Without a permission, each reaching only the tile's own things: timers (`tasks`), a key-value store (`storage`), settings and secrets (`settings`), the Log (`log`), requests about the tile's own views (`ui`), a SQLite database (`sql`), a toolbar button (`toolbar`) and the extension's own server (`service`). With a permission: the network, to the hosts the manifest names (`net`), notifications (`notify`), opening a file or a web page (`show`), and the agents' questions group: your agents and their Next up (`agents`), badges on sidebar rows (`badges`) and questions in the floating control (`asks`) ([below](#agents-badges-and-questions)).
 
-Pitwall adds a service only when a tile can't reasonably do without one. Phase 2 adds a SQLite database run by Pitwall, network access to named hosts, notifications and opening a file or a web page, each with the permission it needs ([what comes later](#what-comes-later)).
+Pitwall adds a service only when a tile can't reasonably do without one. Each is checked by Pitwall, not by the SDK: a call without its permission fails with `Denied` and a line in the Log.
 
 ## Errors
 
@@ -142,6 +142,127 @@ The `form` template saves a note and says so in a toast:
 
 In tests, `toasts()` lists the toasts and `ui_requests()` the other requests.
 
+## Network
+
+`net` fetches from the hosts the manifest names, with the `net` permission ([Permissions](permissions.md#net)). Declare them with the reason:
+
+```json
+"permissions": {
+  "net": { "reason": "To read your builds from the CI server", "hosts": ["ci.example.com", "*.example.org"] }
+}
+```
+
+A host is a name (`api.example.com`), a name with a port (`api.example.com:8443`), or `*.example.org` for its subdomains (not `example.org` itself). At most 32. Only `https` reaches them; `http` only to this computer (`localhost`, `127.0.0.1`, `[::1]`), and only when the list names it with its port.
+
+A request is made on the context, since its answer calls back into the tile:
+
+```rust
+let req = net::Request::get("https://ci.example.com/api/builds?limit=20").header("Accept", "application/json");
+cx.fetch(req, |tile, answer, cx| {
+    match answer.and_then(|r| r.json::<Vec<Build>>()) {
+        Ok(builds) => tile.builds = builds,
+        Err(e) => tile.error = Some(e.to_string()),
+    }
+    cx.notify();
+})?;
+```
+
+`cx.fetch` returns a `RequestId` at once, or an error when the request is refused before anything is sent (`Denied` names the host). The answer comes later: `Ok(Response)` for any status (`ok()` is 200 to 299), or `Err(net::Error)`: `TimedOut`, `Failed` (no connection), `TooLarge`, `Denied` (a redirect to a host not listed). `cx.cancel_fetch(id)` drops one.
+
+| Limit | |
+|---|---|
+| At once | 8 requests |
+| Request body | 8 MiB |
+| Answer | 32 MiB |
+| Time | 30 s, at most 120 s with `.timeout(…)` |
+| Redirects | 5, each checked against the hosts again |
+
+Pitwall checks the address before looking up the name, and again on every redirect. It sends no cookies and no credentials of its own, and uses no proxy. There are no raw sockets.
+
+In tests, `Harness::respond(url, status, body)` answers a request (the whole address, query included), `respond_error(url, error)` fails it, and nothing leaves the test; others get a 404. `requests()` lists what the tile sent. The tile still needs the grant (`grant("net")`) and the host in its manifest, as in Pitwall.
+
+## Database
+
+`sql` is a SQLite database run by Pitwall, one per extension, kept outside its folder across restarts and updates. No permission: 100 MiB. A larger one, at most 2048 MiB, is asked for with the `sql` permission and granted with the extension, shown with its size: `"sql": { "reason": "To keep a year of builds", "mib": 500 }`.
+
+Declare the schema as migrations, in order, and run them when the tile starts. Pitwall keeps the schema's version and runs each step not yet run in a transaction of its own:
+
+```rust
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE builds (id INTEGER PRIMARY KEY, name TEXT NOT NULL, state TEXT NOT NULL)",
+    "ALTER TABLE builds ADD COLUMN url TEXT",
+];
+
+fn new(cx: &mut Cx<Self>) -> Self {
+    if let Err(e) = sql::migrate(MIGRATIONS) {
+        log::error(format!("the database couldn't be set up: {e}"));
+    }
+    // …
+}
+```
+
+| Call | Does |
+|---|---|
+| `sql::execute(statement, params)` | Runs one statement; the rows it changed |
+| `sql::query(statement, params)` | Runs one query; its `Rows` (`row.get::<i64>("n")`, or by index) |
+| `sql::transaction(\|\| …)` | Runs the closure in a transaction: committed when it returns `Ok`, rolled back on `Err` |
+| `sql::migrate(steps)` | Runs the steps not run yet; the schema's version |
+| `sql::usage()`, `sql::quota()` | The bytes it takes and may take |
+
+Parameters are `()`, a tuple (`("a note", 3)`) or a `Vec<sql::Value>`; `?` marks each place. A query returns at most 10 000 rows and 8 MiB; page with `LIMIT`. A write past the quota fails with `TooLarge`. A transaction lasts one call into the tile: one left open when the call returns is rolled back, with a line in the Log.
+
+The database can't reach anything else: no `ATTACH`, no extensions, no `PRAGMA` that changes how the file is kept (`table_info`, `foreign_keys` and other read-only ones work). A statement still running at the call's deadline is stopped (`Busy`).
+
+In tests the database is in the test's temporary folder; `database()` gives its file.
+
+## Notifications
+
+`notify::send(title, body)` shows a notification, with the `notify` permission. It is the system's notification when you aren't looking at Pitwall (as for an agent that needs you) and a toast in Pitwall's window, with Open. At most 3 a minute; the same words within 10 minutes are shown once. A title is at most 80 characters, the text 200.
+
+In tests, `notifications()` lists what it sent.
+
+## Opening a file or a page
+
+With the `show` permission:
+
+| Call | Does |
+|---|---|
+| `show::file(path, line)` | Opens the file (a whole path) in Pitwall's editor, at the line when given |
+| `show::web(url)` | Opens the page in a new web tile, in the extension's own browser store. `https` only, `http` only to this computer |
+
+Neither gives the tile anything back. In tests, `ui_requests()` lists them.
+
+## Toolbar button
+
+An extension may put one button in Pitwall's top bar, in a group of its own after the counts. Declare it in `contributes.toolbar`; the user can hide it, and an update never shows it again ([Tiles and UI](ui.md#toolbar-button)).
+
+| Call | Does |
+|---|---|
+| `toolbar::set_badge(badge, tone)` | Its badge: `Badge::None`, `Dot` or `Count(n)`; `Tone::Normal` or `Attention`. At most 4 changes a second |
+| `toolbar::set_project_badge(project, badge, tone)` | A project's badge, for a button with `"scope": "project"` (needs `projects.read`) |
+| `toolbar::set_tooltip(text)` | Its tooltip, at most 80 characters |
+| `toolbar::set_shown(shown)` | Hides or shows the button for a while (at most one change in 5 s); the user's Hide wins |
+| `toolbar::close_popover()` | Closes its popover |
+
+The badge shows only while the tile runs. With `"badge": true`, Pitwall keeps the tile running with no view open, so the badge stays current. A press runs its action; the tile hears `Event::ToolbarClicked { project }`. Its popover is a view of the tile, `toolbar::POPOVER_VIEW`: render it in `render` when `view` is that id.
+
+In tests, `toolbar()` gives the badge, tooltip and whether the popover is open; `click_toolbar(project)` presses the button and `click_in_popover(key)` clicks inside the popover.
+
+## Its own server
+
+An extension with a `service` (a program Pitwall keeps running, such as the server its agents talk to) reaches that server from its tile without `net` ([Servers in extensions](servers.md)):
+
+| Call | Does |
+|---|---|
+| `service::info()` | Its state (`Up`, `Starting`, `Off`, `NeedsInstall`, `Stopped`, `Failed`), its address, its version, and why when it isn't up |
+| `service::url(path)` | The address with `path`, for `cx.fetch`; `None` when it doesn't listen |
+| `service::restart()` | Starts it again, as Restart on the card does |
+| `service::open_card()` | Opens the extension's card, where the user installs and starts it |
+
+The tile hears `Event::ServiceChanged(info)` when its state changes.
+
+In tests, `Harness::own_server("127.0.0.1:8790")` says it is up there, and `set_service(info)` changes its state.
+
 ## Agents, badges and questions
 
 The agents' questions group: what an inbox-style tile needs to show questions from a service or from agents, have them answered in the floating control, and send an answer to an agent. The same rules as extensions' adapters have: the same permissions, limits and Activity.
@@ -199,17 +320,14 @@ assert_eq!(t.reply("deploy"), Some(None));
 
 ## Not provided
 
-- **Files, the network and programs.** WIT 0.1 has none. `std::fs` and sockets fail; keep data in `storage`. Network access and files come as permissions ([Permissions](permissions.md#what-comes-later)).
+- **Files and programs.** `std::fs` fails; keep data in `storage` or `sql`. Files come as permissions ([Permissions](permissions.md#what-comes-later)).
+- **Raw sockets**, and the network beyond the hosts the manifest names.
 - **Agents' terminals**, at any grant. They carry secrets and prompts.
 - **Other extensions' data, settings or secrets.**
-- **Background work while hidden.** That is a service's job, which comes in phase 2.
+- **Background work while hidden**, except a tile kept running for its toolbar badge. Work that must go on belongs in the extension's server.
 
 ## What comes later
 
 | Phase | Services |
 |---|---|
-| 2 | `sql`: a SQLite database run by Pitwall, with migrations, 100 MiB |
-| 2 | `net`: HTTPS to the hosts the manifest names, with the `net` permission |
-| 2 | Notifications, and opening a file at a line, the editor or a web page |
-| 2 | A toolbar item with a badge, which the user can hide |
 | On demand | Files and git in your projects, file pickers, the clipboard, starting agents, and more, each when a tile needs it |
