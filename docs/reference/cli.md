@@ -1375,7 +1375,7 @@ pitwall extension log [OPTIONS] <ID>
 
 ### extension install
 
-Install one Pitwall ships. It stays off. Asks the user.
+Install one Pitwall ships, or (a folder: a path with a `/`) an extension of tiles from a folder on this computer, as a preview: copied, unsigned, never updated. It stays off. Asks the user.
 
 ```bash
 pitwall extension install [OPTIONS] <ID>
@@ -1383,7 +1383,7 @@ pitwall extension install [OPTIONS] <ID>
 
 | Argument | |
 |---|---|
-| `ID` |  |
+| `ID` | Its id, or the folder with its extension.json. |
 
 ### extension on
 

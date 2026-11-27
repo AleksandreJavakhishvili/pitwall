@@ -111,6 +111,7 @@ pub fn setup(cmd: &ExtensionCmd, c: &mut pitwall_client::Client) -> Result<Outpu
             let a: ExtActed = c.call_cap(caps::EXTENSIONS, method::EXTENSION_SECRET, req)?;
             Ok(crate::out(&a, acted_text(&a)))
         }
+        ExtensionCmd::Install { id } if is_folder_arg(id) => install_folder(c, id),
         ExtensionCmd::Install { id } => act(c, id, ExtOp::Install),
         ExtensionCmd::On { id } => act(c, id, ExtOp::On),
         ExtensionCmd::Off { id } => act(c, id, ExtOp::Off),
@@ -125,6 +126,39 @@ pub fn setup(cmd: &ExtensionCmd, c: &mut pitwall_client::Client) -> Result<Outpu
         ExtensionCmd::Connection(ConnectionCmd::Remove { id, connection, default }) => act(c, id, ExtOp::ConnectionRemove { connection: connection.clone(), default: default.clone() }),
         ExtensionCmd::Check { .. } | ExtensionCmd::Test { .. } | ExtensionCmd::New { .. } | ExtensionCmd::Dev { .. } => unreachable!("offline (run, dev)"),
     }
+}
+
+/// Whether `pitwall extension install`'s argument names a folder (or an
+/// address) rather than an id: ids have no `/`, `\\`, `~` or leading `.`.
+pub fn is_folder_arg(arg: &str) -> bool {
+    arg.contains('/') || arg.contains('\\') || arg.starts_with('.') || arg.starts_with('~')
+}
+
+/// `pitwall extension install <folder>` (docs/spec/tile-sdk/packaging.md
+/// §6.3): what the folder is read here and shown, then Pitwall checks
+/// and copies it and asks the user, listing its permissions and the
+/// preview warning.
+fn install_folder(c: &mut pitwall_client::Client, arg: &str) -> Result<Output, Error> {
+    use pitwall_proto::extensions::*;
+    use pitwall_proto::{caps, method};
+    if arg.starts_with("http://") || arg.starts_with("https://") {
+        return Err(Error::Server(ErrorBody::new(code::UNSUPPORTED, "Installing from an address isn't there yet: download and unpack it, then run `pitwall extension install <folder>`.")));
+    }
+    let expanded = match arg.strip_prefix("~/") {
+        Some(rest) => std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(rest)).unwrap_or_else(|| arg.into()),
+        None => std::path::PathBuf::from(arg),
+    };
+    let folder = expanded.canonicalize().map_err(|_| Error::Server(ErrorBody::new(code::NOT_FOUND, format!("{arg} isn't there"))))?;
+    let m = pitwall_core::extensions::preview::check(&folder).map_err(|why| Error::Server(ErrorBody::new(code::BAD_PARAMS, format!("{arg} can't be installed: {why}"))))?;
+    // What the user is asked about in Pitwall, shown here too.
+    eprintln!("{} {} from {}:", m.name, m.version.clone().unwrap_or_default(), folder.display());
+    for l in pitwall_core::extensions::preview::review_lines(&m) {
+        eprintln!("  {l}");
+    }
+    eprintln!("Asking you in Pitwall…");
+    let done: ExtActed = c.call_cap(caps::EXTENSIONS, method::EXTENSION_ACT, ExtAct { id: m.id.clone(), op: ExtOp::InstallFolder { path: folder.to_string_lossy().into_owned() } })?;
+    let human = acted_text(&done);
+    Ok(crate::out(&done, human))
 }
 
 /// The service step asked for, as the protocol says it.
@@ -142,6 +176,17 @@ pub fn service_op(w: ServiceWhat) -> pitwall_proto::extensions::ServiceOp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `install` takes an id, or a folder (a path).
+    #[test]
+    fn install_tells_a_folder_from_an_id() {
+        for f in ["./hello", "../x", "/tmp/hello", "~/ext", "dist/hello", ".", "https://example.com/x"] {
+            assert!(is_folder_arg(f), "{f}");
+        }
+        for id in ["inbox", "hello-tile", "my_ext"] {
+            assert!(!is_folder_arg(id), "{id}");
+        }
+    }
 
     /// The starter, made and checked as an author would.
     #[test]
