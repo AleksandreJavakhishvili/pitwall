@@ -64,6 +64,13 @@ impl ExtensionData {
     pub fn storage_bytes(&self) -> u64 {
         std::fs::metadata(self.dir.join(KV_FILE)).map(|m| m.len()).unwrap_or(0)
     }
+
+    /// Its key-value store as written on disk (empty when there is none or
+    /// it can't be read). For tests and tools: a running tile writes it
+    /// after each call that changed it.
+    pub fn storage(&self) -> BTreeMap<String, Vec<u8>> {
+        std::fs::read(self.dir.join(KV_FILE)).ok().and_then(|b| decode(&b)).unwrap_or_default()
+    }
 }
 
 /// Why a storage call failed.
