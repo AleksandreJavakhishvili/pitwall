@@ -4,7 +4,7 @@ resolver = "2"
 # Vendored crates (third_party/zed/README.md) are dependencies, not members:
 # their own tests and lints aren't ours to run.
 exclude = ["third_party"]
-members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-peer", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-simhost","crates/pitwall-app", "crates/pitwall-term-view", "crates/pitwall-tile-host"]
+members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-peer", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-simhost","crates/pitwall-app", "crates/pitwall-term-view", "crates/pitwall-tile-host", "crates/pitwall-extension-test"]
 
 # Profiles only take effect at the workspace root.
 [profile.release]

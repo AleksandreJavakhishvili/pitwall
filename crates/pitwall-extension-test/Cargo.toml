@@ -1,0 +1,19 @@
+[package]
+name = "pitwall-extension-test"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+# Published with pitwall-extension once pitwall-tile-host is; until then
+# tiles' projects take it from Pitwall's repository by git.
+publish = false
+description = "Test Pitwall tiles: run a built tile.wasm in Pitwall's own tile runtime with a fake host, send it events, query its views and check its storage, settings and Log (docs/spec/tile-sdk/authoring.md §9.3)."
+
+[dependencies]
+# The same runtime Pitwall runs tiles in.
+pitwall-tile-host = { path = "../pitwall-tile-host" }
+# A data folder per test.
+tempfile = "3"
+serde = "1"
+serde_json = "1"
+# Its manifest, as Pitwall reads it.
+pitwall-core = { path = "../pitwall-core" }
