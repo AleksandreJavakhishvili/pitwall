@@ -274,11 +274,13 @@ What phase 5 built for the index, publishing, Verified and takedowns
   listed version for an install or update: refused first as `refusal`
   says, then its SHA-256 must be the listed one and its signature by one
   of the author's keys in the index (only those), and it is written with
-  its `.minisig` for `package::stage`. Not yet wired in the app: Browse's
-  Install calling it, the daily check turning blocked copies off, and the
-  install marker recording that a copy came from the index (packaging
-  6.3's `Origin::Package { index }`). Those belong with Browse, on the
-  Settings side.
+  its `.minisig` for `package::stage`. In the app (Settings → Extensions
+  → Browse, `crates/pitwall-app/src/extensions/index.rs`): Install
+  calls it and then shows the package's trust screen; the copy installed
+  is recorded as from the index (`Origin::Package { index }`, the
+  marker's `index`), so its updates come from there; and a daily check
+  (and every Browse read) turns installed copies the block list covers
+  off, their cards saying why (`installed_note`).
 
 #### Creating the real index repository (the owner's checklist)
 

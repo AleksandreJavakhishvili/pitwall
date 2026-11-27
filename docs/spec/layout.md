@@ -274,12 +274,54 @@ name, Move…, Maximise, Open in a window of its own and Close).
   the tile placed right of the agent's terminal, or (its terminal isn't in
   a window) in the space the frontmost Pitwall window shows, with a note
   saying so. A tile that is already somewhere stays there: its space is
-  shown in its window and it switches page. `extension` unfolds that
-  extension's card on the Extensions page. It never takes the keyboard,
+  shown in its window and it switches page. `extension` opens that
+  extension's page in the Extensions tile (placed, when it isn't, in the
+  space the frontmost Pitwall window shows, the same quiet way); the
+  Settings tile shows its compact Extensions page. It never takes the keyboard,
   never brings Pitwall or a window forward, and its answer is only where
   it is and which page (never a value). The agent changes nothing.
   Extensions are refused (`Ext::Never`): their `show` permission is for
   files and pages.
+- **The dialog's size.** The dialog scales to its window: about 72% of
+  its width (860–1080 px) and 78% of its height (600–820 px), never under
+  720 × 540 and always 24 px inside the window. Its bottom-right corner
+  resizes it (both ways from its middle); the size let go is kept in
+  `ui.json` as `settingsSize: [width, height]` and fitted to the window
+  each time it opens.
+- **Extensions there are compact.** In the dialog and in the Settings
+  tile, the Extensions page is the installed list only: rows with their
+  switches, the search, and **Open Extensions**. A row, an agent's
+  `extension` or a secret asked for opens that extension's page in the
+  Extensions tile (below); the dialog closes as it does.
+
+## The Extensions tile
+
+Settings → Extensions at full size, one at most, beside the other tiles:
+Installed and Browse, an extension's detail page, the trust screen and
+Report a problem. It is a `SettingsView` that shows only the Extensions
+page and no page list (`SettingsView::extensions_surface`).
+
+- **Opening it.** "Extensions" in the command palette, the last entry of
+  the sidebar's Tiles menu (a project's ⋯), or Open Extensions on
+  Settings' Extensions page. It goes where the Settings tile goes: into
+  the focused tile when that is empty, else right of it; focused, with the
+  keys. Already placed, it is focused where it is (its window brought
+  forward when it is in one).
+- **Two columns when wide.** At least 900 px wide, the list is a 360 px
+  column on the left (the tabs, the search, filters and order, the rows or
+  the index's cards) and the page picked in it is on the right (nothing
+  picked: what extensions are and those Pitwall ships, or "Pick an
+  extension"). Narrower, one column as in Settings: the list, and a detail
+  page in its place with a way back.
+- **A tile like the others.** Its bar drags it; Move…, Maximise (⌘⏎), Open
+  in a window of its own and Close, as the Settings tile.
+- **Kept.** The pane is saved with `"extensions": true` in `ui.json`; in a
+  window of its own, `extensionsWindow: true`; its key is `@extensions`.
+  After a restart it is back where it was.
+- **One source of truth.** What it shows is the app's: what is installed
+  and on (`ui.json`), grants, secrets, the index. The compact pages hand
+  their detail pages, trust screens and asked-for secrets to it rather
+  than holding a second copy of a setup half done.
 
 ## The editor tile
 
