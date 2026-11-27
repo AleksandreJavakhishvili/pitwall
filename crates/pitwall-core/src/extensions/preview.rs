@@ -42,13 +42,7 @@ pub fn check(dir: &Path) -> Result<Manifest, String> {
         return Err(format!("{} isn't a folder", dir.display()));
     }
     let m = read_in_place(dir).map_err(|why| format!("Its manifest can't be used: {why}."))?;
-    if m.contributes.tiles.is_empty() {
-        return Err(format!("{} adds no tiles (\"contributes.tiles\"): only tile extensions install from a folder.", m.name));
-    }
-    let runs: Vec<&str> = [(m.adapter.is_some(), "an adapter"), (m.service.is_some(), "a service"), (!m.actions.is_empty(), "setup actions"), (!m.agent_env.is_empty(), "variables on agents")].into_iter().filter(|(on, _)| *on).map(|(_, w)| w).collect();
-    if !runs.is_empty() {
-        return Err(format!("{} runs programs on this computer ({}): only tile extensions, which run in Pitwall's sandbox, install from a folder.", m.name, runs.join(", ")));
-    }
+    tiles_only(&m, "a folder")?;
     let mut seen = HashSet::new();
     let (mut files, mut bytes) = (0usize, 0u64);
     walk(dir, "", &mut seen, &mut files, &mut bytes)?;
@@ -73,13 +67,36 @@ pub fn check(dir: &Path) -> Result<Manifest, String> {
     }
     let mut head = [0u8; 8];
     let read = std::fs::File::open(&path).and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head));
-    if read.is_err() || head[..4] != COMPONENT_HEADER[..4] {
+    if read.is_err() {
         return Err(format!("Its component {wasm} isn't a WebAssembly file."));
     }
-    if head != COMPONENT_HEADER {
+    component_head(&head, wasm)?;
+    Ok(m)
+}
+
+/// Whether `head`, the first bytes of file `wasm`, start a WebAssembly
+/// component (not a core module, not something else); why not, in words.
+pub(crate) fn component_head(head: &[u8], wasm: &str) -> Result<(), String> {
+    if head.len() < 8 || head[..4] != COMPONENT_HEADER[..4] {
+        return Err(format!("Its component {wasm} isn't a WebAssembly file."));
+    }
+    if head[..8] != COMPONENT_HEADER {
         return Err(format!("{wasm} is a WebAssembly module, not a component: build it for wasm32-wasip2."));
     }
-    Ok(m)
+    Ok(())
+}
+
+/// Why manifest `m` can't be installed as a tile extension from a folder
+/// or a package: it adds no tiles, or it runs programs on this computer.
+pub(crate) fn tiles_only(m: &Manifest, from: &str) -> Result<(), String> {
+    if m.contributes.tiles.is_empty() {
+        return Err(format!("{} adds no tiles (\"contributes.tiles\"): only tile extensions install from {from}.", m.name));
+    }
+    let runs: Vec<&str> = [(m.adapter.is_some(), "an adapter"), (m.service.is_some(), "a service"), (!m.actions.is_empty(), "setup actions"), (!m.agent_env.is_empty(), "variables on agents")].into_iter().filter(|(on, _)| *on).map(|(_, w)| w).collect();
+    if !runs.is_empty() {
+        return Err(format!("{} runs programs on this computer ({}): only tile extensions, which run in Pitwall's sandbox, install from {from}.", m.name, runs.join(", ")));
+    }
+    Ok(())
 }
 
 /// Folder `dir`, checked ([`check`]), as something to install: copied
