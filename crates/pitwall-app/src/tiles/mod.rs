@@ -54,6 +54,11 @@ mod blocks_tests;
 pub mod canvas;
 pub mod form;
 pub mod group;
+pub mod guard;
+#[cfg(test)]
+mod guard_tests;
+#[cfg(test)]
+mod guard_shots;
 pub mod render;
 pub mod shortcuts;
 #[cfg(test)]
@@ -110,6 +115,9 @@ pub const SUSPEND_AFTER: Duration = Duration::from_secs(60);
 /// and is dropped (runtime.md §2.3).
 pub const DROP_AFTER: Duration = Duration::from_secs(10 * 60);
 
+/// Why an agent's call can't reach a paused component.
+const PAUSED: &str = "Its tiles are paused: Pitwall closed unexpectedly last time while it was running. The user can resume them.";
+
 /// How a component stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
@@ -121,6 +129,9 @@ pub enum State {
     /// Hidden too long: dropped with the state it saved, started again
     /// with it when one of its views shows.
     Dropped,
+    /// Not started in this launch: the last one ended while it was
+    /// starting ([`guard`]); Resume starts it.
+    Paused,
 }
 
 /// A running (or stopped) component.
@@ -268,6 +279,7 @@ pub fn tiles(cx: &mut App) -> Entity<Tiles> {
             for id in off {
                 // Its badges and questions go with it.
                 t.running.remove(&id);
+                guard::settled(&id, cx);
                 cx.emit(group::MarksChanged);
                 cx.defer(crate::float::sync);
                 t.kept.remove(&id);
@@ -520,6 +532,9 @@ impl Tiles {
     /// can be delivered (a stopped component can't).
     pub fn deliver(&mut self, id: &str, view: &str, call: u64, content: ui::Content, answer: std::sync::mpsc::Sender<pitwall_tile_host::agent::Answer>, cx: &mut Context<Self>) -> Result<(), String> {
         let key = (id.to_string(), view.to_string());
+        if guard::paused(id, cx) {
+            return Err(PAUSED.into());
+        }
         match self.running.get_mut(id) {
             Some(r) if matches!(r.state, State::Stopped(_)) => {
                 let why = match &r.state {
@@ -561,6 +576,9 @@ impl Tiles {
     /// without a view when it isn't running, as for its badge); its
     /// answer comes on `answer`.
     pub fn tool_call(&mut self, id: &str, call: pitwall_tile_host::agent::ToolCall, answer: std::sync::mpsc::Sender<pitwall_tile_host::agent::Answer>, cx: &mut Context<Self>) -> Result<(), String> {
+        if guard::paused(id, cx) {
+            return Err(PAUSED.into());
+        }
         match self.running.get(id).map(|r| &r.state) {
             Some(State::Stopped(s)) => {
                 let why = stop_words(s);
@@ -922,9 +940,13 @@ impl Tiles {
     /// Restart: a stopped component (or a running one) started again
     /// with its open views.
     pub fn restart(&mut self, id: &str, cx: &mut Context<Self>) {
-        let views = self.running.remove(id).map(|r| r.views).unwrap_or_default();
+        let (views, shown) = self.running.remove(id).map(|r| (r.views, r.shown)).unwrap_or_default();
         if !views.is_empty() || self.kept.contains(id) {
             self.start(id, views, None, cx);
+            // The views shown stay shown: drawn as soon as it starts.
+            if let Some(r) = self.running.get_mut(id) {
+                r.shown = shown;
+            }
         }
         cx.notify();
     }
@@ -1026,6 +1048,14 @@ impl Tiles {
         self.next_gen += 1;
         // It starts hidden (`visible: false`); shown, it is told.
         let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new(), group: Default::default(), comps: Default::default() };
+        // The last launch ended while it was starting: not in this one.
+        if guard::paused(id, cx) {
+            r.state = State::Paused;
+            r.log.push_back(note("Paused: Pitwall closed unexpectedly last time while it was running."));
+            self.running.insert(id.to_string(), r);
+            self.seq += 1;
+            return;
+        }
         // Its `agents` calls reach the daemon's method table as it is now.
         self.methods.set_server(cx.try_global::<crate::extensions::calls::Api>().and_then(|a| a.server.clone()));
         let started = (|| -> Result<TileHandle, String> {
@@ -1040,6 +1070,9 @@ impl Tiles {
             }
             let views: Vec<ViewSpec> = views.iter().zip(projects).filter_map(|(v, project)| spec_of(&m, v).map(|s| ViewSpec { content: self.pending.remove(&(id.to_string(), v.to_string())), project, ..s })).collect();
             let options = StartOptions { views, grants: grants_of(&m, cx), theme: theme_info(cx), visible: false, state, clock: Default::default() };
+            // Written down before it starts: a crash now pauses it next
+            // launch.
+            guard::starting(id, m.version.clone(), cx);
             let tx = self.tx.clone();
             let ext_id = id.to_string();
             let h = host
@@ -1076,6 +1109,17 @@ impl Tiles {
             TileOutput::Preparing => r.state = State::Starting { preparing: true },
             TileOutput::Started { .. } => {
                 r.state = State::Running;
+                // Running a while without taking Pitwall down: crossed out.
+                let (ext, after) = (id.to_string(), guard::healthy_after(cx));
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(after).await;
+                    let _ = this.update(cx, |t, cx| {
+                        if t.running.get(&ext).is_some_and(|r| r.gen == gen && r.handle.is_some()) {
+                            guard::settled(&ext, cx);
+                        }
+                    });
+                })
+                .detach();
                 let ext = id.to_string();
                 cx.defer(move |cx| crate::extensions::hub::hub(cx).update(cx, |h, cx| h.tile_started(&ext, cx)));
                 // Shown views are drawn at once; none shown, the steps of
@@ -1165,6 +1209,8 @@ impl Tiles {
             }
             TileOutput::Stopped(why) => {
                 r.handle = None;
+                // Stopped without taking Pitwall down.
+                guard::settled(id, cx);
                 r.log.push_back(note(&format!("Stopped: {why}.")));
                 if r.dropping {
                     // It couldn't save its state: started afresh when shown.

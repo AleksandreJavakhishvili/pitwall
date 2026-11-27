@@ -43,6 +43,7 @@ use pitwall_core::accounts::Account;
 pub(crate) mod grants;
 pub use grants::{initial_picks, turn_on_with};
 mod browse;
+mod crash_ui;
 mod package_ui;
 pub(crate) mod page;
 use page::Tab;
@@ -1098,7 +1099,11 @@ impl SettingsView {
     /// locally", what failed, and the Remove or Replace question.
     fn installed_notes(&mut self, ui: &Ui, m: &Manifest, shipped: Option<&Shipped>, changed: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
         // Where it came from, an update offered and what it changes.
-        let mut out = self.update_notes(ui, m, shipped, changed, cx);
+        let mut out: Vec<AnyElement> = Vec::new();
+        // Its tiles paused, or it turned off, after Pitwall crashed while
+        // it was starting.
+        out.extend(self.crash_note(ui, m, cx));
+        out.extend(self.update_notes(ui, m, shipped, changed, cx));
         // Running agents on its previous setup, and what Pitwall does
         // with them after an update.
         out.extend(self.stale_notes(ui, m, cx));

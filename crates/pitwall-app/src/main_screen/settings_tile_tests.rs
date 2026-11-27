@@ -453,3 +453,37 @@ fn command_enter_maximises_settings_and_extensions_from_a_field_too(cx: &mut Tes
     keys(cx, MAXIMISE);
     assert!(!maximized(Content::Extensions, cx));
 }
+
+/// The tile guard's toast (`crate::tiles::guard`): the last launch ended
+/// while an extension's tile was starting, so this one says so in the
+/// main window with Resume, Keep paused and Turn <it> off; Turn off
+/// turns it off, and the toast goes.
+#[gpui::test]
+fn the_paused_tiles_toast_offers_resume_keep_paused_and_turn_off(cx: &mut TestAppContext) {
+    use crate::tiles::guard;
+    app(cx, 1500.);
+    let t = pitwall_core::testing::TempDir::new("guard-toast");
+    let rec = guard::Record { starting: [("inbox".to_string(), Some("2.0.0".to_string()))].into(), ..Default::default() };
+    cx.update(|cx| {
+        crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("inbox", true));
+        guard::init_for_test(t.path(), &rec, guard::HEALTHY_AFTER, cx);
+        guard::offer(cx);
+    });
+    frames(cx);
+    let screen = main_view(cx).update(cx, |v, _, _| v.screen().unwrap()).unwrap();
+    assert_eq!(screen.read_with(cx, |s, _| s.toast_titles()), ["Pitwall closed unexpectedly last time while inbox was running."]);
+    for (sel, label) in [("toast-act-0", "Resume"), ("toast-act-1", "Keep paused"), ("toast-act-2", "Turn inbox off")] {
+        assert!(bounds(cx, sel).is_some(), "{label} is drawn");
+    }
+    // Shown once a launch.
+    cx.update(guard::offer);
+    frames(cx);
+    assert_eq!(screen.read_with(cx, |s, _| s.toast_titles()).len(), 1);
+    click(cx, "toast-act-2");
+    frames(cx);
+    cx.update(|cx| {
+        assert!(!crate::ui_state::get(cx).extension_on("inbox"), "turned off");
+        assert!(!guard::paused("inbox", cx));
+    });
+    assert!(screen.read_with(cx, |s, _| s.toast_titles()).is_empty(), "answered");
+}
