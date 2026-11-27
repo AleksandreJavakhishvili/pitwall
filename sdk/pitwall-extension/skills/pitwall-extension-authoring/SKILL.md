@@ -261,7 +261,7 @@ Canvases and blocks: `canvas(key)`, `click_region(label)`, `hover_region`,
 `wheel`, `pinch`, `drag_pointer`, `drag(from, to)`, `code_view(key)`,
 `click_line(key, Side::New, n)`, `select_code`.
 Components: `rows(list, start, count)` (each
-`Row` with its key, text, depth, expanded), `find_row`, `select_row`,
+`ListRow` with its key, text, depth, expanded), `find_row`, `select_row`,
 `activate_row`, `expand_row`/`collapse_row`, `click_in_row`,
 `choose_row_menu_item`, `choose_menu_item(key_path, label)`,
 `select_option`, `select_tab`, `sort_by`, `resize_column`, `click_link`,
