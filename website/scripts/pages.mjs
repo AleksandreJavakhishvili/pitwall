@@ -44,6 +44,8 @@ export const EXTENSION_PAGES = [
   ["extensions-permissions", "permissions.md", "/docs/extensions/permissions/", "Permissions"],
   ["extensions-packaging", "packaging.md", "/docs/extensions/packaging/", "Packaging"],
   ["extensions-install", "install.md", "/docs/extensions/install/", "Install from a file"],
+  ["extensions-marketplace", "marketplace.md", "/docs/extensions/marketplace/", "Marketplace"],
+  ["extensions-publishing", "publishing.md", "/docs/extensions/publishing/", "Publishing"],
   ["extensions-platform-services", "platform-services.md", "/docs/extensions/platform-services/", "Platform services"],
   ["extensions-servers", "servers.md", "/docs/extensions/servers/", "Servers in extensions"],
   ["extensions-wit", "wit.md", "/docs/extensions/wit/", "WIT reference 0.1"],

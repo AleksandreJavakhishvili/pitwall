@@ -17,6 +17,7 @@ mod mcp;
 mod open;
 mod peers;
 mod profiles;
+mod publish;
 mod render;
 #[cfg(test)]
 mod reference;

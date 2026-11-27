@@ -23,6 +23,7 @@ draws pixels and can't reach files, the network or other programs (WIT
 | `pitwall extension new <id> --template blank\|list\|form` | A new project like this one |
 | `pitwall extension pack` | Offline: `<id>-<version>.pwtile` from the built project (manifest, `tile.wasm`, README, input schemas, assets; never sources). The same files always give the same bytes |
 | `pitwall extension sign <file>` | Offline: `<file>.minisig` with the user's minisign key. Only the user signs: never create, read or commit a secret key |
+| `pitwall extension publish <file> --repository <url> --author <handle> [--category c] [--license SPDX] [--index-dir <clone>]` | Offline: the extensions index entry for a signed package released on GitHub, written beside it or into a clone of the index, and a prefilled pull-request link. Never pushes: the user releases, pushes and opens the pull request. The index needs a `LICENSE` and a `"description"` |
 
 Run `pitwall extension check .` and `cargo test` before you say a change is
 done.
