@@ -1,0 +1,18 @@
+{
+  "v": 2,
+  "id": "files",
+  "name": "Project files",
+  "version": "0.1.0",
+  "icon": "folder",
+  "description": "The tile host's test fixture for files in a project and in its own folder",
+  "license": "Apache-2.0",
+  "permissions": {
+    "files.read": "To list and show the Markdown files in your docs",
+    "files.write": "To save the notes you write into the project"
+  },
+  "contributes": {
+    "tiles": [
+      { "id": "main", "title": "Project files", "icon": "folder", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0" }
+    ]
+  }
+}

@@ -8,7 +8,8 @@
 //! trait, typed events, and Pitwall's services ([`log`], [`storage`],
 //! [`settings`], [`ui`] and timers on [`Cx`]; Pitwall's agents and their
 //! Next up in [`agents`], sidebar [`badges`] and questions in the floating
-//! control, [`asks`]).
+//! control, [`asks`]; the files of the project a view is open in,
+//! [`files`]).
 //!
 //! ```ignore
 //! use pitwall_extension::prelude::*;
@@ -71,6 +72,7 @@ pub mod canvas;
 pub mod components;
 pub mod element;
 pub mod events;
+pub mod files;
 mod group;
 mod host;
 mod services;
@@ -115,6 +117,7 @@ pub mod prelude {
     pub use crate::events::{Dismissed, Blur, Click, CodeSelection, Dropped, Event, Focused, Hover, InputChange, KeyPress, LineClick, Pointer, PointerKind, Side, Submit, Theme, ThemeMode};
     pub use crate::host::{log, settings, storage, ui, HostError, Tone};
     pub use crate::services::{net, notify, service, show, sql, toolbar};
+    pub use crate::files;
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};
     pub use std::time::Duration;

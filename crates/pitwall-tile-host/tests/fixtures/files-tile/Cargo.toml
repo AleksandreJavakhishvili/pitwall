@@ -1,0 +1,29 @@
+# The files tile, the tile host's test fixture for `files` (a
+# project's files and the extension's own), written with the
+# guest SDK and built to a WebAssembly component for wasm32-wasip2. Its own
+# workspace (the empty [workspace] below). The built component is
+# committed as ../files/tile.wasm; rebuild it with
+# ../build-hello-tile.sh (which builds the fixtures).
+[package]
+name = "files-tile"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The guest SDK, from this repository.
+pitwall-extension = { path = "../../../../../sdk/pitwall-extension" }
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]

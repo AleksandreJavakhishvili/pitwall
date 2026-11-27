@@ -50,6 +50,10 @@ pub(crate) enum Msg {
     Tool(crate::agent::ToolCall),
     /// A call that wasn't answered in time ([`TileHandle::cancel_tool`]).
     CancelTool(u64),
+    /// A `files.watch`'s changes.
+    FilesChanged(crate::files::FilesChanged),
+    /// A view's project now ([`TileHandle::set_project`]).
+    Project(String, Option<crate::ui::Project>),
 }
 
 /// A running tile, as the app holds it. Every method only posts a message
@@ -144,6 +148,14 @@ impl TileHandle {
     /// `tool-cancelled`, and a later reply is dropped.
     pub fn cancel_tool(&self, call: u64) -> bool {
         self.post(Msg::CancelTool(call))
+    }
+
+    /// View `view` is now in `project` (moved to another space; `None`:
+    /// in no project): `files` reaches that project for it from now on,
+    /// its watches on the old one end, and the guest gets
+    /// `project-changed` when it changed.
+    pub fn set_project(&self, view: &str, project: Option<crate::ui::Project>) -> bool {
+        self.post(Msg::Project(view.to_string(), project))
     }
 
     /// With a virtual clock ([`Clock::manual`]): let `time` pass. Timers
@@ -303,11 +315,13 @@ impl<'a> Worker<'a> {
             clock: options.clock.clone(),
             group: crate::group::Group::new(manifest.contributes.badges, manifest.contributes.asks, inner.config.methods.clone()),
             fetcher: host.fetcher(),
-            done,
+            done: done.clone(),
             db: crate::sql::Db::new(&extension_data_dir(data_dir, ext.id()), options.grants.sql_quota()),
             toolbar: manifest.contributes.toolbar.clone(),
             has_service: manifest.service.is_some(),
             large: inner.large.clone(),
+            // Pitwall's data folder, resolved: never reached through a project.
+            files: crate::files::Files::new(extension_data_dir(data_dir, ext.id()).join("files"), data_dir.canonicalize().unwrap_or_else(|_| data_dir.clone()), host.watcher(), host.trash(), done.clone()),
         });
         let mut store = Store::new(&inner.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -422,6 +436,7 @@ impl<'a> Worker<'a> {
                 if self.views.remove(&v).is_none() {
                     return Ok(());
                 }
+                self.store.data_mut().files.view_closed(&v);
                 self.dirty.remove(&v);
                 self.handle(Event::ViewClosed(v))
             }
@@ -485,6 +500,20 @@ impl<'a> Worker<'a> {
                 } else {
                     Ok(())
                 }
+            }
+            // An ended watch's changes are dropped.
+            Msg::FilesChanged(c) => {
+                if self.store.data().files.watching(c.watch) {
+                    self.handle(Event::FilesChanged(c))
+                } else {
+                    Ok(())
+                }
+            }
+            Msg::Project(view, project) => {
+                if !self.views.contains_key(&view) || !self.store.data_mut().files.set_project(&view, project) {
+                    return Ok(());
+                }
+                self.handle(Event::ProjectChanged(view))
             }
             Msg::Service(info) => {
                 let s = self.store.data_mut();
@@ -571,6 +600,7 @@ impl<'a> Worker<'a> {
             v.content = None;
         }
         self.views.insert(v.id.clone(), View { tile: v.tile.clone(), frame: None });
+        self.store.data_mut().files.set_project(&v.id, v.project.take());
         self.dirty.insert(v.id.clone());
         let call = v.content.as_ref().and_then(|c| c.call);
         self.delivering(call, Event::ViewOpened(ViewOpened { view: v.id, tile: v.tile, content: v.content }))

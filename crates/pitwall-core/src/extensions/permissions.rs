@@ -51,6 +51,14 @@ pub const NET: &str = "net";
 /// platform-services.md §14.2). Shown with its size, not a switch, as
 /// [`MEMORY`].
 pub const SQL: &str = "sql";
+/// Its tiles read the files of the project each view is open in, and
+/// follow their changes (docs/spec/tile-sdk/permissions.md §5.1,
+/// platform-services.md §14.3): never `.git`, never another project.
+pub const FILES_READ: &str = "files.read";
+/// Its tiles write, make, rename and move to the Trash files of the
+/// project each view is open in: never in `.git`, never Pitwall's own
+/// files.
+pub const FILES_WRITE: &str = "files.write";
 
 /// How much a permission lets an extension do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,7 +98,7 @@ pub fn action_needs(m: &str) -> Option<&'static str> {
 }
 
 /// Every permission this Pitwall knows, the ones it serves first.
-pub const ALL: [Permission; 12] = [
+pub const ALL: [Permission; 14] = [
     Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, risk_note: None, available: true },
@@ -103,6 +111,8 @@ pub const ALL: [Permission; 12] = [
     Permission { name: MEMORY, title: "Use more memory", detail: "Its tiles may use more memory than the 64 MiB every tile gets, up to the size shown. It gives no access to anything else.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: NET, title: "Connect to these servers", detail: "Its tiles may send requests to the servers listed here, exactly as written, and read the answers (https; plain http only to this computer). What its tiles have, from you or from other servers, can be sent to them.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: SQL, title: "Keep a larger database", detail: "Its tiles' own database may grow to the size shown instead of the 100 MiB every extension gets. Only its own data: it gives no access to anything else.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: FILES_READ, title: "Read files in your projects", detail: "Its tiles may read the files of the project each one is open in (its space, or the agent it opened next to) and follow their changes. Never .git, never another project. What they read, a .env file too, can reach the servers it may connect to.", risk: Risk::Medium, risk_note: None, available: true },
+    Permission { name: FILES_WRITE, title: "Change files in your projects", detail: "Its tiles may write, make, rename and move to the Trash files of the project each one is open in. Never .git or Pitwall's own files, never another project.", risk: Risk::High, risk_note: Some("You and your agents run what is in your projects: a file it changes (a script, a config, a test) changes what runs next. Removed files go to the Trash."), available: true },
 ];
 
 /// Whether `name` is shown on the permission screen without a switch:
@@ -122,13 +132,20 @@ pub fn amount(m: &Manifest, name: &str) -> Option<String> {
 }
 
 /// What the permission screen lists under `name` for `m`, as the manifest
-/// wrote it: `net`'s hosts.
+/// wrote it: `net`'s hosts; for `files.*`, the folders they reach
+/// ([`FILES_SCOPE`]; the app shows the project folders its tiles are open
+/// in instead, once there are some).
 pub fn listed(m: &Manifest, name: &str) -> Vec<String> {
     match name {
         NET => m.net_hosts.iter().map(|h| h.written()).collect(),
+        FILES_READ | FILES_WRITE => vec![FILES_SCOPE.to_string()],
         _ => vec![],
     }
 }
+
+/// The folder `files.*` reach, as the permission screen says it before
+/// any of the extension's tiles is open in a project.
+pub const FILES_SCOPE: &str = "the project its tile is open in";
 
 /// Permission `name`, when this Pitwall knows it.
 pub fn find(name: &str) -> Option<&'static Permission> {
@@ -287,6 +304,9 @@ mod tests {
         assert!(find(AGENTS_QUEUE).unwrap().risk_note.is_some() && find(AGENTS_START).unwrap().risk_note.is_some());
         assert!(ALL.iter().filter(|p| p.risk == Risk::High).all(|p| p.risk_note.is_some()));
         assert_eq!(unavailable_why("weather.read"), Some("not available in this Pitwall"));
+        // Reading project files is on by default; changing them never.
+        assert!(available(FILES_READ) && on_by_default(FILES_READ) && !on_by_default(FILES_WRITE));
+        assert_eq!(listed(&Manifest::named("x", "X"), FILES_WRITE), [FILES_SCOPE]);
         assert_eq!((of_topic("attention"), of_topic("blocked"), of_topic("approvals")), (Some(AGENTS_READ), Some(AGENTS_READ), None));
         let d = serde_json::to_value(Decision { granted: true, at: 7 }).unwrap();
         assert_eq!(d, serde_json::json!({"granted": true, "at": 7}));

@@ -37,4 +37,9 @@ else
   cargo build --release --target wasm32-wasip2
   cp target/wasm32-wasip2/release/services_tile.wasm "$here/services/tile.wasm"
   ls -l "$here/services/tile.wasm"
+  # The files fixture (a project's files and its own folder).
+  cd "$here/files-tile"
+  cargo build --release --target wasm32-wasip2
+  cp target/wasm32-wasip2/release/files_tile.wasm "$here/files/tile.wasm"
+  ls -l "$here/files/tile.wasm"
 fi
