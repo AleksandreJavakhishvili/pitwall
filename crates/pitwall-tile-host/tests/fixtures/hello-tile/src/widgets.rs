@@ -411,7 +411,7 @@ impl Widgets {
                     );
                 }
                 // docs:end
-                div().h(px(if self.popover_open { 150. } else { 40. })).child(filters).into_any()
+                div().w(px(280.)).h(px(if self.popover_open { 160. } else { 40. })).child(filters).into_any()
             }
             "confirm-sheet" => {
                 // docs:start gallery-confirm-sheet

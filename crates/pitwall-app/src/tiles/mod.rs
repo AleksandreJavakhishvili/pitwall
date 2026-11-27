@@ -60,6 +60,8 @@ mod gallery_tests;
 mod services_shots;
 #[cfg(test)]
 mod agents_shots;
+#[cfg(test)]
+mod widgets_tests;
 pub mod view;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};

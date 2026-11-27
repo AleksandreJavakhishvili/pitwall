@@ -503,6 +503,10 @@ pub struct ExtensionPrefs {
     /// ids): agents get no tools of those (agent-tools.md §11.5).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
     pub agents_off: Vec<String>,
+    /// The share of the first pane of each split pane of its tiles the
+    /// user dragged, by `<view>/<key path>` (ui.md §3.10).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub splits: BTreeMap<String, f32>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -583,7 +587,7 @@ impl Confirmed {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.toolbar.is_none() && self.agents_off.is_empty() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.action_steps.is_empty() && self.action_accounts.is_empty() && self.action_confirmed.is_empty() && !self.window && self.view_windows.is_empty() && self.connection.is_none() && self.dev_path.is_none() && self.grants.is_empty() && self.send_without_asking.is_none() && self.service.is_empty() && self.restart_after_update.is_none() && self.last_update.is_none() && self.toolbar.is_none() && self.agents_off.is_empty() && self.splits.is_empty() && self.rest.is_empty()
     }
 }
 
