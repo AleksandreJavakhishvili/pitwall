@@ -44,10 +44,45 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: sh scripts/check-commits.sh "$BASE..$HEAD"
 
+  # Decides whether the Rust jobs run. A change that only touches docs
+  # (outside docs/reference/, which Rust tests read), the website, .claude/
+  # or top-level Markdown can't change what the Rust jobs build, so they are
+  # skipped (a skipped job counts as passed). Anything else, or a diff that
+  # can't be worked out, runs them.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.diff.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          rust=true
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] \
+            && git cat-file -e "$BASE^{commit}" 2>/dev/null \
+            && files=$(git diff --name-only "$BASE...$HEAD" 2>/dev/null) \
+            && [ -n "$files" ]; then
+            other=$(printf '%s\n' "$files" \
+              | grep -vE '^(docs/|website/|\.claude/)|^[^/]+\.md$' || true)
+            ref=$(printf '%s\n' "$files" | grep -E '^docs/reference/' || true)
+            other="$other$ref"
+            [ -z "$other" ] && rust=false
+          fi
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "Rust jobs run: $rust"
+
   rust:
     name: Rust on macOS (test + clippy)
     # PTYs, the terminal holder and the platform layer are tested on each OS
     # they ship on (rust-linux and rust-windows below).
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
     # The workspace with GPUI: ~25 min cold, a few warm. A hang fails here
     # instead of running into GitHub's 6-hour limit.
@@ -76,6 +111,8 @@ jobs:
     name: Rust on Linux (build + test + clippy)
     # The Linux platform layer (/proc, XDG folders), the holder's forkpty and
     # the app (GPUI on X11/Wayland) are checked on the OS they ship on.
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
@@ -117,6 +154,8 @@ jobs:
     # still assume POSIX shells in their fixtures and run with
     # continue-on-error, one step each so a regression in a passing suite is
     # never hidden behind them.
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     # A hang (the ConPTY holder suites) fails here instead of running into
     # GitHub's 6-hour limit and showing up as "cancelled". Room for a cold
