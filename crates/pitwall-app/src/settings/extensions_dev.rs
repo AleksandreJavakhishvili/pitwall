@@ -91,8 +91,35 @@ impl SettingsView {
     }
 
     /// Load `folder` as a development extension: its card unfolded, or
-    /// why not under the page's intro.
+    /// why not under the page's intro. Tiles are compiled and their
+    /// imports checked first, off the UI thread (the button waits).
     fn load_dev_from(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        let tiles = pitwall_core::extensions::read_in_place(&folder).is_ok_and(|m| !m.contributes.tiles.is_empty());
+        if !tiles {
+            return self.load_dev_now(folder, cx);
+        }
+        self.exts.dev.picking = true;
+        cx.notify();
+        let host = crate::tiles::checker(cx);
+        let f = folder.clone();
+        let check = cx.background_executor().spawn(async move { host.and_then(|h| crate::tiles::check_folder(&h, &f)) });
+        cx.spawn(async move |this, cx| {
+            let res = check.await;
+            let _ = this.update(cx, |v, cx| {
+                v.exts.dev.picking = false;
+                match res {
+                    Ok(()) => v.load_dev_now(folder, cx),
+                    Err(why) => {
+                        v.exts.dev.note = Some(why);
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn load_dev_now(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
         match crate::extensions::load_dev(&folder, cx) {
             Ok(id) => {
                 self.exts.dev.note = None;

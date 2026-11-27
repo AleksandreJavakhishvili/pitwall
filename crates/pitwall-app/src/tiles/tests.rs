@@ -33,6 +33,20 @@ fn copy_fixture(to: &Path) {
     }
 }
 
+/// The smallest component that imports something this Pitwall doesn't
+/// provide: one plain function, `do-it` (written by hand: the component
+/// binary format's preamble, a type section, an import section).
+fn foreign_component() -> Vec<u8> {
+    let mut w = b"\0asm\x0d\x00\x01\x00".to_vec();
+    // One function type: no parameters, no results.
+    w.extend([0x07, 0x05, 0x01, 0x40, 0x00, 0x01, 0x00]);
+    // One import, `do-it`, a function of that type.
+    w.extend([0x0a, 0x0a, 0x01, 0x00, 0x05]);
+    w.extend(b"do-it");
+    w.extend([0x01, 0x00]);
+    w
+}
+
 /// Pitwall's state for a test: data folder `root` (its extensions in
 /// `root/extensions`), nothing on, Settings at Extensions.
 fn init(root: &Path, cx: &mut TestAppContext) {
@@ -185,6 +199,18 @@ fn a_folder_installs_as_a_preview(cx: &mut TestAppContext) {
     assert!(prepared.is_none() && note.is_some(), "refused, saying why: {note:?}");
     assert!(cx.debug_bounds("extension-add-folder-note").is_some());
     assert!(!root.join("extensions/Bad Id").exists() && !root.join("extensions/bad").exists(), "nothing installed");
+    // A component that needs what this Pitwall doesn't provide: refused
+    // now, saying what, not when it starts.
+    let foreign = t.path().join("foreign");
+    copy_fixture(&foreign);
+    std::fs::write(foreign.join("tile.wasm"), foreign_component()).unwrap();
+    view.update(cx, |v, cx| v.look_at_folder(foreign.clone(), cx));
+    until(cx, "the refusal", |cx| view.read_with(cx, |v, _| v.add_folder_state().is_some_and(|(busy, _, _)| !busy)));
+    let (_, note, prepared) = view.read_with(cx, |v, _| v.add_folder_state()).unwrap();
+    assert!(prepared.is_none() && note.as_deref().is_some_and(|n| n.contains("do-it") && n.contains("doesn't provide")), "refused, saying why: {note:?}");
+    assert!(!root.join("extensions/hello").exists(), "nothing installed");
+    let staged: Vec<_> = std::fs::read_dir(root.join("extensions")).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert!(staged.is_empty(), "its staged copy is gone: {staged:?}");
     // The hello folder.
     let src = t.path().join("hello-src");
     copy_fixture(&src);
@@ -306,7 +332,20 @@ fn the_cli_loads_and_reloads_a_dev_folder(cx: &mut TestAppContext) {
     assert_eq!(again["reloaded"], json!(["main"]));
     assert!(again["message"].as_str().unwrap().starts_with("Reloaded Hello"), "{again}");
     assert!(approvals.pending().is_empty(), "nothing asked");
-    until(cx, "a new component", |cx| r.read_with(cx, |r, _| r.generation("hello").is_some_and(|g| g != before)));
+    until(cx, "a new component", |cx| r.read_with(cx, |r, _| r.generation("hello").is_some_and(|g| g != before) && r.get("hello").is_some_and(|x| x.state == State::Running)));
+    // A build that needs what this Pitwall doesn't provide: refused at
+    // once, saying what, and the running tile is left as it is.
+    let running = r.read_with(cx, |r, _| r.generation("hello"));
+    let good = std::fs::read(src.join("tile.wasm")).unwrap();
+    std::fs::write(src.join("tile.wasm"), foreign_component()).unwrap();
+    match finish(cx, reload(&src)) {
+        Err(pitwall_client::Error::Server(e)) => assert!(e.code == pitwall_proto::code::BAD_PARAMS && e.message.contains("do-it"), "{}: {}", e.code, e.message),
+        other => panic!("not refused: {other:?}"),
+    }
+    frame(cx);
+    assert_eq!(r.read_with(cx, |r, _| r.generation("hello")), running, "not replaced");
+    assert_eq!(r.read_with(cx, |r, _| r.get("hello").map(|x| x.state.clone())), Some(State::Running));
+    std::fs::write(src.join("tile.wasm"), good).unwrap();
     // Not a folder of tiles: refused, saying why.
     let empty = t.path().join("not-tiles");
     std::fs::create_dir_all(&empty).unwrap();
