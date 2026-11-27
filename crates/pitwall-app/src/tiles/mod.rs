@@ -142,6 +142,22 @@ pub fn has_tiles(m: &Manifest) -> bool {
     !m.contributes.tiles.is_empty()
 }
 
+/// Whether a view's title is its extension's name (a tile called "Hello"
+/// in the extension "Hello"): headers and labels then say it once.
+pub fn same_name(title: &str, name: &str) -> bool {
+    title.trim().eq_ignore_ascii_case(name.trim())
+}
+
+/// "Open <title> (<extension>)", or "Open <title>" when they are the same
+/// (the palette's and the sidebar's entries for a tile).
+pub fn open_label(title: &str, name: &str) -> String {
+    if same_name(title, name) {
+        format!("Open {title}")
+    } else {
+        format!("Open {title} ({name})")
+    }
+}
+
 /// The user's appearance as a tile sees it.
 pub fn theme_info(cx: &App) -> ui::ThemeInfo {
     let a = crate::theme::appearance(cx);
