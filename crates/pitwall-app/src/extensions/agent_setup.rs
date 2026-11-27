@@ -1128,8 +1128,8 @@ impl ExtensionsBackend for AppExtensions {
             let tiles: Vec<String> = m.contributes.tiles.iter().map(|t| t.id.clone()).collect();
             let reloaded = crate::tiles::try_tiles(cx).map(|t| t.read(cx).views(&m.id)).unwrap_or_default();
             let text = match (id.1, reloaded.is_empty()) {
-                (true, _) => format!("Loaded {} from {} and turned it on. Open its tiles from the command palette (“Open … ({})”).", m.name, pitwall_core::paths::tildify(&folder.to_string_lossy()), m.name),
-                (false, true) => format!("Reloaded {}. None of its tiles is open: open one from the command palette.", m.name),
+                (true, _) => format!("Loaded {} from {} and turned it on. Open its tiles from the command palette or a project's + menu in the sidebar (“{}”).", m.name, pitwall_core::paths::tildify(&folder.to_string_lossy()), m.contributes.tiles.first().map(|t| crate::tiles::open_label(&t.title, &m.name)).unwrap_or_default()),
+                (false, true) => format!("Reloaded {}. None of its tiles is open: open one from the command palette or a project's + menu in the sidebar.", m.name),
                 (false, false) => format!("Reloaded {}: {} replaced, with the state {} saved.", m.name, reloaded.join(", "), if reloaded.len() == 1 { "it" } else { "they" }),
             };
             Ok(ExtDevReloaded { proto: EXT_PROTO, id: m.id.clone(), name: m.name.clone(), loaded: id.1, tiles, reloaded, message: text.clone(), text })
