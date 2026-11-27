@@ -1,0 +1,18 @@
+{
+  "v": 2,
+  "id": "{{id}}",
+  "name": "{{name_str}}",
+  "version": "0.1.0",
+  "pitwall": ">={{pitwall}}",
+  "icon": "file",
+  "description": "Notes taken with a small form",
+  "license": "Apache-2.0",
+  "settings": [
+    { "key": "author", "type": "text", "label": "Signed as", "placeholder": "Your name", "default": "me" }
+  ],
+  "contributes": {
+    "tiles": [
+      { "id": "main", "title": "{{name_str}}", "icon": "file", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "input": "input.schema.json" }
+    ]
+  }
+}

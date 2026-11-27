@@ -21,6 +21,7 @@ mod render;
 #[cfg(test)]
 mod reference;
 mod settings;
+mod tile;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -319,6 +320,14 @@ fn main() -> ExitCode {
                 eprintln!("pitwall mcp: {e}");
                 ExitCode::from(1)
             }
+        };
+    }
+    if let Command::Extension(args::ExtensionCmd::Dev { folder, once }) = &cli.command {
+        let folder = folder.clone().unwrap_or_else(|| PathBuf::from("."));
+        return match tile::dev(&folder, &socket, *once, cli.human, &mut std::io::stdout().lock()) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::from(1),
+            Err(e) => report(&Error::Server(ErrorBody::new("failed", e)), cli.human),
         };
     }
     if let Some(e) = cli.command.offline_extension() {

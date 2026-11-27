@@ -17,9 +17,18 @@ pitwall-core = { path = "../pitwall-core" }
 pitwall-peer = { path = "../pitwall-peer" }
 pitwall-proto = { path = "../pitwall-proto" }
 clap = { version = "4", features = ["derive"] }
+# `pitwall extension check` on a tile: a component's imports and exports
+# (component model only; the tile runtime isn't linked). Already in the
+# tree through wasmtime.
+wasmparser = { version = "0.254", default-features = false, features = ["std", "component-model"] }
+# `pitwall extension dev` rebuilds on save; already in the tree through
+# pitwall-core.
+notify = "8"
 serde = "1"
 serde_json = "1"
 
 [dev-dependencies]
+# Its WORLDS and limits, which `pitwall extension check` copies.
+pitwall-tile-host = { path = "../pitwall-tile-host" }
 pitwall-core = { path = "../pitwall-core", features = ["testing"] }
 pitwall-daemon = { path = "../pitwall-daemon" }

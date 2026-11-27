@@ -1,0 +1,29 @@
+# {{name}}
+
+{{about}}
+
+A [Pitwall](https://github.com/pitwalls/pitwall) tile, written in Rust with
+`pitwall-extension` (preview: WIT `pitwall:tile@0.1.0`).
+
+## Develop
+
+```sh
+rustup target add wasm32-wasip2   # once
+pitwall extension dev             # build, check, load into Pitwall; again on every save
+cargo test                        # the tests in tests/ run the built tile
+pitwall extension check .         # the manifest, the component and its limits
+```
+
+`pitwall extension dev` builds with `cargo build --release --target
+wasm32-wasip2`, copies the component to `tile.wasm` beside
+`extension.json`, checks it, and asks the running Pitwall to load it as a
+development extension (reloaded after each build, keeping its state).
+
+## Files
+
+| File | What |
+|---|---|
+| `extension.json` | The manifest: id, name, version, the tile (`contributes.tiles`), settings, permissions with your reasons |
+| `src/lib.rs` | The tile: state, `render`, listeners |
+| `tests/` | Tests with `pitwall-extension-test` |
+{{files}}| `AGENTS.md`, `.agents/skills/`, `.claude/skills/` | The authoring skill, for the coding agent working here |

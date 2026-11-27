@@ -1,10 +1,10 @@
 #!/bin/sh
 # Rebuilds hello/tile.wasm, the committed component of the hello extension
-# that the host's tests load, from hello-tile/ (Rust, wit-bindgen, against
-# ../../wit). Needs the wasm32-wasip2 target; rustup installs it from
+# that the host's tests load, from hello-tile/ (Rust, written with the
+# pitwall-extension SDK in sdk/, whose wit/ copies ../../wit). Needs the wasm32-wasip2 target; rustup installs it from
 # hello-tile/rust-toolchain.toml on first use (or run
-# `rustup target add wasm32-wasip2`). The workspace build and CI never run
-# this: commit the rebuilt tile.wasm with the change to wit/ or the tile.
+# `rustup target add wasm32-wasip2`). The workspace build never runs this
+# (CI's Tile SDK job builds it but doesn't commit it): commit the rebuilt tile.wasm with the change to wit/ or the tile.
 #
 #   build-hello-tile.sh          rebuild the committed hello/tile.wasm
 #   build-hello-tile.sh heavy    build a tile-sized variant (regex,

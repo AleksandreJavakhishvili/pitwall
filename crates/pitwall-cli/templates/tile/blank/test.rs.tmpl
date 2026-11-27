@@ -1,0 +1,18 @@
+//! Runs the built tile in Pitwall's tile runtime: `cargo test` builds
+//! tile.wasm first (it needs `rustup target add wasm32-wasip2`).
+
+use pitwall_extension_test::Harness;
+
+#[test]
+fn counts_clicks_and_keeps_them() {
+    let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).open("main");
+    assert!(tile.find_text("Clicked 0 times").is_some(), "{}", tile.text_snapshot());
+    tile.click_text("Click me").click_text("Click me");
+    assert!(tile.find_text("Clicked 2 times").is_some());
+    assert_eq!(tile.stored_json::<u32>("clicks"), Some(2));
+    // Started again with the same data: the count is still there.
+    tile.reload();
+    assert!(tile.find_text("Clicked 2 times").is_some());
+    tile.click_text("Reset");
+    assert_eq!(tile.stored_json::<u32>("clicks"), Some(0));
+}

@@ -1,0 +1,14 @@
+# {{name}}
+
+A Pitwall tile: Rust built to a WebAssembly component (`wasm32-wasip2`) that
+Pitwall runs in a sandbox and draws in its own theme.
+
+Before changing it, read the authoring skill:
+`.agents/skills/pitwall-extension-authoring/SKILL.md` (the same file is in
+`.claude/skills/`). It covers the manifest, the SDK, testing and the
+commands.
+
+- Build, check and load it into the running Pitwall: `pitwall extension dev`
+- Check it without building: `pitwall extension check .`
+- Test it: `cargo test` (the tests build `tile.wasm` and run it in Pitwall's
+  tile runtime)
