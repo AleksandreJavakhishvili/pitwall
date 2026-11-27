@@ -166,6 +166,9 @@ pub const METHODS: &[(&str, Access, Ext)] = &[
     // Only shows the user a secret's field in Settings; no value passes.
     (method::EXTENSION_SECRET, Access::Open, Ext::Never),
     (method::EXTENSION_ACT, Access::AskWhen("always: shows exactly what will run (commands, variables, folders), then does what Settings' button does", Risk::High), Ext::Never),
+    // `pitwall extension dev`: a folder of tiles loaded where it is and
+    // turned on (asks the first time), then reloaded in place.
+    (method::EXTENSION_DEV_RELOAD, Access::AskWhen("when the folder isn't loaded for development yet: lists it as a development extension and runs its tiles (sandboxed)", Risk::Low), Ext::Never),
     // What agent.list shows, as it changes; `approvals` only for the UI
     // (events.rs). Answered per connection (server.rs).
     (method::EVENTS_SUBSCRIBE, Access::Open, Ext::Grant(AGENTS_READ)),
@@ -396,6 +399,7 @@ fn run(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::EXTENSION_CHECK_UPDATES => crate::extension_setup::check_updates(s, required(p)?),
         method::EXTENSION_SECRET => crate::extension_setup::secret(s, caller, required(p)?),
         method::EXTENSION_ACT => crate::extension_setup::act(s, caller, required(p)?),
+        method::EXTENSION_DEV_RELOAD => crate::extension_setup::dev_reload(s, caller, required(p)?),
         // Needs the connection: server.rs answers it before dispatching.
         method::EVENTS_SUBSCRIBE => Err(ErrorBody::new(code::UNSUPPORTED, "events.subscribe needs a connection of its own")),
         _ => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
@@ -735,7 +739,7 @@ mod tests {
         assert_eq!(ext_allowed(method::AGENT_STOP, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED);
         // Setting up extensions is the user's (and their agents'), never
         // an extension's: not even reading another's state.
-        for m in [method::EXTENSION_LIST, method::EXTENSION_STATUS, method::EXTENSION_LOG, method::EXTENSION_CHECK_UPDATES, method::EXTENSION_SECRET, method::EXTENSION_ACT] {
+        for m in [method::EXTENSION_LIST, method::EXTENSION_STATUS, method::EXTENSION_LOG, method::EXTENSION_CHECK_UPDATES, method::EXTENSION_SECRET, method::EXTENSION_ACT, method::EXTENSION_DEV_RELOAD] {
             assert_eq!(ext_access(m), Some(Ext::Never), "{m}");
             assert_eq!(ext_allowed(m, &ext, |_| true).unwrap_err().code, code::UNSUPPORTED, "{m}");
         }
