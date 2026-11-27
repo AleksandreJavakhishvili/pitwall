@@ -4,6 +4,7 @@
 use pitwall_extension_test::{Harness, Tone};
 use serde_json::json;
 
+// docs:start form-test
 #[test]
 fn a_note_needs_a_title_and_is_saved_signed() {
     let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).setting("author", "Ana").open("main");
@@ -20,6 +21,7 @@ fn a_note_needs_a_title_and_is_saved_signed() {
     tile.set_setting("author", Some("Bo"));
     assert!(tile.find_text("Signed as Bo").is_some());
 }
+// docs:end
 
 #[test]
 fn an_agent_opens_it_with_a_draft() {

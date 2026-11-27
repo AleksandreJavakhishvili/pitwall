@@ -3,6 +3,7 @@
 
 use pitwall_extension_test::Harness;
 
+// docs:start blank-test
 #[test]
 fn counts_clicks_and_keeps_them() {
     let mut tile = Harness::build(env!("CARGO_MANIFEST_DIR")).open("main");
@@ -16,3 +17,4 @@ fn counts_clicks_and_keeps_them() {
     tile.click_text("Reset");
     assert_eq!(tile.stored_json::<u32>("clicks"), Some(0));
 }
+// docs:end
