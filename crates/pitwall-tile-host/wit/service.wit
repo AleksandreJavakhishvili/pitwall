@@ -1,0 +1,54 @@
+package pitwall:tile@0.1.0;
+
+/// The extension's own server, when its manifest declares a `service`
+/// (services.md §13.2): a program on this computer that Pitwall installs
+/// with one of the extension's actions, starts while the extension is on
+/// and restarts when it stops. No permission: only its own server.
+///
+/// The tile may reach the server's address (its `ready.listen`, as the
+/// user's settings make it) with `net.fetch`, over `http`, without the
+/// `net` permission; nothing else on this computer. Hiding or closing the
+/// tile doesn't stop the server; turning the extension off stops both.
+interface service {
+  /// How the server stands.
+  enum state {
+    /// The extension declares no service.
+    none,
+    /// Not started yet: the user hasn't confirmed its commands.
+    off,
+    /// Its program isn't installed (or too old): the card offers its
+    /// install action.
+    needs-install,
+    /// Started, not answering yet.
+    starting,
+    /// Running and answering.
+    up,
+    /// Stopped by the user.
+    stopped,
+    /// It stopped by itself and isn't coming back on its own.
+    failed,
+  }
+
+  /// The server's state now.
+  record service-info {
+    state: state,
+    /// Where it listens, `http://127.0.0.1:8790` (no trailing `/`), when
+    /// it declares `ready.listen`.
+    address: option<string>,
+    /// The version its `version` check found.
+    version: option<string>,
+    /// Why it is off, failed or needs installing, in plain words.
+    why: option<string>,
+  }
+
+  /// The server's state now (a `service-changed` event follows each
+  /// change).
+  info: func() -> service-info;
+
+  /// Ask Pitwall to start the server again, as the card's Restart does.
+  restart: func();
+
+  /// Show the extension's card in Settings, where the user installs,
+  /// confirms and starts the server.
+  open-card: func();
+}

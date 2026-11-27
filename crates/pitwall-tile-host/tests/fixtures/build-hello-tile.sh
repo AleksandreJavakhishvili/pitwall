@@ -31,4 +31,10 @@ else
   cargo build --release --target wasm32-wasip2
   cp target/wasm32-wasip2/release/blocks_tile.wasm "$here/blocks/tile.wasm"
   ls -l "$here/blocks/tile.wasm"
+  # The services fixture (net, sql, notify, show, toolbar, service), the
+  # same way.
+  cd "$here/services-tile"
+  cargo build --release --target wasm32-wasip2
+  cp target/wasm32-wasip2/release/services_tile.wasm "$here/services/tile.wasm"
+  ls -l "$here/services/tile.wasm"
 fi

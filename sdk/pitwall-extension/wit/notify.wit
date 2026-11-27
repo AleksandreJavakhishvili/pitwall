@@ -1,0 +1,17 @@
+package pitwall:tile@0.1.0;
+
+/// System notifications (platform-services.md §14.2). Needs the `notify`
+/// permission; without it, `denied`. For news inside Pitwall, a toast
+/// (`ui.toast`) needs nothing.
+///
+/// Labelled with the extension's name. Shown by the system while Pitwall
+/// isn't in front, and as a toast in Pitwall either way; clicking either
+/// opens the tile that sent it. At most 3 a minute (`busy` over that);
+/// the same title and text again within 10 minutes is shown once.
+interface notify {
+  use types.{host-error};
+
+  /// Notify the user: a title (at most 80 characters) and a line of text
+  /// (at most 200; longer is cut).
+  send: func(title: string, body: string) -> result<_, host-error>;
+}
