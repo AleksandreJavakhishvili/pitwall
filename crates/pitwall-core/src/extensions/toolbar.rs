@@ -156,7 +156,7 @@ mod tests {
 
     fn contributes() -> Contributes {
         Contributes {
-            tiles: vec![TileDef { id: "inbox".into(), title: "Inbox".into(), icon: None, wasm: "tile.wasm".into(), world: None, input: None }],
+            tiles: vec![TileDef { id: "inbox".into(), title: "Inbox".into(), icon: None, wasm: "tile.wasm".into(), world: None, input: None, tools: vec![], agents: true }],
             commands: vec![CommandDef { id: "sync".into(), title: "Sync".into(), context: CommandContext::None }],
             ..Default::default()
         }
