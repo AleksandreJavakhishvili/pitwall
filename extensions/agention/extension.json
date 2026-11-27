@@ -38,14 +38,16 @@
   ],
   "permissions": {
     "net": { "reason": "To read your agents' threads from your Agention server and send your answers", "hosts": ["{setting:server}"] },
-    "agents.read": "To show which of your agents asks, and badge the ones waiting on you"
+    "agents.read": "To show which of your agents asks, and badge the ones waiting on you",
+    "shortcut": "To open your Agention inbox from anywhere in Pitwall"
   },
   "contributes": {
     "tiles": [
-      { "id": "inbox", "title": "Agention", "icon": "inbox", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "agents": false }
+      { "id": "inbox", "title": "Agention", "icon": "inbox", "wasm": "tile.wasm", "world": "pitwall:tile@0.1.0", "agents": false, "shortcut": "cmd-shift-u" }
     ],
     "asks": true,
     "badges": true,
+    "status": true,
     "toolbar": { "icon": "inbox", "tooltip": "Agention", "badge": true, "action": { "kind": "tile", "tile": "inbox" } }
   },
   "agentEnv": [

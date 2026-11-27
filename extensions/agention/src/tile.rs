@@ -178,6 +178,48 @@ struct Agention {
     shown_toolbar: Option<(u32, bool)>,
     service: Option<service::Info>,
     counter: u64,
+    /// Replies and answers sent, held a few seconds for Undo first.
+    held: TakeBack<Held>,
+    /// The connection as last reported to Pitwall (`status`).
+    reported: Option<Conn>,
+    /// A reply's words while it is sent, by thread: back in its box if
+    /// it fails.
+    unsent: BTreeMap<String, String>,
+}
+
+/// A send held for take-back.
+#[derive(Debug)]
+enum Held {
+    Reply { thread: String, words: String },
+    Answer { thread: String, number: u64, reply: api::Reply },
+}
+
+fn held(this: &mut Agention) -> &mut TakeBack<Held> {
+    &mut this.held
+}
+
+/// Its time is up: send it.
+fn send_held(this: &mut Agention, h: Held, cx: &mut Cx<Agention>) {
+    match h {
+        Held::Reply { thread, words } => this.post_reply(&thread, words, cx),
+        Held::Answer { thread, number, reply } => this.post_answer(&thread, number, reply, cx),
+    }
+}
+
+/// Undo: a reply's words go back in its box, an answer's in its card.
+fn unsend(this: &mut Agention, h: Held, cx: &mut Cx<Agention>) {
+    match h {
+        Held::Reply { thread, words } => {
+            this.replies.insert(thread, words);
+        }
+        Held::Answer { thread, number, reply } => {
+            let d = this.asking.entry(model::ask_id(&thread, number)).or_default();
+            if d.text.is_empty() {
+                d.text = reply.text;
+            }
+        }
+    }
+    cx.notify();
 }
 
 impl Tile for Agention {
@@ -599,8 +641,24 @@ impl Agention {
             self.reads.clear();
         }
         self.conn = c;
+        self.report();
         self.publish();
         cx.notify();
+    }
+
+    /// The connection on the card's pill and its checklist, as it changes.
+    fn report(&mut self) {
+        if self.reported.as_ref() == Some(&self.conn) {
+            return;
+        }
+        self.reported = Some(self.conn.clone());
+        let (state, words) = match &self.conn {
+            Conn::Connecting => (status::State::Connecting, ""),
+            Conn::Ready => (status::State::Ready, ""),
+            Conn::SignedOut(w) => (status::State::SignedOut, w.as_str()),
+            Conn::Setup(w) | Conn::Down(w) => (status::State::Error, w.as_str()),
+        };
+        status::set(state, words);
     }
 
     fn read_agents(&mut self) {
@@ -726,6 +784,9 @@ impl Agention {
             match got {
                 Ok(_) => then(this, cx),
                 Err(f) => {
+                    if let Some(w) = this.unsent.remove(&tid) {
+                        this.replies.entry(tid.clone()).or_insert(w);
+                    }
                     let s = said(&r2, &f);
                     if s.signed_out {
                         return this.failed(&r2, &f, cx);
@@ -760,27 +821,52 @@ impl Agention {
         });
     }
 
+    /// Send: the reply waits a few seconds with Undo, then goes.
     fn send_reply(&mut self, id: &str, cx: &mut Cx<Self>) {
+        let words = self.replies.remove(id).unwrap_or_default();
+        if words.trim().is_empty() {
+            return;
+        }
+        self.held.hold(Held::Reply { thread: id.to_string(), words }, "Your reply", cx, held, send_held);
+    }
+
+    /// Ask `number` of thread `id` has an answer waiting for take-back.
+    fn answer_held(&self, id: &str, number: u64) -> bool {
+        self.held.held().iter().any(|h| matches!(&h.item, Held::Answer { thread, number: n, .. } if thread == id && *n == number))
+    }
+
+    fn post_reply(&mut self, id: &str, words: String, cx: &mut Cx<Self>) {
         let Some(at) = ThreadRef::parse(id) else { return };
-        let words = self.replies.get(id).cloned().unwrap_or_default();
         let rid = self.request_id();
         match api::message_body(&rid, self.seen_through(id), &words) {
             Ok(body) => {
                 let tid = id.to_string();
+                self.unsent.insert(id.to_string(), words);
                 self.act(id, format!("{id}@reply"), api::send(&at, body), cx, move |this, cx| {
-                    this.replies.remove(&tid);
+                    this.unsent.remove(&tid);
                     this.read_thread(&tid, cx);
                 });
             }
             Err(e) => {
+                self.replies.insert(id.to_string(), words);
                 self.notice.insert(id.to_string(), format!("Not sent: {e}."));
                 cx.notify();
             }
         }
     }
 
-    /// Answer ask `number` of thread `id` from the tile.
+    /// Answer ask `number` of thread `id` from the tile: it waits a few
+    /// seconds with Undo, then goes.
     fn answer(&mut self, id: &str, number: u64, reply: api::Reply, cx: &mut Cx<Self>) {
+        if self.answer_held(id, number) {
+            return;
+        }
+        self.asking.remove(&model::ask_id(id, number));
+        let label = if reply.declined { "Your decline" } else { "Your answer" };
+        self.held.hold(Held::Answer { thread: id.to_string(), number, reply }, label, cx, held, send_held);
+    }
+
+    fn post_answer(&mut self, id: &str, number: u64, reply: api::Reply, cx: &mut Cx<Self>) {
         let Some(at) = ThreadRef::parse(id) else { return };
         let rid = self.request_id();
         let ask = model::ask_id(id, number);
@@ -1031,7 +1117,41 @@ impl Agention {
                     })),
             )
             .child(h_flex().id("actions").justify_end().child(button("Send").primary().small().icon(Icon::Send).id("send-reply").disabled(busy || words.trim().is_empty()).on_click(cx.listener(move |this: &mut Agention, _, cx| this.send_reply(&send_key, cx)))));
-        v_flex().flex_1().min_w(px(0.)).min_h(px(0.)).id("thread").child(head).child(body).child(reply)
+        self.number_keys(id, cx);
+        let waiting = self.held.view(cx, held, unsend);
+        v_flex().flex_1().min_w(px(0.)).min_h(px(0.)).id("thread").child(head).child(body).child(waiting).child(reply)
+    }
+
+    /// Keys 1–9 pick the suggestions of the thread's first open question,
+    /// as in Pitwall's inbox: one pick answers (with take-back), several
+    /// toggle. They type instead while a field has focus.
+    fn number_keys(&self, thread: &str, cx: &mut Cx<Self>) {
+        let Some(r) = self.reads.get(thread) else { return };
+        let Some(a) = r.messages.iter().flat_map(|m| m.asks.iter()).find(|a| a.state == AskState::Open && !a.suggestions.is_empty()) else { return };
+        if self.answer_held(thread, a.number) || self.sending.contains(&model::ask_id(thread, a.number)) {
+            return;
+        }
+        for i in 0..a.suggestions.len().min(9).min(api::input::PICKS) {
+            let (t, n, multiple) = (thread.to_string(), a.number, a.multiple);
+            let h = cx.listener(move |this: &mut Agention, _: &KeyPress, cx| this.pick(&t, n, multiple, i as u32, cx));
+            cx.bind_key((i + 1).to_string(), h);
+        }
+    }
+
+    /// Suggestion `i` of ask `n` picked (a click or its number key).
+    fn pick(&mut self, thread: &str, n: u64, multiple: bool, i: u32, cx: &mut Cx<Self>) {
+        let aid = model::ask_id(thread, n);
+        if multiple {
+            let d = self.asking.entry(aid).or_default();
+            if !d.picks.remove(&i) {
+                d.picks.insert(i);
+            }
+            cx.notify();
+        } else {
+            // One pick: sent, with any words typed.
+            let text = self.asking.get(&aid).map(|d| d.text.clone()).unwrap_or_default();
+            self.answer(thread, n, api::Reply { ask: n, picks: vec![i], text, declined: false }, cx);
+        }
     }
 
     fn message(&self, thread: &str, m: &Message, cx: &mut Cx<Self>) -> Div {
@@ -1087,31 +1207,21 @@ impl Agention {
         match &a.state {
             AskState::Open => {
                 let draft = self.asking.get(&aid).cloned().unwrap_or_default();
-                let busy = self.sending.contains(&aid);
+                let busy = self.sending.contains(&aid) || self.answer_held(thread, a.number);
                 let mut picks = h_flex().id("picks").flex_wrap().gap_1p5();
                 for (i, s) in a.suggestions.iter().enumerate().take(api::input::PICKS) {
-                    let (t, aid2, n, multiple) = (thread.to_string(), aid.clone(), a.number, a.multiple);
+                    let (t, n, multiple) = (thread.to_string(), a.number, a.multiple);
                     let chosen = draft.picks.contains(&(i as u32));
                     let mut b = button(s.label.clone()).small().id(format!("s{i}")).disabled(busy);
                     if chosen {
                         b = b.primary();
                     }
-                    if !s.description.is_empty() {
+                    if i < 9 {
+                        b = b.tooltip(if s.description.is_empty() { format!("Press {}", i + 1) } else { format!("{} (press {})", s.description, i + 1) });
+                    } else if !s.description.is_empty() {
                         b = b.tooltip(s.description.clone());
                     }
-                    picks = picks.child(b.on_click(cx.listener(move |this: &mut Agention, _, cx| {
-                        if multiple {
-                            let d = this.asking.entry(aid2.clone()).or_default();
-                            if !d.picks.remove(&(i as u32)) {
-                                d.picks.insert(i as u32);
-                            }
-                            cx.notify();
-                        } else {
-                            // One pick: sent at once, with any words typed.
-                            let text = this.asking.get(&aid2).map(|d| d.text.clone()).unwrap_or_default();
-                            this.answer(&t, n, api::Reply { ask: n, picks: vec![i as u32], text, declined: false }, cx);
-                        }
-                    })));
+                    picks = picks.child(b.on_click(cx.listener(move |this: &mut Agention, _, cx| this.pick(&t, n, multiple, i as u32, cx))));
                 }
                 if !a.suggestions.is_empty() {
                     card = card.child(picks);
