@@ -38,7 +38,7 @@ pub const DEV_RELOAD: &str = "extension.devReload";
 pub const REPO: &str = "https://github.com/pitwalls/pitwall";
 
 /// The interfaces of `pitwall:tile@0.1.0` a component may import.
-const INTERFACES: [&str; 15] = ["types", "ui", "log", "tasks", "storage", "settings", "agents", "badges", "asks", "net", "sql", "notify", "show", "toolbar", "service"];
+const INTERFACES: [&str; 16] = ["types", "ui", "log", "tasks", "storage", "settings", "agents", "badges", "asks", "net", "sql", "notify", "show", "toolbar", "service", "agent-tools"];
 
 // ---- new --------------------------------------------------------------------
 
