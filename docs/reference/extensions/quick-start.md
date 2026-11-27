@@ -131,7 +131,7 @@ A test can open a view with content, as an agent would, and give it new content 
 {{#include crates/pitwall-cli/templates/tile/list/test.rs.tmpl#list-test-content}}
 ```
 
-The harness, `pitwall-extension-test`, can also type into fields (`type_into`, `submit`), press keys (`press`), let time pass for timers (`wait`, `wait_for_text`), change a setting (`set_setting`), reload the tile (`reload`), and read what it stored (`stored`, `stored_json`), logged (`log_text`) and toasted (`toasts`). `text_snapshot()` prints the tree, which helps when an assertion fails.
+The harness, `pitwall-extension-test`, can also type into fields (`type_into`, `submit`), select in them (`select_text`, `select_in`), press keys (`press`), let time pass for timers (`wait`, `wait_for_text`), change a setting (`set_setting`), reload the tile (`reload`), and read what it stored (`stored`, `stored_json`), logged (`log_text`) and toasted (`toasts`). `text_snapshot()` prints the tree, which helps when an assertion fails.
 
 ## Share it
 

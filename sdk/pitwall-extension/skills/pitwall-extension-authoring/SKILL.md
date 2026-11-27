@@ -145,16 +145,20 @@ pitwall_extension::export!(App);
   so text zooms). Clickable boxes are `.region(Region::new(key, x, y, w, h, label).on_click(..))`.
   Keep a `Viewport` in the state and feed it from `.on_pointer` and `.on_wheel`
   (`if t.viewport.on_pointer(p) { cx.notify() }`); `fit`, `zoom_at` for buttons.
-  No text-measuring call: measure with an Inter width table.
+  Size boxes to labels with `ui::measure_text(&labels, TextFont::Ui, 14., TextWeight::Semibold)`
+  (one call for all) or `label.width()`. A box's menu: `canvas.popover(popover().at(x, y))`,
+  (x, y) from `viewport.to_view(..)`.
 - **Drag and drop** inside a tile: `.draggable(kind, data, label)` on the source,
   `.on_drop([kind], handler)` (`Dropped { kind, data, at }`) on the target.
 - **Code and diff views** (read-only, Pitwall's own): `code_view(text).language("rust")`
-  with `.mark(range, Mark::Added)`, `.reveal(line)`, `.on_line_click`, `.on_select`;
+  with `.mark(range, Mark::Added)`, `.mark_with(range, Mark::Error, msg)` (or `Warning`),
+  `.reveal(line)`, `.on_line_click`, `.on_select`;
   `diff_view(old, new)` or `diff_view_unified(patch)`, `.inline()`. Give them a size.
 - **Components**, drawn by Pitwall (prefer them to hand-made ones):
   - Long lists: `virtual_list("rows", count, cx.rows(|this, i, cx| row))`,
     each row keyed by its item (`.id(item.id)`, no `/` in a key), small
-    (boxes, text, icons, buttons, images, a context menu), one
+    (boxes, text, icons, buttons, images, a context menu, badges,
+    avatars, relative times), one
     `.row_height`. `.on_select(cx.listener(|this, e: &Picked, cx| …))`
     (`e.activate` for a double click or Enter), `.selected([key])`,
     `.revision(n)` when the data has a version. Give its parent a height.
@@ -376,7 +380,7 @@ impl MyTile {
   `r.text()`); 8 at once, 30 s by default. Only the manifest's hosts.
 - `notify::send(title, body)`: 3 a minute, repeats within 10 minutes
   dropped.
-- `show::file(path, Some(line))`, `show::web(url)`.
+- `show::file(path, Some(line))` (editor), `show::view(path, Some(line))` (file viewer), `show::web(url)`.
 
 Without the grant a call fails with `HostError::Denied` (`net::Error::
 Denied`); carry on and say what is missing. There is no file or program
@@ -405,11 +409,12 @@ Each action waits until the tile handled it and rendered. Time is virtual:
 never sleep; `wait_for_text(text, timeout)` moves it until the text shows.
 `text_snapshot()` prints the tree (with each field's text and focus);
 `field("key")` reads a field; `focus_key`, `blur()`, `focus(false)` move the
-keyboard; `press("n")` a bound key; `resize(view, w, h)`, `light()`;
+keyboard; `press("n")` a bound key; `select_text(key, range)`,
+`select_in(key, "words")` select in a field (the tile hears `on_select`); `resize(view, w, h)`, `light()`;
 `log_text()`, `toasts()`, `stored(key)`, `Harness::stored(key, value)`;
 `reload()` (save state, restart), `restart()` (no saved state),
 `set_setting`, `set_content`.
-Canvases and blocks: `canvas(key)`, `click_region(label)`, `hover_region`,
+Canvases and blocks: `canvas(key)`, `click_region(label)`, `right_click_region`, `hover_region`,
 `wheel`, `pinch`, `drag_pointer`, `drag(from, to)`, `code_view(key)`,
 `click_line(key, Side::New, n)`, `select_code`.
 Components: `rows(list, start, count)` (each
