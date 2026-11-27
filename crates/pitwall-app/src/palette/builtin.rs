@@ -217,6 +217,18 @@ pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
         .query_only()
         .rank(rank::TERMINALS),
     );
+    // Extensions at full size (docs/spec/layout.md "The Extensions tile").
+    out.push(
+        Command::new(
+            "extensions-tile",
+            "Extensions",
+            "extensions browse install marketplace index plugins add-ons tiles tools update",
+            on_screen(pc, |s, w, cx| s.open_extensions_tile(w, cx)),
+        )
+        .icon("extension")
+        .query_only()
+        .rank(rank::TERMINALS),
+    );
     // The text editor (docs/spec/editor.md).
     out.push(
         Command::new(

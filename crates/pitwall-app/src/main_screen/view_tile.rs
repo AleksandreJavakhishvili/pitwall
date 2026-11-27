@@ -142,7 +142,7 @@ impl ViewTile {
         let (ext, view) = match &s {
             Surface::View(e, v) => (e.clone(), v.clone()),
             Surface::Inbox(e) => (e.clone(), String::new()),
-            Surface::Settings | Surface::Device(_) | Surface::Editor => (String::new(), String::new()),
+            Surface::Settings | Surface::Device(_) | Surface::Editor | Surface::Extensions => (String::new(), String::new()),
         };
         // An extension's own tile: its component draws it.
         let tile = crate::extensions::manifest_of(&ext, cx).filter(|m| m.contributes.tile(&view).is_some()).map(|_| {

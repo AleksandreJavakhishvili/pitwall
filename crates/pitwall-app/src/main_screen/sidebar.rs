@@ -683,7 +683,7 @@ impl MainScreen {
         // Extensions' tiles, as the palette's "Open …" (placed as one
         // opened there is).
         let tiles = crate::tiles::openable(cx);
-        if !tiles.is_empty() {
+        {
             items.push(MenuItem::header("Tiles"));
             for t in tiles {
                 let (ext, tile, folder) = (t.ext, t.tile, project.to_string());
@@ -694,6 +694,8 @@ impl MainScreen {
                     this.open_view(&ext, &tile, None, window, cx)
                 }));
             }
+            // Where more come from.
+            items.push(MenuItem::new("extension", "Extensions", |this, window, cx| this.open_extensions_tile(window, cx)));
         }
         self.open_menu(at, items, window, cx);
     }

@@ -54,6 +54,9 @@ pub fn title(key: &str, cx: &App) -> String {
     if s == Surface::Editor {
         return "Editor".into();
     }
+    if s == Surface::Extensions {
+        return "Extensions".into();
+    }
     let m = crate::extensions::manifest_of(s.ext(), cx);
     let name = m.as_ref().map(|m| m.name.clone()).unwrap_or_else(|| s.ext().to_string());
     match &s {
@@ -69,6 +72,7 @@ pub fn title(key: &str, cx: &App) -> String {
         Surface::Settings => "Settings".into(),
         Surface::Device(d) => super::device_tile::title(d, cx),
         Surface::Editor => "Editor".into(),
+        Surface::Extensions => "Extensions".into(),
     }
 }
 
@@ -106,6 +110,7 @@ impl InboxWindow {
                     Surface::Settings => super::settings_tile::close(cx),
                     Surface::Device(d) => super::device_tile::close(&d, cx),
                     Surface::Editor => super::editor_tile::close(cx),
+                    Surface::Extensions => super::extensions_tile::close(cx),
                 });
             }
             true
@@ -199,6 +204,12 @@ fn held(key: &str, cx: &mut App) -> (gpui::AnyView, FocusHandle) {
             let f = gpui::Focusable::focus_handle(v.read(cx), cx);
             (v.into(), f)
         }
+        Surface::Extensions => {
+            let v = super::extensions_tile::view(cx);
+            v.update(cx, |v, cx| v.held(true, cx));
+            let f = gpui::Focusable::focus_handle(v.read(cx), cx);
+            (v.into(), f)
+        }
     }
 }
 
@@ -249,6 +260,9 @@ pub fn restore(cx: &mut App) {
     if ui.surface_in_window(&Surface::Editor) {
         kept.push(Surface::Editor);
     }
+    if ui.surface_in_window(&Surface::Extensions) {
+        kept.push(Surface::Extensions);
+    }
     for s in kept {
         // An extension no longer found, or a view its manifest no longer
         // has: forgotten.
@@ -258,7 +272,7 @@ pub fn restore(cx: &mut App) {
             Surface::View(_, v) => m.is_some_and(|m| m.contributes.view(v).is_some()),
             Surface::Settings => true,
             Surface::Device(_) => super::device_tile::enabled(cx),
-            Surface::Editor => true,
+            Surface::Editor | Surface::Extensions => true,
         };
         if !there {
             crate::ui_state::update(cx, |ui| *ui = ui.clone().close_surface(&s));
@@ -343,6 +357,7 @@ pub fn described(ext: &str, cx: &mut App) -> String {
         Surface::Settings => "the Settings tile".to_string(),
         Surface::Device(d) => format!("the device tile “{}”", super::device_tile::title(d, cx).trim_end_matches(" — Device")),
         Surface::Editor => "the editor tile".to_string(),
+        Surface::Extensions => "the Extensions tile".to_string(),
     };
     format!("{tile} in space {} (window {}), {at}", sp.name, ui.window_of_space(&space))
 }

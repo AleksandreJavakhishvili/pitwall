@@ -92,6 +92,7 @@ impl SettingsView {
         match &origin {
             Some(o @ (Origin::Git { .. } | Origin::Npm { .. })) => parts.push(format!("From {}", o.describe())),
             Some(o @ Origin::Folder { .. }) => parts.push(format!("{}. It gets no updates: install a newer folder to replace it", o.describe())),
+            Some(o @ Origin::Package { index: Some(_), .. }) => parts.push(format!("{}, from the extensions index. Its updates come from there (Browse)", o.describe())),
             Some(o @ Origin::Package { .. }) => parts.push(format!("{}. Update it with Install from file… and a newer package", o.describe())),
             Some(Origin::Bundled) => parts.push("Comes with Pitwall".into()),
             None => parts.push("Put here by hand".into()),
@@ -1080,6 +1081,8 @@ mod tests {
             r.insert("https://example.com/notes".into(), other.to_string_lossy().into_owned());
             cx.set_global(catalog::GitRedirect(r));
         });
+        // Under the installed list, past the tabs and search.
+        to_end(&view, cx);
         click(cx, "extension-add-git");
         assert!(cx.debug_bounds("extension-add-git-look").is_some());
         view.update_in(cx, |v, window, cx| {
@@ -1137,6 +1140,8 @@ mod tests {
         let t = TempDir::new("settings-ext-add-npm");
         let (view, cx) = open(cx, &t);
         cx.update(|_, cx| cx.set_global(catalog::NpmRedirect(HashMap::from([(REG.to_string(), reg.url.clone())]))));
+        // Under the installed list, past the tabs and search.
+        to_end(&view, cx);
         click(cx, "extension-add-git");
         assert!(cx.debug_bounds("extension-add-kind-npm").is_some(), "the choice of where from");
         to_end(&view, cx);
@@ -1168,6 +1173,8 @@ mod tests {
     fn add_form_refusals_reach_the_form(cx: &mut TestAppContext) {
         let t = TempDir::new("settings-ext-add-refused");
         let (view, cx) = open(cx, &t);
+        // Under the installed list, past the tabs and search.
+        to_end(&view, cx);
         click(cx, "extension-add-git");
         to_end(&view, cx);
         click(cx, "extension-add-kind-npm");

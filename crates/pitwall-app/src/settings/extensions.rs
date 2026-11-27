@@ -42,7 +42,10 @@ use pitwall_core::accounts::Account;
 
 mod grants;
 pub use grants::{initial_picks, turn_on_with};
+mod browse;
 mod package_ui;
+pub(crate) mod page;
+use page::Tab;
 mod service_ui;
 mod stale_ui;
 mod updates;
@@ -122,6 +125,8 @@ pub struct Section {
     activity: HashSet<String>,
     /// Open activity lists redraw every second.
     activity_ticking: bool,
+    /// The page's tabs, search, filters and detail pages ([`page`]).
+    pub(super) page: page::State,
     _subs: Vec<Subscription>,
 }
 
@@ -399,6 +404,17 @@ impl SettingsView {
     /// connection `conn`, a name or id): its card unfolded there, the field
     /// marked. Nothing of its value goes anywhere but the secure store.
     pub fn ask_secret(&mut self, ext: &str, key: &str, conn: Option<&str>, cx: &mut Context<Self>) {
+        if self.compact_exts {
+            let (e, k, c) = (ext.to_string(), key.to_string(), conn.map(str::to_string));
+            self.in_surface_quietly(
+                move |v, cx| {
+                    v.ask_secret(&e, &k, c.as_deref(), cx);
+                    v.show_extension_detail(Some(&e), cx);
+                },
+                cx,
+            );
+            return;
+        }
         self.exts_open(ext);
         if let Some(k) = conn {
             let list = connections::list(ext, cx);
@@ -427,33 +443,54 @@ impl SettingsView {
     /// The Extensions page: what extensions are, each installed one in a
     /// card of its own, then those Pitwall ships that aren't installed.
     pub(super) fn extension_parts(&mut self, cx: &mut Context<Self>) -> Vec<Part> {
-        let mut v = vec![Part::section("ext-intro", |s, ui, _, cx| s.ext_intro(ui, cx).into_any_element())];
+        let intro = Part::section("ext-intro", |s, ui, _, cx| s.ext_intro(ui, cx).into_any_element());
         if crate::extensions::dir(cx).is_none() {
+            return vec![intro];
+        }
+        // A detail page is a page of its own.
+        // One removed (or gone from the index) meanwhile: the list.
+        if self.exts.page.detail.as_ref().is_some_and(|id| !crate::extensions::found(cx).iter().any(|f| f.key() == id || f.folder == *id)) {
+            self.exts.page.detail = None;
+        }
+        if self.exts.page.browse.detail.as_ref().is_some_and(|id| self.index_now().is_some() && self.listing_of(id).is_none()) {
+            self.exts.page.browse.detail = None;
+        }
+        // The dialog's and the Settings tile's page: the list, compact; the
+        // rest is in the Extensions tile.
+        if self.compact_exts {
+            let mut v = vec![intro];
+            v.extend(self.compact_parts(cx));
             return v;
         }
-        let found = crate::extensions::found(cx);
-        let none = found.is_empty();
-        v.push(Part::section(("ext-installed", none), move |s, ui, _, cx| {
-            let mut d = div().flex().flex_col().gap(px(6.)).pt(px(4.)).child(crate::kit::label("Installed", ui.t.text_3, 11.));
-            if none {
-                let shipped = !s.shipped_now(cx).0.is_empty();
-                d = d.child(
-                    div()
-                        .p(px(14.))
-                        .rounded(px(10.))
-                        .border_1()
-                        .border_dashed()
-                        .border_color(ui.t.line)
-                        .child(crate::kit::muted(if shipped { "Nothing installed yet. Pick one under Available below: installing turns nothing on." } else { "Nothing installed yet." }, &ui.t)),
-                );
-            }
-            d.into_any_element()
-        }));
-        for f in found.iter() {
-            let folder = f.folder.clone();
-            v.push(Part::section(("ext", folder.clone()), move |s, ui, _, cx| s.ext_card(&folder, ui, cx).into_any_element()));
+        // The Extensions tile, wide: the list is beside the page (see
+        // `ext_list_column`); here, what is picked in it.
+        if self.wide() {
+            return self.wide_parts(intro, cx);
         }
-        v.push(Part::section("ext-available", |s, ui, _, cx| s.ext_available(ui, cx).into_any_element()));
+        match self.exts.page.tab {
+            Tab::Installed => {
+                if let Some(id) = self.exts.page.detail.clone() {
+                    let mut v = vec![intro];
+                    v.extend(self.installed_detail_parts(&id, cx));
+                    return v;
+                }
+            }
+            Tab::Browse => {
+                if let Some(id) = self.exts.page.browse.detail.clone() {
+                    let mut v = vec![intro];
+                    v.extend(self.listing_detail_parts(&id, cx));
+                    return v;
+                }
+            }
+        }
+        let mut v = vec![intro, Part::section("ext-tabs", |s, ui, w, cx| s.ext_tabs(ui, w, cx).into_any_element())];
+        match self.exts.page.tab {
+            Tab::Installed => {
+                v.extend(self.installed_parts(cx));
+                v.push(Part::section("ext-available", |s, ui, _, cx| s.ext_available(ui, cx).into_any_element()));
+            }
+            Tab::Browse => v.extend(self.browse_parts(cx)),
+        }
         v
     }
 
@@ -529,7 +566,9 @@ impl SettingsView {
 
     /// A card: one extension and everything about it.
     fn card(ui: &Ui, id: impl Into<SharedString>) -> Stateful<Div> {
-        div().id(id.into()).flex().flex_col().gap(px(12.)).p(px(14.)).rounded(px(10.)).border_1().border_color(ui.t.line)
+        let id: SharedString = id.into();
+        let sel = id.to_string();
+        div().id(id).debug_selector(move || sel).flex().flex_col().gap(px(12.)).p(px(14.)).rounded(px(10.)).border_1().border_color(ui.t.line)
     }
 
     /// The status pill: Off, Needs setup, Connecting, Connected, Signed
@@ -541,6 +580,12 @@ impl SettingsView {
 
     /// Installed extension `folder`'s card.
     fn ext_card(&mut self, folder: &str, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        self.ext_card_in(folder, ui, false, cx)
+    }
+
+    /// Installed extension `folder`'s card; on its detail page (`detail`)
+    /// always unfolded, with who signed it under its name.
+    fn ext_card_in(&mut self, folder: &str, ui: &Ui, detail: bool, cx: &mut Context<Self>) -> Div {
         let found = crate::extensions::found(cx);
         let Some(f) = found.iter().find(|f| f.folder == folder) else { return div() };
         let m = match &f.manifest {
@@ -567,9 +612,10 @@ impl SettingsView {
         let (word, tone, why, connected) = Self::status_of(&m, chosen.as_ref(), cx);
         let needs_setup = if conns.len() > 1 { conns.iter().all(|c| Self::status_of(&m, Some(c), cx).0 == "Needs setup") } else { word == "Needs setup" };
         let (pill, tone): (SharedString, Tone) = if conns.len() > 1 && on { Self::overall(&m, &conns, cx) } else { (word.into(), tone) };
-        let open = self.exts.open.get(&m.id).copied().unwrap_or(on || needs_setup);
+        let open = detail || self.exts.open.get(&m.id).copied().unwrap_or(on || needs_setup);
         let (icon, text) = Self::ext_title(ui, &m, &f.folder);
         let text = text.children(Self::dev_chip(ui, &m, cx));
+        let text = if detail { text.child(self.trust_line(ui, &m, cx)) } else { text.children(Self::index_note(ui, &m.id, cx)) };
         let m2 = m.clone();
         let sel = format!("extension-switch-{}", m.id);
         let switch = crate::kit::toggle(SharedString::from(sel.clone()), on, &ui.t).debug_selector(move || sel).tooltip(crate::kit::tooltip(if on { "Turn off" } else { "Turn on" })).on_click(cx.listener(move |v, _, _, cx| {
@@ -598,17 +644,40 @@ impl SettingsView {
                 v.exts.open.insert(id.clone(), !open);
                 cx.notify();
             }));
+        // Its icon and name open its detail page.
+        let title: AnyElement = if detail {
+            div().flex().flex_1().min_w_0().gap(px(12.)).items_start().child(icon).child(text).into_any_element()
+        } else {
+            let id = m.id.clone();
+            let sel = format!("extension-details-{}", m.id);
+            div()
+                .id(SharedString::from(sel.clone()))
+                .debug_selector(move || sel)
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .tooltip(crate::kit::tooltip("Details: its README, permissions, versions and licence"))
+                .child(icon)
+                .child(text)
+                .on_click(cx.listener(move |v, _, _, cx| v.show_extension_detail(Some(&id), cx)))
+                .into_any_element()
+        };
         let top = div()
             .flex()
             .gap(px(12.))
             .items_start()
-            .child(icon)
-            .child(text)
+            .child(title)
             // A fixed width: the row doesn't move as the state changes.
             .child(div().w(px(110.)).flex().justify_end().mt(px(2.)).child(crate::kit::chip_tone(pill, tone, &ui.t)))
             .child(div().mt(px(4.)).child(switch))
-            .child(div().mt(px(1.)).child(chevron));
+            .when(!detail, |d| d.child(div().mt(px(1.)).child(chevron)));
         let mut card = Self::card(ui, format!("extension-card-{}", m.id)).child(top);
+        if !detail && self.is_selected(&m.id) {
+            card = card.border_color(ui.t.text_4);
+        }
         let changed = local.get(&m.id) == Some(&false);
         // A development folder is never updated: its line says where it is.
         let dev_line = self.dev_line(ui, &m, cx);
@@ -1611,6 +1680,10 @@ mod update_tests;
 mod package_tests;
 #[cfg(test)]
 mod package_shots;
+#[cfg(test)]
+mod page_tests;
+#[cfg(test)]
+mod page_shots;
 
 #[cfg(test)]
 mod tests {
