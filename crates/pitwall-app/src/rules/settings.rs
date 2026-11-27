@@ -635,6 +635,7 @@ pub fn scope_label(from: &str) -> &'static str {
     match from {
         "project" => "project",
         "agent" => "agent",
+        "extension" => "a tile",
         _ => "folder",
     }
 }

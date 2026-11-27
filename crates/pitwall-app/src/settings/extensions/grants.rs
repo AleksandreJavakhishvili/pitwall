@@ -457,6 +457,9 @@ impl SettingsView {
                     ),
             );
         }
+        if let Some(skill) = Self::skill_view(ui, m, cx) {
+            col = col.child(skill);
+        }
         // "Always for <agent>" grants, each revocable.
         let kept = crate::ui_state::get(cx).extension(&m.id).tool_grants.clone();
         if !kept.is_empty() {
@@ -480,6 +483,46 @@ impl SettingsView {
                         ),
                 );
             }
+        }
+        Some(col)
+    }
+
+    /// Its skill for agents (`agents/SKILL.md`, agent-tools.md §11.11):
+    /// what it says it is for, and the projects whose agents get it (a
+    /// tick each). They get it through their rules from their next apply;
+    /// it is never written into a project's tracked files.
+    fn skill_view(ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Option<Div> {
+        let read = crate::extensions::folder_of(&m.id, cx).and_then(|d| pitwall_core::extensions::agent_skill::read(&d, &m.id))?;
+        let sel = format!("extension-skill-{}", m.id);
+        let col = div().debug_selector(move || sel).flex().flex_col().gap(px(6.)).child(crate::kit::label("Skill for agents", ui.t.text_3, 11.));
+        let skill = match read {
+            Ok(s) => s,
+            Err(why) => return Some(col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(format!("Agents don’t get it: {why}")))),
+        };
+        let mut projects: Vec<(String, String)> = crate::extensions::engine(cx).map(|e| e.projects().list().into_iter().map(|p| (p.path, p.display)).collect()).unwrap_or_default();
+        for p in crate::ui_state::get(cx).extension(&m.id).skill_projects {
+            if !projects.iter().any(|(q, _)| *q == p) {
+                projects.push((p.clone(), p));
+            }
+        }
+        let mut col = col
+            .child(div().text_size(px(12.5)).text_color(ui.t.text_2).child(skill.description.clone()))
+            .child(crate::kit::hint(format!("Give agents {}’s skill in these projects. They get it from their next start, with their rules; it stays out of git.", m.name), &ui.t));
+        if projects.is_empty() {
+            col = col.child(crate::kit::hint("No projects yet.", &ui.t));
+        }
+        for (path, display) in projects {
+            let on = crate::tiles::agents::skill_in(&m.id, &path, cx);
+            let (ext, p) = (m.id.clone(), path.clone());
+            let id = format!("extension-skill-{}-{}", m.id, path);
+            let sel = id.clone();
+            col = col.child(
+                crate::kit::check_row(SharedString::from(id), on, false, div().text_size(px(12.5)).text_color(ui.t.text).child(display), None, &ui.t, cx.listener(move |_, _, _, cx| {
+                    crate::tiles::agents::set_skill_in(&ext, &p, !on, cx);
+                    cx.notify();
+                }))
+                .debug_selector(move || sel),
+            );
         }
         Some(col)
     }
