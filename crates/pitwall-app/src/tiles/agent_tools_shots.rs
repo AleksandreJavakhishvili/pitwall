@@ -94,7 +94,7 @@ fn agent_tools_shots() {
         let a = cx.update(|cx| super::agents::check_run(&req, cx)).unwrap().expect("asks");
         let view = ApprovalView {
             id: tool.into(),
-            action: format!("tile.{kind}"),
+            action: pitwall_proto::tile_tools::approval_action(kind, "hello"),
             summary: a.summary,
             details: a.details,
             requester: Requester { kind: RequesterKind::Agent, agent_id: Some("api".into()), name: "api".into(), pid: None, process: None },
