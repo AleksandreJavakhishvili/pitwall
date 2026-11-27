@@ -6,11 +6,13 @@
 //!
 //! Markdown → [`blocks`] → [`mermaid`] → [`c4`] structure → [`index`]
 //! (zoom links, before/after pairs) → [`changes`] and [`layout`]; an
-//! agent's Mermaid → [`show`] → the tile (`tile`).
+//! agent's Mermaid → [`show`] → the tile (`tile`); the project's Markdown,
+//! chosen by [`docs`], read and watched with `files`.
 
 pub mod blocks;
 pub mod c4;
 pub mod changes;
+pub mod docs;
 pub mod index;
 pub mod layout;
 pub mod limits;

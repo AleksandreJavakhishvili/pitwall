@@ -71,7 +71,7 @@ pub use agents::{agent, waiting_agent, Queued};
 
 use pitwall_tile_host::ui::{self, Event, Modifiers, MouseButton, Point};
 use pitwall_tile_host::net::{FakeFetcher, FetchError, Outgoing};
-use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, ToolbarRequest, UiRequest, ViewSpec, POPOVER_VIEW};
+use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, HostConfig, LogLevel, LogLine, Secrets, StartOptions, StopReason, TileHandle, TileHost, TileOutput, ToolbarRequest, ViewSpec, POPOVER_VIEW};
 
 /// A frame's types, as the tile sent them (for checks the helpers don't
 /// cover): a [`Frame`] is a list of [`Node`]s, each an [`Element`].
@@ -88,6 +88,8 @@ pub use pitwall_tile_host::ui::{BadgeTone, ServiceInfo, ServiceState, ToolbarBad
 /// Why a faked `net` request failed ([`Harness::respond_error`]).
 pub use pitwall_tile_host::net::FetchError as NetError;
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
+/// What a component asked of Pitwall's UI ([`Session::ui_requests`]).
+pub use pitwall_tile_host::UiRequest;
 /// A component's new value, as `value-changed` carries it.
 pub use pitwall_tile_host::ui::ControlValue;
 /// How wide a text is in Pitwall's fonts, as `ui.measure-text` answers a
@@ -1389,7 +1391,9 @@ impl Session {
                 return Called::Refused(format!("Nothing was done: the input doesn't fit.\n{}", problems.join("\n")));
             }
         }
-        let caller = agent.map(|a| Caller { agent_id: a.to_string(), agent_name: a.to_string(), project: None });
+        // An agent works in the harness's project, when it has one.
+        let project = self.fs.project.as_ref().map(|p| p.folder.clone());
+        let caller = agent.map(|a| Caller { agent_id: a.to_string(), agent_name: a.to_string(), project: project.clone() });
         if !kind.show_only() {
             let tool = tool.unwrap_or_default();
             // The user's approval: a read until allowed always, an act
