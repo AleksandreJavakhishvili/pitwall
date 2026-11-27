@@ -22,12 +22,12 @@ Part of the [Tile SDK and marketplace](README.md) design. The SDK crate, its exa
 - Listeners like GPUI's: `.on_click(cx.listener(|this, ev, cx| …))`.
 - Async: `cx.spawn(async move |this, cx| { let r = net::get(url).await?; this.update(cx, |t, cx| …) })`.
   `net`, `files`, `git`, `pitwall` are async modules.
-- `pitwall_tile::export!(MyTile);` generates the WIT glue
+- `pitwall_extension::export!(MyTile);` generates the WIT glue
   (`wit-bindgen`).
 - Typed helpers for the method table (`pitwall::agents()`,
   `pitwall::queue(agent, text)`), generated from `METHODS` like
   `methods.md` [today].
-- Agent tools ([section 11](agent-tools.md#11-tools-for-agents)): `#[pitwall_tile::tools] impl MyTile { … }`
+- Agent tools ([section 11](agent-tools.md#11-tools-for-agents)): `#[pitwall_extension::tools] impl MyTile { … }`
   with one `#[tool(kind = …)]` method per tool. Input and output types
   derive `serde` and `schemars::JsonSchema`; doc comments become the
   descriptions agents read. The macro writes the tool list (names,
@@ -90,8 +90,8 @@ from the code below; shown here for reading):
 `src/lib.rs` (the diagram model, parser and layout are the author's own
 modules, left out):
 ```rust
-use pitwall_tile::prelude::*;
-use pitwall_tile::tools::{Call, Reply, ToolError, Problem};
+use pitwall_extension::prelude::*;
+use pitwall_extension::tools::{Call, Reply, ToolError, Problem};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -148,7 +148,7 @@ struct Current { item: String, mermaid: String, edited_by_user: bool }
 #[derive(Deserialize, JsonSchema)]
 struct Export { item: String, path: String }
 
-#[pitwall_tile::tools]
+#[pitwall_extension::tools]
 impl Diagrams {
     /// Open the Diagrams tile next to your terminal.
     #[tool(kind = "show")]
@@ -207,7 +207,7 @@ impl Diagrams {
     }
 }
 
-pitwall_tile::export!(Diagrams);
+pitwall_extension::export!(Diagrams);
 ```
 
 What an agent sees when the call goes wrong (an MCP result with
@@ -249,7 +249,7 @@ Diagrams: the diagram has errors; nothing was changed.
 
 `src/lib.rs`:
 ```rust
-use pitwall_tile::prelude::*;
+use pitwall_extension::prelude::*;
 use serde::Deserialize;
 
 #[derive(Deserialize, Clone)]
@@ -324,7 +324,7 @@ impl Ci {
     }
 }
 
-pitwall_tile::export!(Ci);
+pitwall_extension::export!(Ci);
 ```
 
 Its tools: the agent that pushed a branch can see the run, read it and
@@ -333,7 +333,7 @@ re-run it.
 #[derive(Deserialize, JsonSchema)] struct Branch { branch: String }
 #[derive(Deserialize, JsonSchema)] struct RunId { run: u64 }
 
-#[pitwall_tile::tools]
+#[pitwall_extension::tools]
 impl Ci {
     /// Open the CI runs tile next to your terminal, filtered to a branch.
     #[tool(kind = "show")]

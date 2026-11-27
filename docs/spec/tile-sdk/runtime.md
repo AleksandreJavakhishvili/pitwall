@@ -101,6 +101,9 @@ stateDiagram-v2
   window minimised, occluded per `platform::visible` [today]): the
   guest gets `visibility(false)`, timers stop, network answers queue
   (≤ 64, then dropped with an error), no renders. Memory stays.
+  `visibility(false)` is an ordinary call: host calls made while
+  handling it complete (storage writes reach the disk), and suspension
+  starts when it returns; a timer started then waits until shown.
 - **Dropped.** After 10 minutes suspended, or when Pitwall's tile
   memory total passes its cap, the host calls `save-state` (≤ 1 MiB,
   ≤ 50 ms) and drops the instance. Showing it again instantiates and
@@ -118,7 +121,15 @@ stateDiagram-v2
 
 Several tiles of the same extension (two views, or the same view in
 two spaces) share one instance; each view is a root the guest renders
-separately (`render(view-id)`).
+separately (`render(view-id)`). A view is addressed by (extension id,
+tile, view id): the app picks the view id (the tile's id when it is
+open once) and the guest hears of each view with `view-opened`, which
+carries the content it was opened with, then `view-content` for later
+content and `view-closed` (WIT 0.1, [ui.md 3.3](ui.md#33-the-ui-description)).
+This is the hook for agents opening a tile with content, as Pitwall's
+own viewers are opened: a later call with the same content id updates
+that view in place. The manifest's tile entry names what content it
+accepts (`"input"`: a JSON schema file in the package).
 
 ### 2.4 Threading with GPUI
 
@@ -166,9 +177,15 @@ sequenceDiagram
   instance is *unverified*; the design doesn't rely on it.)
 - Text input stays on the main thread: the kit's `TextInput` [today]
   edits locally with no round trip, so typing never waits on the
-  guest. The guest gets `input-changed` after the fact (2 per frame at
-  most, coalesced) and may set a new value with a revision number; a
-  value older than the user's latest edit is ignored.
+  guest. **The host owns a field's value** (WIT 0.1's `input` record):
+  the guest gets `input-changed` after the fact, with the value and the
+  selection (coalesced, at most one per field every 50 ms while typing,
+  plus one on blur or submit), and `input-selected` when only the
+  selection moves. A frame carries no text for the field unless the
+  guest replaces it (`value: some(..)` with a revision above the
+  user's latest edit; an older one is ignored), so a large text (up to
+  1 MiB) crosses the boundary only when it changes and never counts
+  against every frame's 2 MiB.
 
 ### 2.5 Sandbox and limits (summary; details in 5)
 
@@ -275,9 +292,13 @@ late.
 ## 3. The WIT interface
 
 WIT package `pitwall:tile`, version 0.1.0 at first (stable 1.0 in
-phase 7). Below is the shape, abbreviated; the real files live in
-`sdk/wit/0.1.0/`, one frozen folder per published version, as Zed keeps
-`since_v0.x.y` folders for its extension API (S18). WIT has no
+phase 7). Below is the shape, abbreviated; the real files of 0.1 live in
+`crates/pitwall-tile-host/wit/` (one file per interface, every item
+documented), and move to `sdk/wit/0.1.0/` when the SDK publishes them,
+one frozen folder per published version, as Zed keeps `since_v0.x.y`
+folders for its extension API (S18). WIT 0.1 links only `ui`, `log`,
+`tasks`, `storage` and `settings`; the other imports below come with
+later worlds. WIT has no
 recursive types as far as Pitwall's authors know (*unverified against
 the current WIT spec*), and a flat list is cheaper to lift anyway, so a
 tree is a list of nodes with parent indices.
@@ -316,7 +337,11 @@ stderr discarded, no environment, no arguments, no preopens, name
 lookup denied, and TCP/UDP addresses all denied (S7). Pitwall adds only
 what is granted: stdout/stderr to the Log, one preopen (`/data`), plus
 `/projects/<n>` for each project folder the user granted under
-`files.*`. It also installs a `socket_addr_check` that refuses every
+`files.*`. WIT 0.1 preopens nothing, not even `/data`: tiles keep data
+through `storage`, which matches [5.3](permissions.md#53-what-a-hostile-tile-can-still-do)
+("tiles get no folders through WASI") while WASI's filesystem code has
+had a recent sandbox escape (S1); `/data` waits for a seed tile that
+needs files. It also installs a `socket_addr_check` that refuses every
 address, because the docs are not consistent about whether TCP is off
 by default (S7), and Pitwall's own tests assert it.
 

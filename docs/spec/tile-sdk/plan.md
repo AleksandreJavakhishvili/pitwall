@@ -34,14 +34,15 @@ pull request until then.
 Done when an author can run `pitwall extension new`, `dev` and `install`
 on macOS, Linux and Windows, and the Preview docs describe exactly that.
 
-- [ ] WIT 0.1: box, text, button, icon, scroll, input, events, ui, log
-- [ ] Platform services `tasks`, `storage`, `settings` ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12))
-- [ ] `TileView` in the layout, on worker threads, with limits, compile cache and Log lines ([2](runtime.md))
+- [x] WIT 0.1: box, text, button, icon, scroll, input, events, ui, log (#PR: `crates/pitwall-tile-host/wit/`, documented; host-owned `input` with selection, pointer positions, views with content for agents)
+- [x] Platform services `tasks`, `storage`, `settings` ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)) (#PR: host side in `pitwall-tile-host`; storage and settings under `<data>/extension-data/<id>/`; the Settings form is the app's)
+- [x] Host runtime: worker thread per tile, limits with wall-clock deadlines, stop, compile cache, Log lines, frames with diff, grants ([2](runtime.md)) (#PR: `pitwall-tile-host`, API in its README)
+- [ ] `TileView` in the layout, drawing the host's frames and routing events ([2](runtime.md))
 - [ ] SDK crate `pitwall-extension` (guest side) and `pitwall-extension-test` harness core ([4](authoring.md))
 - [ ] `pitwall extension new`, `dev`, `check` for components ([9.1](authoring.md#91-commands-pitwall-extension-))
 - [ ] Unsigned install from a folder or URL: Settings → Extensions and `pitwall extension install`, permission screen, "Unsigned, preview" warning ([6.3](packaging.md#63-install))
-- [ ] Host tests run on macOS, Linux and Windows in CI
-- [ ] Lean Wasmtime in the release build: no `cache` feature, Wasmtime's and Cranelift's crates at `opt-level = "s"` ([10.3](README.md#103-decisions) item 19)
+- [x] Host tests run on macOS, Linux and Windows in CI (#PR)
+- [x] Lean Wasmtime in the release build (#PR): no `cache` feature, Wasmtime's and Cranelift's crates at `opt-level = "s"` ([10.3](README.md#103-decisions) item 19)
 - [ ] A 2–3 MB tile compiles in under 1 s on a 4-core CI runner ([10.3](README.md#103-decisions) item 19)
 - [ ] Authoring skill and generated `llms.txt` ([9.5](authoring.md#95-docs-for-authors-agents))
 - [ ] Docs pipeline: pages from Markdown, examples from source, a link check ([9.6](authoring.md#96-website-docs))
