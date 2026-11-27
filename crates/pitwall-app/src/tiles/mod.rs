@@ -86,6 +86,9 @@ pub struct Running {
     dropping: bool,
     /// What it saved when it was dropped.
     saved: Option<Vec<u8>>,
+    /// The node each view was last asked to scroll to (`ui.scroll-to`),
+    /// with a counter that moves with each ask.
+    pub scroll_to: HashMap<String, (String, u64)>,
 }
 
 /// What hiding leads to, in turn.
@@ -495,7 +498,7 @@ impl Tiles {
         let gen = self.next_gen;
         self.next_gen += 1;
         // It starts hidden (`visible: false`); shown, it is told.
-        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None };
+        let mut r = Running { gen, handle: None, state: State::Starting { preparing: false }, frames: HashMap::new(), views: views.clone(), shown: BTreeSet::new(), log: VecDeque::new(), reloading: false, hidden_seq: 0, suspended: true, dropping: false, saved: None, scroll_to: HashMap::new() };
         let started = (|| -> Result<TileHandle, String> {
             let host = self.host(cx)?;
             let dir = crate::extensions::folder_of(id, cx).ok_or_else(|| "Its folder isn't found.".to_string())?;
@@ -554,6 +557,11 @@ impl Tiles {
                     r.log.pop_front();
                 }
                 return;
+            }
+            // Its view scrolls once the node is drawn ([`TileView`]).
+            TileOutput::Ui(UiRequest::ScrollTo { view, key_path }) => {
+                self.seq += 1;
+                r.scroll_to.insert(view, (key_path, self.seq));
             }
             TileOutput::Ui(req) => {
                 let id = id.to_string();
@@ -643,7 +651,7 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
         UiRequest::Toast { text, .. } => crate::windows::extension_toast(id, name, text, None, cx),
         UiRequest::OpenView(tile) => crate::windows::open_extension_view(id, &tile, cx),
         UiRequest::OpenSettings => crate::windows::open_extension_settings(id, cx),
-        // Scrolling to a node: drawn views follow their frames; not yet.
+        // Kept for its view in `Tiles::apply`.
         UiRequest::ScrollTo { .. } => {}
     }
 }
