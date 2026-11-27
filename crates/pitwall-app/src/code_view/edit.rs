@@ -640,6 +640,19 @@ impl CodeView {
         &self.line_marks
     }
 
+    /// What error and warning marks say, drawn after their first line's
+    /// text: (line, 0-based; the mark; its message).
+    pub fn set_line_notes(&mut self, notes: Vec<(usize, super::LineMark, SharedString)>, cx: &mut Context<Self>) {
+        if self.line_notes != notes {
+            self.line_notes = notes;
+            cx.notify();
+        }
+    }
+
+    pub fn line_notes(&self) -> &[(usize, super::LineMark, SharedString)] {
+        &self.line_notes
+    }
+
     /// How many cursors there are.
     pub fn cursor_count(&self) -> usize {
         usize::from(self.sel.is_some()) + self.extra.len()

@@ -160,6 +160,12 @@ pub(super) fn key_label(keys: &str) -> String {
         .join(" ")
 }
 
+/// Tell node `path`'s tile that its choice is now `key` (see
+/// [`TileView::choose`]).
+pub(super) fn tell_value(v: &TileView, path: &str, key: &str, cx: &App) -> bool {
+    v.tell(path, Outcome::Value(ControlValue::Choice(key.to_string())), cx)
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
@@ -845,8 +851,27 @@ impl TileView {
                     ui::Placement::Above => gpui::point(px(0.), px(-4.)),
                     _ => gpui::point(px(0.), px(4.)),
                 };
-                // At its place in its parent: under what comes before it.
-                div().relative().size_0().child(deferred(anchored().anchor(corner).offset(offset).snap_to_window_with_margin(px(8.)).child(panel)).with_priority(1)).into_any_element()
+                match p.at.filter(|a| a.x.is_finite() && a.y.is_finite()) {
+                    // At a point of its parent (a box of a canvas): on
+                    // the side `placement` says.
+                    Some(at) => {
+                        let offset = match p.placement {
+                            ui::Placement::Above => gpui::point(px(0.), px(-4.)),
+                            ui::Placement::Start => gpui::point(px(-4.), px(0.)),
+                            ui::Placement::End => gpui::point(px(4.), px(0.)),
+                            ui::Placement::Below => gpui::point(px(0.), px(4.)),
+                        };
+                        div()
+                            .absolute()
+                            .left(px(at.x))
+                            .top(px(at.y))
+                            .size_0()
+                            .child(deferred(anchored().anchor(corner).offset(offset).snap_to_window_with_margin(px(8.)).child(panel)).with_priority(1))
+                            .into_any_element()
+                    }
+                    // At its place in its parent: under what comes before it.
+                    None => div().relative().size_0().child(deferred(anchored().anchor(corner).offset(offset).snap_to_window_with_margin(px(8.)).child(panel)).with_priority(1)).into_any_element(),
+                }
             }
             // Drawn over the whole tile ([`TileView::sheet_overlay`]).
             Element::ConfirmSheet(_) => div().absolute().size_0().into_any_element(),
@@ -974,6 +999,33 @@ impl TileView {
     }
 
     /// Draw again after `d` (a relative time's words change then).
+    /// A badge, an avatar or a relative time in a list's row (`None` for
+    /// other elements): drawn as in a frame, without focus or listeners.
+    pub(super) fn row_widget(&self, node: &Node, inherit: Inherit, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (d, _) = render::apply(div(), &node.style, t);
+        let d = d.flex_none().flex().items_center();
+        Some(match &node.element {
+            Element::Badge(b) => d.id(SharedString::from(format!("badge-{}", b.text))).when_some(node.tooltip.clone(), |d, tip| d.tooltip(kit::tooltip(tip))).child(fb::badge(b.text.clone(), tone(b.tone), t)).into_any_element(),
+            Element::Avatar(a) => {
+                let size = match a.size {
+                    ui::AvatarSize::Small => 20.,
+                    ui::AvatarSize::Medium => 28.,
+                    ui::AvatarSize::Large => 40.,
+                };
+                let (soft, strong) = hw::avatar_tokens(&a.name);
+                let tip = node.tooltip.clone().unwrap_or_else(|| a.name.clone());
+                d.id(SharedString::from(format!("avatar-{}", a.name))).tooltip(kit::tooltip(tip)).child(fb::avatar(hw::initials(&a.name), size, render::color(soft, t), render::color(strong, t))).into_any_element()
+            }
+            Element::RelativeTime(r) => {
+                let now = now_ms();
+                self.tick_after(Duration::from_millis(hw::relative_time_next(r.at, now)), cx);
+                let tip = node.tooltip.clone().unwrap_or_else(|| hw::date_time(r.at));
+                d.id(SharedString::from(format!("time-{}", r.at))).tooltip(kit::tooltip(tip)).text_color(inherit.color).child(hw::relative_time(r.at, now)).into_any_element()
+            }
+            _ => return None,
+        })
+    }
+
     fn tick_after(&self, d: Duration, cx: &mut Context<Self>) {
         let at = Instant::now() + d.max(Duration::from_millis(500));
         if self.tick.get().is_some_and(|t| t <= at) {

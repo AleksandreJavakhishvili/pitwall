@@ -6,6 +6,7 @@
 //! v_flex().size_full()
 //!     .child(code_view(self.source.clone()).language("rust").flex_1()
 //!         .mark(3..5, Mark::Added)
+//!         .mark_with(7..8, Mark::Error, "Unknown keyword")
 //!         .on_line_click(cx.listener(|this, l: &LineClick, cx| this.pick(l.line, cx))))
 //!     .child(diff_view(self.before.clone(), self.after.clone()).language("main.rs").inline().flex_1())
 //! ```
@@ -31,6 +32,12 @@ pub enum Mark {
     /// Lines were deleted before the range's start (a red mark between
     /// lines).
     Deleted,
+    /// An error on the lines (a red bar, the lines tinted); give its
+    /// message with [`CodeView::mark_with`].
+    Error,
+    /// A warning on the lines (a yellow bar, the lines tinted); give its
+    /// message with [`CodeView::mark_with`].
+    Warning,
 }
 
 impl Mark {
@@ -39,6 +46,8 @@ impl Mark {
             Mark::Added => wit::LineMarkKind::Added,
             Mark::Changed => wit::LineMarkKind::Changed,
             Mark::Deleted => wit::LineMarkKind::Deleted,
+            Mark::Error => wit::LineMarkKind::Error,
+            Mark::Warning => wit::LineMarkKind::Warning,
         }
     }
 }
@@ -72,7 +81,20 @@ impl CodeView {
 
     /// Mark `lines` (0-based, end exclusive) in the margin.
     pub fn mark(mut self, lines: std::ops::Range<usize>, mark: Mark) -> CodeView {
-        self.spec().marks.push(wit::LineMark { lines: wit::LineRange { start: lines.start as u32, end: lines.end as u32 }, kind: mark.wit() });
+        self.spec().marks.push(wit::LineMark { lines: wit::LineRange { start: lines.start as u32, end: lines.end as u32 }, kind: mark.wit(), message: None });
+        self
+    }
+
+    /// Mark `lines` with [`Mark::Error`] or [`Mark::Warning`] and say what
+    /// is wrong: `message` is drawn after the first line's text, in the
+    /// mark's colour (at most 500 bytes). For the other marks the message
+    /// is ignored.
+    ///
+    /// ```ignore
+    /// code_view(source).mark_with(11..12, Mark::Error, "Unknown keyword “Contaner”")
+    /// ```
+    pub fn mark_with(mut self, lines: std::ops::Range<usize>, mark: Mark, message: impl Into<String>) -> CodeView {
+        self.spec().marks.push(wit::LineMark { lines: wit::LineRange { start: lines.start as u32, end: lines.end as u32 }, kind: mark.wit(), message: Some(message.into()) });
         self
     }
 

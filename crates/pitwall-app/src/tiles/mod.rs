@@ -1130,6 +1130,11 @@ fn ui_request(id: &str, req: UiRequest, cx: &mut App) {
         }
         UiRequest::OpenFile { path, line } => crate::main_screen::editor_tile::open_path(&path, line, cx),
         UiRequest::OpenWeb { url } => crate::windows::open_extension_page(id, &url, cx),
+        UiRequest::ViewFile { path, line } => {
+            if let Err(why) = crate::explorer::show::show_for_tile(id, &name, std::path::Path::new(&path), line, cx) {
+                crate::windows::extension_toast(id, name, format!("Couldn't show {}: {why}", pitwall_core::paths::tildify(&path)), None, cx);
+            }
+        }
         UiRequest::Toolbar(req) => crate::main_screen::toolbar_items::apply(id, req, cx),
         UiRequest::RestartService => {
             let services = crate::extensions::service::services(cx);

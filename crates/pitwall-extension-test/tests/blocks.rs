@@ -57,6 +57,26 @@ fn a_diagram_zooms_pans_and_its_boxes_click() {
 }
 
 #[test]
+fn a_boxs_menu_opens_under_the_box_and_says_how_wide_its_name_is() {
+    let mut t = Harness::load(blocks()).open("diagram");
+    t.resize("diagram", 640., 480.);
+    t.right_click_region("API");
+    let c = t.canvas("diagram");
+    let tf = c.transform;
+    let api = c.regions.iter().find(|r| r.key == "api").unwrap().rect;
+    let (x, y) = (api.x * tf.scale + tf.dx, (api.y + api.height) * tf.scale + tf.dy);
+    let snap = t.text_snapshot();
+    let want = format!("popover at ({}, {})", pitwall_tile_host::widgets::number(f64::from(x), None), pitwall_tile_host::widgets::number(f64::from(y), None));
+    assert!(snap.contains(&want), "{want} in\n{snap}");
+    // Measured by Pitwall: "API" at 14 px semibold, in Inter.
+    let wide = pitwall_tile_host::measure::width("API", pitwall_tile_host::ui::Font::Ui, 14., pitwall_tile_host::ui::Weight::Semibold);
+    assert!(t.find_text(&format!("API · its name is {} px wide", wide.round())).is_some(), "{snap}");
+    t.click_text("Pin");
+    assert!(t.find_key("foot/pinned/api").is_some(), "{}", t.text_snapshot());
+    assert!(!t.text_snapshot().contains("popover"));
+}
+
+#[test]
 fn names_drag_onto_the_pinned_list() {
     let mut t = Harness::load(blocks()).open("diagram");
     let snap = t.text_snapshot();
@@ -81,6 +101,16 @@ fn the_code_view_tells_line_clicks_and_the_selection() {
     assert!(t.find_text("Line 3 clicked").is_some(), "{}", t.text_snapshot());
     t.select_code("code", Side::New, (1, 3), (1, 8));
     assert!(t.find_text("Selected: total").is_some(), "{}", t.text_snapshot());
+}
+
+#[test]
+fn errors_and_warnings_mark_their_lines_with_what_is_wrong() {
+    let mut t = Harness::load(blocks()).open("code");
+    t.click_text("Check");
+    let snap = t.text_snapshot();
+    assert!(snap.contains("marks=5 error@7 \"mismatched types: expected `&[Item]`, found `&[_; 0]`\" warning@2 \"function `total` is never used\""), "{snap}");
+    let marks = t.code_view("code").marks;
+    assert!(marks.iter().any(|m| m.kind == pitwall_tile_host::ui::LineMarkKind::Error && m.lines.start == 6));
 }
 
 #[test]

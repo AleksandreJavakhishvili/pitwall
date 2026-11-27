@@ -108,7 +108,7 @@ pub fn bytes(n: &Node) -> usize {
             let regions: usize = c.regions.iter().map(|r| 40 + r.key.len() + r.label.len() + r.tooltip.as_ref().map_or(0, String::len)).sum();
             16 + ops + regions
         }
-        Element::CodeView(c) => c.text.len() + c.language.as_ref().map_or(0, String::len) + c.marks.len() * 12 + 16,
+        Element::CodeView(c) => c.text.len() + c.language.as_ref().map_or(0, String::len) + c.marks.iter().map(|m| 16 + m.message.as_ref().map_or(0, String::len)).sum::<usize>() + 16,
         Element::DiffView(d) => {
             let source = match &d.source {
                 DiffSource::Texts(t) => t.old.len() + t.new.len(),

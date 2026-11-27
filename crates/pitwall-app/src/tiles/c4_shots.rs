@@ -1,8 +1,10 @@
 //! Screenshots of the C4 seed tile (tiles/c4, its committed tile.wasm)
 //! drawn by the app after an agent's `c4__show` calls, headless (GPUI's
 //! test platform, no window shown): a diagram drawn, the same after an
-//! update, the menu of a box several diagrams detail, and a call with bad
-//! Mermaid, dark and light. Run by hand:
+//! update and its Changes (chosen in the bar, then B back to Now), the
+//! menu of a box several diagrams detail (under the box), and a call with
+//! bad Mermaid with its line marked as an error, dark and light. Run by
+//! hand:
 //!
 //! `PITWALL_TILE_SHOTS=<folder> cargo test -p pitwall-app c4_shots -- --ignored`
 #![cfg(target_os = "macos")]
@@ -127,6 +129,20 @@ fn c4_shots() {
         assert!(ok, "no node {path} to click: {:?}", cx.update(|cx| tile.read(cx).texts()));
     };
     shot(&mut cx, win.into(), "updated");
+    // Its Changes, chosen in the bar's segmented control; B goes back.
+    let ok = cx.update(|cx| tile.read(cx).choose("bar/mode", "changes", cx));
+    assert!(ok, "no Changes to choose: {:?}", cx.update(|cx| tile.read(cx).texts()));
+    for _ in 0..5 {
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    shot(&mut cx, win.into(), "changes");
+    let ok = cx.update(|cx| tile.read(cx).press_key("b", cx));
+    assert!(ok, "B isn't bound");
+    for _ in 0..5 {
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(50));
+    }
 
     // A box two diagrams detail: which one?
     call(&mut cx, "containers-old", serde_json::json!({ "mermaid": CONTAINERS, "title": "Shop containers, before the cache" }));
@@ -136,7 +152,7 @@ fn c4_shots() {
     assert!(ok, "no region shop");
     settle(&mut cx, "the menu", &mut |cx| has(cx, "Open which diagram?"));
     shot(&mut cx, win.into(), "box-menu");
-    click(&mut cx, "bar/crumbs/menu/targets/t0");
+    click(&mut cx, "body/main/diagram/menu/targets/t0");
     settle(&mut cx, "the detail", &mut |cx| has(cx, "Orders API"));
 
     // Bad Mermaid: nothing changes; the notice, then its line.

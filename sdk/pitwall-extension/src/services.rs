@@ -584,6 +584,16 @@ pub mod show {
     pub fn web(url: &str) -> Result<(), HostError> {
         super::wit::show::web(url).map_err(HostError::from)
     }
+
+    /// Show the file at `path` (absolute) in Pitwall's file viewer,
+    /// scrolled to `line` (1 is the first), as an agent's `show_files`
+    /// shows files: with its folder's tree (its git repository's) and git
+    /// status, in the tile's own viewer window, which opens behind the
+    /// front window without taking the keyboard; later calls add tabs to
+    /// it. [`file`] opens Pitwall's editor instead.
+    pub fn view(path: &str, line: Option<u32>) -> Result<(), HostError> {
+        super::wit::show::view(path, line).map_err(HostError::from)
+    }
 }
 
 /// The extension's button in Pitwall's top bar, when the manifest

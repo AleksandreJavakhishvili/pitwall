@@ -72,7 +72,7 @@ use pitwall_tile_host::{Clock, Extension, ExtensionData, FrameUpdate, Grants, Ho
 pub use pitwall_tile_host::ui::{Density, Element, Frame, Input, Listen, Node, ThemeInfo, ThemeMode, Tone};
 /// A canvas's, a code view's and a diff view's types, as the tile sent
 /// them ([`Session::canvas`], [`Session::code_view`]).
-pub use pitwall_tile_host::ui::{Canvas, CodeView, DiffSide as Side, DiffView, DrawOp, HitRegion, Paint, PointerKind, Token};
+pub use pitwall_tile_host::ui::{Canvas, CodeView, DiffSide as Side, DiffView, DrawOp, HitRegion, LineMark, LineMarkKind, Paint, PointerKind, Token};
 /// The agents' questions group's types: an agent of `agents::list`, a
 /// badge and its row, a question and its suggestions.
 pub use pitwall_tile_host::ui::{Agent, AgentState, Ask, Badge, Row, Suggestion};
@@ -84,6 +84,11 @@ pub use pitwall_tile_host::net::FetchError as NetError;
 pub use pitwall_tile_host::{LogLevel as Level, StopReason as Stop};
 /// A component's new value, as `value-changed` carries it.
 pub use pitwall_tile_host::ui::ControlValue;
+/// How wide a text is in Pitwall's fonts, as `ui.measure-text` answers a
+/// tile (here and in Pitwall alike): to check a tile's own layout against
+/// it.
+pub use pitwall_tile_host::measure::width as text_width;
+pub use pitwall_tile_host::ui::{Font, Weight};
 
 mod components;
 pub use components::ListRow;
@@ -1042,6 +1047,36 @@ impl Session {
         let end = text.len() as u32;
         self.send(Event::InputChanged(ui::InputChange { handler: l.handler, value: text.to_string(), revision, selection: ui::TextRange { start: end, end } }));
         self.settle()
+    }
+
+    /// Select `range` (UTF-8 byte offsets, `start..end`; equal for a bare
+    /// cursor) of what text field `key_path` holds, as if the user dragged
+    /// over it (it takes the focus): the tile hears `input-selected` when
+    /// the field listens for it (`on_select`). Panics when the range isn't
+    /// inside the text or doesn't fall on character boundaries.
+    pub fn select_text(&mut self, key_path: &str, range: std::ops::Range<usize>) -> &mut Self {
+        let f = self.input(key_path);
+        let at = (f.view.clone(), f.key_path.clone());
+        let text = self.texts.get(&at).cloned().unwrap_or_default();
+        assert!(range.start <= range.end && text.get(range.clone()).is_some(), "{range:?} isn't a range of the text in “{key_path}” ({} bytes)", text.len());
+        self.take_focus();
+        self.move_focus(&f.view, Some(f.key_path.clone()));
+        self.settle();
+        let revision = self.revisions.get(&at).copied().unwrap_or_default();
+        if let Some(l) = f.node.on.iter().find(|l| l.on == Listen::Select) {
+            let selection = ui::TextRange { start: range.start as u32, end: range.end as u32 };
+            self.send(Event::InputSelected(ui::InputSelection { handler: l.handler, selection, revision }));
+        }
+        self.settle()
+    }
+
+    /// Select the first `needle` in text field `key_path` (see
+    /// [`Session::select_text`]). Panics when the field doesn't hold it.
+    pub fn select_in(&mut self, key_path: &str, needle: &str) -> &mut Self {
+        let f = self.input(key_path);
+        let text = self.texts.get(&(f.view.clone(), f.key_path.clone())).cloned().unwrap_or_default();
+        let Some(start) = text.find(needle) else { panic!("text field “{key_path}” doesn't hold “{needle}”: {text:?}") };
+        self.select_text(key_path, start..start + needle.len())
     }
 
     /// Press Enter (⌘Enter when multi-line) in text field `key_path`,

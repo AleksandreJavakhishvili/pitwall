@@ -201,6 +201,21 @@ impl show::Host for HostState {
         self.ui(UiRequest::OpenWeb { url: parsed.to_string() });
         Ok(())
     }
+
+    fn view(&mut self, path: String, line: Option<u32>) -> Result<(), HostError> {
+        if !self.count_call() {
+            return Err(HostError::Busy);
+        }
+        if !self.grants.has(SHOW_PERMISSION) {
+            self.denied("showing a file", SHOW_PERMISSION);
+            return Err(HostError::Denied);
+        }
+        if path.len() > 4096 || path.contains('\0') || !Path::new(&path).is_absolute() {
+            return Err(HostError::Invalid(format!("“{}” must be a whole path, from the root", cut(&path, 200))));
+        }
+        self.ui(UiRequest::ViewFile { path, line: line.filter(|l| *l > 0) });
+        Ok(())
+    }
 }
 
 impl HostState {
