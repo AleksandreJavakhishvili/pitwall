@@ -23,9 +23,9 @@ diagram.
 flowchart LR
   engineer["Engineer [Person]<br/>reads the design docs agents write"]
   subgraph computer["Engineer's computer [Boundary]"]
-    c4["C4 tile [Software System]<br/>draws C4 diagrams from a project's Markdown"]
+    c4["C4 tile [Software System]<br/>draws C4 diagrams agents show it, and those in a project's Markdown"]
     pitwall["Pitwall [Software System]<br/>runs agents and tiles, draws tiles' UI"]
-    agent["Coding agent [External System]<br/>writes SDD docs; v2: calls the tile's tools"]
+    agent["Coding agent [External System]<br/>writes Mermaid and SDD docs; calls the tile's tools"]
     repo["Project repository [External System]<br/>Markdown docs with Mermaid blocks"]
   end
   engineer -->|views and clicks diagrams| c4
@@ -33,7 +33,7 @@ flowchart LR
   c4 -->|frames, file reads, tool replies| pitwall
   pitwall -->|reads and watches granted folders| repo
   agent -->|writes docs| repo
-  agent -->|v2: MCP tool calls| pitwall
+  agent -->|MCP tool calls: c4__show; v2: read, act| pitwall
   classDef new stroke-width:2px
   classDef external stroke-dasharray: 4 2
   class c4 new
@@ -43,6 +43,10 @@ flowchart LR
 The tile reaches nothing directly. Every file read, every drawing and
 every agent call goes through Pitwall, which checks the tile's grants
 [SDK, [permissions §5.2](../tile-sdk/permissions.md#52-enforcement)].
+The agent reaches the tile only through Pitwall's MCP server, which
+Pitwall gives every agent it starts; the tile's tools are registered
+there with no setup by the user
+[SDK, [agent-tools §11.4](../tile-sdk/agent-tools.md#114-how-agents-reach-them)].
 
 ## 2. Containers
 
@@ -51,41 +55,44 @@ flowchart LR
   engineer["Engineer [Person]<br/>reads the design docs agents write"]
   subgraph c4b["C4 tile [Software System]"]
     wasm["tile.wasm [Container]<br/>Rust on wasm32-wasip2: scan, parse, lay out, draw"]
-    manifest["extension.json [Container]<br/>id, permissions, the tile, v2 tools"]
+    manifest["extension.json [Container]<br/>id, permissions, the tile, its tools"]
     skill["agents/SKILL.md [Container]<br/>v2: the convention and when to use each tool"]
     store["Tile storage [Container]<br/>key-value: view state, cached index"]
   end
   subgraph pw["Pitwall [Software System]"]
     host["pitwall-tile-host [Container]<br/>runs the component, links granted host APIs"]
     app["pitwall-app [Container]<br/>draws frames and canvas ops with GPUI"]
-    mcp["pitwall mcp [Container]<br/>MCP server agents call"]
+    mcp["pitwall mcp [Container]<br/>MCP server every agent gets; lists tile tools"]
+    layout["Layout and placement [Container]<br/>puts the tile next to the calling agent"]
     rules["Rules and skills [Container]<br/>rulesync, per project"]
   end
   repo["Project repository [External System]<br/>Markdown docs with Mermaid blocks"]
-  agent["Coding agent [External System]<br/>writes SDD docs; v2: calls the tile's tools"]
+  agent["Coding agent [External System]<br/>writes Mermaid and SDD docs; calls the tile's tools"]
   engineer -->|clicks, keys| app
   app -->|events| host
   host -->|calls guest exports| wasm
   wasm -->|frame, draw ops| host
   host -->|frames| app
   wasm -->|get, set| store
-  wasm -->|files.read, files.watch; v2 files.write| host
+  wasm -->|docs part: files.read, files.watch; v1.1 files.write| host
   host -->|reads, watches, writes| repo
   host -->|reads at install| manifest
-  agent -->|v2: tool calls| mcp
-  mcp -->|v2: tile.call| host
+  agent -->|c4__show; v2: read, act tools| mcp
+  mcp -->|tile call with the caller resolved| host
+  host -->|open or reuse the view, where, of| layout
+  layout -->|tile view| app
   rules -->|v2: puts the skill in| agent
   skill -->|v2: read at install| rules
   classDef new stroke-width:2px
   classDef external stroke-dasharray: 4 2
   class skill new
-  class host,app,mcp,rules,repo,agent external
+  class host,app,mcp,layout,rules,repo,agent external
 ```
 
 | Container | What it is |
 |---|---|
 | `tile.wasm` | The whole tile: one WebAssembly component built from the crate in `tiles/c4/` ([§6](#6-where-it-lives)). No server, no service [SDK, [services §13](../tile-sdk/services.md#13-tile-apps-with-a-server)]: everything it does fits a tile |
-| `extension.json` | The manifest. v1: `files.read` and `show` with reasons, one tile, settings (path list). v2 adds `files.write` and the `tools` block written by `pitwall extension pack` from the code [SDK, [authoring §4.1](../tile-sdk/authoring.md#41-shape)] |
+| `extension.json` | The manifest. v1, first part: one tile, its `"input"` (what `c4__open` takes) and one show tool, `show` (kind `present`), in the `tools` block written by `pitwall extension pack` from the code [SDK, [authoring §4.1](../tile-sdk/authoring.md#41-shape)]; no permissions. Docs part: `files.read` and `show` with reasons, settings (path list), and `diagram` in the open input. v1.1 adds `files.write`; v2 adds the `read` and `act` tools |
 | `agents/SKILL.md` | v2 only. The convention of [frd.md §3](frd.md#3-the-input-format) and when to call each tool [SDK, [agent-tools §11.11](../tile-sdk/agent-tools.md#1111-a-skill-for-agents)] |
 | Tile storage | The tile's own key-value store, 10 MiB [SDK, [platform services §14.2](../tile-sdk/platform-services.md#142-the-v0x-minimum-built-in-phases-12)]. Holds the view state and a cache of the parsed index ([§3.6](#36-state-and-the-index-cache)) |
 
@@ -106,6 +113,7 @@ flowchart TB
     ui["Tile UI [Component]<br/>outline, breadcrumb, switch, footer, keys"]
     nav["Navigator [Component]<br/>hit tests, zoom path, pan, selection"]
     svg["SVG writer [Component]<br/>v2: the same drawing as an SVG file"]
+    shown["Shown diagrams [Component]<br/>show calls: parse all or nothing, items per agent, previous version"]
     tools["Agent tools [Component]<br/>v2: list, get, propose, apply, export"]
   end
   host["pitwall-tile-host [Container]<br/>runs the component, links granted host APIs"]
@@ -125,12 +133,15 @@ flowchart TB
   ui -->|frame| host
   host -->|clicks, keys, drags| nav
   layout -->|positions| svg
+  host -->|view-opened, view-content; reply| shown
+  shown -->|Mermaid text| parser
+  shown -->|shown diagrams| model
   tools -->|reads| model
   tools -->|proposals| nav
   svg -->|v2: files.write| host
   classDef new stroke-width:2px
   classDef external stroke-dasharray: 4 2
-  class svg,tools new
+  class shown,svg,tools new
   class host external
 ```
 
@@ -182,7 +193,9 @@ The model, in short:
 
 The tile never writes Mermaid back from its model. In v2 the agent sends
 whole Mermaid text, and the tile swaps a block's text in the file
-([§5](#5-v2-agent-tools)). So the model can drop details freely.
+([§5](#5-v2-agent-tools-for-the-docs)). A shown diagram keeps the
+agent's text as sent, and Save to file writes that text. So the model
+can drop details freely.
 
 `mermaid-rs-renderer`, a pure-Rust Mermaid renderer, also compiles for
 `wasm32-wasip2` [checked]. It was not chosen: it renders to SVG with its
@@ -344,6 +357,63 @@ sequenceDiagram
   end
 ```
 
+### 3.10 Shown diagrams
+
+The headline flow (FR-34 to FR-43 in [frd.md §5.1](frd.md#51-shown-diagrams-v1-first)).
+It uses the SDK's show-only tools, in SDK phase 2
+([agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds)):
+- **Declared, not configured.** The tile declares `show` (kind
+  `present`) with `#[tools]`; Pitwall lists it as `c4__show` in its MCP
+  server for every agent it starts, and adds `where` and `of`. Opening
+  without content is the host-provided `c4__open` [SDK].
+- **The host places it.** The daemon resolves the calling agent from
+  the connecting process, and Pitwall opens the C4 tile next to that
+  agent's terminal, or reuses the view that agent opened before, before
+  the call reaches the tile [SDK, [§11.8](../tile-sdk/agent-tools.md#118-where-the-tile-opens)].
+  The tile never sees `where` or `of`.
+- **All or nothing.** The Shown diagrams component parses the Mermaid
+  with the same parser as docs diagrams. On problems it replies with
+  them and changes nothing. On success it stores the item under
+  (project, agent, item id), keeps the previous version for "Changes
+  since last show" (FR-40), and asks the Linker to re-link, so zoom
+  works across shown diagrams and, once the docs part exists, docs
+  diagrams of the same project.
+- **No files.** The source is in the call; nothing is read or written.
+  So this flow ships before the files service.
+- **Storage.** Items go to tile storage (10 MiB [SDK]) per project,
+  ≤ 200 000 characters of source each and ≤ 50 per project (FR-41).
+
+```mermaid
+sequenceDiagram
+  participant engineer as Engineer
+  participant agent as Coding agent
+  participant mcp as pitwall mcp
+  participant pw as Pitwall layout
+  participant host as pitwall-tile-host
+  participant shown as Shown diagrams
+  participant painter as Painter
+  engineer->>agent: draw me this diagram and show it on the right
+  agent->>mcp: c4__show(mermaid, item "containers", where "right")
+  mcp->>pw: caller resolved from the process: agent web
+  pw->>pw: open a C4 tile right of web's terminal, or reuse its view
+  pw->>host: view-opened(view, content: call, caller, item, input)
+  host->>shown: handle(view-opened)
+  alt parses
+    shown->>shown: store item, keep previous version
+    shown->>host: reply(ok: shown "containers", 7 boxes)
+    host->>painter: draw(canvas, size)
+    painter-->>host: draw ops
+  else problems
+    shown->>host: reply(error: line 4, column 9: ...)
+  end
+  host-->>agent: result: what opened and where, or the problems
+  Note over engineer: sees the diagram, marked from web
+  agent->>mcp: c4__show(same item, changed mermaid)
+  mcp->>host: view-content to the same view
+  host->>shown: handle(view-content)
+  shown->>host: reply(ok), Changes since last show offered
+```
+
 ## 4. v1: what it needs from the SDK, and when
 
 The tile asks for nothing beyond the SDK's design. It needs these
@@ -353,37 +423,44 @@ pieces, in this order. Phase numbers are the SDK's
 | Need | SDK piece | SDK phase |
 |---|---|---|
 | Build, run, reload while writing | WIT 0.1, `pitwall extension new/dev/check`, the test harness, install from a folder (preview) | 1 |
+| Shown diagrams: `c4__show`, `c4__open`, placement next to the calling agent | show-only agent tools: `present` declared with `#[tools]`, delivered as view content, `reply`, registration in Pitwall's MCP server ([agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds)) | 2 |
 | View state | `storage`, `save-state` | 1 |
 | Path list setting | `settings` | 1 |
 | Coalescing timer | `tasks` | 1 |
 | The drawing | `canvas` with `rect`, `path`, `text`, clip | 2 |
 | Outline, switch, legend, menus, fallback source | `tree`, `segmented`, `chip`, `menu`, `code`, `split`, drag inside a tile (pan) | 2 |
 | Open source at a line | `viewer.open` through `pitwall`, with the `show` permission | 2 (the minimum, [§14.2](../tile-sdk/platform-services.md#142-the-v0x-minimum-built-in-phases-12)) |
-| Read docs | `files.read`: `pick-project`, `list`, `stat`, `read` | on demand ([§14.3](../tile-sdk/platform-services.md#143-later-on-demand)) |
-| Follow changes | `files.watch` | on demand; today planned with the files tree port ([native blocks §16.3](../tile-sdk/native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) |
+| Docs part: read docs | `files.read`: `pick-project`, `list`, `stat`, `read` | on demand ([§14.3](../tile-sdk/platform-services.md#143-later-on-demand)) |
+| Docs part: follow changes | `files.watch` | on demand; today planned with the files tree port ([native blocks §16.3](../tile-sdk/native-blocks.md#163-which-built-in-tiles-move-to-the-sdk)) |
 | The gaps in [§7](#7-sdk-gaps) marked v1 | new | phase 2, or with `files` |
+| Save to file (v1.1) | `files.write` | on demand |
 
-So v1 can ship as soon as SDK phase 2 is done and `files.read` with
-`watch` exists. The parser, Linker, Layout and Painter are plain Rust
-and can be written and tested natively before then (plan phase A).
+So **v1's first part, shown diagrams, can ship as soon as SDK phase 2
+is done**: the source comes in the agent's call, so it needs no file
+access at all and no service beyond the minimum. The docs part follows
+when `files.read` with `watch` exists, and Save to file (v1.1) with
+`files.write`. The parser, Linker, Layout and Painter are plain Rust and
+can be written and tested natively before then (plan phase A).
 
-**This tile is a trigger for `files.read`.** Platform services
+**This tile is a trigger for `files.read`** (for its docs part). Platform services
 [§14.3](../tile-sdk/platform-services.md#143-later-on-demand) adds a
 service when a seed tile can't do without it. The C4 tile can't: reading
 the project's Markdown is its whole job. It also needs `files.watch`
 earlier than the files tree port that §16.3 ties watching to. (Updating
 §14.3's trigger text is left to the SDK's plan; see [plan.md](plan.md).)
 
-## 5. v2: agent tools
+## 5. v2: agent tools for the docs
 
-Built when SDK phase 3 lands (agent tools, skill, commands). Tool kinds
+Built when SDK phase 3 lands (`read` and `act` tools, approvals, Undo,
+skill, commands). The show-only tool moved to v1 ([§3.10](#310-shown-diagrams)),
+and the host-provided `c4__open` replaces the `c4__open` this table
+used to list. Tool kinds
 and their rules are the SDK's
 ([agent-tools §11.2](../tile-sdk/agent-tools.md#112-four-kinds),
 [§11.5](../tile-sdk/agent-tools.md#115-permissions)).
 
 | Tool (MCP name) | Kind | Does |
 |---|---|---|
-| `c4__open` | `show` | Opens the tile, at a diagram id when given |
 | `c4__list_diagrams` | `read` | Diagrams of the caller's project from the index: id, file, line, title, level or type, boundaries, zoom links, problems. Takes a path filter and a cursor |
 | `c4__get_diagram` | `read` | One diagram: Mermaid text, boxes, arrows, problems |
 | `c4__propose_diagram` | `present` | Mermaid text for an existing diagram id, or for a new block (file and heading). Parsed all or nothing; on success the tile shows it as a change view over the current one, marked and undoable [SDK, [§11.6](../tile-sdk/agent-tools.md#116-presented-content-ids-marks-undo)]. Returns the item id and the block's hash |
@@ -473,7 +550,7 @@ matches the tile.
 How it fits Pitwall's architecture
 ([architecture.md](../architecture.md)): it adds no crate, no provider
 and no daemon method. It is an extension that contributes one tile, and
-in v2 tools and a skill. The repository rule "no extension names in
+its tools (a show tool in v1, more in v2) and, in v2, a skill. The repository rule "no extension names in
 crates" [SDK, [runtime §2.2](../tile-sdk/runtime.md#22-crates-new)]
 holds: nothing in `crates/` knows the tile exists.
 
@@ -501,15 +578,18 @@ v1 is usable. G1 has no workaround that keeps click to zoom.
 
 ## 8. Security and limits
 
-- **Input is untrusted.** Markdown in a repository may come from anyone.
+- **Input is untrusted.** Markdown in a repository may come from
+  anyone, and a shown diagram's source comes from an agent that may have
+  read anything.
   The parser has limits: 1 MiB per file, 300 boxes and 600 arrows per
   diagram, nesting depth 16 (*proposal*). Past them the diagram gets the
   fallback, never a long stall. The SDK's own limits apply on top: time
   per call, memory, ops per draw [SDK].
 - **Labels are text.** No HTML, links, images or scripts from labels are
   rendered; the canvas can only draw text [SDK].
-- **Grants.** v1: `files.read` on projects the user picks, and `show`.
-  v2: `files.write` on those projects, off until the user turns it on
+- **Grants.** Shown diagrams: none. Docs part: `files.read` on
+  projects the user picks, and `show`. v1.1 and v2: `files.write` on
+  those projects, off until the user turns it on
   [SDK, [permissions §5.1](../tile-sdk/permissions.md#51-new-permissions-new)];
   agents' writes and exports ask every time.
 - **Skill text** (v2) only describes this tile's tools and the

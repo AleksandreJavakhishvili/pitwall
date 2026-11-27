@@ -48,7 +48,9 @@ in [sources.md](sources.md)) or the word *unverified*.
 ## Decisions
 
 Every open question was decided by the owner on 2026-11-26, each as
-recommended. Unverified claims stay unverified: they are facts to
+recommended. On 2026-11-27 the owner added agent-opened tiles and
+show-only tools in phase 2 ([10.3](#103-decisions) item 20,
+[11.13](agent-tools.md#1113-decisions) items 9 and 10). Unverified claims stay unverified: they are facts to
 check, not decisions ([sources.md](sources.md#not-verified)).
 
 - [10.3](#103-decisions): Runtime, packaging and marketplace
@@ -122,8 +124,9 @@ model and IME. The tile's code never touches a window.
     `read` (get back what it shows, with the user's edits), `act`
     (effects outside the tile). `show` and `present` are allowed by
     default, `read` once per tile, `act` asks every time in the approval
-    dialog. Built-in tiles follow the same model; the web tile stays
-    show-only on purpose. A package may also bring an agent skill (a
+    dialog. `show` and `present` (show-only) come in phase 2, the rest
+    in phase 3 (decision 20). Built-in tiles follow the same model; the
+    web tile stays show-only on purpose. A package may also bring an agent skill (a
     Markdown file, through the existing rules path, per project) and
     expose tools as commands (`pitwall extension run`, the palette); never
     native scripts.
@@ -187,6 +190,18 @@ model and IME. The tile's code never touches a window.
     authors can pass tiles around as a folder: install from a folder
     or URL, unsigned, marked preview, through the same permission
     screen. Phase 4 adds the `.pwtile`, signatures and updates on top.
+20. **Extensions provide their own agent tools, and Pitwall registers
+    them with every agent** ([11.1](agent-tools.md#111-why-and-what),
+    decided by the owner 2026-11-27). The author declares tools in the
+    extension; Pitwall lists them in the MCP server it already gives
+    every agent it starts, so Claude Code, Codex and the rest see
+    `<extension-id>__<tool>` with no setup by the user. Opening a tile is
+    the first such tool: every tile gets a host-provided
+    `<extension-id>__open`, and authors add show tools with typed input
+    (Mermaid source, a draft note). The tile opens next to the calling
+    agent's terminal, with `where` and `of` as `show_web`, and a later
+    call with the same item updates it in place. These show-only tools
+    come in phase 2; `read`, `act`, approvals and Undo stay in phase 3.
 
 **Phases**, in order; each needs the one before it unless it says
 otherwise. Durations are left out on purpose: agents do the work, so
@@ -201,15 +216,18 @@ only the order and the dependencies mean something.
 2. **Components and the minimum platform services**, with badges,
    floating-control questions and Next up; toolbar items; the code
    view and diff view blocks. Tile plus managed service is documented
-   and wired here.
-3. **Agent tools, skill and commands.**
+   and wired here. Agents open tiles and show content in them:
+   show-only tools, registered with every agent (decision 20).
+3. **Agent tools, the rest**: `read` and `act`, approvals, Undo, skill
+   and commands.
 4. **Package, signing, install, update**, on top of phase 1's folder
    install.
 5. **Index and Browse.** Browse opens to the public only after the
    threat model and the outside security review
    ([5.5](permissions.md#55-threat-model-and-outside-review)).
-6. **Seed tiles**, in parallel from phase 2 (Notes and CI need 2,
-   Diagrams needs 3), with on-demand services as they trigger them.
+6. **Seed tiles**, in parallel from phase 2 (Notes, CI and the C4
+   tile's shown diagrams need 2; its diagrams in the docs also need
+   `files.read`; its agent edits need 3), with on-demand services as they trigger them.
    The review port as a proof tile also starts after phase 2,
    alongside them, pulling `git` and `files` into the plan; the files
    tree and inbox ports come after it.
@@ -311,7 +329,9 @@ gap in the SDK.
 
 Notes and C4 diagrams are the first two seed tiles. C4 diagrams is the
 flagship: it shows the C4 diagrams agents write in a project's
-Markdown, next to the agents, and later lets agents change them. It
+Markdown, next to the agents, and opens a diagram an agent shows it
+next to that agent's terminal; later it lets agents change the docs'
+diagrams. It
 absorbs the generic Diagrams tile, including its role as the tile that
 exercises agent tools of all four kinds. Specs:
 [C4 diagrams](../2026-11-27-c4-tile/frd.md) and
@@ -319,7 +339,7 @@ exercises agent tools of all four kinds. Specs:
 
 | Tile | Exercises | Needs |
 |---|---|---|
-| C4 diagrams (flagship; [spec](../2026-11-27-c4-tile/frd.md)) | canvas, tree, file watching; v2: agent tools of all four kinds ([4.2](authoring.md#42-a-diagram-tile-as-an-author-writes-it) is the pattern), SVG export | `files.read` with `watch` for v1 (after phase 2); `files.write` for v2 (phase 3) |
+| C4 diagrams (flagship; [spec](../2026-11-27-c4-tile/frd.md)) | v1: the first user of show-only agent tools (`c4__show`: an agent shows Mermaid, the tile opens next to it), canvas, tree, then file watching; v2: `read` and `act` tools ([4.2](authoring.md#42-a-diagram-tile-as-an-author-writes-it) is the pattern), SVG export | nothing for shown diagrams (phase 2); `files.read` with `watch` for diagrams in the docs; `files.write` for Save to file (v1.1) and v2 (phase 3) |
 | Notes ([spec](../2026-11-27-notes-tile/)) | input, Markdown, storage, files | `files.read/write` (a `notes/` folder) |
 | CI and pull requests | net, secrets, virtual list, agents, Next up, notifications | `net`, `agents.read`, `agents.queue`, `notify` |
 | API client | inputs, tabs, code view, `net.ask`, storage | `net.ask` |
@@ -344,11 +364,11 @@ work. What must come before what is in the summary's phase list
 |---|---|---|
 | 0. Spike | Wasmtime in `pitwall-tile-host`, measure release-binary growth per platform and cold/warm compile times, a hello tile rendering a box tree, canonical-ABI cost of a 2 000-node frame, epoch kill, confirm the threading model; on macOS, Linux and Windows (CI runners are fine for Linux and Windows). Done when the [gates](#phase-0-gates) pass, or the owner decides how to go on | none: nothing public yet |
 | 1. Runtime | WIT 0.1 (box, text, button, icon, scroll, input, events, ui, log, and the first platform services: `tasks`, `storage`, `settings`), `TileView` in the layout, worker threads, limits, cache, Log, `extension new/dev/check`, the harness's core; the authoring skill and the generated `llms.txt` reference ([9.5](authoring.md#95-docs-for-authors-agents)), first shared with authors as the SDK preview; unsigned install from a folder for that preview ([6.3](packaging.md#63-install)): Settings → Extensions and `pitwall extension install <dir or url>`, marked developer preview, with the permission screen and an "Unsigned, preview" warning, no updates. Tiles target macOS, Linux and Windows from here, and the host's tests run on all three in CI | new "Extensions" group in the docs sidebar; Extensions overview, Quick start (`new`, `dev`, share a preview tile), Tiles and UI components (core elements), Permissions (first grants), Platform services (`tasks`, `storage`, `settings`), WIT reference 0.1, `llms.txt` and the skill download; all marked Preview |
-| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (mostly wiring existing host code); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items)) | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components |
-| 3. Agent tools | `agent-tools` WIT, the `#[tools]` macro, tile tools in `mcp.tools`/`mcp.call` and `pitwall extension tools` and `call`, agent access on the permission screen, approvals for `act`, origin marks and Undo, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall extension run` and `commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | Agent tools, skill and commands; Permissions (agents' access to a tile's tools); the CLI reference gains `pitwall extension tools`, `call`, `run` and `commands` |
+| 2. Components and minimum services | virtual list, table, tree, tabs, select, code, Markdown, canvas, images, menus, drag inside a tile; the rest of the minimum ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `sql` with quotas and migrations, `net`, notifications and toasts, opening a file, the editor or a web tile; and the agents' questions group ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12)): `agents.read`, `badges`, `asks` into the floating control, `queue.add` with its origin mark (mostly wiring existing host code); permission screen changes; toolbar items ([3.9](ui.md#39-toolbar-items)); agents open tiles and show content: the host-provided `<extension-id>__open`, declared `show` and `present` tools delivered as view content, placement next to the calling agent, tile tools in `mcp.tools`/`mcp.call` for every agent Pitwall starts with its MCP server, and the show-only part of agent access ([11](agent-tools.md#11-tools-for-agents), decision 20) | Tiles and UI components (all components), Native building blocks (code view, diff view), Platform services (the minimum and the agents' questions group), Permissions (`net`, `notify`, `agents.*`, agents opening a tile), Servers in extensions (tile plus managed service); toolbar items on Tiles and UI components; Agent tools (show-only part); the Extensions overview's opening says extensions bring their own agent tools |
+| 3. Agent tools, the rest | `read` and `act` through the `tool` export and `#[tools]`, `pitwall extension tools` and `call`, the ask-once grant for `read` on the permission screen, approvals for `act`, Undo, `from_file` and `append`, built-in tiles described in the same kinds; the agent skill through rulesync ([11.11](agent-tools.md#1111-a-skill-for-agents)); commands, `pitwall extension run` and `commands` and palette entries ([11.12](agent-tools.md#1112-commands-for-the-shell-and-the-palette)) | Agent tools, skill and commands (the rest); Permissions (agents reading a tile, `act` approvals); the CLI reference gains `pitwall extension tools`, `call`, `run` and `commands` |
 | 4. Packages | On top of phase 1's folder install: `.pwtile`, minisign verification, install from file/URL/CLI with a signature (unsigned stays possible behind the same warning, [6.3](packaging.md#63-install)), `Release` source updates, `safe_update` step for tiles, Go back, remove | Packaging and signing; Quick start gains `pack`; Permissions' user part (install, grants, Go back); the Settings reference's Extensions section; a short Extensions part in How it works for users |
 | 5. Marketplace | index repo and its CI, signed `index.json` and `blocked.json`, Browse tab, Verified, report flow, `extension pack/sign/publish`. Exit condition: the threat model is written and an outside security review of the host and permission code is done, with its serious findings fixed, before Browse opens to the public ([5.5](permissions.md#55-threat-model-and-outside-review)); until then Browse stays limited to preview authors | Publishing and the Verified badge (with its user part: what Verified means, reporting); Quick start gains `publish`; the Settings reference gains Browse |
-| 6. Seed tiles | Notes and CI from phase 2, Diagrams from phase 3; API client, git client, database browser after; in parallel with the other phases from phase 2 | examples on every page switch to the seed tiles' source as each one ships |
+| 6. Seed tiles | Notes, CI and the C4 tile's shown diagrams from phase 2, its agent edits from phase 3; API client, git client, database browser after; in parallel with the other phases from phase 2 | examples on every page switch to the seed tiles' source as each one ships |
 | 6a. Native blocks and ports ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities)) | code view and diff view blocks in phase 2; the review port as proof tile from phase 2 (read-only first, then comments, then commit and merge), which brings `git.read/write` and `files.read` into the plan; then the files tree (with file watching and `files.search`) and the inbox tile; native tiles dropped one release after each port matches | Native building blocks (each block as it ships); How it works says which built-in tiles are now extensions, if users can see it |
 | On demand | the services of [14.3](platform-services.md#143-later-on-demand), each when a seed tile triggers it (files for Notes, git for the git client, agents' status and Next up for CI, …), alongside phase 6 | Platform services and Permissions gain a row for each service as it ships |
 | 7. Stabilise | WIT 1.0 once the seed tiles ship, docs site, deprecation policy in force | Preview label removed; WIT reference 1.0 and one page per published WIT version; the deprecation policy on the overview |
@@ -508,6 +528,21 @@ decision after phase 0 (2026-11-27).
       Compiling stays on the tile's worker with "Preparing…" shown; in
       phase 1 a test checks that a 2–3 MB tile compiles in under 1 s on
       a 4-core CI runner. Winch stays a candidate for dev reload.
+20. **Agents open tiles; show-only tools in phase 2.** Decided (owner,
+    2026-11-27): "the whole point of extensions and tiles is that they
+    can open stuff from agents too, apart from your own". Extensions
+    provide their own agent tools and Pitwall registers them with every
+    agent it starts, through its MCP server, with no setup by the user.
+    Every tile gets a host-provided `<extension-id>__open`; authors may
+    declare show tools with typed input, delivered as view content
+    (`view-opened`, `view-content`, already in WIT 0.1). Show-only tools (`show`, and `present` on the agent's own
+    unedited items) move from phase 3 into phase 2, because they change
+    nothing outside the tile, return no tile data and need no approval.
+    `read` stays in phase 3 for permission reasons: it returns the
+    tile's data, with the user's edits, and needs the ask-once grant
+    ([11.2](agent-tools.md#112-four-kinds)). `act`, approvals, Undo, the
+    skill and commands stay in phase 3 too. Details in
+    [11.13](agent-tools.md#1113-decisions), items 9 and 10.
 
 ### 10.4 What gets in the way in today's code
 - `contributes` keys are checked against a fixed list; `tiles` must be

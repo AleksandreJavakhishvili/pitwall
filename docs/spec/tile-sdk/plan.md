@@ -51,21 +51,26 @@ on macOS, Linux and Windows, and the Preview docs describe exactly that.
 
 ## Phase 2: Components and minimum services
 
-Done when the seed tiles Notes and CI can be built on the public SDK
-alone, and the pages below match.
+Done when the seed tiles Notes and CI, and the C4 tile's shown
+diagrams, can be built on the public SDK alone, agents can open any
+tile and show content in it, and the pages below match.
 
 - [ ] Components: virtual list, table, tree, tabs, select, Markdown, canvas, images, menus, drag inside a tile ([3](ui.md))
+- [ ] Agents open tiles: the host-provided `<extension-id>__open` for every extension with tiles, taking the tile's declared `"input"` as content, placed next to the calling agent with `where` and `of` as `show_web` does, a later call reusing the same view ([11.3](agent-tools.md#113-declaring-tools), [11.8](agent-tools.md#118-where-the-tile-opens)). Done when an agent in Claude Code opens the hello tile on the right with a payload, and a second call with the same item updates it in place
+- [ ] Show-only tools: `show` and `present` declared in the manifest and with `#[tools]`, delivered as `view-opened` and `view-content` with the new `content` fields, `reply`, item ids per agent, the host's origin mark, the refusal on an item the user edited, the limits for inline input ([11.2](agent-tools.md#112-four-kinds), [11.6](agent-tools.md#116-presented-content-ids-marks-undo), [11.7](agent-tools.md#117-size-time-streaming-errors)). Done when harness tests cover a good call, a call with problems that changes nothing, an update in place and the refusal
+- [ ] Registered with every agent: tile show-only tools in `mcp.tools`/`mcp.call` and `notifications/tools/list_changed`, named `<extension-id>__<tool>`, with `readOnlyHint` and added to the launch-time allow lists, plus one line per tile in the server's instructions ([11.4](agent-tools.md#114-how-agents-reach-them)). Done when an extension's declared show tool appears in Claude Code's and Codex's tool list without user setup, and each agent kind with an MCP launch mode is checked for the names
+- [ ] Agent access, show-only part: the per-tile "Agents can use <name>" switch, Settings → Agents "Tile tools", the tools on the permission screen, calls in the tile's Activity ([11.5](agent-tools.md#115-permissions), [11.10](agent-tools.md#1110-records)). Done when turning either switch off removes the tools from a running agent's list
 - [ ] Native building blocks: code view and diff view ([16](native-blocks.md#16-native-building-blocks-and-native-capabilities))
 - [ ] `sql` with quotas and migrations; `net`; notifications and toasts; open a file, the editor or a web tile ([14.2](platform-services.md#142-the-v0x-minimum-built-in-phases-12))
 - [ ] Agents' questions group: `agents.read`, `badges`, `asks` in the floating control, `queue.add` with its origin mark
 - [ ] Toolbar items, opt-in and hideable ([3.9](ui.md#39-toolbar-items))
 - [ ] Permission screen changes for the new grants ([5](permissions.md))
 - [ ] Tile plus managed service documented and wired ([13.2](services.md#132-a-a-tile-plus-a-managed-service))
-- [ ] Website docs: all components, Native building blocks, Platform services (minimum and agents' questions), Permissions (`net`, `notify`, `agents.*`), Servers in extensions, toolbar items
+- [ ] Website docs: all components, Native building blocks, Platform services (minimum and agents' questions), Permissions (`net`, `notify`, `agents.*`, agents opening a tile), Servers in extensions, toolbar items, Agent tools (show-only part); the Extensions overview's first lines say that extensions bring their own agent tools and Pitwall registers them with every agent; the authoring skill and `llms.txt` cover declaring show tools
 
 ## Later phases (to be broken down)
 
-- [ ] **3. Agent tools:** `agent-tools` WIT, `#[tools]`, `pitwall extension tools`/`call`/`run`/`commands`, approvals, the agent skill, palette entries ([11](agent-tools.md))
+- [ ] **3. Agent tools, the rest:** `read` and `act` through the `tool` export, approvals, the ask-once grant, Undo and `undo-present`, `from_file` and `append`, `pitwall extension tools`/`call`/`run`/`commands`, the agent skill, palette entries ([11](agent-tools.md))
 - [ ] **4. Packages:** `.pwtile`, minisign, signed install, updates, Go back, remove ([6](packaging.md))
 - [ ] **5. Marketplace:** index repo, Browse, Verified, report flow, `pitwall extension pack`/`sign`/`publish`; exit gate: threat model written and outside security review done ([7](marketplace.md), [5.5](permissions.md#55-threat-model-and-outside-review))
 - [ ] **6. Seed tiles:** C4 diagrams (flagship, [spec](../2026-11-27-c4-tile/plan.md)) and Notes ([spec](../2026-11-27-notes-tile/)) first, then CI, API client, git client, database browser ([10.1](README.md#101-seed-tiles-first-party-public-sdk-only))

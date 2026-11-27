@@ -64,9 +64,6 @@ from the code below; shown here for reading):
       "id": "board", "title": "Diagrams", "icon": "shapes", "wasm": "tile.wasm",
       "world": "pitwall:tile@0.1.0",
       "tools": [
-        { "name": "open", "kind": "show",
-          "description": "Open the Diagrams tile next to your terminal.",
-          "input": { "type": "object", "properties": {} } },
         { "name": "show_diagram", "kind": "present",
           "description": "Show a flowchart to the user, written in Mermaid flowchart syntax. Pass the same item to change a diagram you showed before instead of adding a new one. Errors say which line is wrong.",
           "input": { "type": "object", "required": ["mermaid"], "properties": {
@@ -148,14 +145,10 @@ struct Current { item: String, mermaid: String, edited_by_user: bool }
 #[derive(Deserialize, JsonSchema)]
 struct Export { item: String, path: String }
 
+// No code for opening: Pitwall offers `diagrams__open` for every tile
+// (agent-tools 11.3) and places it next to the calling agent.
 #[pitwall_extension::tools]
 impl Diagrams {
-    /// Open the Diagrams tile next to your terminal.
-    #[tool(kind = "show")]
-    fn open(&mut self, _call: Call<()>, _cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
-        Ok(Reply::text("Diagrams is open."))
-    }
-
     /// Show a flowchart to the user, written in Mermaid flowchart syntax.
     #[tool(kind = "present")]
     fn show_diagram(&mut self, call: Call<ShowDiagram>, _cx: &mut Cx<Self>) -> Result<Reply, ToolError> {
@@ -447,8 +440,11 @@ Codex, …). The docs are written so such an agent can build one from the
 docs alone, without Pitwall's source:
 - **An authoring skill**, `pitwall-extension-authoring/SKILL.md`,
   shipped with the SDK: how to scaffold (`pitwall extension new`), the
-  manifest, the permission kinds and how to justify each, tools and
-  their kinds (`show`, `present`, `read`, `act`), the agent skill and
+  manifest, the permission kinds and how to justify each, agent tools
+  (that every tile can be opened by agents with no code; how to declare
+  the tile's `"input"` and show tools, `show` and `present`, with typed
+  input and read them from `view-opened` and `view-content`; that Pitwall registers them with every
+  agent through its MCP server; from phase 3 `read` and `act`), the agent skill and
   commands, the platform services and what is held back ([14](platform-services.md#14-platform-services-what-pitwall-gives-every-tile)), testing
   with the harness, `check`, packing and signing, publishing. Short, with
   links into the full docs.
@@ -458,7 +454,9 @@ docs alone, without Pitwall's source:
   in the project has it from the first prompt.
 - **One file, `llms.txt`**, published on the website beside the docs:
   a single reference generated from the WIT (every interface, record,
-  function, permission and limit) and the author docs, following the
+  function, permission and limit) and the author docs, including how to
+  declare agent tools (the manifest's `open` and `tools` blocks, the
+  `#[tools]` attributes, the view content events), following the
   proposed `llms.txt` convention for docs meant for language models
   (S24). It is regenerated in CI on each release, so it never disagrees
   with the WIT; a test fails if a WIT item has no doc comment.
@@ -502,11 +500,11 @@ in phase 1.
 
 | Page | Path | For | Published in | Grows in |
 |---|---|---|---|---|
-| Extensions overview: the one extension model, what an extension can contain, how it is kept safe | `/docs/extensions/` | users and authors | 1 (Preview) | 7 (Preview removed, deprecation policy), 8 (adapters on their way out) |
+| Extensions overview. Its first lines: extensions bring their own agent tools, and Pitwall registers them with every agent it starts, so agents can open your tile and send it content with no setup. Then the one extension model, what an extension can contain, how it is kept safe | `/docs/extensions/` | users and authors | 1 (Preview; agents opening tiles from 2) | 7 (Preview removed, deprecation policy), 8 (adapters on their way out) |
 | Quick start: `pitwall extension new` → `dev` → `pack` → `publish` | `/docs/extensions/quick-start/` | authors | 1 (`new`, `dev`, share a preview tile with `install`) | 4 (`pack`), 5 (`publish`) |
 | Tiles and UI components | `/docs/extensions/ui/` | authors; a part for users on hiding and ordering toolbar items | 1 (core elements) | 2 (all components, toolbar items) |
 | Native building blocks | `/docs/extensions/native-blocks/` | authors | 2 (code view, diff view) | 6a and on demand (each block) |
-| Agent tools, skill and commands | `/docs/extensions/agent-tools/` | authors; a part for users on what agents may do with a tile | 3 | on demand |
+| Agent tools, skill and commands | `/docs/extensions/agent-tools/` | authors; a part for users on what agents may do with a tile | 2 (show-only part: the host-provided open, declaring show tools, placement, how agents get them) | 3 (`read`, `act`, approvals, Undo, skill, commands), on demand |
 | Permissions: what each grant means | `/docs/extensions/permissions/` | users and authors (written for users first) | 1 (first grants) | every phase that adds a grant |
 | Platform services | `/docs/extensions/platform-services/` | authors | 1 (`tasks`, `storage`, `settings`) | 2 (the minimum), on demand (one row per service) |
 | Servers in extensions | `/docs/extensions/servers/` | authors | 2 (tile plus managed service) | after 7 (headless wasm services) |
