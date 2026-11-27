@@ -37,6 +37,11 @@ pub const AGENTS_QUEUE: &str = "agents.queue";
 pub const AGENTS_START: &str = "agents.start";
 /// Notifications (with `contributes.notifications`).
 pub const NOTIFY: &str = "notify";
+/// Linear memory for its tiles above the 64 MiB every tile gets, up to
+/// the size its manifest names (`{"reason": …, "mib": 256}`; docs/spec/
+/// tile-sdk/permissions.md §5.1). Shown on the permission screen with
+/// its size, not a switch: granted when the extension is turned on.
+pub const MEMORY: &str = "memory";
 
 /// How much a permission lets an extension do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +81,7 @@ pub fn action_needs(m: &str) -> Option<&'static str> {
 }
 
 /// Every permission this Pitwall knows, the ones it serves first.
-pub const ALL: [Permission; 9] = [
+pub const ALL: [Permission; 10] = [
     Permission { name: AGENTS_READ, title: "Read your agents", detail: "Their names, projects, folders, branches and statuses, and their changes as they happen. A status can quote what an agent is waiting on (a command it asks to run). Never what is on their screens.", risk: Risk::Medium, risk_note: None, available: true },
     Permission { name: PROJECTS_READ, title: "Read your projects", detail: "The folders of the projects in Pitwall.", risk: Risk::Low, risk_note: None, available: true },
     Permission { name: WORKTREES_READ, title: "Read your worktrees", detail: "Each project's git worktrees: their folders, branches and the agent working in each.", risk: Risk::Low, risk_note: None, available: true },
@@ -86,7 +91,20 @@ pub const ALL: [Permission; 9] = [
     Permission { name: AGENTS_QUEUE, title: "Send text to your agents", detail: "Put text in an agent's Next up, marked with its name. Nothing it puts there is sent until you press Send, unless you let it send without asking.", risk: Risk::High, risk_note: Some("Text an agent gets becomes what it does: it acts on it with its own permissions in your repositories (edit files, run commands, push). A service that is wrong or compromised could slip instructions in."), available: true },
     Permission { name: AGENTS_START, title: "Start agents", detail: "Ask to start an agent in one of your projects, maybe with a first prompt. Every request asks you first, showing the project, the tool and the prompt in full.", risk: Risk::High, risk_note: Some("An agent it starts runs as you, with the project's accounts, in your repository. Allowed without looking, it can set work going that you didn't ask for."), available: true },
     Permission { name: NOTIFY, title: "Notify you", detail: "Show system notifications while Pitwall isn't in front, at most 3 a minute, labelled with its name.", risk: Risk::Low, risk_note: None, available: true },
+    Permission { name: MEMORY, title: "Use more memory", detail: "Its tiles may use more memory than the 64 MiB every tile gets, up to the size shown. It gives no access to anything else.", risk: Risk::Low, risk_note: None, available: true },
 ];
+
+/// Whether `name` is shown on the permission screen without a switch:
+/// granted with the extension ([`MEMORY`]).
+pub fn shown_only(name: &str) -> bool {
+    name == MEMORY
+}
+
+/// What the permission screen shows beside `name` for `m` instead of a
+/// switch: the memory its tiles may use ("256 MiB").
+pub fn amount(m: &Manifest, name: &str) -> Option<String> {
+    (name == MEMORY).then(|| format!("{} MiB", m.memory_mib.unwrap_or(super::TILE_MEMORY_MIB)))
+}
 
 /// Permission `name`, when this Pitwall knows it.
 pub fn find(name: &str) -> Option<&'static Permission> {
@@ -144,15 +162,16 @@ impl Decision {
 pub type Decisions = BTreeMap<String, Decision>;
 
 /// What `m` may use now: the permissions it asks for that this Pitwall
-/// serves and the user granted, in the manifest's order.
+/// serves and the user granted (and the ones granted with it, like
+/// [`MEMORY`]), in the manifest's order.
 pub fn effective(m: &Manifest, decisions: &Decisions) -> Vec<String> {
-    m.permissions.iter().filter(|p| available(&p.name) && decisions.get(&p.name).is_some_and(|d| d.granted)).map(|p| p.name.clone()).collect()
+    m.permissions.iter().filter(|p| available(&p.name) && (shown_only(&p.name) || decisions.get(&p.name).is_some_and(|d| d.granted))).map(|p| p.name.clone()).collect()
 }
 
 /// The permissions `m` asks for that the user hasn't answered yet (and
 /// could grant): a new install's, or ones an update added.
 pub fn undecided<'a>(m: &'a Manifest, decisions: &Decisions) -> Vec<&'a super::PermissionAsk> {
-    m.permissions.iter().filter(|p| available(&p.name) && !decisions.contains_key(&p.name)).collect()
+    m.permissions.iter().filter(|p| available(&p.name) && !shown_only(&p.name) && !decisions.contains_key(&p.name)).collect()
 }
 
 /// `decisions` without the ones `m` no longer asks for (an update dropped
@@ -199,6 +218,13 @@ mod tests {
     #[test]
     fn defaults_and_words() {
         assert!(on_by_default(AGENTS_READ) && on_by_default(PROFILES_READ) && on_by_default(NOTIFY));
+        // Memory is granted with the extension, shown with its size.
+        assert!(available(MEMORY) && on_by_default(MEMORY) && shown_only(MEMORY) && !shown_only(AGENTS_READ));
+        let big = Manifest { memory_mib: Some(256), ..Manifest::named("x", "X") };
+        assert_eq!((amount(&big, MEMORY).as_deref(), amount(&big, NOTIFY)), (Some("256 MiB"), None));
+        let asks = Manifest { permissions: vec![PermissionAsk { name: MEMORY.into(), reason: "big files".into() }], ..big };
+        assert_eq!(effective(&asks, &Decisions::new()), vec![MEMORY.to_string()], "granted with the extension");
+        assert!(undecided(&asks, &Decisions::new()).is_empty(), "never asked on its own");
         for p in [SHOW, AGENTS_FOCUS, AGENTS_QUEUE, AGENTS_START] {
             assert!(!on_by_default(p), "{p} acts: never on by default");
         }

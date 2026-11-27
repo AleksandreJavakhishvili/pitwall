@@ -52,6 +52,7 @@ pub mod log;
 pub mod npm;
 pub mod permissions;
 pub mod plan;
+pub mod preview;
 pub mod process;
 pub mod protocol;
 pub mod service;
