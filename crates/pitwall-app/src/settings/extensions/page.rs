@@ -257,6 +257,7 @@ impl SettingsView {
         }
         self.exts.page.detail = None;
         self.exts.page.browse.detail = None;
+        self.let_go_setup(None);
         let browse = self.exts.page.tab == Tab::Browse;
         let input = self.search_input(browse, window, cx);
         input.update(cx, |i, cx| {
@@ -272,6 +273,7 @@ impl SettingsView {
         self.exts.page.tab = tab;
         self.exts.page.detail = None;
         self.exts.page.browse.detail = None;
+        self.let_go_setup(None);
         if tab == Tab::Browse {
             self.load_index(false, cx);
         }
@@ -296,6 +298,7 @@ impl SettingsView {
             return;
         }
         self.exts.page.detail = id.map(str::to_string);
+        self.let_go_setup(id);
         if let Some(id) = id {
             self.exts.page.tab = Tab::Installed;
             self.exts.page.cursor = Some(id.to_string());

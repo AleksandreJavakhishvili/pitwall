@@ -47,6 +47,11 @@ mod package_ui;
 pub(crate) mod page;
 use page::Tab;
 mod service_ui;
+mod setup_ui;
+#[cfg(test)]
+mod setup_tests;
+#[cfg(test)]
+mod setup_shots;
 mod stale_ui;
 mod updates;
 
@@ -127,6 +132,8 @@ pub struct Section {
     activity_ticking: bool,
     /// The page's tabs, search, filters and detail pages ([`page`]).
     pub(super) page: page::State,
+    /// The Setup view of the extension whose page shows ([`setup_ui`]).
+    setup_view: setup_ui::Held,
     _subs: Vec<Subscription>,
 }
 
@@ -687,8 +694,22 @@ impl SettingsView {
         if let Some(ask) = self.permission_screen(ui, &m, cx) {
             card = card.child(ask);
         }
+        // A Setup view replaces the form drawn from the manifest: on its
+        // page, between the header and the permissions; on a card, a line
+        // saying so (ui.md §3.12).
+        let setup = m.contributes.setup.is_some();
+        let asked_here = self.exts.asking.as_ref().is_some_and(|(e, _)| *e == m.id);
+        if open && setup && !asked_here {
+            if detail {
+                card = card.children(self.setup_frame(ui, &m, cx));
+            } else if on {
+                card = card.child(self.setup_on_page(ui, &m, cx));
+            }
+        }
         if open {
-            if on {
+            // Its setup drawn from the manifest (until it has a Setup
+            // view of its own).
+            if on && !setup {
                 let new_here = self.exts.naming.as_ref().is_some_and(|(e, c, _)| *e == m.id && c.is_none());
                 if conns.len() > 1 || new_here {
                     card = card.child(self.conn_bar(ui, &m, &conns, chosen.as_ref(), cx));
@@ -707,12 +728,16 @@ impl SettingsView {
                     other = other.children(again);
                     card = card.child(other);
                 }
+            }
+            if on {
                 card = card.children(self.permissions_view(ui, &m, cx));
                 card = card.children(self.agent_tiles_view(ui, &m, cx));
                 card = card.children(Self::contributions(ui, &m).map(|d| d.pt(px(10.)).border_t_1().border_color(ui.t.line)));
                 card = card.children(Self::toolbar_row(ui, &m, cx));
-            } else if self.exts.asking.as_ref().is_some_and(|(e, _)| *e == m.id) {
+            } else if asked_here {
                 // The permission screen above says it all.
+            } else if setup && detail {
+                // Its Setup view's skeleton says so.
             } else {
                 card = card.child(crate::kit::hint(format!("Turn it on to set it up. While it is off, nothing of {} runs.", m.name), &ui.t));
             }
@@ -1008,7 +1033,7 @@ impl SettingsView {
         let prefs = connections::prefs_for(m, c, cx);
         let list = checklist(m, &prefs, connected, ServiceFacts::of(m, cx));
         let left = list.iter().filter(|(_, d)| !d).count();
-        let mut col = div().flex().flex_col().gap(px(14.));
+        let mut col = div().debug_selector(|| "extension-checklist".into()).flex().flex_col().gap(px(14.));
         col = col.child(div().text_size(px(12.)).text_color(ui.t.text_3).child(match left {
             0 => "All set".to_string(),
             1 => "One step left".to_string(),

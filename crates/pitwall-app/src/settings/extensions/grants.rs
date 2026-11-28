@@ -381,7 +381,7 @@ impl SettingsView {
         }
         let decisions = crate::ui_state::get(cx).extension(&m.id).grants;
         let new = permissions::undecided(m, &decisions).len();
-        let mut col = div().flex().flex_col().gap(px(10.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(crate::kit::label("Permissions", ui.t.text_3, 11.));
+        let mut col = div().debug_selector(|| "extension-permissions".into()).flex().flex_col().gap(px(10.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(crate::kit::label("Permissions", ui.t.text_3, 11.));
         if new > 0 {
             let text = if new == 1 { "It asks for a new permission since an update: not granted until you allow it.".to_string() } else { format!("It asks for {new} new permissions since an update: not granted until you allow them.") };
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(text));

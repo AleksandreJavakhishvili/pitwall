@@ -27,6 +27,9 @@ When nothing is installed, or nothing matches, the list says so and offers to cl
 ![An extension's page, dark](images/settings/extensions-page-detail-dark.png) ![An extension's page, light](images/settings/extensions-page-detail-light.png)
 
 - **Head.** Its icon, name, author, version, who signed it (and Verified, when the index says so of that very file), and its switch.
+- **Its Setup view**, when it has one: its own setup screen, drawn by the extension, under the head and above everything Pitwall draws ([The Setup view](platform-services.md#the-setup-view)). While it is off, a placeholder stands in its place; if it stops, the page says "Setup stopped" with Restart.
+
+  ![An extension's page with its Setup view, dark](images/settings/setup-page-dark.png) ![An extension's page with its Setup view, light](images/settings/setup-page-light.png)
 - **README and screenshots**, from its own folder. The README is drawn inert: no HTML runs and no image is fetched.
 - **Permissions**, each with the reason the extension gives and, for those that act on your agents or files, what can go wrong. When it is on, each permission has its switch.
 - **What it adds**: its tiles, inbox, services and agent tools (with their switches), and the projects its skills are installed in.

@@ -92,7 +92,33 @@ Each setting has a `key`, a `type`, a `label`, and optionally a `default`, a `pl
 
 `settings::secret(key)` reads a secret from the system's secure store, and returns `None` when the user hasn't set it. Keep a secret in memory only: never store it, log it or show it.
 
-`settings::open()` opens the extension's card in Settings, for a "Set up" button when a setting the tile needs is missing.
+`settings::open()` opens the extension's page in the Extensions tile, at its Setup view when it has one (below), for a "Set up" button when something the tile needs isn't set.
+
+### The Setup view
+
+An extension can draw its own setup screen: its **Setup view**. Name it in the manifest:
+
+```json
+"contributes": { "setup": { "view": "setup" } }
+```
+
+The extension's page in the [Extensions tile](settings-page.md#an-extension-s-page) then shows, top to bottom: its header (name, version, switch, status), its Setup view, and Pitwall's own parts (permissions, agent tools, Activity, Log). Pitwall draws those parts itself, so a Setup view can't hide or restyle them. An extension without a Setup view shows its header and Pitwall's parts.
+
+The Setup view is an ordinary view of the extension's component (the one its tiles name, so it needs at least one tile). Its view id is the id the manifest gives, and `ViewInfo::tile` is that id too: draw it in `render` like any view (`SETUP_VIEW` is `"setup"`, the usual id). It can use everything a tile can: events, timers, `net`, storage. It is as tall as its content, up to 560 px, then it scrolls inside, and it follows the theme and focus as a tile does. While its first frame is on its way, or while the extension is off, the page shows a placeholder in its place; if the component stops, the page says "Setup stopped" with Restart. It is open while the page shows, and let go when the page closes.
+
+```rust
+fn render(&mut self, view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
+    if view == SETUP_VIEW {
+        return v_flex().gap(px(12.0)).p(px(14.0))
+            .child(text("Hello greets you in its tiles."))
+            .child(key_values().entry("Greeting", self.greeting.clone()))
+            .into_any();
+    }
+    self.main(cx).into_any()
+}
+```
+
+While an extension has a Setup view, Pitwall doesn't draw a form for its settings on its page. In tests, `Harness::setup()` starts it with its Setup view open, and `Session::open_setup()` opens it beside a tile's view.
 
 When the user changes a setting, the tile hears `Event::SettingsChanged` and, by default, renders again. The `form` template signs each note with its "Signed as" setting, read while rendering:
 

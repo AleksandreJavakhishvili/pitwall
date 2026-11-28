@@ -425,14 +425,17 @@ pub fn service_info(m: &Manifest, cx: &App) -> Option<ui::ServiceInfo> {
     Some(ui::ServiceInfo { state, address, version, why })
 }
 
-/// The view spec of view `view` of `m`: a tile's own view, or its toolbar
-/// popover ([`POPOVER_VIEW`], of the tile its manifest names).
+/// The view spec of view `view` of `m`: a tile's own view, its toolbar
+/// popover ([`POPOVER_VIEW`], of the tile its manifest names), or its
+/// Setup view.
 fn spec_of(m: &Manifest, view: &str) -> Option<ViewSpec> {
     if view == POPOVER_VIEW {
         let pitwall_core::extensions::toolbar::Action::Popover { tile, .. } = &m.contributes.toolbar.as_ref()?.action else { return None };
         return Some(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: None, project: None });
     }
-    m.contributes.tile(view).map(|_| ViewSpec::tile(view))
+    // Its Setup view, on its page (ui.md §3.12), is a view like a tile's.
+    let setup = m.contributes.setup.as_ref().is_some_and(|s| s.view == view);
+    (m.contributes.tile(view).is_some() || setup).then(|| ViewSpec::tile(view))
 }
 
 /// Secrets from the app's secure store: each running extension's secret
@@ -922,9 +925,13 @@ impl Tiles {
     /// Restart: a stopped component (or a running one) started again
     /// with its open views.
     pub fn restart(&mut self, id: &str, cx: &mut Context<Self>) {
-        let views = self.running.remove(id).map(|r| r.views).unwrap_or_default();
+        let (views, shown) = self.running.remove(id).map(|r| (r.views, r.shown)).unwrap_or_default();
         if !views.is_empty() || self.kept.contains(id) {
             self.start(id, views, None, cx);
+            // The views shown stay so: drawn once it has started.
+            if let Some(n) = self.running.get_mut(id) {
+                n.shown = shown;
+            }
         }
         cx.notify();
     }
