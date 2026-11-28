@@ -61,6 +61,16 @@
 //! starts, through its MCP server: `<extension-id>__open` (the tile's
 //! `"input"` as content, no code needed) and the show tools a tile
 //! declares with [`tools`] (`#[pitwall_extension::tools]`).
+//!
+//! **The Setup view.** An extension's page in Pitwall's Extensions tile
+//! shows its header, then its own Setup view, then Pitwall's parts
+//! (permissions, Activity, Log). Name the view in the manifest,
+//! `"contributes": {"setup": {"view": "setup"}}`, and draw it in
+//! [`Tile::render`] like any view: its view id (and [`ViewInfo::tile`])
+//! is that id, [`SETUP_VIEW`] when you follow the convention. It is an
+//! ordinary view (events, timers, `net`), open while the page shows;
+//! [`settings::open`] opens the page at it. Test it with the harness's
+//! `Harness::setup()`.
 
 // So the WIT glue's paths resolve inside this crate as they do in a tile's.
 extern crate self as pitwall_extension;
@@ -109,6 +119,21 @@ pub use events::{ColumnWidth, LinkClick, Picked, SortChange, SortDirection, Togg
 /// names it (`"world"`).
 pub const WORLD: &str = "pitwall:tile@0.1.0";
 
+/// The Setup view's id by convention: what `"contributes": {"setup":
+/// {"view": "setup"}}` names, and so the view id [`Tile::render`] gets
+/// for it on the extension's page. A manifest may name another id; the
+/// view's id is then that one.
+///
+/// ```ignore
+/// fn render(&mut self, view: &str, cx: &mut Cx<Self>) -> impl IntoElement {
+///     if view == SETUP_VIEW {
+///         return self.setup(cx).into_any();
+///     }
+///     self.main(cx).into_any()
+/// }
+/// ```
+pub const SETUP_VIEW: &str = "setup";
+
 /// Everything a tile usually needs: `use pitwall_extension::prelude::*;`.
 pub mod prelude {
     pub use crate::element::{button, div, h_flex, icon, icon_button, input, text, v_flex, AnyElement, Button, Div, Handler, Icon, IconElement, Input, Interactive, IntoElement, ParentElement, Text};
@@ -126,6 +151,7 @@ pub mod prelude {
     pub use crate::files;
     pub use crate::style::{px, relative, rems, Length, Styled, Token};
     pub use crate::tile::{Content, Cx, SavedState, Tile, Timer, ViewInfo};
+    pub use crate::SETUP_VIEW;
     pub use std::time::Duration;
     pub use crate::components::{choice, column, image_asset, image_data, markdown, menu_button, menu_icon_button, menu_item, select, separator, tab, table, tabs, tree, tree_row, virtual_list, Column, MenuEntry, Rows, TreeRow};
     pub use crate::events::{ColumnWidth, LinkClick, Picked, SortChange, SortDirection, Toggled};

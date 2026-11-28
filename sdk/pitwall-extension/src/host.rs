@@ -269,8 +269,9 @@ pub mod settings {
         settings::secret(key).map_err(HostError::from)
     }
 
-    /// Open the extension's card in Settings (for a "Set up" button when a
-    /// required setting is missing).
+    /// Open the extension's page in the Extensions tile, at its Setup view
+    /// when it has one ([`SETUP_VIEW`](crate::SETUP_VIEW)); for a "Set up"
+    /// button when something it needs isn't set.
     pub fn open() {
         settings::open();
     }

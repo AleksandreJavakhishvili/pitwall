@@ -132,6 +132,9 @@ impl Tile for Hello {
         if self.huge {
             return huge();
         }
+        if view == SETUP_VIEW {
+            return self.setup(cx);
+        }
         if view == "gallery" {
             if let Some(name) = self.alone.get(view).cloned() {
                 let demo = self.widgets.demo(&name, cx);
@@ -216,6 +219,31 @@ impl Tile for Hello {
 
     fn save_state(&self) -> Option<SavedState> {
         Some(SavedState::bytes(self.clicks.to_le_bytes().to_vec()))
+    }
+}
+
+impl Hello {
+    /// Its Setup view, on its page in the Extensions tile: the greeting
+    /// its tiles use, the count it keeps, and Reset.
+    fn setup(&mut self, cx: &mut Cx<Self>) -> AnyElement {
+        let greeting = settings::text("greeting").unwrap_or_else(|| "Hello".to_string());
+        v_flex()
+            .id("setup")
+            .gap(px(12.0))
+            .p(px(14.0))
+            .child(text("Hello greets you in its tiles and counts your clicks.").id("setup-intro").text_color(Token::Text2))
+            .child(key_values().entry("Greeting", greeting).entry("Clicks", self.clicks.to_string()).id("setup-facts"))
+            .child(
+                h_flex().gap(px(8.0)).child(
+                    button("Reset the count").id("setup-reset").disabled(self.clicks == 0).on_click(cx.listener(|t: &mut Hello, _, cx| {
+                        t.clicks = 0;
+                        if storage::set("clicks", 0u32.to_le_bytes()).is_ok() {
+                            cx.notify();
+                        }
+                    })),
+                ),
+            )
+            .into_any()
     }
 }
 

@@ -338,6 +338,13 @@ impl Extension {
         &self.manifest.contributes.tiles
     }
 
+    /// Its Setup view's id (`contributes.setup.view`), when it has one:
+    /// open it with [`ViewSpec::tile`] of this id, on the extension's
+    /// page (ui.md §3.12).
+    pub fn setup_view(&self) -> Option<&str> {
+        self.manifest.contributes.setup.as_ref().map(|s| s.view.as_str())
+    }
+
     /// Its component file.
     pub fn wasm_path(&self) -> &Path {
         &self.wasm
@@ -412,7 +419,7 @@ pub struct ViewSpec {
 
 impl ViewSpec {
     /// Tile `tile` opened once, with no content: its view id is the tile's
-    /// id.
+    /// id. Also the Setup view, by its id ([`Extension::setup_view`]).
     pub fn tile(tile: &str) -> ViewSpec {
         ViewSpec { id: tile.to_string(), tile: tile.to_string(), content: None, project: None }
     }
@@ -708,7 +715,7 @@ impl TileHost {
     /// thread that can't be made; a component that fails to load arrives
     /// as `Stopped(LoadFailed)`.
     pub fn start(&self, ext: &Extension, options: StartOptions, sink: impl FnMut(TileOutput) + Send + 'static) -> Result<TileHandle, LoadError> {
-        if let Some(v) = options.views.iter().find(|v| ext.manifest.contributes.tile(&v.tile).is_none()) {
+        if let Some(v) = options.views.iter().find(|v| ext.manifest.contributes.tile(&v.tile).is_none() && ext.setup_view() != Some(v.tile.as_str())) {
             return Err(LoadError::UnknownTile(v.tile.clone()));
         }
         worker::spawn(self.clone(), ext.clone(), options, Box::new(sink))

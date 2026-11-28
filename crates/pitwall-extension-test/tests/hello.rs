@@ -78,6 +78,24 @@ fn settings_typing_timers_and_toasts() {
     assert!(t.logged(Level::Info, "hello from stdout") && t.logged(Level::Warn, "hello from stderr"));
 }
 
+/// Its Setup view, as its page shows it (`Harness::setup`), and beside a
+/// tile's view (`Session::open_setup`).
+#[test]
+fn the_setup_view() {
+    let mut t = Harness::load(hello()).setting("greeting", "Howdy").stored("clicks", 3u32.to_le_bytes()).setup();
+    let snap = t.text_snapshot();
+    assert!(snap.contains("Hello greets you in its tiles"), "{snap}");
+    assert!(snap.contains("Howdy") && snap.contains("\"3\""), "{snap}");
+    t.click_key("setup-reset");
+    assert_eq!(t.stored("clicks"), Some(0u32.to_le_bytes().to_vec()));
+    assert!(t.text_snapshot().contains("\"0\""), "{}", t.text_snapshot());
+    let mut t = Harness::load(hello()).open("main");
+    t.click_text("Click me");
+    let view = t.open_setup();
+    assert_eq!(view, "setup");
+    assert!(t.text_snapshot_of("setup").contains("\"1\""), "{}", t.text_snapshot_of("setup"));
+}
+
 #[test]
 fn views_with_content_and_a_reload_that_keeps_state() {
     let mut t = Harness::load(hello()).open_with("main", serde_json::json!({ "message": "first" }));

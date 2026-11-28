@@ -53,7 +53,9 @@ pub trait Tile: Sized + 'static {
     /// shows and its content). Called after the view opens, after a
     /// listener or timer called [`Cx::notify`], and when the tile is shown
     /// again. Keep it quick (under 8 ms; the deadline is 250 ms): read
-    /// state, don't compute it here.
+    /// state, don't compute it here. The Setup view is rendered here too,
+    /// with its own id (`if view == SETUP_VIEW`, see
+    /// [`SETUP_VIEW`](crate::SETUP_VIEW)).
     fn render(&mut self, view: &str, cx: &mut Cx<Self>) -> impl IntoElement;
 
     /// A view was opened (by the user, an agent, or
@@ -228,13 +230,15 @@ impl From<wit::Content> for Content {
 }
 
 /// One open view: a place in the layout showing one of the extension's
-/// tiles.
+/// tiles, or its Setup view on its page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewInfo {
     /// The view's id, chosen by Pitwall: the tile's id for a tile opened
-    /// once, another for each further place.
+    /// once, another for each further place; the Setup view's id for the
+    /// Setup view.
     pub id: String,
-    /// Which of the manifest's tiles it shows.
+    /// Which of the manifest's tiles it shows; for the Setup view, the id
+    /// `contributes.setup.view` names ([`SETUP_VIEW`](crate::SETUP_VIEW)).
     pub tile: String,
     /// Its content, if it was given any.
     pub content: Option<Content>,

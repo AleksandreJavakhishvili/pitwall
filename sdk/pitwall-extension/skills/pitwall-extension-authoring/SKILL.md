@@ -79,6 +79,10 @@ done.
   "popover", "tile": "main", "size": { "w": 320, "h": 400 } } } }`; `kind` is
   also `tile`, `command` or `menu`. The user can hide it; an update never
   shows it again.
+- **Setup view**: `"contributes": { "setup": { "view": "setup" } }` puts a
+  view of the component on the extension's page in the Extensions tile,
+  above Pitwall's permissions and Log. Draw it in `render` when
+  `view == SETUP_VIEW`; test it with `Harness::setup()`. Needs a tile.
 - Setting types: `text`, `url`, `number`, `bool`, `choice`, `secret` (kept
   in the system's secure store, read with `settings::secret`).
 

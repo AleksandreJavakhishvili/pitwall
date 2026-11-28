@@ -30,7 +30,8 @@ interface settings {
   /// never store it, log it or show it.
   secret: func(key: string) -> result<option<string>, host-error>;
 
-  /// Open the extension's card in Settings, where the user sets these
-  /// (for a "Set up" button when a required setting is missing).
+  /// Open the extension's page in the Extensions tile, at its Setup view
+  /// when the manifest names one (`contributes.setup`), where the user
+  /// sets these (for a "Set up" button when something it needs isn't set).
   open: func();
 }

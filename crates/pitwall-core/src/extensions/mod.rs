@@ -83,7 +83,7 @@ pub const FORMAT: u64 = 2;
 pub const PITWALL: &str = env!("CARGO_PKG_VERSION");
 
 /// What a format 2 manifest may contribute in this Pitwall.
-pub const CONTRIBUTES: [&str; 10] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks", "toolbar", "status"];
+pub const CONTRIBUTES: [&str; 11] = ["inbox", "views", "commands", "badges", "notifications", "webViews", "tiles", "asks", "toolbar", "status", "setup"];
 
 /// A contribution an older Pitwall drew and this one no longer does: read
 /// and never drawn, so a manifest that has it still installs (its check
@@ -236,6 +236,19 @@ pub struct Contributes {
     /// adapter's is: the card's pill, its checklist's Connected step and
     /// the update's check that it connects again.
     pub status: bool,
+    /// Its Setup view: a view its component draws on its page in the
+    /// Extensions tile, between the header and Pitwall's own parts
+    /// (docs/spec/tile-sdk/ui.md §3.12).
+    pub setup: Option<SetupDef>,
+}
+
+/// The Setup view a manifest names (`"contributes": {"setup": {"view":
+/// "setup"}}`): drawn by its component, opened as view `view` (the view's
+/// id, and the tile its `view-opened` names). Its id is shared with its
+/// tiles', views' and web views' ids.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupDef {
+    pub view: String,
 }
 
 /// A tile a manifest declares: its id (the view its component renders),
@@ -317,6 +330,9 @@ impl Contributes {
         }
         if self.status {
             out.push("a connection status on its card, from its tile".to_string());
+        }
+        if self.setup.is_some() {
+            out.push("its own setup screen on its page, drawn from its code".to_string());
         }
         out.extend(self.views.iter().map(|v| format!("a view tile “{}” ({})", v.title, v.id)));
         out.extend(self.commands.iter().map(|c| match c.context {
@@ -1117,6 +1133,7 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
     };
     let mut c = Contributes::default();
     let mut toolbar = None;
+    let mut setup = None;
     let switch = |k: &str, val: &Value| match val {
         Value::Bool(b) => Ok(*b),
         _ => Err(format!("\"contributes.{k}\" must be true or false")),
@@ -1135,14 +1152,18 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
             "status" => c.status = switch(k, val)?,
             // Checked once the tiles and commands it names are read.
             "toolbar" => toolbar = Some(val),
+            "setup" => setup = Some(val),
             later if LATER_CONTRIBUTIONS.contains(&later) => return Err(format!("it contributes “{later}”, which needs a newer Pitwall (this one draws: {})", CONTRIBUTES.join(", "))),
             other => return Err(format!("\"contributes\" has “{other}”, which this Pitwall doesn't know (it draws: {})", CONTRIBUTES.join(", "))),
         }
     }
-    // Views, web views and tiles are named in the same lines (and the
-    // layout's keys): one id each among them.
+    if let Some(v) = setup.filter(|v| !v.is_null()) {
+        c.setup = Some(parse_setup(v, &c)?);
+    }
+    // Views, web views, tiles and the Setup view are named in the same
+    // lines (and the layout's keys): one id each among them.
     let mut ids: Vec<&str> = Vec::new();
-    for id in c.views.iter().map(|v| v.id.as_str()).chain(c.web_views.iter().map(|w| w.id.as_str())).chain(c.tiles.iter().map(|t| t.id.as_str())) {
+    for id in c.views.iter().map(|v| v.id.as_str()).chain(c.web_views.iter().map(|w| w.id.as_str())).chain(c.tiles.iter().map(|t| t.id.as_str())).chain(c.setup.iter().map(|s| s.view.as_str())) {
         if ids.contains(&id) {
             return Err(format!("“{id}” names a view, a web view or a tile twice: they share their ids"));
         }
@@ -1152,6 +1173,22 @@ fn parse_contributes(v: Option<&Value>) -> Result<Contributes, String> {
         c.toolbar = Some(toolbar::parse(v, &c)?);
     }
     Ok(c)
+}
+
+/// `contributes.setup`: `{"view": "<id>"}`, the view its component draws
+/// on its page. The component is the one its tiles name
+/// (`contributes.tiles`), so it needs a tile.
+fn parse_setup(v: &Value, c: &Contributes) -> Result<SetupDef, String> {
+    let Value::Object(o) = v else { return Err(r#""contributes.setup" must be an object, like {"view": "setup"}"#.into()) };
+    if let Some(k) = o.keys().find(|k| k.as_str() != "view") {
+        return Err(format!(r#""contributes.setup" has “{k}”, which this Pitwall doesn't know (it reads "view")"#));
+    }
+    let view = opt_str(o, "view")?.ok_or(r#""contributes.setup" needs a "view": the id of the view its component draws there, like "setup""#)?;
+    check_word("contributes.setup.view", view)?;
+    if c.tiles.is_empty() {
+        return Err(r#"its Setup view is drawn by its component, which its tiles name: it needs "contributes.tiles""#.into());
+    }
+    Ok(SetupDef { view: view.to_string() })
 }
 
 /// An id, a title and maybe an icon of a list item in `contributes.<what>`
@@ -1999,6 +2036,26 @@ mod tests {
         assert!(parse(fixed).is_ok(), "a fixed page needs no adapter");
     }
 
+    /// The Setup view (docs/spec/tile-sdk/ui.md §3.12): a view id of its
+    /// own, shared with the tiles' ids, drawn by the tiles' component.
+    #[test]
+    fn a_setup_view_is_read_and_checked() {
+        let m = |extra: &str| format!(r#"{{"v": 2, "id": "hello", "name": "Hello", "contributes": {{{extra}}}}}"#);
+        let tile = r#""tiles": [{"id": "main", "title": "Hello", "wasm": "tile.wasm"}]"#;
+        let ok = parse(&m(&format!(r#"{tile}, "setup": {{"view": "setup"}}"#))).unwrap();
+        assert_eq!(ok.contributes.setup, Some(SetupDef { view: "setup".into() }));
+        assert!(ok.contributes.lines().iter().any(|l| l.contains("its own setup screen on its page")));
+        assert_eq!(parse(&m(tile)).unwrap().contributes.setup, None);
+        assert_eq!(parse(&m(&format!(r#"{tile}, "setup": null"#))).unwrap().contributes.setup, None);
+        let err = |extra: &str| parse(&m(extra)).unwrap_err();
+        assert!(err(r#""setup": {"view": "setup"}"#).contains("needs \"contributes.tiles\""));
+        assert!(err(&format!(r#"{tile}, "setup": "setup""#)).contains("must be an object"));
+        assert!(err(&format!(r#"{tile}, "setup": {{}}"#)).contains("needs a \"view\""));
+        assert!(err(&format!(r#"{tile}, "setup": {{"view": "Set up"}}"#)).contains("lower-case"));
+        assert!(err(&format!(r#"{tile}, "setup": {{"view": "setup", "height": 300}}"#)).contains("“height”"));
+        assert!(err(&format!(r#"{tile}, "setup": {{"view": "main"}}"#)).contains("share their ids"));
+    }
+
     /// Tiles (docs/spec/tile-sdk/): no adapter needed, a component path in
     /// the folder, a world named like `pitwall:tile@0.1.0`, ids shared with
     /// views; `memory` as an object with its size.
@@ -2077,7 +2134,7 @@ mod tests {
         // still runs, for what it reads).
         let m = parse(&v2("")).unwrap();
         assert!(!m.has_inbox() && m.adapter.is_some());
-        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks, toolbar, status)"));
+        assert!(parse(&v2(r#", "contributes": {"cards": [{"id": "runs"}]}"#)).unwrap_err().contains("contributes “cards”, which needs a newer Pitwall (this one draws: inbox, views, commands, badges, notifications, webViews, tiles, asks, toolbar, status, setup)"));
         assert!(parse(&v2(r#", "contributes": {"toasts": true}"#)).unwrap_err().contains("“toasts”, which this Pitwall doesn't know"));
         assert!(parse(r#"{"v": 2, "id": "x", "name": "X", "contributes": {"inbox": true}}"#).unwrap_err().contains("needs an \"adapter\""));
         assert!(parse(&v2(r#", "permissions": {"Agents": "x"}"#)).unwrap_err().contains("lower-case words"));

@@ -243,6 +243,9 @@ struct Worker<'a> {
     /// held back until then.
     appended: BTreeMap<String, Instant>,
     held: BTreeMap<String, Instant>,
+    /// The manifest's Setup view (`contributes.setup.view`): a view the
+    /// app may open besides its tiles.
+    setup: Option<String>,
 }
 
 struct View {
@@ -343,7 +346,7 @@ impl<'a> Worker<'a> {
             StopReason::Crashed(why) => StopReason::LoadFailed(why),
             other => other,
         })?;
-        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new(), row_asks: Vec::new(), appended: BTreeMap::new(), held: BTreeMap::new() };
+        let mut w = Worker { store, tile, sink, rx, data, views: BTreeMap::new(), dirty: BTreeSet::new(), visible: options.visible, batch: Instant::now(), told_keys: HashSet::new(), row_asks: Vec::new(), appended: BTreeMap::new(), held: BTreeMap::new(), setup: manifest.contributes.setup.as_ref().map(|s| s.view.clone()) };
         let cx = InitContext {
             extension: ext.id().to_string(),
             version: manifest.version.clone().unwrap_or_default(),
@@ -582,7 +585,7 @@ impl<'a> Worker<'a> {
     }
 
     fn open_view(&mut self, mut v: ViewSpec) -> Result<(), StopReason> {
-        if !self.store.data().known_views.contains(&v.tile) {
+        if !self.store.data().known_views.contains(&v.tile) && self.setup.as_ref() != Some(&v.tile) {
             self.store.data_mut().host_log(LogLevel::Warn, format!("the app opened an unknown tile “{}”", v.tile));
             return Ok(());
         }

@@ -359,6 +359,15 @@ impl Harness {
         self.start(ViewSpec { content: Some(json_content(&content)), ..ViewSpec::tile(tile) })
     }
 
+    /// Start it with its Setup view open, as its page in the Extensions
+    /// tile shows it (the view `contributes.setup.view` names; its view id
+    /// is that id), and wait for its first frame. Panics when its manifest
+    /// names no Setup view.
+    pub fn setup(self) -> Session {
+        let view = setup_view(&self.dir);
+        self.start(ViewSpec::tile(&view))
+    }
+
     fn start(self, view: ViewSpec) -> Session {
         let data = tempfile::tempdir().expect("a temporary data folder");
         let ext = Extension::load(&self.dir).unwrap_or_else(|e| panic!("{} can't be loaded: {e}", self.dir.display()));
@@ -423,6 +432,15 @@ impl Harness {
         };
         s.settle();
         s
+    }
+}
+
+/// The id of the Setup view the manifest in `dir` names.
+fn setup_view(dir: &Path) -> String {
+    let ext = Extension::load(dir).unwrap_or_else(|e| panic!("{} can't be loaded: {e}", dir.display()));
+    match ext.setup_view() {
+        Some(v) => v.to_string(),
+        None => panic!("its extension.json names no Setup view: add \"contributes\": {{\"setup\": {{\"view\": \"setup\"}}}}"),
     }
 }
 
@@ -1287,6 +1305,16 @@ impl Session {
         self.check_running();
         assert!(self.handle.open_view(ViewSpec { id: view.to_string(), tile: tile.to_string(), content: content.as_ref().map(json_content), project: self.fs.project.clone() }));
         self.settle()
+    }
+
+    /// Open its Setup view too, as its page in the Extensions tile does
+    /// (view id: the id `contributes.setup.view` names; read it with
+    /// [`Session::find_key_in`] and the other `_in` and `_of` methods).
+    /// The Setup view's id. Panics when its manifest names none.
+    pub fn open_setup(&mut self) -> String {
+        let Some(view) = self.ext.setup_view().map(str::to_string) else { panic!("its extension.json names no Setup view (\"contributes.setup\")") };
+        self.open_view(&view, &view, None);
+        view
     }
 
     /// Give view `view` new content, as an agent showing something new in

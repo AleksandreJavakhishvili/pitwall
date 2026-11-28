@@ -343,6 +343,32 @@ fn a_panic_or_runaway_memory_ends_only_the_tile() {
 
 /// A copy of the fixture with its manifest replaced (and the wasm kept,
 /// unless `wasm` says otherwise).
+/// The Setup view (ui.md §3.12): the view `contributes.setup.view` names,
+/// opened at start or later like a tile's, rendered by the same
+/// component, sharing its state.
+#[test]
+fn the_setup_view_opens_like_a_tiles_view() {
+    let t = tempfile::tempdir().unwrap();
+    let host = host(t.path());
+    let ext = host.load(&fixture()).unwrap();
+    assert_eq!(ext.setup_view(), Some("setup"));
+    let run = start(&host, StartOptions::view("setup"));
+    let f = run.frame_with("setup", "Hello greets you");
+    assert_eq!(f.tile, "setup");
+    // Beside a tile's view.
+    assert!(run.handle.open_view(ViewSpec::tile("main")));
+    run.frame_with("main", "Clicked 0 times");
+    run.click("button");
+    run.frame_with("main", "Clicked 1 times");
+    run.handle.close_view("setup");
+    run.click("button");
+    run.frame_with("main", "Clicked 2 times");
+    // An extension without one has none.
+    let none = Extension::load(&variant(&t.path().join("plain"), r#"{"v": 2, "id": "plain", "name": "Plain", "contributes": {"tiles": [{"id": "main", "title": "Main", "wasm": "tile.wasm"}]}}"#, None)).unwrap();
+    assert_eq!(none.setup_view(), None);
+    assert_eq!(host.start(&none, StartOptions::view("setup"), |_| ()).err(), Some(LoadError::UnknownTile("setup".into())));
+}
+
 fn variant(dir: &Path, manifest: &str, wasm: Option<&[u8]>) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join("extension.json"), manifest).unwrap();
